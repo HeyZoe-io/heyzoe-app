@@ -107,16 +107,19 @@ export function parseClassDateAsEventDate(classDateYmd: string): Date {
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0));
 }
 
-/** Shared lookback for trial_attended + missed_* (seed uses 30d when not yet seeded). */
+/** Shared lookback for trial_attended + missed_* + attendance_gap (seed/gap use 30d). */
 export function bookingsReportSharedLookbackWindow(input: {
   now: Date;
   missedNeedsSeed: boolean;
+  /** C1/C2 need the full past span whenever a gap rule is live (not only on seed). */
+  forceWidePast?: boolean;
   lookbackDays?: number;
 }): { fromDate: string; toDate: string } {
   const toDate = formatDateYmdIsrael(input.now);
-  const days = input.missedNeedsSeed
-    ? MISSED_SEED_SPAN_DAYS
-    : Math.min(30, Math.max(1, Math.trunc(input.lookbackDays ?? trialAttendedLookbackDays())));
+  const days =
+    input.missedNeedsSeed || input.forceWidePast
+      ? MISSED_SEED_SPAN_DAYS
+      : Math.min(30, Math.max(1, Math.trunc(input.lookbackDays ?? trialAttendedLookbackDays())));
   const [y, m, d] = toDate.split("-").map((n) => Number(n));
   const toUtc = new Date(Date.UTC(y!, m! - 1, d!, 12, 0, 0));
   const fromUtc = new Date(toUtc.getTime() - (days - 1) * MS_PER_DAY);
@@ -384,14 +387,16 @@ async function dispatchMissedTemplate(input: {
 }
 
 export type BookingsReportFetchPlan = {
-  /** Any of the three bookings-based rules has a template → shared GET. */
+  /** Any bookings-based rule has a template → shared past GET. */
   needsFetch: boolean;
-  /** Expand lookback to the 30d seed window only when a missed_* rule is live. */
+  /** Expand lookback to the 30d seed window only when a missed_* rule is live + unseeded. */
   hasMissedRule: boolean;
+  /** Force 30d past whenever C1/C2 is live (gap needs last Yes in window). */
+  hasAttendanceGapRule: boolean;
 };
 
 /**
- * True when an enabled trial_attended / missed_class / missed_trial rule has a non-empty template.
+ * True when an enabled trial_attended / missed_* / attendance_gap_* rule has a non-empty template.
  * Used by the daily cron to decide whether to GET bookingsReport (and how wide).
  */
 export async function businessNeedsBookingsReportFetch(
@@ -403,11 +408,17 @@ export async function businessNeedsBookingsReportFetch(
     .select("trigger_type, template_name")
     .eq("business_id", businessId)
     .eq("enabled", true)
-    .in("trigger_type", ["trial_attended", "missed_class", "missed_trial"])
-    .limit(20);
+    .in("trigger_type", [
+      "trial_attended",
+      "missed_class",
+      "missed_trial",
+      "attendance_gap_booked",
+      "attendance_gap_unbooked",
+    ])
+    .limit(40);
   if (error) {
     console.error("[leads/arbox-missed-class] needs-fetch lookup failed:", error.message);
-    return { needsFetch: true, hasMissedRule: true };
+    return { needsFetch: true, hasMissedRule: true, hasAttendanceGapRule: true };
   }
   const live = (data ?? []).filter((r) =>
     String((r as { template_name?: unknown }).template_name ?? "").trim()
@@ -417,6 +428,10 @@ export async function businessNeedsBookingsReportFetch(
     hasMissedRule: live.some((r) => {
       const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
       return t === "missed_class" || t === "missed_trial";
+    }),
+    hasAttendanceGapRule: live.some((r) => {
+      const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
+      return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
     }),
   };
 }

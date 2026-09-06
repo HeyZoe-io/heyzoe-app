@@ -12,6 +12,7 @@ import {
   isIncomingLeadTriggerType,
   isPurchaseItemType,
   isTriggerType,
+  minDelayDaysForTrigger,
   parseTriggerId,
   showsItemTypeFilter,
   type PurchaseItemType,
@@ -348,7 +349,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (isImmediateDelayTrigger(triggerType)) {
     delayDays = 0;
   }
-  if (triggerType === "no_response" && delayDays < 2) {
+  if (delayDays < minDelayDaysForTrigger(triggerType)) {
     return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
   }
 
@@ -505,6 +506,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
     if (isImmediateDelayTrigger(typeForDelayDays)) {
       delayDays = 0;
+    }
+    if (delayDays < minDelayDaysForTrigger(typeForDelayDays)) {
+      return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
     }
     patch.delay_days = delayDays;
   }

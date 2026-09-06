@@ -171,8 +171,9 @@ Calibration:
 - אי־הגעה לשיעור (מנוי, בלי CTA) → **UTILITY**
 - אי־הגעה לניסיון עם «מתי נוח לקבוע מחדש» → **MARKETING** (win-back)
 
-Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
-A dry system confirmation must stay UTILITY so Meta approval is reliable.
+- Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
+- A dry system confirmation must stay UTILITY so Meta approval is reliable.
+- פער נוכחות עם/בלי הזמנה (C1/C2) → **MARKETING**
 
 Existing presets may predate this rule; **new** presets must follow it.
 
@@ -193,6 +194,33 @@ Existing presets may predate this rule; **new** presets must follow it.
 - Seed: `businesses.arbox_missed_class_seeded` — first enable marks past no-shows without
   WhatsApp. Retry: A9 `attempts`/`status` (`gated` does not count).
 - Migration: `supabase/arbox_missed_class_sync_log.sql` (run before deploy).
+
+## Attendance gap booked / unbooked (C1 / C2)
+
+- Source: `bookingsReport`. Per `user_id`:
+  - `last_yes` = max past `date` with **`check_in === "Yes"`** only (registration /
+    `check_in="No"` does **not** count as attendance).
+  - `gap_days` = Israel YMD `today − last_yes`.
+  - `has_future` = any row with `date > today` (separate short future GET).
+  - C1 `attendance_gap_booked` when `gap_days >= tier` and `has_future`.
+  - C2 `attendance_gap_unbooked` when `gap_days >= tier` and `!has_future`.
+- **Window ceiling ~30 days:** past fetch is ≤30d (Arbox span cap). A member with no
+  `check_in="Yes"` inside that window has no `last_yes` → skipped here. Gaps older than
+  ~30d are **out of scope** for C1/C2; they belong to a future lost / win-back trigger,
+  not attendance-gap.
+- Tiers: separate `template_triggers` rows; `delay_days` = absence tier (7/14/21). UI
+  label **«ימי היעדרות»**. Send is **immediate on detection day** (not event+N).
+- Two GETs when a gap rule is live: shared past (forced 30d with trial/missed) + future
+  `today+1…today+14`.
+- Dedup: `arbox_attendance_gap_sync_log` PK
+  `(business_id, user_id, variant, gap_start_date, tier)` where `gap_start_date = last_yes`
+  so re-attendance starts a new episode.
+- Seed: `businesses.arbox_attendance_gap_seeded` — first enable marks current gaps without
+  WhatsApp. **Soft-seed:** after the flag is true, a new `(variant, tier)` with zero
+  sync_log rows seeds the current cohort (or a `user_id=0` sentinel if empty) without
+  send. Retry: A9 `attempts`/`status`.
+- Presets: both **MARKETING**. Migration: `supabase/arbox_attendance_gap_sync_log.sql`
+  (run before deploy).
 
 ## IO (10 businesses)
 

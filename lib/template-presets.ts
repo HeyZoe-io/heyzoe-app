@@ -31,6 +31,8 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   membership_cancelled: ["membership_type_name", "expiry_date"],
   missed_class: ["first_name", "class_name"],
   missed_trial: ["first_name", "class_name"],
+  attendance_gap_booked: ["first_name", "class_name"],
+  attendance_gap_unbooked: ["first_name", "business_name"],
 };
 
 const LEAD_OPENING_BODY =
@@ -107,6 +109,18 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "missed_trial",
     category: "MARKETING",
     body: "היי {{1}}, ראינו שנרשמת לשיעור ניסיון ({{2}}) ולא הגעת. מה קרה? מתי נוח לקבוע מחדש?",
+  },
+  attendance_gap_booked: {
+    name: "attendance_gap_booked",
+    category: "MARKETING",
+    body: "היי {{1}}, מתגעגעים אלייך! לא ראינו אותך לאחרונה, אבל שמחנו לראות שנרשמת ל{{2}} — נתראה שם 😊",
+    button_text: "אשמח לפרטים",
+  },
+  attendance_gap_unbooked: {
+    name: "attendance_gap_unbooked",
+    category: "MARKETING",
+    body: "היי {{1}}, כבר לא ראינו אותך ב{{2}} זמן מה. בא לך שנמצא יחד שיעור שמתאים לך לחזור?",
+    button_text: "אשמח לחזור",
   },
 };
 

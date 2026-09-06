@@ -149,6 +149,22 @@ export function buildMissedClassScheduledDedupKey(
   return `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
 }
 
+/** Attendance-gap enqueue key: variant + gap_start_date + tier (+ optional future class name). */
+export function buildAttendanceGapScheduledDedupKey(
+  variant: "booked" | "unbooked",
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  gapStartDateYmd: string,
+  tier: number,
+  className?: string | null
+): string {
+  const kind = variant === "booked" ? "attendance_gap_booked" : "attendance_gap_unbooked";
+  const nameEnc = encodeURIComponent(String(className ?? "").trim());
+  const base = `${kind}:${businessId}:${String(triggerId).trim()}:${userId}:${String(gapStartDateYmd).trim()}:${Math.trunc(tier)}`;
+  return nameEnc ? `${base}#${nameEnc}` : base;
+}
+
 /** Arbox new-lead enqueue key: once per business+trigger+Arbox user_id (allLeadsReport). */
 export function buildArboxNewLeadScheduledDedupKey(
   businessId: number,

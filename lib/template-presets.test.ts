@@ -47,6 +47,18 @@ assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.missed_class.body), 2);
 assert.equal(isPresetAvailable("missed_class", false), false);
 assert.equal(isPresetAvailable("missed_class", true), true);
 assert.equal(isPresetAvailable("missed_trial", true), true);
+assert.equal(TEMPLATE_PRESETS.attendance_gap_booked.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.attendance_gap_unbooked.category, "MARKETING");
+assert.deepEqual(paramSlotsForTriggerType("attendance_gap_booked"), [
+  "first_name",
+  "class_name",
+]);
+assert.deepEqual(paramSlotsForTriggerType("attendance_gap_unbooked"), [
+  "first_name",
+  "business_name",
+]);
+assert.equal(isPresetAvailable("attendance_gap_booked", false), false);
+assert.equal(isPresetAvailable("attendance_gap_booked", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

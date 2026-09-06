@@ -133,6 +133,8 @@ import {
     membership_cancelled: ["מנוי חודשי", "15.09.2026"],
     missed_class: ["דנה", "יוגה"],
     missed_trial: ["דנה", "יוגה"],
+    attendance_gap_booked: ["דנה", "יוגה"],
+    attendance_gap_unbooked: ["דנה", "Limitless"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -149,7 +151,11 @@ import {
       assert.deepEqual(slots, ["membership_type_name", "expiry_date"]);
       continue;
     }
-    if (type === "missed_class" || type === "missed_trial") {
+    if (
+      type === "missed_class" ||
+      type === "missed_trial" ||
+      type === "attendance_gap_booked"
+    ) {
       assert.deepEqual(slots, ["first_name", "class_name"]);
       continue;
     }

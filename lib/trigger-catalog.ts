@@ -2,7 +2,7 @@
 
 export type TriggerActivation = "automatic" | "manual";
 export type TriggerAudience = "leads" | "members" | "staff";
-export type TriggerDelayMode = "after" | "before" | "either" | "none";
+export type TriggerDelayMode = "after" | "before" | "either" | "none" | "gap_days";
 export type TriggerRecipient = "customer" | "staff";
 export type TriggerUniqueCreateMode = "hide" | "warn";
 export type DelayDirection = "after" | "before";
@@ -260,20 +260,36 @@ export const TRIGGER_CATALOG = [
     sendHintHe: SEND_HINT_PLANNED_HE,
   },
   {
-    type: "attendance_gap",
-    labelHe: "פער נוכחות",
+    type: "attendance_gap_booked",
+    labelHe: "פער נוכחות (עם הזמנה)",
     activation: "automatic",
     audience: "members",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "gap_days",
     showProductFilter: false,
     uniquePerBusiness: false,
-    minDelayDays: 0,
+    minDelayDays: 7,
     recipient: "customer",
-    presetKey: "",
-    uiOrder: 22,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    presetKey: "attendance_gap_booked",
+    uiOrder: 13,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
+  {
+    type: "attendance_gap_unbooked",
+    labelHe: "פער נוכחות (בלי הזמנה)",
+    activation: "automatic",
+    audience: "members",
+    implemented: true,
+    arboxOnly: true,
+    delay: "gap_days",
+    showProductFilter: false,
+    uniquePerBusiness: false,
+    minDelayDays: 7,
+    recipient: "customer",
+    presetKey: "attendance_gap_unbooked",
+    uiOrder: 14,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
     type: "missed_class",
@@ -628,6 +644,12 @@ export function isBirthdayFamilyTriggerType(value: string): boolean {
   return t === "birthday" || t === "birthday_former";
 }
 
+/** C1/C2 — delay_days is absence-tier days, not event+N. */
+export function isAttendanceGapTriggerType(value: string): boolean {
+  const t = canonicalizeTriggerType(value);
+  return t === "attendance_gap_booked" || t === "attendance_gap_unbooked";
+}
+
 /**
  * Event-based types whose send time is after the event.
  * Birthday must NOT coerce a stored `before` (matcher honors before/after).
@@ -737,6 +759,9 @@ export function formatDelayLabel(
 ): string {
   if (isImmediateDelayTrigger(type)) {
     return "נשלח מיד";
+  }
+  if (isAttendanceGapTriggerType(type)) {
+    return `${Math.max(1, days)} ימי היעדרות`;
   }
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;

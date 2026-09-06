@@ -38,6 +38,7 @@ import {
   defaultDelayDirection,
   formatDelayLabel,
   isArboxDependentTriggerType,
+  isAttendanceGapTriggerType,
   isBirthdayFamilyTriggerType,
   isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
@@ -518,9 +519,7 @@ export default function TemplatesClient({
             showNewItemTypeFilter && newItemTypeFilter.length > 0 ? newItemTypeFilter : null,
           delay_days: isNewImmediateDelay
             ? 0
-            : newTriggerType === "no_response"
-              ? Math.max(2, newDelayDays)
-              : newDelayDays,
+            : Math.max(newDelayDaysMin, newDelayDays),
           delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
           template_name: newTemplateName.trim() || null,
           enabled: newTriggerEnabled,
@@ -1398,7 +1397,11 @@ export default function TemplatesClient({
                           ) : (
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <div className="space-y-1">
-                                <label className="text-xs font-medium text-zinc-700">השהייה (ימים)</label>
+                                <label className="text-xs font-medium text-zinc-700">
+                                  {isAttendanceGapTriggerType(trigger.trigger_type)
+                                    ? "ימי היעדרות"
+                                    : "השהייה (ימים)"}
+                                </label>
                                 <input
                                   type="number"
                                   min={minDelayDaysForTrigger(trigger.trigger_type)}
@@ -1685,7 +1688,11 @@ export default function TemplatesClient({
                         ) : (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="space-y-1.5">
-                              <label className="text-sm font-medium text-zinc-800">ימים</label>
+                              <label className="text-sm font-medium text-zinc-800">
+                                {isAttendanceGapTriggerType(newTriggerType)
+                                  ? "ימי היעדרות"
+                                  : "ימים"}
+                              </label>
                               <input
                                 type="number"
                                 min={newDelayDaysMin}
@@ -1704,6 +1711,11 @@ export default function TemplatesClient({
                               {newTriggerType === "no_response" ? (
                                 <p className="text-xs text-zinc-500">
                                   מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).
+                                </p>
+                              ) : isAttendanceGapTriggerType(newTriggerType) ? (
+                                <p className="text-xs text-zinc-500">
+                                  כמה ימים בלי נוכחות אמיתית (check-in) לפני שליחה — מומלץ 7 / 14 /
+                                  21. נשלח ביום הזיהוי.
                                 </p>
                               ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
                                 <p className="text-xs text-zinc-500">
