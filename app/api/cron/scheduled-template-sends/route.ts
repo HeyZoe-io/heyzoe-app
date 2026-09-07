@@ -21,6 +21,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import {
   classNameFromScheduledDedupKey,
+  classTimeFromScheduledDedupKey,
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
   startDateYmdFromScheduledDedupKey,
@@ -182,6 +183,7 @@ async function dispatchOneScheduledSend(
     startDateYmd: startDateYmdFromScheduledDedupKey(row.dedup_key),
     membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
     className: classNameFromScheduledDedupKey(row.dedup_key),
+    classTime: classTimeFromScheduledDedupKey(row.dedup_key),
   });
 
   const sendResult = await sendBusinessTemplate({

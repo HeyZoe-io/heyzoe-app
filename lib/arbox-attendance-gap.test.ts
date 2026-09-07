@@ -8,6 +8,7 @@ import {
   attendanceGapSeedCandidates,
   attendanceGapTiersNeedingSoftSeed,
   computeAttendanceGapStates,
+  sharedFutureBookingsWindow,
   ymdDiffDays,
 } from "@/lib/leads/arbox-attendance-gap";
 import { buildAttendanceGapScheduledDedupKey } from "@/lib/scheduled-template-sends";
@@ -56,6 +57,9 @@ assert.equal(ATTENDANCE_GAP_SYNC_VARIANT, "unbooked");
   const fut = attendanceGapFutureWindow(now);
   assert.equal(fut.fromDate, "2026-09-07");
   assert.equal(fut.toDate, "2026-09-20");
+  const withToday = sharedFutureBookingsWindow(now, { includeToday: true });
+  assert.equal(withToday.fromDate, "2026-09-06");
+  assert.equal(withToday.toDate, "2026-09-20");
 }
 
 assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);

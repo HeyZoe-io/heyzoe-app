@@ -11,6 +11,7 @@ export const TEMPLATE_NAME_FALLBACK = "שלום";
 export const TEMPLATE_BUSINESS_NAME_FALLBACK = "הסטודיו";
 export const TEMPLATE_EXPIRY_FALLBACK = "בקרוב";
 export const TEMPLATE_MEMBERSHIP_TYPE_FALLBACK = "המנוי";
+export const TEMPLATE_CLASS_TIME_FALLBACK = "בקרוב";
 
 export type TemplateSendParamContext = {
   triggerType: string;
@@ -21,6 +22,7 @@ export type TemplateSendParamContext = {
   startDateYmd?: string | null;
   membershipTypeName?: string | null;
   className?: string | null;
+  classTime?: string | null;
 };
 
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
@@ -81,7 +83,8 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
     !raw.startsWith("missed_trial:") &&
     !raw.startsWith("registered_after_trial:") &&
     !raw.startsWith("not_registered_after_trial:") &&
-    !raw.startsWith("freeze_ending_booked:")
+    !raw.startsWith("freeze_ending_booked:") &&
+    !raw.startsWith("trial_reminder:")
   ) {
     return null;
   }
@@ -89,6 +92,21 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
   if (hash < 0) return null;
   try {
     const decoded = decodeURIComponent(raw.slice(hash + 1).trim());
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
+/** trial_reminder delayed send: class_time is the last segment before `#`. */
+export function classTimeFromScheduledDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("trial_reminder:")) return null;
+  const beforeHash = raw.split("#")[0] ?? "";
+  const parts = beforeHash.split(":");
+  if (parts.length < 6) return null;
+  try {
+    const decoded = decodeURIComponent((parts[parts.length - 1] ?? "").trim());
     return decoded || null;
   } catch {
     return null;
@@ -122,6 +140,10 @@ export function resolveTemplateSlotValue(
   if (slot === "class_name") {
     const name = String(ctx.className ?? "").trim();
     return name || "השיעור";
+  }
+  if (slot === "class_time") {
+    const time = String(ctx.classTime ?? "").trim();
+    return time || TEMPLATE_CLASS_TIME_FALLBACK;
   }
   if (slot === "start_date") {
     const formatted = formatTemplateExpiryDate(ctx.startDateYmd);

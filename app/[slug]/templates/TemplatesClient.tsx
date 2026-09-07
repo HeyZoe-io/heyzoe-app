@@ -571,6 +571,9 @@ export default function TemplatesClient({
       if (j.error === "lost_lead_exists") {
         throw new Error("כבר קיים טריגר win-back לליד אבוד (ארבוקס) — ערכו את הקיים במקום ליצור עוד אחד");
       }
+      if (j.error === "trial_reminder_exists") {
+        throw new Error("כבר קיים טריגר תזכורת לשיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
+      }
       throw new Error(j.error || `http_${res.status}`);
     }
     return j.trigger ?? null;
@@ -1711,10 +1714,14 @@ export default function TemplatesClient({
                         {showNewProductFilter ? (
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-zinc-800">
-                              סינון מוצרים (אופציונלי)
+                              {newTriggerType === "trial_reminder"
+                                ? "מוצרי ניסיון"
+                                : "סינון מוצרים (אופציונלי)"}
                             </label>
                             <p className="text-xs text-zinc-500">
-                              השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.
+                              {newTriggerType === "trial_reminder"
+                                ? "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה התזכורת לא תישלח."
+                                : "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM."}
                             </p>
                             {arboxMembershipTypesLoading ? (
                               <p className="flex items-center gap-2 text-xs text-zinc-500">
@@ -1742,7 +1749,11 @@ export default function TemplatesClient({
                                 />
                               </div>
                             ) : arboxMembershipTypes.length === 0 ? (
-                              <p className="text-xs text-zinc-500">לא נמצאו מוצרים — יוחל על כל המוצרים.</p>
+                              <p className="text-xs text-zinc-500">
+                                {newTriggerType === "trial_reminder"
+                                  ? "לא נמצאו מוצרים — התזכורת לא תישלח עד שיוגדרו מוצרי ניסיון."
+                                  : "לא נמצאו מוצרים — יוחל על כל המוצרים."}
+                              </p>
                             ) : (
                               <div className="space-y-2">
                                 <input

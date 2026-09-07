@@ -249,8 +249,10 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - A8 `freeze_created` — UTILITY confirmation for a new unseen `membership_hold_id`.
 - C14 `freeze_ending_unbooked` / C15 `freeze_ending_booked` — `end_suspend_ymd > today`
   and due by `delay_days` **before** end; split by future booking
-  (`today+1…today+14`). Cron prefetches that future GET only when freeze ending
-  needs it — not when only `attendance_gap` is live.
+  (`today+1…today+14`). Cron prefetches that future GET when freeze ending
+  **or** `trial_reminder` needs it — not when only `attendance_gap` is live.
+  `trial_reminder` widens the shared window to `today…today+14`; freeze
+  still skips `class_date <= today` in memory.
 - **Past ends:** rows with `end_suspend_time` ≤ today are never sent for C14/C15
   (`skipped_ended`).
 - Dedup:
@@ -300,6 +302,40 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - No conflict with `arbox_new_lead` (trial-sync appearance vs daily loss).
 - Migration: `supabase/arbox_lost_lead_sync_log.sql` (run before deploy).
 
+## Trial-class reminder (`trial_reminder`)
+
+- Source: `bookingsReport` **future** window (`today … today+14` when this
+  rule is live; freeze-ending still ignores `class_date <= today` in memory).
+  Same paginated GET as C14/C15 — no extra GET when freeze ending already
+  prefetches. No `salesReport` join. Rows have `membership_type_name` only
+  (no `membership_type_id`).
+- Filter: **same as C4** `bookingMatchesTrialScope` — owner's `product_filter`
+  else `businesses.arbox_trial_membership_type_ids` → `/v3/membershipTypes`
+  name set. **No `name_fallback` heuristic.** If neither ids nor resolved
+  names exist: `skip_reason: "no_trial_scope"`, no WhatsApp (Limitless trials
+  are named «אימוני היכרות» / catalog `type=session`, not `trial`). UI
+  `showProductFilter: true` + hint that trial products must be set.
+- Timing: `delay_direction: before`, day-grain
+  `class_date === today + delay_days`. `0` = morning of class; `1` = day
+  before. Default delay 1. Send **immediate** on the daily cron of the due
+  day (not Meta enqueue offset). Missed cron day = missed reminder (no
+  catch-up).
+- Audience: leads. Catalog `uniquePerBusiness: true`, `uniqueCreateMode: "warn"`.
+- Preset **UTILITY** (reminder, no offer/CTA). Slots: `first_name`,
+  `class_name`, `class_time`. Generic body — owner adds arrival/parking
+  links before Meta submit.
+- Dedup: `arbox_trial_reminder_sync_log` PK
+  `(business_id, user_id, class_date, class_time, class_name)` — no
+  `booking_id`. A9 retry (`gated` does not increment).
+- Seed: `businesses.arbox_trial_reminder_seeded` — first enable marks
+  **all upcoming trial bookings in the fetch window** without WhatsApp
+  (forward-looking exception, like freeze ending). Soft-seed if flag true +
+  empty log; empty cohort still gets sentinel (`user_id=0`,
+  `class_date=1970-01-01`).
+- Cron: isolated try/catch on `arbox-daily-triggers`. Prefetch skipped when
+  the rule is live but no trial product ids are configured.
+- Migration: `supabase/arbox_trial_reminder_sync_log.sql` (run before deploy).
+
 ## IO (10 businesses)
 
 State the GETs per run: typically **one report GET per business** (plus pages)
@@ -312,3 +348,7 @@ events after seed, not the seed window. **Freeze A8/C14/C15:** +1
 `membersOnHoldReport` GET when any freeze rule is live; future bookings GET only
 when freeze ending needs it (not when only attendance_gap is live). **A7
 lost_lead:** +1 `lostLeadsReport` GET when an enabled A7 rule is live.
+**trial_reminder:** 0 extra bookingsReport GETs when freeze ending already
+fetches the shared future window; +1 GET when only this rule is live (and
+trial product ids are set). +1 `/v3/membershipTypes` when trial ids need
+name resolution (same as C4).

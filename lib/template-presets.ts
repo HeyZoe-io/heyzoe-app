@@ -8,7 +8,8 @@ export type TemplateParamSlot =
   | "expiry_date"
   | "start_date"
   | "membership_type_name"
-  | "class_name";
+  | "class_name"
+  | "class_time";
 
 export type TemplatePreset = {
   name: string;
@@ -38,6 +39,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   freeze_ending_unbooked: ["first_name", "expiry_date"],
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
   lost_lead: ["first_name"],
+  trial_reminder: ["first_name", "class_name", "class_time"],
 };
 
 const LEAD_OPENING_BODY =
@@ -148,6 +150,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     category: "MARKETING",
     body: "היי {{1}}, יש הרבה החלטות שאנחנו נאלצים לקבל ביום-יום, אבל יש כאלה שיכולות לשדרג את החיים שלנו משמעותית 💪 בא לנו לפרגן לך באימון ניסיון במחיר הנחה - רק דרך השיחה הזו. לוחצים על הכפתור ומתחילים!",
     button_text: "אשמח לפרטים",
+  },
+  trial_reminder: {
+    name: "trial_reminder",
+    category: "UTILITY",
+    body: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!",
   },
 };
 
@@ -291,6 +298,7 @@ export function presetExampleForSlot(slot: TemplateParamSlot): string {
   if (slot === "business_name") return "הסטודיו";
   if (slot === "membership_type_name") return "מנוי חודשי";
   if (slot === "class_name") return "יוגה";
+  if (slot === "class_time") return "18:00";
   return "01.09.2026";
 }
 
@@ -303,6 +311,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     start_date: "תאריך התחלה",
     membership_type_name: "סוג מנוי",
     class_name: "שם השיעור",
+    class_time: "שעת השיעור",
   };
   return slots
     .map((slot, i) => `{{${i + 1}}} = ${labels[slot]}`)

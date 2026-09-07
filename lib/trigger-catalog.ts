@@ -395,16 +395,17 @@ export const TRIGGER_CATALOG = [
     labelHe: "תזכורת לשיעור ניסיון",
     activation: "automatic",
     audience: "leads",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
     delay: "before",
-    showProductFilter: false,
-    uniquePerBusiness: false,
+    showProductFilter: true,
+    uniquePerBusiness: true,
+    uniqueCreateMode: "warn",
     minDelayDays: 0,
     recipient: "customer",
-    presetKey: "",
+    presetKey: "trial_reminder",
     uiOrder: 31,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
     type: "missed_trial",
@@ -727,6 +728,7 @@ export function minDelayDaysForTrigger(triggerType: string): number {
 export function defaultDelayDays(triggerType: string): number {
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   if (isFreezeEndingTriggerType(triggerType)) return 3;
+  if (triggerType === "trial_reminder") return 1;
   return minDelayDaysForTrigger(triggerType);
 }
 
@@ -788,6 +790,9 @@ export function formatDelayLabel(
   }
   if (type === "lost_lead") {
     return `${Math.max(1, days)} ימים אחרי אובדן הליד`;
+  }
+  if (type === "trial_reminder") {
+    return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
   }
   if (isIncomingLeadTriggerType(type) || type === "arbox_new_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;

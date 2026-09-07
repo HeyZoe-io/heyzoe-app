@@ -92,15 +92,24 @@ export function attendanceGapPastWindow(now: Date = new Date()): { fromDate: str
   return { fromDate: `${yy}-${mm}-${dd}`, toDate };
 }
 
-/** Shared with freeze ending cron prefetch (today+1 … today+14). */
-export function attendanceGapFutureWindow(now: Date = new Date()): {
+/**
+ * Shared future bookingsReport window (freeze ending + trial_reminder).
+ * includeToday=false → today+1 … today+14 (freeze ending; class today is not "future").
+ * includeToday=true → today … today+14 (trial_reminder delay 0 = morning of class).
+ */
+export function sharedFutureBookingsWindow(
+  now: Date = new Date(),
+  opts?: { includeToday?: boolean }
+): {
   fromDate: string;
   toDate: string;
 } {
   const today = formatDateYmdIsrael(now);
   const [y, m, d] = today.split("-").map((n) => Number(n));
   const todayUtc = new Date(Date.UTC(y!, m! - 1, d!, 12, 0, 0));
-  const fromUtc = new Date(todayUtc.getTime() + MS_PER_DAY);
+  const fromUtc = opts?.includeToday
+    ? todayUtc
+    : new Date(todayUtc.getTime() + MS_PER_DAY);
   const toUtc = new Date(todayUtc.getTime() + ATTENDANCE_GAP_FUTURE_SPAN_DAYS * MS_PER_DAY);
   const fmt = (dt: Date) => {
     const yy = dt.getUTCFullYear();
@@ -109,6 +118,14 @@ export function attendanceGapFutureWindow(now: Date = new Date()): {
     return `${yy}-${mm}-${dd}`;
   };
   return { fromDate: fmt(fromUtc), toDate: fmt(toUtc) };
+}
+
+/** Shared with freeze ending cron prefetch (today+1 … today+14). */
+export function attendanceGapFutureWindow(now: Date = new Date()): {
+  fromDate: string;
+  toDate: string;
+} {
+  return sharedFutureBookingsWindow(now, { includeToday: false });
 }
 
 export function ymdDiffDays(laterYmd: string, earlierYmd: string): number | null {

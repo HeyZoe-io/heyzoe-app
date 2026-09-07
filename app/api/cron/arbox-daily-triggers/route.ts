@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  attendanceGapFutureWindow,
+  sharedFutureBookingsWindow,
   syncArboxAttendanceGapForBusiness,
 } from "@/lib/leads/arbox-attendance-gap";
 import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
@@ -19,6 +19,10 @@ import {
 import { syncArboxPostTrialFollowupForBusiness } from "@/lib/leads/arbox-post-trial-followup";
 import { syncArboxSessionsExpiringForBusiness } from "@/lib/leads/arbox-sessions-expiring";
 import {
+  businessNeedsTrialReminderSync,
+  syncArboxTrialReminderForBusiness,
+} from "@/lib/leads/arbox-trial-reminder";
+import {
   fetchArboxBookingsReport,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
@@ -28,9 +32,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
  * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap +
- * post-trial C5/C6), freeze cluster A8/C14/C15, sessions_expiring, membership_cancelled,
- * lost_lead (A7).
- * Future bookings GET only when freeze_ending needs it (attendance_gap does not need it).
+ * post-trial C5/C6), freeze cluster A8/C14/C15, trial_reminder, sessions_expiring,
+ * membership_cancelled, lost_lead (A7).
+ * Future bookings GET when freeze_ending or trial_reminder needs it
+ * (attendance_gap does not need it). trial_reminder widens the window to today…+14.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -62,6 +67,8 @@ type BusinessRow = {
   arbox_post_trial_followup_seeded: boolean;
   arbox_freeze_seeded: boolean;
   arbox_lost_lead_seeded: boolean;
+  arbox_trial_reminder_seeded: boolean;
+  arbox_trial_membership_type_ids: unknown;
 };
 
 export async function GET(req: NextRequest) {
@@ -77,7 +84,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded, arbox_trial_reminder_seeded, arbox_trial_membership_type_ids"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -107,6 +114,10 @@ export async function GET(req: NextRequest) {
       (row as { arbox_freeze_seeded?: unknown }).arbox_freeze_seeded === true;
     const lostLeadSeeded =
       (row as { arbox_lost_lead_seeded?: unknown }).arbox_lost_lead_seeded === true;
+    const trialReminderSeeded =
+      (row as { arbox_trial_reminder_seeded?: unknown }).arbox_trial_reminder_seeded === true;
+    const trialMembershipTypeIds = (row as { arbox_trial_membership_type_ids?: unknown })
+      .arbox_trial_membership_type_ids;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -119,6 +130,8 @@ export async function GET(req: NextRequest) {
       arbox_post_trial_followup_seeded: postTrialFollowupSeeded,
       arbox_freeze_seeded: freezeSeeded,
       arbox_lost_lead_seeded: lostLeadSeeded,
+      arbox_trial_reminder_seeded: trialReminderSeeded,
+      arbox_trial_membership_type_ids: trialMembershipTypeIds,
     });
   }
 
@@ -134,6 +147,7 @@ export async function GET(req: NextRequest) {
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
     lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
+    trial_reminder?: Awaited<ReturnType<typeof syncArboxTrialReminderForBusiness>>;
   }> = [];
 
   for (const business of businesses) {
@@ -251,14 +265,23 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // --- Shared future bookings (C14/C15 freeze ending only; attendance_gap does not need it) ---
+    // --- Shared future bookings (C14/C15 freeze ending + trial_reminder) ---
     let prefetchedFutureRows: ArboxBookingReportRow[] | undefined;
     let prefetchedFuturePages = 0;
     let freezePlan = { needsFreeze: false, needsEndingFuture: false };
+    let trialReminderPlan = { needsTrialReminder: false, hasTrialProductIds: false };
     try {
       freezePlan = await businessNeedsFreezeSync(admin, business.id);
-      if (freezePlan.needsEndingFuture) {
-        const futureWindow = attendanceGapFutureWindow(now);
+      trialReminderPlan = await businessNeedsTrialReminderSync(
+        admin,
+        business.id,
+        business.arbox_trial_membership_type_ids
+      );
+      const includeToday =
+        trialReminderPlan.needsTrialReminder && trialReminderPlan.hasTrialProductIds;
+      const needsFuture = freezePlan.needsEndingFuture || includeToday;
+      if (needsFuture) {
+        const futureWindow = sharedFutureBookingsWindow(now, { includeToday });
         const futureReport = await fetchArboxBookingsReport({
           apiKey: business.crm_api_key,
           fromDate: futureWindow.fromDate,
@@ -449,6 +472,51 @@ export async function GET(req: NextRequest) {
         no_phone: 0,
         abandoned: 0,
         skipped_ended: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: trial_reminder ---
+    try {
+      entry.trial_reminder = await syncArboxTrialReminderForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        trialReminderSeeded: business.arbox_trial_reminder_seeded,
+        businessTrialIds: business.arbox_trial_membership_type_ids,
+        now,
+        ...(trialReminderPlan.needsTrialReminder &&
+        trialReminderPlan.hasTrialProductIds &&
+        prefetchedFutureRows
+          ? {
+              prefetchedFutureRows,
+              prefetchedFuturePages,
+            }
+          : {}),
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] trial_reminder step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.trial_reminder = {
+        fetched: 0,
+        pages_fetched: 0,
+        trial_rows: 0,
+        due: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
         errors: 1,
         fetch_error: message,
       };

@@ -58,6 +58,7 @@ const LIVE_AUTOMATIC = [
   "attendance_gap",
   "missed_class",
   "lost_lead",
+  "trial_reminder",
   "missed_trial",
 ] as const;
 
@@ -78,6 +79,7 @@ const PREVIOUS_ARBOX = [
   "attendance_gap",
   "missed_class",
   "lost_lead",
+  "trial_reminder",
   "missed_trial",
 ] as const;
 
@@ -137,6 +139,7 @@ function triggerCatalogAudience(type: string) {
   const autoLeads = catalogEntriesFor({ activation: "automatic", audience: "leads" });
   assert.ok(autoLeads.some((e) => e.type === "birthday_former" && e.implemented));
   assert.ok(autoLeads.some((e) => e.type === "lost_lead" && e.implemented));
+  assert.ok(autoLeads.some((e) => e.type === "trial_reminder" && e.implemented));
   const manualMembers = catalogEntriesFor({ activation: "manual", audience: "members" });
   assert.ok(manualMembers.some((e) => e.type === "manual_membership" && e.implemented));
   const manualLeads = catalogEntriesFor({ activation: "manual", audience: "leads" });
@@ -181,6 +184,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(leadTypes.includes("birthday_former"));
   assert.ok(leadTypes.includes("missed_trial"));
   assert.ok(leadTypes.includes("lost_lead"));
+  assert.ok(leadTypes.includes("trial_reminder"));
   assert.ok(!leadTypes.includes("purchase"));
   assert.ok(!leadTypes.includes("birthday"));
   assert.ok(!leadTypes.includes("missed_class"));
@@ -226,6 +230,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(leadsEmpty.includes("not_registered_after_trial"));
   assert.ok(leadsEmpty.includes("missed_trial"));
   assert.ok(leadsEmpty.includes("lost_lead"));
+  assert.ok(leadsEmpty.includes("trial_reminder"));
 
   const leadsWithIncoming = creatableCatalogEntriesForCell({
     activation: "automatic",
@@ -251,6 +256,17 @@ function triggerCatalogAudience(type: string) {
     existingTriggerTypes: ["lost_lead"],
   }).map((e) => e.type);
   assert.ok(!leadsWithLostLead.includes("lost_lead"), "unique lost_lead: no create card");
+
+  const leadsWithTrialReminder = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "leads",
+    hasArbox: true,
+    existingTriggerTypes: ["trial_reminder"],
+  }).map((e) => e.type);
+  assert.ok(
+    !leadsWithTrialReminder.includes("trial_reminder"),
+    "unique trial_reminder: no create card"
+  );
 
   const membersWithPurchase = creatableCatalogEntriesForCell({
     activation: "automatic",
@@ -279,6 +295,7 @@ function triggerCatalogAudience(type: string) {
     audience: "leads",
   }).map((e) => e.type);
   assert.ok(!plannedLeads.includes("lost_lead"));
+  assert.ok(!plannedLeads.includes("trial_reminder"));
   assert.ok(!plannedLeads.includes("incoming_lead"));
   assert.ok(!plannedLeads.includes("missed_trial"));
 
@@ -310,6 +327,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(isCreatableTriggerType("birthday_former", false), false);
   assert.equal(isCreatableTriggerType("lost_lead", true), true);
   assert.equal(isCreatableTriggerType("lost_lead", false), false);
+  assert.equal(isCreatableTriggerType("trial_reminder", true), true);
+  assert.equal(isCreatableTriggerType("trial_reminder", false), false);
   assert.equal(isCreatableTriggerType("manual_membership", true), false);
   assert.equal(isBirthdayFamilyTriggerType("birthday"), true);
   assert.equal(isBirthdayFamilyTriggerType("birthday_former"), true);
@@ -324,8 +343,10 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerTypeLabel("birthday"), "יום הולדת (מנויים)");
   assert.equal(triggerTypeLabel("birthday_former"), "יום הולדת (לקוחות לשעבר)");
   assert.equal(triggerTypeLabel("lost_lead"), "win-back לליד אבוד (ארבוקס)");
+  assert.equal(triggerTypeLabel("trial_reminder"), "תזכורת לשיעור ניסיון");
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "birthday_former"));
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "lost_lead"));
+  assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "trial_reminder"));
 }
 
 {
@@ -336,7 +357,8 @@ function triggerCatalogAudience(type: string) {
         type === "registered_after_trial" ||
         type === "not_registered_after_trial" ||
         type === "membership_cancelled" ||
-        type === "missed_trial"
+        type === "missed_trial" ||
+        type === "trial_reminder"
     );
   }
 }
@@ -345,10 +367,12 @@ function triggerCatalogAudience(type: string) {
   assert.equal(uniqueCreateModeFor("incoming_lead"), "hide");
   assert.equal(uniqueCreateModeFor("arbox_new_lead"), "warn");
   assert.equal(uniqueCreateModeFor("lost_lead"), "warn");
+  assert.equal(uniqueCreateModeFor("trial_reminder"), "warn");
   assert.equal(uniqueCreateModeFor("purchase"), undefined);
   assert.equal(isUniquePerBusinessTriggerType("incoming_lead"), true);
   assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), true);
   assert.equal(isUniquePerBusinessTriggerType("lost_lead"), true);
+  assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
   assert.equal(isUniquePerBusinessTriggerType("no_response"), false);
 }
 
@@ -385,6 +409,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(allowsDelayBeforeFacade("birthday"), true);
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
   assert.equal(defaultDelayDirection("freeze_ending_booked"), "before");
+  assert.equal(defaultDelayDirection("trial_reminder"), "before");
   assert.equal(defaultDelayDirection("purchase"), "after");
   assert.equal(defaultDelayDirection("birthday"), "after");
   assert.equal(defaultDelayDirection("birthday_former"), "after");
@@ -423,6 +448,10 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
   assert.equal(minDelayDaysForTrigger("lost_lead"), 1);
   assert.equal(defaultDelayDays("lost_lead"), 1);
+  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "בוקר האימון");
+  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
+  assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
+  assert.equal(defaultDelayDays("trial_reminder"), 1);
 }
 
 {
@@ -458,6 +487,7 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("attendance_gap"), /09:00/);
   assert.match(triggerSendScheduleHintHe("freeze_created"), /09:00/);
   assert.match(triggerSendScheduleHintHe("lost_lead"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
   assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);
   assert.equal(
     triggerSendScheduleHintHe("freeze_created"),

@@ -79,6 +79,16 @@ assert.equal(TEMPLATE_PRESETS.lost_lead.button_text, "אשמח לפרטים");
 assert.deepEqual(paramSlotsForTriggerType("lost_lead"), ["first_name"]);
 assert.equal(isPresetAvailable("lost_lead", false), false);
 assert.equal(isPresetAvailable("lost_lead", true), true);
+assert.equal(TEMPLATE_PRESETS.trial_reminder.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.trial_reminder.button_text, undefined);
+assert.deepEqual(paramSlotsForTriggerType("trial_reminder"), [
+  "first_name",
+  "class_name",
+  "class_time",
+]);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_reminder.body), 3);
+assert.equal(isPresetAvailable("trial_reminder", false), false);
+assert.equal(isPresetAvailable("trial_reminder", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

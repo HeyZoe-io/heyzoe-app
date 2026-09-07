@@ -139,6 +139,7 @@ import {
     freeze_ending_unbooked: ["דנה", "15.09.2026"],
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],
+    trial_reminder: ["דנה", "יוגה", "18:00"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -147,6 +148,7 @@ import {
       storedComponents: [{ type: "BODY", text: preset.body }],
       ...ctx,
       className: "יוגה",
+      classTime: "18:00",
       startDateYmd: "2026-09-01",
     });
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
@@ -183,6 +185,10 @@ import {
     }
     if (type === "lost_lead") {
       assert.deepEqual(slots, ["first_name"]);
+      continue;
+    }
+    if (type === "trial_reminder") {
+      assert.deepEqual(slots, ["first_name", "class_name", "class_time"]);
       continue;
     }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");

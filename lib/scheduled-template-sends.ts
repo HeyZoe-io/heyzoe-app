@@ -193,6 +193,20 @@ export function buildFreezeCreatedScheduledDedupKey(
   return base;
 }
 
+/** Trial-class reminder enqueue key: once per booking (class_date + time + name). */
+export function buildTrialReminderScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  classDateYmd: string,
+  classTime: string,
+  className: string
+): string {
+  const timeEnc = encodeURIComponent(String(classTime ?? "").trim());
+  const nameEnc = encodeURIComponent(String(className ?? "").trim());
+  return `trial_reminder:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
+}
+
 /** A7 lost_lead enqueue key: once per business+trigger+lead_id+lost_date (text grain). */
 export function buildLostLeadScheduledDedupKey(
   businessId: number,
