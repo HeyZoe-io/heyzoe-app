@@ -277,7 +277,8 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   with `template_name` exists. No per-lead Arbox calls.
 - Catalog: automatic × leads, `uniquePerBusiness: true`, `uniqueCreateMode: "warn"`,
   delay **after**, `minDelayDays: 1`, default 1 day after `lost_date`, no product
-  filter. UI label **«win-back לליד אבוד»**. Preset **MARKETING**
+  filter. UI label **«win-back לליד אבוד (ארבוקס)»** (Arbox Mark as Lost, not Zoe
+  detection). Preset **MARKETING**
   (`first_name` only). Button QUICK_REPLY **«אשמח לפרטים»**.
 - **Button → sales flow:** Meta QUICK_REPLY arrives as inbound text. The tap
   starts sales flow only because **«אשמח לפרטים»** is in

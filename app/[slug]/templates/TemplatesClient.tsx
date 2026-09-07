@@ -569,7 +569,7 @@ export default function TemplatesClient({
         throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
       }
       if (j.error === "lost_lead_exists") {
-        throw new Error("כבר קיים טריגר win-back לליד אבוד — ערכו את הקיים במקום ליצור עוד אחד");
+        throw new Error("כבר קיים טריגר win-back לליד אבוד (ארבוקס) — ערכו את הקיים במקום ליצור עוד אחד");
       }
       throw new Error(j.error || `http_${res.status}`);
     }

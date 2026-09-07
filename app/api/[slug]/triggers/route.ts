@@ -365,7 +365,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       const existing = await findExistingLostLeadRule(admin, business.id);
       if (existing) {
         return NextResponse.json(
-          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד" },
+          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד (ארבוקס)" },
           { status: 409 }
         );
       }
@@ -640,7 +640,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       const existing = await findExistingLostLeadRule(admin, business.id, id);
       if (existing) {
         return NextResponse.json(
-          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד" },
+          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד (ארבוקס)" },
           { status: 409 }
         );
       }

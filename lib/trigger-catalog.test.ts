@@ -323,7 +323,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerTypeLabel("membership_cancelled"), "ביטול מנוי");
   assert.equal(triggerTypeLabel("birthday"), "יום הולדת (מנויים)");
   assert.equal(triggerTypeLabel("birthday_former"), "יום הולדת (לקוחות לשעבר)");
-  assert.equal(triggerTypeLabel("lost_lead"), "win-back לליד אבוד");
+  assert.equal(triggerTypeLabel("lost_lead"), "win-back לליד אבוד (ארבוקס)");
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "birthday_former"));
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "lost_lead"));
 }

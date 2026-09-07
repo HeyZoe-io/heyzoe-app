@@ -375,7 +375,7 @@ export const TRIGGER_CATALOG = [
   // —— Planned automatic × leads ——
   {
     type: "lost_lead",
-    labelHe: "win-back לליד אבוד",
+    labelHe: "win-back לליד אבוד (ארבוקס)",
     activation: "automatic",
     audience: "leads",
     implemented: true,
