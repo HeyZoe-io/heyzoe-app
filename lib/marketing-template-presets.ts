@@ -33,9 +33,13 @@ export const MARKETING_TEMPLATE_PRESETS: Record<MarketingTriggerType, MarketingT
   call_day: {
     name: "call_today",
     category: "UTILITY",
-    body: "היי {{1}}, יש לנו שיחה היום בשעה {{2}} 📅 נשמח לדבר!",
+    body: "היי {{1}}, מזכירה שיש לנו שיחה היום{{2}} 📅\nבמידה ויש בעיה כלשהי נשמח לעדכון. אחרת - מצפים לדבר איתך :)",
   },
 };
+
+/** Copy when {{2}} is omitted — Meta templates cannot drop the baked-in «בשעה». */
+export const MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY =
+  "היי {{1}}, מזכירה שיש לנו שיחה היום  📅 \nבמידה ויש בעיה כלשהי נשמח לעדכון. אחרת - מצפים לדבר איתך :)";
 
 export function marketingPresetVarHint(triggerType: MarketingTriggerType | "broadcast"): string {
   const slots = MARKETING_TEMPLATE_PARAM_SLOTS[triggerType];
@@ -47,19 +51,57 @@ export function marketingPresetVarHint(triggerType: MarketingTriggerType | "broa
 }
 
 export function marketingPresetExampleForSlot(slot: MarketingTemplateParamSlot): string {
-  if (slot === "call_time") return "14:00";
+  if (slot === "call_time") return " בשעה 14:00";
   return "דנה";
 }
 
-/** Meta body param when no HH:mm is stored yet — reads as «בשעה בקרוב». */
+/** Legacy queued param — treat as missing hour. */
 export const MARKETING_CALL_TIME_FALLBACK = "בקרוב";
 
-/** Prefer a later-saved HH:mm over a queued «בקרוב» placeholder. */
+/** Non-empty Meta param when the template has no baked-in «בשעה {{n}}». */
+export const MARKETING_CALL_TIME_OMIT = " ";
+
+export function resolveCallTimeHm(
+  queued: string | null | undefined,
+  live?: string | null
+): string | null {
+  return toPipelineTime(live) ?? toPipelineTime(queued);
+}
+
+/** Prefer a later-saved HH:mm; empty string if none (never «בקרוב»). */
 export function preferLiveCallTime(
   queued: string | null | undefined,
   live: string | null | undefined
 ): string {
-  return toPipelineTime(live) ?? toPipelineTime(queued) ?? MARKETING_CALL_TIME_FALLBACK;
+  return resolveCallTimeHm(queued, live) ?? "";
+}
+
+export function callDayTemplateBakesInHour(bodyText: string): boolean {
+  return /בשעה\s*\{\{\s*\d+\s*\}\}/u.test(bodyText);
+}
+
+export function formatMarketingCallTimeParam(
+  callTime: string | null | undefined,
+  bodyText = ""
+): string {
+  const hm = toPipelineTime(callTime);
+  const shaahInBody = callDayTemplateBakesInHour(bodyText);
+  if (hm) return shaahInBody ? hm : `בשעה ${hm}`;
+  return shaahInBody ? "" : MARKETING_CALL_TIME_OMIT;
+}
+
+export function renderMarketingCallDayFallbackText(input: {
+  body?: string | null;
+  firstName: string;
+}): string {
+  const first = String(input.firstName ?? "").trim() || "שלום";
+  const raw = String(input.body ?? "").trim() || MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY;
+  return raw
+    .replace(/\{\{\s*1\s*\}\}/g, first)
+    .replace(/בשעה\s*\{\{\s*\d+\s*\}\}/gu, "")
+    .replace(/\{\{\s*\d+\s*\}\}/g, "")
+    .replace(/[^\S\n]+$/gm, "")
+    .trim();
 }
 
 export function mergeMarketingCallDayBodyParams(queued: string[], incoming: string[]): string[] {
@@ -79,12 +121,13 @@ export function resolveMarketingTemplateBodyParams(input: {
   varCount: number;
   firstName: string;
   callTime?: string | null;
+  bodyText?: string | null;
 }): string[] {
   const count = Math.max(0, Math.trunc(input.varCount) || 0);
   if (count <= 0) return [];
   const slots = MARKETING_TEMPLATE_PARAM_SLOTS[input.triggerType];
   const first = String(input.firstName ?? "").trim() || "שלום";
-  const callTime = preferLiveCallTime(null, input.callTime);
+  const callTime = formatMarketingCallTimeParam(input.callTime, String(input.bodyText ?? ""));
   const values: string[] = [];
   for (let i = 0; i < count; i += 1) {
     const slot = slots[i] ?? (i === 1 ? "call_time" : "first_name");

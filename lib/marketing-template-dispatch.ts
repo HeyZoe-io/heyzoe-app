@@ -8,7 +8,10 @@ import {
 } from "@/lib/marketing-call-time";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import {
+  callDayTemplateBakesInHour,
   preferLiveCallTime,
+  renderMarketingCallDayFallbackText,
+  resolveCallTimeHm,
   resolveMarketingTemplateBodyParams,
   type MarketingTemplateParamSlot,
 } from "@/lib/marketing-template-presets";
@@ -17,6 +20,7 @@ import { marketingDelayDirectionForTrigger } from "@/lib/marketing-template-trig
 import {
   logMarketingWhatsAppMessage,
   MARKETING_WA_PHONE_NUMBER_ID,
+  sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
 import { sendBusinessTemplate, type OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { extractBodyVarCount, bodyTextFromTemplateComponents } from "@/lib/template-presets";
@@ -193,6 +197,34 @@ export async function sendMarketingLeadTemplate(input: {
   return { ok: true };
 }
 
+async function sendMarketingCallDayNoTimeFallback(input: {
+  phone: string;
+  firstName: string;
+  components: unknown;
+}): Promise<{ ok: boolean; error?: string }> {
+  const body = bodyTextFromTemplateComponents(input.components);
+  const text = renderMarketingCallDayFallbackText({
+    body,
+    firstName: input.firstName,
+  });
+  if (!text) return { ok: false, error: "empty_fallback" };
+  try {
+    await sendMarketingWhatsApp(input.phone, text, { model_used: MARKETING_TEMPLATE_MODEL });
+    return { ok: true };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.error("[marketing-template-dispatch] no-time fallback send failed:", error, {
+      phone: input.phone,
+    });
+    return { ok: false, error };
+  }
+}
+
+function shouldSendCallDayNoTimeAsSession(bodyText: string, callTimeHm: string | null): boolean {
+  if (callTimeHm) return false;
+  return !bodyText || callDayTemplateBakesInHour(bodyText);
+}
+
 async function lookupSessionCallSlot(
   admin: AdminClient,
   phone: string
@@ -256,6 +288,7 @@ function paramsForTrigger(input: {
     varCount,
     firstName: input.firstName,
     callTime: input.callTime,
+    bodyText: body,
   });
 }
 
@@ -298,12 +331,20 @@ async function dispatchOrEnqueue(input: {
   if (!queued.inserted) return;
   if (!immediate) return;
 
-  const sent = await sendMarketingLeadTemplate({
-    admin: input.admin,
-    phone: input.phone,
-    templateName,
-    bodyParams,
-  });
+  const callTimeHm = resolveCallTimeHm(null, input.callTime);
+  const bodyText = bodyTextFromTemplateComponents(approved?.components);
+  const sent = shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm)
+    ? await sendMarketingCallDayNoTimeFallback({
+        phone: input.phone,
+        firstName: input.firstName,
+        components: approved?.components,
+      })
+    : await sendMarketingLeadTemplate({
+        admin: input.admin,
+        phone: input.phone,
+        templateName,
+        bodyParams,
+      });
   const nowIso = new Date().toISOString();
   const { error: markErr } = await input.admin
     .from("scheduled_marketing_template_sends")
@@ -404,14 +445,6 @@ async function enqueueCallDayTriggers(input: {
       contactPhone: input.phone,
       keepDedupKey,
     });
-    if (!timeHm) {
-      console.info("[marketing-template-dispatch] skip call_day — missing time", {
-        triggerId: rule.id,
-        phone: input.phone,
-        dateYmd: input.dateYmd,
-      });
-      continue;
-    }
     const dueAt = computeCallDayDueAt({
       dateYmd: input.dateYmd,
       timeHm,
@@ -640,12 +673,21 @@ export async function dispatchDueMarketingScheduledSend(
     callDateYmd,
     liveTimeHm: liveSlot?.timeHm,
   });
-  const sent = await sendMarketingLeadTemplate({
-    admin,
-    phone,
-    templateName,
-    bodyParams,
-  });
+  const callTimeHm = resolveCallTimeHm(bodyParams[1], liveSlot?.timeHm);
+  const bodyText = bodyTextFromTemplateComponents(approved?.components);
+  const sent =
+    callDateYmd && shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm)
+      ? await sendMarketingCallDayNoTimeFallback({
+          phone,
+          firstName: String(bodyParams[0] ?? "").trim() || (await lookupLeadFirstName(admin, phone)),
+          components: approved?.components,
+        })
+      : await sendMarketingLeadTemplate({
+          admin,
+          phone,
+          templateName,
+          bodyParams,
+        });
   const after = decideScheduledSendAfterMeta({ ok: sent.ok, error: sent.error });
   if (after.status === "failed") {
     await mark("failed", after.last_error);
