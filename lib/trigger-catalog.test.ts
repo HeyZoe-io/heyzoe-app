@@ -300,6 +300,8 @@ function triggerCatalogAudience(type: string) {
   assert.ok(!(plannedMembers as string[]).includes("attendance_gap"));
   assert.ok(!(plannedMembers as string[]).includes("attendance_gap_booked"));
   assert.ok(!plannedMembers.includes("missed_class"));
+  assert.ok(!plannedMembers.includes("attendance_trend"), "C9 dropped — C2 covers declines");
+  assert.ok(plannedMembers.includes("milestones"), "C8 days-in-club card stays");
 
   const plannedLeads = plannedCatalogEntriesForCell({
     activation: "automatic",
