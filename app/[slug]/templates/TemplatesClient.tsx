@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Check, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -2107,6 +2107,39 @@ export default function TemplatesClient({
             )}
           </ul>
         ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-zinc-200 bg-white/85 p-4 sm:p-5 shadow-sm">
+        <details className="group text-right">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-zinc-900 marker:content-none [&::-webkit-details-marker]:hidden">
+            <span>איך בוחרים קטגוריה במטא — Utility מול Marketing</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-600">
+            <p>
+              מטא מסווגת כל תבנית לאחת משתי קטגוריות. בחירה נכונה מזרזת אישור ומונעת דחייה.
+            </p>
+            <div className="space-y-2">
+              <p>
+                <span className="font-medium text-zinc-800">UTILITY (עדכון עסקה):</span> הודעה
+                שקשורה לפעולה ספציפית שהלקוח עשה — אישור רכישה, אישור ביטול, סירוב אשראי, אישור
+                הקפאה, תזכורת לאימון שנרשם אליו.
+              </p>
+              <p>
+                <span className="font-medium text-zinc-800">MARKETING (יוזמה של העסק):</span> כל
+                הודעה שהעסק יוזם ולא קשורה לעסקה ספציפית — מבצע, הטבה, עידוד הרשמה, ברכת יום
+                הולדת, פנייה לחזרה (win-back), הודעת שימור / «איך הולך».
+              </p>
+            </div>
+            <p>
+              אם ההודעה היא אישור/עדכון על פעולה שהלקוח עשה → Utility. אם העסק יוזם אותה (מבצע,
+              עידוד, שימור) → Marketing.
+            </p>
+            <p className="text-xs text-zinc-500">
+              מטא עשויה לדחות תבנית ששויכה לקטגוריה הלא נכונה. בספק — בחרו Marketing.
+            </p>
+          </div>
+        </details>
       </section>
 
       {showCreate && (
