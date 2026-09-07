@@ -37,6 +37,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   freeze_created: ["first_name", "start_date", "expiry_date"],
   freeze_ending_unbooked: ["first_name", "expiry_date"],
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
+  lost_lead: ["first_name"],
 };
 
 const LEAD_OPENING_BODY =
@@ -141,6 +142,12 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "freeze_ending_booked",
     category: "UTILITY",
     body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{3}} — שמחנו לראות שנרשמת ל{{2}}. נתראה!",
+  },
+  lost_lead: {
+    name: "lost_lead",
+    category: "MARKETING",
+    body: "היי {{1}}, יש הרבה החלטות שאנחנו נאלצים לקבל ביום-יום, אבל יש כאלה שיכולות לשדרג את החיים שלנו משמעותית 💪 בא לנו לפרגן לך באימון ניסיון במחיר הנחה - רק דרך השיחה הזו. לוחצים על הכפתור ומתחילים!",
+    button_text: "אשמח לפרטים",
   },
 };
 

@@ -249,6 +249,32 @@ async function findExistingArboxNewLeadRule(
   return { id };
 }
 
+async function findExistingLostLeadRule(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  excludeId?: string
+): Promise<{ id: string } | null> {
+  let q = admin
+    .from("template_triggers")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("trigger_type", "lost_lead")
+    .limit(1);
+  const exclude = parseTriggerId(excludeId);
+  if (exclude) {
+    q = q.neq("id", exclude);
+  }
+  const { data, error } = await q;
+  if (error) {
+    console.error("[api/triggers] lost_lead uniqueness lookup failed:", error.message);
+    throw new Error("lost_lead_lookup_failed");
+  }
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  const id = parseTriggerId(row?.id);
+  if (!id) return null;
+  return { id };
+}
+
 const TRIGGER_SELECT =
   "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at";
 
@@ -331,6 +357,20 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
+    }
+  }
+
+  if (triggerType === "lost_lead") {
+    try {
+      const existing = await findExistingLostLeadRule(admin, business.id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "lost_lead_lookup_failed" }, { status: 500 });
     }
   }
 
@@ -592,6 +632,20 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
+    }
+  }
+
+  if (patch.trigger_type === "lost_lead") {
+    try {
+      const existing = await findExistingLostLeadRule(admin, business.id, id);
+      if (existing) {
+        return NextResponse.json(
+          { error: "lost_lead_exists", message: "כבר קיים טריגר win-back לליד אבוד" },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "lost_lead_lookup_failed" }, { status: 500 });
     }
   }
 

@@ -596,6 +596,40 @@ export async function resolveArboxNewLeadTemplateTrigger(input: {
   return pickArboxNewLeadTemplateTriggerRule(rules);
 }
 
+/** Enabled lost_lead (A7) rules — pick newest with a template name. */
+export async function loadEnabledLostLeadTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "lost_lead")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load lost_lead rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickLostLeadTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveLostLeadTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledLostLeadTemplateTriggers(input.admin, input.businessId);
+  return pickLostLeadTemplateTriggerRule(rules);
+}
+
 /** Enabled membership_cancelled rules — product_filter matches membership_type_name via /v3/membershipTypes. */
 export async function loadEnabledMembershipCancelledTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,

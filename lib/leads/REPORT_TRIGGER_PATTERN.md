@@ -175,6 +175,7 @@ Calibration:
 - A dry system confirmation must stay UTILITY so Meta approval is reliable.
 - פער נוכחות ללא רישום עתידי (`attendance_gap`) → **MARKETING**
 - סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
+- ליד אבוד עם הטבת ניסיון + CTA (`lost_lead`) → **MARKETING**
 
 Existing presets may predate this rule; **new** presets must follow it.
 
@@ -265,6 +266,39 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   «ימים לפני סיום ההקפאה».
 - Migration: `supabase/arbox_freeze_sync_log.sql` (run before deploy).
 
+## Lost lead win-back (A7)
+
+- Source: `lostLeadsReport` (`fromDate`, `toDate`, `location_id`, `?page=N`).
+  Fields: `lead_id`, `lost_date`, `lost_reason_name`, `created_at`, `source_name`,
+  `phone`. **`lead_id` == `user_id`**. Phone: report `phone`, then
+  `contacts.arbox_user_id = lead_id`. Missing phone → terminal `no_phone`.
+- Cron: isolated try/catch on existing `arbox-daily-triggers` (not a new job).
+  **IO:** 1 paginated GET per business per daily run when an enabled A7 rule
+  with `template_name` exists. No per-lead Arbox calls.
+- Catalog: automatic × leads, `uniquePerBusiness: true`, `uniqueCreateMode: "warn"`,
+  delay **after**, `minDelayDays: 1`, default 1 day after `lost_date`, no product
+  filter. UI label **«win-back לליד אבוד»**. Preset **MARKETING**
+  (`first_name` only). Button QUICK_REPLY **«אשמח לפרטים»**.
+- **Button → sales flow:** Meta QUICK_REPLY arrives as inbound text. The tap
+  starts sales flow only because **«אשמח לפרטים»** is in
+  `SALES_FLOW_START_TRIGGERS` (`lib/sales-flow-start-triggers.ts`) — same as
+  `no_response` / `registered_after_trial`. **Do not tell APEX to change the
+  button copy.** If a studio wants different wording, add that exact string to
+  `SALES_FLOW_START_TRIGGERS` first; otherwise the tap will not restart the
+  sales flow.
+- Dedup: `arbox_lost_lead_sync_log` PK `(business_id, lead_id, lost_date)` where
+  `lost_date` is **trimmed report text** (A9 `cancelled_time` grain). A new
+  `lost_date` → new PK → re-entry can fire again. Delayed send extras live in
+  `scheduled_template_sends.dedup_key` (`lost_lead:…:encodedLostDate`); drain
+  refills `first_name` from the contact.
+- Seed: `businesses.arbox_lost_lead_seeded` — first enable marks the 30-day
+  window without WhatsApp. After seed, lookback **3 days** (not 1). Soft-seed
+  like freeze/C1: flag already true + empty log (rule added later) marks the
+  current 30-day cohort without send; empty cohort still gets a one-shot
+  sentinel (`lead_id=0`, `lost_date=1970-01-01`). Retry: A9 `attempts`/`status`.
+- No conflict with `arbox_new_lead` (trial-sync appearance vs daily loss).
+- Migration: `supabase/arbox_lost_lead_sync_log.sql` (run before deploy).
+
 ## IO (10 businesses)
 
 State the GETs per run: typically **one report GET per business** (plus pages)
@@ -275,4 +309,5 @@ when a birthday / birthday_former rule is enabled. **C5/C6 add one salesReport
 GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
 events after seed, not the seed window. **Freeze A8/C14/C15:** +1
 `membersOnHoldReport` GET when any freeze rule is live; future bookings GET only
-when freeze ending needs it (not when only attendance_gap is live).
+when freeze ending needs it (not when only attendance_gap is live). **A7
+lost_lead:** +1 `lostLeadsReport` GET when an enabled A7 rule is live.

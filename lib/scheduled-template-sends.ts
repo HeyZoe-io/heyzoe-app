@@ -193,6 +193,16 @@ export function buildFreezeCreatedScheduledDedupKey(
   return base;
 }
 
+/** A7 lost_lead enqueue key: once per business+trigger+lead_id+lost_date (text grain). */
+export function buildLostLeadScheduledDedupKey(
+  businessId: number,
+  triggerId: string,
+  leadId: number,
+  lostDate: string
+): string {
+  return `lost_lead:${businessId}:${String(triggerId).trim()}:${leadId}:${encodeCancelledTimeDedupToken(lostDate)}`;
+}
+
 /** C14/C15 freeze ending enqueue key: one per hold+end (+ optional class for booked). */
 export function buildFreezeEndingScheduledDedupKey(
   variant: "booked" | "unbooked",

@@ -8,6 +8,7 @@ import {
   businessNeedsFreezeSync,
   syncArboxFreezeForBusiness,
 } from "@/lib/leads/arbox-freeze";
+import { syncArboxLostLeadForBusiness } from "@/lib/leads/arbox-lost-lead";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import {
@@ -27,7 +28,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
  * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap +
- * post-trial C5/C6), freeze cluster A8/C14/C15, sessions_expiring, membership_cancelled.
+ * post-trial C5/C6), freeze cluster A8/C14/C15, sessions_expiring, membership_cancelled,
+ * lost_lead (A7).
  * Future bookings GET only when freeze_ending needs it (attendance_gap does not need it).
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
@@ -59,6 +61,7 @@ type BusinessRow = {
   arbox_attendance_gap_seeded: boolean;
   arbox_post_trial_followup_seeded: boolean;
   arbox_freeze_seeded: boolean;
+  arbox_lost_lead_seeded: boolean;
 };
 
 export async function GET(req: NextRequest) {
@@ -74,7 +77,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded"
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -102,6 +105,8 @@ export async function GET(req: NextRequest) {
       true;
     const freezeSeeded =
       (row as { arbox_freeze_seeded?: unknown }).arbox_freeze_seeded === true;
+    const lostLeadSeeded =
+      (row as { arbox_lost_lead_seeded?: unknown }).arbox_lost_lead_seeded === true;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
     businesses.push({
       id,
@@ -113,6 +118,7 @@ export async function GET(req: NextRequest) {
       arbox_attendance_gap_seeded: attendanceGapSeeded,
       arbox_post_trial_followup_seeded: postTrialFollowupSeeded,
       arbox_freeze_seeded: freezeSeeded,
+      arbox_lost_lead_seeded: lostLeadSeeded,
     });
   }
 
@@ -127,6 +133,7 @@ export async function GET(req: NextRequest) {
     freeze?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
     sessions_expiring?: Awaited<ReturnType<typeof syncArboxSessionsExpiringForBusiness>>;
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
+    lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
   }> = [];
 
   for (const business of businesses) {
@@ -507,6 +514,40 @@ export async function GET(req: NextRequest) {
         processed: 0,
         already: 0,
         skipped_filter: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: lost_lead (A7) ---
+    try {
+      entry.lost_lead = await syncArboxLostLeadForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        lostLeadSeeded: business.arbox_lost_lead_seeded,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] lost_lead step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.lost_lead = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
         notified: 0,
         deferred: 0,
         gated: 0,

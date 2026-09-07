@@ -74,6 +74,11 @@ assert.deepEqual(paramSlotsForTriggerType("freeze_ending_booked"), [
   "expiry_date",
 ]);
 assert.equal(isPresetAvailable("freeze_created", true), true);
+assert.equal(TEMPLATE_PRESETS.lost_lead.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.lost_lead.button_text, "אשמח לפרטים");
+assert.deepEqual(paramSlotsForTriggerType("lost_lead"), ["first_name"]);
+assert.equal(isPresetAvailable("lost_lead", false), false);
+assert.equal(isPresetAvailable("lost_lead", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

@@ -19,6 +19,9 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
 export const SALES_FLOW_START_TRIGGERS = new Set([
   SALES_FLOW_START_BUTTON_LABEL_HE,
   "בוא נתחיל",
+  // A7 lost_lead (and no_response / registered_after_trial) QUICK_REPLY — do not
+  // change this string without adding the new copy here, or the tap will not
+  // start sales flow. See lib/leads/REPORT_TRIGGER_PATTERN.md (A7).
   "אשמח לפרטים",
   "הצטרפות למנוי",
   "אשמח לשמוע",

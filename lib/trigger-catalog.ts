@@ -375,19 +375,20 @@ export const TRIGGER_CATALOG = [
   // —— Planned automatic × leads ——
   {
     type: "lost_lead",
-    labelHe: "ליד אבוד",
+    labelHe: "win-back לליד אבוד",
     activation: "automatic",
     audience: "leads",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
     delay: "after",
     showProductFilter: false,
-    uniquePerBusiness: false,
-    minDelayDays: 0,
+    uniquePerBusiness: true,
+    uniqueCreateMode: "warn",
+    minDelayDays: 1,
     recipient: "customer",
-    presetKey: "",
+    presetKey: "lost_lead",
     uiOrder: 30,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
     type: "trial_reminder",
@@ -784,6 +785,9 @@ export function formatDelayLabel(
   }
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;
+  }
+  if (type === "lost_lead") {
+    return `${Math.max(1, days)} ימים אחרי אובדן הליד`;
   }
   if (isIncomingLeadTriggerType(type) || type === "arbox_new_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;
