@@ -70,6 +70,39 @@ export function buildSessionsReportPath(input: {
   return `/v3/reports/sessionsReport?${qs.toString()}`;
 }
 
+export async function fetchArboxActiveMembershipsReport(input: {
+  apiKey: string;
+  boxId: string;
+  now?: Date;
+  fetchPage?: typeof arboxPublicFetch;
+}): Promise<
+  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number }
+  | { ok: false; error: string; pagesFetched: number }
+> {
+  const { fromDate, toDate } = customerReportsDateRange(input.now);
+  const memberships = await fetchArboxPagedReportRows({
+    apiKey: input.apiKey,
+    locationId: input.boxId,
+    logLabel: "leads/arbox-new-lead/activeMembershipsReport",
+    buildPath: (page) =>
+      buildActiveMembershipsReportPath({
+        fromDate,
+        toDate,
+        locationId: input.boxId,
+        page,
+      }),
+    fetchPage: input.fetchPage,
+  });
+  if (!memberships.ok) {
+    return {
+      ok: false,
+      error: "arbox_active_memberships_fetch_failed",
+      pagesFetched: memberships.pagesFetched,
+    };
+  }
+  return { ok: true, rows: memberships.rows, pagesFetched: memberships.pagesFetched };
+}
+
 /** In-memory customer set: active memberships ∪ active sessions/punch-cards/one-offs. */
 export function collectArboxCustomerUserIds(input: {
   membershipRows: Record<string, unknown>[];
@@ -94,26 +127,31 @@ export async function fetchArboxCustomerUserIds(input: {
   boxId: string;
   now?: Date;
   fetchPage?: typeof arboxPublicFetch;
+  /** Shared cron prefetch (birthday + C8). Skip the memberships GET when present. */
+  prefetchedMembershipRows?: Record<string, unknown>[];
+  prefetchedMembershipPages?: number;
 }): Promise<
   | { ok: true; userIds: Set<number>; membershipPages: number; sessionPages: number }
   | { ok: false; error: string }
 > {
   const { fromDate, toDate } = customerReportsDateRange(input.now);
-  const memberships = await fetchArboxPagedReportRows({
-    apiKey: input.apiKey,
-    locationId: input.boxId,
-    logLabel: "leads/arbox-new-lead/activeMembershipsReport",
-    buildPath: (page) =>
-      buildActiveMembershipsReportPath({
-        fromDate,
-        toDate,
-        locationId: input.boxId,
-        page,
-      }),
-    fetchPage: input.fetchPage,
-  });
-  if (!memberships.ok) {
-    return { ok: false, error: "arbox_active_memberships_fetch_failed" };
+  let membershipRows: Record<string, unknown>[];
+  let membershipPages: number;
+  if (input.prefetchedMembershipRows) {
+    membershipRows = input.prefetchedMembershipRows;
+    membershipPages = input.prefetchedMembershipPages ?? 0;
+  } else {
+    const memberships = await fetchArboxActiveMembershipsReport({
+      apiKey: input.apiKey,
+      boxId: input.boxId,
+      now: input.now,
+      fetchPage: input.fetchPage,
+    });
+    if (!memberships.ok) {
+      return { ok: false, error: memberships.error };
+    }
+    membershipRows = memberships.rows;
+    membershipPages = memberships.pagesFetched;
   }
 
   const sessions = await fetchArboxPagedReportRows({
@@ -136,10 +174,10 @@ export async function fetchArboxCustomerUserIds(input: {
   return {
     ok: true,
     userIds: collectArboxCustomerUserIds({
-      membershipRows: memberships.rows,
+      membershipRows,
       sessionRows: sessions.rows,
     }),
-    membershipPages: memberships.pagesFetched,
+    membershipPages,
     sessionPages: sessions.pagesFetched,
   };
 }

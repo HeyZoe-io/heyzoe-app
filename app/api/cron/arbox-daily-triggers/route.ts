@@ -3,7 +3,12 @@ import {
   sharedFutureBookingsWindow,
   syncArboxAttendanceGapForBusiness,
 } from "@/lib/leads/arbox-attendance-gap";
-import { syncArboxBirthdaysForBusiness } from "@/lib/leads/arbox-birthday";
+import { syncArboxBirthdaysForBusiness, businessNeedsBirthdayCustomerSet } from "@/lib/leads/arbox-birthday";
+import {
+  businessNeedsDaysInClubSync,
+  syncArboxDaysInClubForBusiness,
+} from "@/lib/leads/arbox-days-in-club";
+import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
   businessNeedsFreezeSync,
   syncArboxFreezeForBusiness,
@@ -31,9 +36,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Shared daily Arbox / Zoe-native trigger detection.
- * Steps: birthday, membership_expiring, bookingsReport (missed_* + attendance_gap +
+ * Steps: birthday, days-in-club (C8), membership_expiring, bookingsReport (missed_* + attendance_gap +
  * post-trial C5/C6), freeze cluster A8/C14/C15, trial_reminder, sessions_expiring,
  * membership_cancelled, lost_lead (A7).
+ * activeMembershipsReport is fetched once when birthday or C8 is live (C8-only skips sessionsReport).
  * Future bookings GET when freeze_ending or trial_reminder needs it
  * (attendance_gap does not need it). trial_reminder widens the window to today…+14.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
@@ -68,6 +74,7 @@ type BusinessRow = {
   arbox_freeze_seeded: boolean;
   arbox_lost_lead_seeded: boolean;
   arbox_trial_reminder_seeded: boolean;
+  arbox_days_in_club_seeded: boolean;
   arbox_trial_membership_type_ids: unknown;
 };
 
@@ -84,7 +91,7 @@ export async function GET(req: NextRequest) {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
     .select(
-      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded, arbox_trial_reminder_seeded, arbox_trial_membership_type_ids"
+      "id, slug, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded, arbox_trial_reminder_seeded, arbox_days_in_club_seeded, arbox_trial_membership_type_ids"
     )
     .eq("crm_type", "arbox")
     .not("crm_api_key", "is", null)
@@ -116,6 +123,8 @@ export async function GET(req: NextRequest) {
       (row as { arbox_lost_lead_seeded?: unknown }).arbox_lost_lead_seeded === true;
     const trialReminderSeeded =
       (row as { arbox_trial_reminder_seeded?: unknown }).arbox_trial_reminder_seeded === true;
+    const daysInClubSeeded =
+      (row as { arbox_days_in_club_seeded?: unknown }).arbox_days_in_club_seeded === true;
     const trialMembershipTypeIds = (row as { arbox_trial_membership_type_ids?: unknown })
       .arbox_trial_membership_type_ids;
     if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) continue;
@@ -131,6 +140,7 @@ export async function GET(req: NextRequest) {
       arbox_freeze_seeded: freezeSeeded,
       arbox_lost_lead_seeded: lostLeadSeeded,
       arbox_trial_reminder_seeded: trialReminderSeeded,
+      arbox_days_in_club_seeded: daysInClubSeeded,
       arbox_trial_membership_type_ids: trialMembershipTypeIds,
     });
   }
@@ -148,6 +158,7 @@ export async function GET(req: NextRequest) {
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
     lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
     trial_reminder?: Awaited<ReturnType<typeof syncArboxTrialReminderForBusiness>>;
+    days_in_club?: Awaited<ReturnType<typeof syncArboxDaysInClubForBusiness>>;
   }> = [];
 
   for (const business of businesses) {
@@ -155,6 +166,37 @@ export async function GET(req: NextRequest) {
       business_id: business.id,
       slug: business.slug,
     };
+
+    // --- Shared activeMembershipsReport (birthday customer set + C8 days-in-club) ---
+    let prefetchedMembershipRows: Record<string, unknown>[] | undefined;
+    let prefetchedMembershipPages = 0;
+    try {
+      const [needsBirthday, needsDaysInClub] = await Promise.all([
+        businessNeedsBirthdayCustomerSet(admin, business.id),
+        businessNeedsDaysInClubSync(admin, business.id),
+      ]);
+      if (needsBirthday || needsDaysInClub) {
+        const memberships = await fetchArboxActiveMembershipsReport({
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          now,
+        });
+        prefetchedMembershipPages = memberships.pagesFetched;
+        if (memberships.ok) {
+          prefetchedMembershipRows = memberships.rows;
+        } else {
+          console.error("[cron/arbox-daily-triggers] shared activeMembershipsReport failed", {
+            slug: business.slug,
+            error: memberships.error,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("[cron/arbox-daily-triggers] shared memberships prefetch threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     // --- Step: birthday ---
     try {
@@ -165,6 +207,12 @@ export async function GET(req: NextRequest) {
         apiKey: business.crm_api_key,
         boxId: business.crm_box_id,
         now,
+        ...(prefetchedMembershipRows
+          ? {
+              prefetchedMembershipRows,
+              prefetchedMembershipPages,
+            }
+          : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -187,6 +235,47 @@ export async function GET(req: NextRequest) {
         errors: 1,
         members_due: 0,
         former_due: 0,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: days-in-club (C8 milestones) ---
+    try {
+      entry.days_in_club = await syncArboxDaysInClubForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        daysInClubSeeded: business.arbox_days_in_club_seeded,
+        now,
+        ...(prefetchedMembershipRows
+          ? {
+              prefetchedMembershipRows,
+              prefetchedMembershipPages,
+            }
+          : {}),
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] days_in_club step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.days_in_club = {
+        fetched: 0,
+        pages_fetched: 0,
+        members: 0,
+        due: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
         fetch_error: message,
       };
     }

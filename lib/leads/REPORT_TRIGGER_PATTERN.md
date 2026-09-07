@@ -175,6 +175,7 @@ Calibration:
 
 - Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
 - A dry system confirmation must stay UTILITY so Meta approval is reliable.
+- ימים במועדון / שימור (`milestones`) → **MARKETING**
 - פער נוכחות ללא רישום עתידי (`attendance_gap`) → **MARKETING**
 - סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
 - ליד אבוד עם הטבת ניסיון + CTA (`lost_lead`) → **MARKETING**
@@ -324,6 +325,29 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   delay>0 step is due today. A7 still stops when the lead leaves `lostLeadsReport`.
 - Migration: `supabase/arbox_cancellation_sync_log_trigger_id.sql` (run before deploy).
 
+## Days in the club (C8 `milestones`)
+
+- Source: `activeMembershipsReport` rows with active status (`active` ∪
+  `activeMemberWithFutureCancel`). Field **`member_since`** (YYYY-MM-DD), not
+  `start_date`. Punch-card-only customers are not on this report → skipped.
+- Cron: isolated try/catch on `arbox-daily-triggers` next to birthday.
+  **IO:** reuses the `activeMembershipsReport` GET already pulled for birthday
+  (keep rows with `member_since`, not just `Set<user_id>`). If birthday is off
+  and C8 is on: +1 memberships GET, no `sessionsReport`.
+- Catalog: automatic × members, **`uniquePerBusiness: false`** (30/90/365
+  coexist). Delay **after**, `minDelayDays: 1`, default **90**. Label
+  **«ימים במועדון»**. Delay label **«N ימים מההצטרפות»**. Preset **MARKETING**
+  (`first_name` only, no button). Meta name `milestones`.
+- **Due-day send (not enqueue):** `today === member_since + delay_days`. No
+  catch-up.
+- Dedup: `arbox_days_in_club_sync_log` PK
+  `(business_id, trigger_id, user_id, member_since)`.
+- Seed: `businesses.arbox_days_in_club_seeded` — first enable marks members
+  already at/past X without WhatsApp. Members not yet at X wait. Soft-seed per
+  `trigger_id` with an empty log (sentinel `user_id=0` /
+  `member_since=1970-01-01` if nobody is past X). Retry: A9 `attempts`/`status`.
+- Schema already exists in Supabase — **no new migration**.
+
 ## Trial-class reminder (`trial_reminder`)
 
 - Source: `bookingsReport` **future** window (`today … today+14` when this
@@ -364,7 +388,9 @@ State the GETs per run: typically **one report GET per business** (plus pages)
 on the shared cron, not a new job. Extra `/v3/membershipTypes` only when
 filtering. New-lead customer reports (memberships + sessions) only when an
 unseen non-Zoe lead remains. Birthday always adds those two customer reports
-when a birthday / birthday_former rule is enabled. **C5/C6 add one salesReport
+when a birthday / birthday_former rule is enabled. **C8 `milestones`** reuses
+the same `activeMembershipsReport` GET (rows kept); C8-only skips
+`sessionsReport`. **C5/C6 add one salesReport
 GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
 events after seed, not the seed window. **Freeze A8/C14/C15:** +1
 `membersOnHoldReport` GET when any freeze rule is live; future bookings GET only

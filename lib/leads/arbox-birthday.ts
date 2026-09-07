@@ -476,10 +476,26 @@ async function sendBirthdayTemplate(input: {
 }
 
 /**
+ * True when an enabled birthday / birthday_former rule has a template.
+ * Cron prefetches activeMemberships once for birthday + C8.
+ */
+export async function businessNeedsBirthdayCustomerSet(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<boolean> {
+  const [membersRule, formerRule] = await Promise.all([
+    resolveBirthdayTemplateTrigger({ admin, businessId }),
+    resolveBirthdayFormerTemplateTrigger({ admin, businessId }),
+  ]);
+  return Boolean(membersRule?.template_name?.trim() || formerRule?.template_name?.trim());
+}
+
+/**
  * Daily birthday step for one Arbox business.
  * birthdayReport → cross with A1 customer set (activeMemberships + sessions):
  *   in set → birthday (members); not in set → birthday_former (leads).
- * IO: birthdayReport pages + always +2 customer report GETs (flat, like A1) when a rule is enabled.
+ * IO: birthdayReport pages + sessions GET; memberships GET is shared with C8 when
+ * the cron prefetched it. If C8 is off, still +2 customer reports (same as before).
  * Dedup: member vs former use distinct sync_log years + scheduled dedup prefixes — no migration.
  */
 export async function syncArboxBirthdaysForBusiness(input: {
@@ -489,6 +505,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
   apiKey: string;
   boxId: string;
   now?: Date;
+  prefetchedMembershipRows?: Record<string, unknown>[];
+  prefetchedMembershipPages?: number;
 }): Promise<BirthdaySyncSummary> {
   const summary: BirthdaySyncSummary = {
     fetched: 0,
@@ -541,6 +559,12 @@ export async function syncArboxBirthdaysForBusiness(input: {
     apiKey,
     boxId,
     now,
+    ...(input.prefetchedMembershipRows
+      ? {
+          prefetchedMembershipRows: input.prefetchedMembershipRows,
+          prefetchedMembershipPages: input.prefetchedMembershipPages,
+        }
+      : {}),
   });
   if (!customerSet.ok) {
     summary.skipped = true;

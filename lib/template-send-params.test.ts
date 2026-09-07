@@ -140,6 +140,7 @@ import {
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],
     trial_reminder: ["דנה", "יוגה", "18:00"],
+    milestones: ["דנה"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -184,6 +185,10 @@ import {
       continue;
     }
     if (type === "lost_lead") {
+      assert.deepEqual(slots, ["first_name"]);
+      continue;
+    }
+    if (type === "milestones") {
       assert.deepEqual(slots, ["first_name"]);
       continue;
     }

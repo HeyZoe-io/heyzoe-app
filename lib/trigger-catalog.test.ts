@@ -57,6 +57,7 @@ const LIVE_AUTOMATIC = [
   "freeze_ending_booked",
   "attendance_gap",
   "missed_class",
+  "milestones",
   "lost_lead",
   "trial_reminder",
   "missed_trial",
@@ -78,6 +79,7 @@ const PREVIOUS_ARBOX = [
   "freeze_ending_booked",
   "attendance_gap",
   "missed_class",
+  "milestones",
   "lost_lead",
   "trial_reminder",
   "missed_trial",
@@ -169,6 +171,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(memberTypes.includes("freeze_created"));
   assert.ok(memberTypes.includes("freeze_ending_unbooked"));
   assert.ok(memberTypes.includes("freeze_ending_booked"));
+  assert.ok(memberTypes.includes("milestones"));
   assert.ok(!(memberTypes as string[]).includes("hold"), "legacy planned hold removed");
   assert.ok(!memberTypes.includes("manual_membership"), "manual not in automatic create");
 
@@ -290,6 +293,17 @@ function triggerCatalogAudience(type: string) {
     "non-unique membership_cancelled: create-another card stays"
   );
 
+  const membersWithMilestones = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "members",
+    hasArbox: true,
+    existingTriggerTypes: ["milestones"],
+  }).map((e) => e.type);
+  assert.ok(
+    membersWithMilestones.includes("milestones"),
+    "non-unique milestones: create-another card stays"
+  );
+
   const plannedMembers = plannedCatalogEntriesForCell({
     activation: "automatic",
     audience: "members",
@@ -301,7 +315,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(!(plannedMembers as string[]).includes("attendance_gap_booked"));
   assert.ok(!plannedMembers.includes("missed_class"));
   assert.ok(!plannedMembers.includes("attendance_trend"), "C9 dropped — C2 covers declines");
-  assert.ok(plannedMembers.includes("milestones"), "C8 days-in-club card stays");
+  assert.ok(!plannedMembers.includes("milestones"), "C8 days-in-club is live");
 
   const plannedLeads = plannedCatalogEntriesForCell({
     activation: "automatic",
@@ -336,6 +350,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(isTriggerType("freeze_created"), true);
   assert.equal(isTriggerType("freeze_ending_unbooked"), true);
   assert.equal(isTriggerType("birthday_former"), true);
+  assert.equal(isTriggerType("milestones"), true);
   assert.equal(isCreatableTriggerType("birthday_former", true), true);
   assert.equal(isCreatableTriggerType("birthday_former", false), false);
   assert.equal(isCreatableTriggerType("lost_lead", true), true);
@@ -357,9 +372,11 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerTypeLabel("birthday_former"), "יום הולדת (לקוחות לשעבר)");
   assert.equal(triggerTypeLabel("lost_lead"), "win-back לליד אבוד (ארבוקס)");
   assert.equal(triggerTypeLabel("trial_reminder"), "תזכורת לשיעור ניסיון");
+  assert.equal(triggerTypeLabel("milestones"), "ימים במועדון");
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "birthday_former"));
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "lost_lead"));
   assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "trial_reminder"));
+  assert.ok(TRIGGER_TYPE_OPTIONS.some((o) => o.value === "milestones"));
 }
 
 {
@@ -386,6 +403,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), true);
   assert.equal(isUniquePerBusinessTriggerType("lost_lead"), false);
   assert.equal(isUniquePerBusinessTriggerType("membership_cancelled"), false);
+  assert.equal(isUniquePerBusinessTriggerType("milestones"), false);
   assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
   assert.equal(isUniquePerBusinessTriggerType("no_response"), false);
 }
@@ -440,6 +458,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesAfterNoProductFilter("purchase"), false);
   assert.equal(forcesAfterNoProductFilter("birthday"), false);
   assert.equal(forcesAfterNoProductFilter("membership_cancelled"), false);
+  assert.equal(forcesAfterNoProductFilter("milestones"), true);
 }
 
 {
@@ -469,6 +488,10 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
+  assert.equal(formatDelayLabel("milestones", 90, "after"), "90 ימים מההצטרפות");
+  assert.equal(formatDelayLabel("milestones", 30, "after"), "30 ימים מההצטרפות");
+  assert.equal(minDelayDaysForTrigger("milestones"), 1);
+  assert.equal(defaultDelayDays("milestones"), 90);
 }
 
 {
@@ -505,6 +528,7 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("freeze_created"), /09:00/);
   assert.match(triggerSendScheduleHintHe("lost_lead"), /09:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("milestones"), /09:00/);
   assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);
   assert.equal(
     triggerSendScheduleHintHe("freeze_created"),

@@ -325,19 +325,19 @@ export const TRIGGER_CATALOG = [
   },
   {
     type: "milestones",
-    labelHe: "אבני דרך",
+    labelHe: "ימים במועדון",
     activation: "automatic",
     audience: "members",
-    implemented: false,
+    implemented: true,
     arboxOnly: true,
     delay: "after",
     showProductFilter: false,
     uniquePerBusiness: false,
-    minDelayDays: 0,
+    minDelayDays: 1,
     recipient: "customer",
-    presetKey: "",
-    uiOrder: 25,
-    sendHintHe: SEND_HINT_PLANNED_HE,
+    presetKey: "milestones",
+    uiOrder: 14,
+    sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
     type: "class_reminder_regular",
@@ -712,6 +712,7 @@ export function defaultDelayDays(triggerType: string): number {
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   if (isFreezeEndingTriggerType(triggerType)) return 3;
   if (triggerType === "trial_reminder") return 1;
+  if (triggerType === "milestones") return 90;
   return minDelayDaysForTrigger(triggerType);
 }
 
@@ -773,6 +774,9 @@ export function formatDelayLabel(
   }
   if (type === "lost_lead") {
     return `${Math.max(1, days)} ימים אחרי אובדן הליד`;
+  }
+  if (type === "milestones") {
+    return `${Math.max(1, days)} ימים מההצטרפות`;
   }
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;

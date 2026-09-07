@@ -40,6 +40,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
   lost_lead: ["first_name"],
   trial_reminder: ["first_name", "class_name", "class_time"],
+  milestones: ["first_name"],
 };
 
 const LEAD_OPENING_BODY =
@@ -155,6 +156,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "trial_reminder",
     category: "UTILITY",
     body: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!",
+  },
+  milestones: {
+    name: "milestones",
+    category: "MARKETING",
+    body: "היי {{1}}, היחס האישי ורמת האימון חשובים לנו, נשמח לשמוע איך הולך.",
   },
 };
 

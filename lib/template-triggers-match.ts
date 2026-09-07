@@ -630,6 +630,40 @@ export async function resolveLostLeadTemplateTrigger(input: {
   return pickLostLeadTemplateTriggerRule(rules);
 }
 
+/** Enabled milestones (C8 days-in-club) rules — daily handler fires each independently (30/90/365). */
+export async function loadEnabledMilestonesTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "milestones")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load milestones rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+export function pickMilestonesTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+export async function resolveMilestonesTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledMilestonesTemplateTriggers(input.admin, input.businessId);
+  return pickMilestonesTemplateTriggerRule(rules);
+}
+
 /** Enabled trial_reminder rules — pick newest with a template name. */
 export async function loadEnabledTrialReminderTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
