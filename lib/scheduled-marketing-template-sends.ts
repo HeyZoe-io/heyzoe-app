@@ -1,3 +1,4 @@
+import { mergeMarketingCallDayBodyParams } from "@/lib/marketing-template-presets";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
@@ -107,7 +108,53 @@ export async function enqueueScheduledMarketingTemplateSend(input: {
     return { ok: false, error: error.message };
   }
 
-  return { ok: true, inserted: Array.isArray(data) && data.length > 0 };
+  const inserted = Array.isArray(data) && data.length > 0;
+  if (!inserted && dedupKey.startsWith("call_day:")) {
+    await refreshPendingCallDayBodyParams({
+      admin: input.admin,
+      dedupKey,
+      bodyParams: input.bodyParams,
+      nowIso,
+    });
+  }
+
+  return { ok: true, inserted };
+}
+
+async function refreshPendingCallDayBodyParams(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  dedupKey: string;
+  bodyParams: string[];
+  nowIso: string;
+}): Promise<void> {
+  const { data, error } = await input.admin
+    .from("scheduled_marketing_template_sends")
+    .select("id, body_params, status")
+    .eq("dedup_key", input.dedupKey)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (error) {
+    console.warn("[scheduled-marketing-template-sends] pending lookup failed:", error.message, {
+      dedup_key: input.dedupKey,
+    });
+    return;
+  }
+  if (!data?.id) return;
+
+  const prev = parseScheduledBodyParams((data as { body_params?: unknown }).body_params);
+  const merged = mergeMarketingCallDayBodyParams(prev, input.bodyParams);
+  if (JSON.stringify(merged) === JSON.stringify(prev)) return;
+
+  const { error: updErr } = await input.admin
+    .from("scheduled_marketing_template_sends")
+    .update({ body_params: merged, updated_at: input.nowIso })
+    .eq("id", data.id)
+    .eq("status", "pending");
+  if (updErr) {
+    console.error("[scheduled-marketing-template-sends] refresh body_params failed:", updErr.message, {
+      dedup_key: input.dedupKey,
+    });
+  }
 }
 
 export {

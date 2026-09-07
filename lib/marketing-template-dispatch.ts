@@ -7,6 +7,7 @@ import {
 } from "@/lib/marketing-call-time";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import {
+  preferLiveCallTime,
   resolveMarketingTemplateBodyParams,
   type MarketingTemplateParamSlot,
 } from "@/lib/marketing-template-presets";
@@ -188,6 +189,49 @@ export async function sendMarketingLeadTemplate(input: {
   }
 
   return { ok: true };
+}
+
+async function lookupSessionCallTime(admin: AdminClient, phone: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("marketing_flow_sessions")
+    .select("next_call_time")
+    .eq("phone", phone)
+    .maybeSingle();
+  if (error) {
+    if (!/does not exist|schema cache/i.test(error.message)) {
+      console.warn("[marketing-template-dispatch] next_call_time lookup failed:", error.message);
+    }
+    return null;
+  }
+  return toPipelineTime((data as { next_call_time?: unknown } | null)?.next_call_time);
+}
+
+async function resolveDueMarketingBodyParams(input: {
+  admin: AdminClient;
+  phone: string;
+  row: ScheduledMarketingTemplateSendRow;
+  approvedComponents: unknown;
+  callDateYmd: string | null;
+}): Promise<string[]> {
+  const queued = parseScheduledBodyParams(input.row.body_params);
+  if (!input.callDateYmd) return queued;
+
+  const liveTime = await lookupSessionCallTime(input.admin, input.phone);
+  const callTime = preferLiveCallTime(queued[1], liveTime);
+  const firstName = String(queued[0] ?? "").trim() || (await lookupLeadFirstName(input.admin, input.phone));
+  const refreshed = paramsForTrigger({
+    triggerType: "call_day",
+    components: input.approvedComponents,
+    firstName,
+    callTime,
+  });
+  if (refreshed.length > 0) return refreshed;
+  if (queued.length >= 2) {
+    const next = queued.slice();
+    next[1] = callTime;
+    return next;
+  }
+  return queued;
 }
 
 function paramsForTrigger(input: {
@@ -552,7 +596,13 @@ export async function dispatchDueMarketingScheduledSend(
     return "canceled";
   }
 
-  const bodyParams = parseScheduledBodyParams(row.body_params);
+  const bodyParams = await resolveDueMarketingBodyParams({
+    admin,
+    phone,
+    row,
+    approvedComponents: approved?.components,
+    callDateYmd,
+  });
   const sent = await sendMarketingLeadTemplate({
     admin,
     phone,

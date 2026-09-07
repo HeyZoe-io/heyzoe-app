@@ -1,3 +1,4 @@
+import { toPipelineTime } from "@/lib/marketing-next-call";
 import type { MarketingTriggerType } from "@/lib/marketing-template-trigger-types";
 
 export type MarketingTemplateParamSlot = "first_name" | "call_time";
@@ -50,6 +51,29 @@ export function marketingPresetExampleForSlot(slot: MarketingTemplateParamSlot):
   return "דנה";
 }
 
+/** Meta body param when no HH:mm is stored yet — reads as «בשעה בקרוב». */
+export const MARKETING_CALL_TIME_FALLBACK = "בקרוב";
+
+/** Prefer a later-saved HH:mm over a queued «בקרוב» placeholder. */
+export function preferLiveCallTime(
+  queued: string | null | undefined,
+  live: string | null | undefined
+): string {
+  return toPipelineTime(live) ?? toPipelineTime(queued) ?? MARKETING_CALL_TIME_FALLBACK;
+}
+
+export function mergeMarketingCallDayBodyParams(queued: string[], incoming: string[]): string[] {
+  if (incoming.length === 0) return queued.slice();
+  if (queued.length === 0) return incoming.slice();
+  const out = incoming.slice();
+  if (!String(out[0] ?? "").trim() && queued[0]) out[0] = queued[0];
+  while (out.length < Math.max(2, queued.length)) {
+    out.push(queued[out.length] ?? "");
+  }
+  out[1] = preferLiveCallTime(queued[1], incoming[1]);
+  return out;
+}
+
 export function resolveMarketingTemplateBodyParams(input: {
   triggerType: MarketingTriggerType | "broadcast";
   varCount: number;
@@ -60,7 +84,7 @@ export function resolveMarketingTemplateBodyParams(input: {
   if (count <= 0) return [];
   const slots = MARKETING_TEMPLATE_PARAM_SLOTS[input.triggerType];
   const first = String(input.firstName ?? "").trim() || "שלום";
-  const callTime = String(input.callTime ?? "").trim() || "בקרוב";
+  const callTime = preferLiveCallTime(null, input.callTime);
   const values: string[] = [];
   for (let i = 0; i < count; i += 1) {
     const slot = slots[i] ?? (i === 1 ? "call_time" : "first_name");
