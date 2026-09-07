@@ -62,6 +62,34 @@ export function buildMarketingBroadcastDedupKey(batchId: string, phone: string):
   return `broadcast:${String(batchId).trim()}:${String(phone).trim()}`;
 }
 
+export async function cancelStalePendingCallDaySends(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  triggerId: string;
+  contactPhone: string;
+  keepDedupKey: string;
+}): Promise<void> {
+  const triggerId = String(input.triggerId ?? "").trim();
+  const keepDedupKey = String(input.keepDedupKey ?? "").trim();
+  const contactPhone =
+    normalizePhone(input.contactPhone) ??
+    String(input.contactPhone ?? "").replace(/\D/g, "").trim();
+  if (!triggerId || !keepDedupKey || !contactPhone) return;
+
+  const nowIso = new Date().toISOString();
+  const { error } = await input.admin
+    .from("scheduled_marketing_template_sends")
+    .update({ status: "canceled", last_error: "call_day_rescheduled", updated_at: nowIso })
+    .eq("trigger_id", triggerId)
+    .eq("contact_phone", contactPhone)
+    .eq("status", "pending")
+    .neq("dedup_key", keepDedupKey);
+  if (error) {
+    console.error("[scheduled-marketing-template-sends] cancel stale call_day failed:", error.message, {
+      keep_dedup_key: keepDedupKey,
+    });
+  }
+}
+
 export async function enqueueScheduledMarketingTemplateSend(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   triggerId?: string | null;

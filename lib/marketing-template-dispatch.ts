@@ -1,6 +1,7 @@
 import { firstNameFromFullName, formatLeadTemplateMessageContent } from "@/lib/lead-template";
 import {
   computeCallDayDueAt,
+  decideCallDayQueuedDate,
   parseMarketingCallDay,
   parseMarketingCallSlot,
   resolveCallDayDue,
@@ -27,6 +28,7 @@ import {
   buildMarketingFlowCompletedDedupKey,
   buildMarketingNodeAnsweredDedupKey,
   callDateYmdFromCallDayDedupKey,
+  cancelStalePendingCallDaySends,
   enqueueScheduledMarketingTemplateSend,
   parseScheduledBodyParams,
   type ScheduledMarketingTemplateSendRow,
@@ -191,19 +193,25 @@ export async function sendMarketingLeadTemplate(input: {
   return { ok: true };
 }
 
-async function lookupSessionCallTime(admin: AdminClient, phone: string): Promise<string | null> {
+async function lookupSessionCallSlot(
+  admin: AdminClient,
+  phone: string
+): Promise<{ dateYmd: string | null; timeHm: string | null } | null> {
   const { data, error } = await admin
     .from("marketing_flow_sessions")
-    .select("next_call_time")
+    .select("next_call_at, next_call_time")
     .eq("phone", phone)
     .maybeSingle();
   if (error) {
     if (!/does not exist|schema cache/i.test(error.message)) {
-      console.warn("[marketing-template-dispatch] next_call_time lookup failed:", error.message);
+      console.warn("[marketing-template-dispatch] next_call lookup failed:", error.message);
     }
     return null;
   }
-  return toPipelineTime((data as { next_call_time?: unknown } | null)?.next_call_time);
+  return {
+    dateYmd: toPipelineDateOnly((data as { next_call_at?: unknown } | null)?.next_call_at),
+    timeHm: toPipelineTime((data as { next_call_time?: unknown } | null)?.next_call_time),
+  };
 }
 
 async function resolveDueMarketingBodyParams(input: {
@@ -212,11 +220,12 @@ async function resolveDueMarketingBodyParams(input: {
   row: ScheduledMarketingTemplateSendRow;
   approvedComponents: unknown;
   callDateYmd: string | null;
+  liveTimeHm?: string | null;
 }): Promise<string[]> {
   const queued = parseScheduledBodyParams(input.row.body_params);
   if (!input.callDateYmd) return queued;
 
-  const liveTime = await lookupSessionCallTime(input.admin, input.phone);
+  const liveTime = input.liveTimeHm ?? null;
   const callTime = preferLiveCallTime(queued[1], liveTime);
   const firstName = String(queued[0] ?? "").trim() || (await lookupLeadFirstName(input.admin, input.phone));
   const refreshed = paramsForTrigger({
@@ -386,10 +395,26 @@ async function enqueueCallDayTriggers(input: {
     });
   }
   const now = input.now ?? new Date();
+  const timeHm = toPipelineTime(input.timeHm);
   for (const rule of rules) {
+    const keepDedupKey = buildMarketingCallDayDedupKey(rule.id, input.phone, input.dateYmd);
+    await cancelStalePendingCallDaySends({
+      admin: input.admin,
+      triggerId: rule.id,
+      contactPhone: input.phone,
+      keepDedupKey,
+    });
+    if (!timeHm) {
+      console.info("[marketing-template-dispatch] skip call_day — missing time", {
+        triggerId: rule.id,
+        phone: input.phone,
+        dateYmd: input.dateYmd,
+      });
+      continue;
+    }
     const dueAt = computeCallDayDueAt({
       dateYmd: input.dateYmd,
-      timeHm: input.timeHm,
+      timeHm,
       delayDays: rule.delay_days,
       delayDirection: marketingDelayDirectionForTrigger(rule.trigger_type, rule.delay_direction),
       now,
@@ -408,9 +433,9 @@ async function enqueueCallDayTriggers(input: {
       trigger: rule,
       phone: input.phone,
       dueAt,
-      dedupKey: buildMarketingCallDayDedupKey(rule.id, input.phone, input.dateYmd),
+      dedupKey: keepDedupKey,
       firstName: input.firstName,
-      callTime: input.timeHm,
+      callTime: timeHm,
       now,
     });
   }
@@ -553,6 +578,17 @@ export async function dispatchDueMarketingScheduledSend(
   }
 
   const callDateYmd = callDateYmdFromCallDayDedupKey(row.dedup_key);
+  const liveSlot = callDateYmd ? await lookupSessionCallSlot(admin, phone) : undefined;
+  if (
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: callDateYmd,
+      liveCallDateYmd: liveSlot?.dateYmd ?? null,
+      lookupFailed: liveSlot === null,
+    }) === "cancel_rescheduled"
+  ) {
+    await mark("canceled", "call_day_rescheduled");
+    return "canceled";
+  }
   if (callDateYmd) {
     let delayDays = 0;
     let delayDirection = "after";
@@ -602,6 +638,7 @@ export async function dispatchDueMarketingScheduledSend(
     row,
     approvedComponents: approved?.components,
     callDateYmd,
+    liveTimeHm: liveSlot?.timeHm,
   });
   const sent = await sendMarketingLeadTemplate({
     admin,

@@ -103,6 +103,23 @@ export function israelWallTimeToUtc(ymd: string, hm: string): Date {
   return new Date(guess - (gotUtc - guess));
 }
 
+/**
+ * Queued call_day row vs the date currently on the lead.
+ * Stale rows (drag-to-column default, then a later real date) must not send.
+ */
+export function decideCallDayQueuedDate(input: {
+  queuedCallDateYmd: string | null;
+  liveCallDateYmd: string | null;
+  lookupFailed?: boolean;
+}): "proceed" | "cancel_rescheduled" {
+  if (!input.queuedCallDateYmd) return "proceed";
+  if (input.lookupFailed) return "proceed";
+  if (!input.liveCallDateYmd || input.liveCallDateYmd !== input.queuedCallDateYmd) {
+    return "cancel_rescheduled";
+  }
+  return "proceed";
+}
+
 export type CallDayDueResult =
   | { kind: "schedule"; at: Date; sendYmd: string }
   | { kind: "send_now"; at: Date; sendYmd: string }

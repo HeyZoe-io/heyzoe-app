@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   computeCallDayDueAt,
+  decideCallDayQueuedDate,
   israelWallTimeToUtc,
   parseMarketingCallDay,
   parseMarketingCallSlot,
@@ -86,6 +87,45 @@ const noonUtc = new Date("2026-08-30T12:00:00.000Z");
 {
   assert.equal(parseMarketingCallDay("רביעי", noonUtc), "2026-09-02");
   assert.equal(parseMarketingCallDay("מחר", noonUtc), "2026-08-31");
+}
+
+{
+  assert.equal(
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: "2026-09-07",
+      liveCallDateYmd: "2026-09-09",
+    }),
+    "cancel_rescheduled"
+  );
+  assert.equal(
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: "2026-09-09",
+      liveCallDateYmd: "2026-09-09",
+    }),
+    "proceed"
+  );
+  assert.equal(
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: "2026-09-07",
+      liveCallDateYmd: null,
+    }),
+    "cancel_rescheduled"
+  );
+  assert.equal(
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: "2026-09-07",
+      liveCallDateYmd: "2026-09-09",
+      lookupFailed: true,
+    }),
+    "proceed"
+  );
+  assert.equal(
+    decideCallDayQueuedDate({
+      queuedCallDateYmd: null,
+      liveCallDateYmd: "2026-09-09",
+    }),
+    "proceed"
+  );
 }
 
 console.log("marketing-call-time.test.ts ok");
