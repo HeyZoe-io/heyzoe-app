@@ -1,6 +1,8 @@
 /**
- * A7 lost_lead win-back: lostLeadsReport → MARKETING template 1 day after lost_date.
- * Seed 30d without WhatsApp; after seed lookback 3d; soft-seed if flag is true and log empty.
+ * A7 lost_lead win-back: lostLeadsReport → MARKETING template on the exact due day
+ * (delay_days after lost_date). Multiple rules (day 1 / 7 / 21) replace a D3 state machine.
+ * Re-fetch each cron run: if the lead left the report (came back / joined), later steps do not send.
+ * Seed 30d without WhatsApp; after seed lookback = max(3, max delay) capped at 30.
  */
 import { logMessage } from "@/lib/analytics";
 import {
@@ -10,26 +12,22 @@ import {
 } from "@/lib/lead-template";
 import {
   formatDateYmdIsrael,
+  isExactDaysAfterEvent,
+  lookbackDaysForSequenceDelays,
   nextCancellationSyncLogAfterDispatch,
   parseCancellationSyncAttempts,
   parseCancelledEventDate,
+  reportTimestampToYmd,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { fetchLostLeadsReportRows } from "@/lib/leads/arbox-lost-leads-report";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
-import {
-  buildLostLeadScheduledDedupKey,
-  computeDueAt,
-  enqueueScheduledTemplateSend,
-} from "@/lib/scheduled-template-sends";
 import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import {
   loadEnabledLostLeadTemplateTriggers,
-  pickLostLeadTemplateTriggerRule,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -125,12 +123,15 @@ export function seedLostLeadReportDateRange(now: Date): { fromDate: string; toDa
 export function lostLeadReportDateRange(input: {
   seeded: boolean;
   now: Date;
+  lookbackDays?: number;
 }): { fromDate: string; toDate: string } {
   if (!input.seeded) return seedLostLeadReportDateRange(input.now);
   const toDate = formatDateYmdIsrael(input.now);
-  const fromDate = formatDateYmdIsrael(
-    new Date(input.now.getTime() - LOST_LEAD_LOOKBACK_DAYS * MS_PER_DAY)
+  const days = Math.max(
+    LOST_LEAD_LOOKBACK_DAYS,
+    Math.trunc(input.lookbackDays ?? LOST_LEAD_LOOKBACK_DAYS)
   );
+  const fromDate = formatDateYmdIsrael(new Date(input.now.getTime() - days * MS_PER_DAY));
   return { fromDate, toDate };
 }
 
@@ -234,6 +235,7 @@ async function resolveOrCreateContact(input: {
 async function upsertLostLeadSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   leadId: number;
   lostDate: string;
   contactId: string | null;
@@ -244,6 +246,7 @@ async function upsertLostLeadSyncLog(input: {
   const { error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       lead_id: input.leadId,
       lost_date: input.lostDate,
       contact_id: input.contactId,
@@ -251,7 +254,7 @@ async function upsertLostLeadSyncLog(input: {
       status: input.status,
       attempts: input.attempts,
     },
-    { onConflict: "business_id,lead_id,lost_date" }
+    { onConflict: "business_id,trigger_id,lead_id,lost_date" }
   );
   if (error) {
     console.error("[leads/arbox-lost-lead] sync_log upsert failed:", error.message);
@@ -269,40 +272,9 @@ async function dispatchLostLeadTemplate(input: {
   leadId: number;
   lostDate: string;
   rule: PurchaseTemplateTriggerRule;
-  now: Date;
 }): Promise<{ dispatch: LostLeadDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
-
-  const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
-  if (delayDays > 0) {
-    const dueAt = computeDueAt(
-      {
-        delay_days: delayDays,
-        delay_direction: delayDirectionForTrigger("lost_lead", input.rule.delay_direction),
-      },
-      parseLostEventDate(input.lostDate, input.now)
-    );
-    const enqueueResult = await enqueueScheduledTemplateSend({
-      admin: input.admin,
-      businessId: input.businessId,
-      triggerId: input.rule.id,
-      contactPhone: input.phone,
-      templateName,
-      dueAt,
-      dedupKey: buildLostLeadScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.leadId,
-        input.lostDate
-      ),
-    });
-    if (!enqueueResult.ok) {
-      console.error("[leads/arbox-lost-lead] enqueue failed:", enqueueResult.error);
-      return { dispatch: "send_failed", ok: false };
-    }
-    return { dispatch: "deferred", ok: true };
-  }
 
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
@@ -370,10 +342,10 @@ async function dispatchLostLeadTemplate(input: {
  *
  * IO (10 businesses): 1 lostLeadsReport GET each when an enabled rule with
  * template_name exists (paginated; typically 1 page after seed). No per-lead
- * Arbox calls. WhatsApp/Meta: one send (or enqueue) per new matching loss after seed.
+ * Arbox calls. WhatsApp/Meta: one immediate send per matching rule on its due day.
  *
  * Seed (arbox_lost_lead_seeded=false): mark the 30-day window seen, no WhatsApp.
- * Soft-seed: flag true + empty log → same 30-day mark, no WhatsApp.
+ * Soft-seed: flag true + empty log for that trigger_id → same 30-day mark, no WhatsApp.
  */
 export async function syncArboxLostLeadForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -424,35 +396,15 @@ export async function syncArboxLostLeadForBusiness(input: {
     return summary;
   }
 
-  const rule = pickLostLeadTemplateTriggerRule(rulesWithTemplate);
-  if (!rule?.template_name?.trim()) {
-    summary.skipped = true;
-    summary.skip_reason = "no_rule";
-    return summary;
-  }
-
+  const lookbackDays = lookbackDaysForSequenceDelays(
+    rulesWithTemplate.map((r) => r.delay_days),
+    LOST_LEAD_LOOKBACK_DAYS
+  );
   const needsFullSeed = !input.lostLeadSeeded;
-  let needsSoftSeed = false;
-  if (!needsFullSeed) {
-    const { count, error } = await input.admin
-      .from("arbox_lost_lead_sync_log")
-      .select("lead_id", { count: "exact", head: true })
-      .eq("business_id", businessId);
-    if (error) {
-      console.error("[leads/arbox-lost-lead] soft-seed count failed:", error.message);
-      needsSoftSeed = false;
-    } else {
-      needsSoftSeed = lostLeadNeedsSoftSeed({
-        lostLeadSeeded: true,
-        logCount: count ?? 0,
-      });
-    }
-  }
-
-  const seeding = needsFullSeed || needsSoftSeed;
   const { fromDate, toDate } = lostLeadReportDateRange({
-    seeded: !seeding,
+    seeded: !needsFullSeed,
     now,
+    lookbackDays,
   });
 
   const report = await fetchLostLeadsReportRows({
@@ -468,20 +420,23 @@ export async function syncArboxLostLeadForBusiness(input: {
     return summary;
   }
   summary.fetched = report.rows.length;
+  const reportRows = report.rows;
+  const todayYmd = formatDateYmdIsrael(now);
 
-  if (seeding) {
+  async function seedRuleRows(
+    rule: PurchaseTemplateTriggerRule,
+    kind: "seeded" | "soft_seeded"
+  ): Promise<number> {
     let wrote = 0;
-    for (const raw of report.rows) {
+    for (const raw of reportRows) {
       const row = raw as ArboxLostLeadRow;
       const leadId = parseLostLeadId(row);
       const lostDate = normalizeLostDatePk(row.lost_date);
-      if (leadId == null || !lostDate) {
-        summary.errors += 1;
-        continue;
-      }
+      if (leadId == null || !lostDate) continue;
       const marked = await upsertLostLeadSyncLog({
         admin: input.admin,
         businessId,
+        triggerId: rule.id,
         leadId,
         lostDate,
         contactId: null,
@@ -494,21 +449,22 @@ export async function syncArboxLostLeadForBusiness(input: {
         continue;
       }
       wrote += 1;
-      if (needsFullSeed) summary.seeded += 1;
+      if (kind === "seeded") summary.seeded += 1;
       else summary.soft_seeded += 1;
       console.info("[leads/arbox-lost-lead] dispatch", {
         businessId,
+        trigger_id: rule.id,
         lead_id: leadId,
         lost_date: lostDate,
         contact: null,
         dispatch: "seeded" satisfies LostLeadDispatch,
       });
     }
-
     if (wrote === 0) {
       const sentinel = await upsertLostLeadSyncLog({
         admin: input.admin,
         businessId,
+        triggerId: rule.id,
         leadId: LOST_LEAD_SOFT_SEED_SENTINEL_LEAD_ID,
         lostDate: LOST_LEAD_SOFT_SEED_SENTINEL_LOST_DATE,
         contactId: null,
@@ -517,37 +473,52 @@ export async function syncArboxLostLeadForBusiness(input: {
         attempts: 0,
       });
       if (sentinel.ok) {
-        if (needsFullSeed) summary.seeded += 1;
+        wrote += 1;
+        if (kind === "seeded") summary.seeded += 1;
         else summary.soft_seeded += 1;
       } else summary.errors += 1;
     }
+    return wrote;
+  }
 
-    if (needsFullSeed) {
-      const { error: flagErr } = await input.admin
-        .from("businesses")
-        .update({ arbox_lost_lead_seeded: true })
-        .eq("id", businessId);
-      if (flagErr) {
-        console.error("[leads/arbox-lost-lead] seed flag update failed:", flagErr.message);
-        summary.errors += 1;
-        summary.fetch_error = "arbox_lost_lead_seeded_flag_failed";
-      }
-      console.info("[leads/arbox-lost-lead] seeded 30-day window", {
-        businessId,
-        businessSlug,
-        seeded: summary.seeded,
-      });
-    } else {
-      console.info("[leads/arbox-lost-lead] soft-seeded empty log", {
-        businessId,
-        businessSlug,
-        soft_seeded: summary.soft_seeded,
-      });
+  if (needsFullSeed) {
+    for (const rule of rulesWithTemplate) {
+      await seedRuleRows(rule, "seeded");
     }
+    const { error: flagErr } = await input.admin
+      .from("businesses")
+      .update({ arbox_lost_lead_seeded: true })
+      .eq("id", businessId);
+    if (flagErr) {
+      console.error("[leads/arbox-lost-lead] seed flag update failed:", flagErr.message);
+      summary.errors += 1;
+      summary.fetch_error = "arbox_lost_lead_seeded_flag_failed";
+    }
+    console.info("[leads/arbox-lost-lead] seeded 30-day window", {
+      businessId,
+      businessSlug,
+      seeded: summary.seeded,
+    });
     return summary;
   }
 
-  for (const raw of report.rows) {
+  const seededThisRun = new Set<string>();
+  for (const rule of rulesWithTemplate) {
+    const { count, error } = await input.admin
+      .from("arbox_lost_lead_sync_log")
+      .select("lead_id", { count: "exact", head: true })
+      .eq("business_id", businessId)
+      .eq("trigger_id", rule.id);
+    if (error) {
+      console.error("[leads/arbox-lost-lead] per-trigger seed count failed:", error.message);
+      continue;
+    }
+    if ((count ?? 0) > 0) continue;
+    await seedRuleRows(rule, "soft_seeded");
+    seededThisRun.add(rule.id);
+  }
+
+  for (const raw of reportRows) {
     const row = raw as ArboxLostLeadRow;
     const leadId = parseLostLeadId(row);
     const lostDate = normalizeLostDatePk(row.lost_date);
@@ -557,120 +528,140 @@ export async function syncArboxLostLeadForBusiness(input: {
     }
     if (leadId === LOST_LEAD_SOFT_SEED_SENTINEL_LEAD_ID) continue;
 
-    summary.processed += 1;
-    const logBase = {
-      businessId,
-      lead_id: leadId,
-      lost_date: lostDate,
-    };
+    const eventYmd = reportTimestampToYmd(lostDate);
+    let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>> | undefined;
 
-    try {
-      const { data: existing } = await input.admin
-        .from("arbox_lost_lead_sync_log")
-        .select("status, attempts, contact_id")
-        .eq("business_id", businessId)
-        .eq("lead_id", leadId)
-        .eq("lost_date", lostDate)
-        .maybeSingle();
-
-      const existingStatus = String((existing as { status?: unknown } | null)?.status ?? "").trim();
-      const existingAttempts = parseCancellationSyncAttempts(
-        (existing as { attempts?: unknown } | null)?.attempts
-      );
-      if (existingStatus && existingStatus !== "pending") {
-        summary.already += 1;
-        console.info("[leads/arbox-lost-lead] dispatch", {
-          ...logBase,
-          dispatch: "already" satisfies LostLeadDispatch,
-        });
+    for (const rule of rulesWithTemplate) {
+      if (seededThisRun.has(rule.id)) continue;
+      if (
+        !eventYmd ||
+        !isExactDaysAfterEvent({
+          eventYmd,
+          todayYmd,
+          delayDays: rule.delay_days,
+        })
+      ) {
         continue;
       }
 
-      const resolved = await resolveOrCreateContact({
-        admin: input.admin,
+      summary.processed += 1;
+      const logBase = {
         businessId,
-        row,
-        leadId,
-      });
-      const phone = resolved.phone;
-      if (!phone) {
-        summary.no_phone += 1;
-        const marked = await upsertLostLeadSyncLog({
+        trigger_id: rule.id,
+        lead_id: leadId,
+        lost_date: lostDate,
+      };
+
+      try {
+        const { data: existing } = await input.admin
+          .from("arbox_lost_lead_sync_log")
+          .select("status, attempts, contact_id")
+          .eq("business_id", businessId)
+          .eq("trigger_id", rule.id)
+          .eq("lead_id", leadId)
+          .eq("lost_date", lostDate)
+          .maybeSingle();
+
+        const existingStatus = String((existing as { status?: unknown } | null)?.status ?? "").trim();
+        const existingAttempts = parseCancellationSyncAttempts(
+          (existing as { attempts?: unknown } | null)?.attempts
+        );
+        if (existingStatus && existingStatus !== "pending") {
+          summary.already += 1;
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            dispatch: "already" satisfies LostLeadDispatch,
+          });
+          continue;
+        }
+
+        if (!resolved) {
+          resolved = await resolveOrCreateContact({
+            admin: input.admin,
+            businessId,
+            row,
+            leadId,
+          });
+        }
+        const phone = resolved.phone;
+        if (!phone) {
+          summary.no_phone += 1;
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "no_phone",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            contact: resolved.contact?.id ?? null,
+            dispatch: "no_phone" satisfies LostLeadDispatch,
+          });
+          continue;
+        }
+
+        const send = await dispatchLostLeadTemplate({
           admin: input.admin,
           businessId,
+          businessSlug,
+          phone,
+          fullName: resolveReportFullName(row) ?? resolved.contact?.full_name ?? null,
           leadId,
           lostDate,
-          contactId: resolved.contact?.id ?? null,
-          nowIso,
-          status: "no_phone",
-          attempts: existingAttempts,
+          rule,
         });
-        if (!marked.ok) summary.errors += 1;
+
+        if (send.dispatch === "immediate") summary.notified += 1;
+        else if (send.dispatch === "deferred") summary.deferred += 1;
+        else if (send.dispatch === "gated") summary.gated += 1;
+
         console.info("[leads/arbox-lost-lead] dispatch", {
           ...logBase,
           contact: resolved.contact?.id ?? null,
-          dispatch: "no_phone" satisfies LostLeadDispatch,
-        });
-        continue;
-      }
-
-      const send = await dispatchLostLeadTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone,
-        fullName: resolveReportFullName(row) ?? resolved.contact?.full_name ?? null,
-        leadId,
-        lostDate,
-        rule,
-        now,
-      });
-
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") {
-        /* attempts updated below */
-      }
-
-      console.info("[leads/arbox-lost-lead] dispatch", {
-        ...logBase,
-        contact: resolved.contact?.id ?? null,
-        phone: maskPhoneForLog(phone),
-        dispatch: send.dispatch,
-      });
-
-      if (
-        send.dispatch === "immediate" ||
-        send.dispatch === "deferred" ||
-        send.dispatch === "gated" ||
-        send.dispatch === "send_failed"
-      ) {
-        const next = nextCancellationSyncLogAfterDispatch({
+          phone: maskPhoneForLog(phone),
           dispatch: send.dispatch,
-          attemptsSoFar: existingAttempts,
         });
-        if (next.hitCap) summary.abandoned += 1;
-        const marked = await upsertLostLeadSyncLog({
-          admin: input.admin,
+
+        if (
+          send.dispatch === "immediate" ||
+          send.dispatch === "deferred" ||
+          send.dispatch === "gated" ||
+          send.dispatch === "send_failed"
+        ) {
+          const next = nextCancellationSyncLogAfterDispatch({
+            dispatch: send.dispatch,
+            attemptsSoFar: existingAttempts,
+          });
+          if (next.hitCap) summary.abandoned += 1;
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: next.status,
+            attempts: next.attempts,
+          });
+          if (!marked.ok) summary.errors += 1;
+        }
+      } catch (e) {
+        summary.errors += 1;
+        console.error("[leads/arbox-lost-lead] row threw", {
           businessId,
-          leadId,
-          lostDate,
-          contactId: resolved.contact?.id ?? null,
-          nowIso,
-          status: next.status,
-          attempts: next.attempts,
+          trigger_id: rule.id,
+          lead_id: leadId,
+          lost_date: lostDate,
+          error: e instanceof Error ? e.message : String(e),
         });
-        if (!marked.ok) summary.errors += 1;
       }
-    } catch (e) {
-      summary.errors += 1;
-      console.error("[leads/arbox-lost-lead] row threw", {
-        businessId,
-        lead_id: leadId,
-        lost_date: lostDate,
-        error: e instanceof Error ? e.message : String(e),
-      });
     }
   }
 

@@ -582,6 +582,7 @@ export async function GET(req: NextRequest) {
         processed: 0,
         already: 0,
         skipped_filter: 0,
+        skipped_rejoined: 0,
         notified: 0,
         deferred: 0,
         gated: 0,

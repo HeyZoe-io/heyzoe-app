@@ -596,7 +596,7 @@ export async function resolveArboxNewLeadTemplateTrigger(input: {
   return pickArboxNewLeadTemplateTriggerRule(rules);
 }
 
-/** Enabled lost_lead (A7) rules — pick newest with a template name. */
+/** Enabled lost_lead (A7) rules — daily handler fires each independently (day 1 / 7 / 21). */
 export async function loadEnabledLostLeadTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
@@ -722,16 +722,26 @@ export function pickMembershipCancelledTemplateTriggerRule(
   rowTypeName: string,
   nameById: Map<number, string>
 ): PurchaseTemplateTriggerRule | null {
-  const withName = rules.filter((rule) => Boolean(rule.template_name?.trim()));
-  const matching = withName.filter((rule) =>
-    cancellationRowMatchesProductFilter(rowTypeName, rule, nameById)
-  );
+  const matching = matchingMembershipCancelledTemplateTriggerRules(rules, rowTypeName, nameById);
   if (!matching.length) return null;
 
   const specific = matching.filter((rule) => (rule.product_filter?.length ?? 0) > 0);
   const pool = specific.length ? specific : matching;
   pool.sort((a, b) => ruleUpdatedAtMs(b) - ruleUpdatedAtMs(a));
   return pool[0] ?? null;
+}
+
+/** All enabled rules whose product_filter matches the cancelled membership type. */
+export function matchingMembershipCancelledTemplateTriggerRules(
+  rules: PurchaseTemplateTriggerRule[],
+  rowTypeName: string,
+  nameById: Map<number, string>
+): PurchaseTemplateTriggerRule[] {
+  return rules.filter(
+    (rule) =>
+      Boolean(rule.template_name?.trim()) &&
+      cancellationRowMatchesProductFilter(rowTypeName, rule, nameById)
+  );
 }
 
 export async function resolveMembershipCancelledTemplateTrigger(input: {

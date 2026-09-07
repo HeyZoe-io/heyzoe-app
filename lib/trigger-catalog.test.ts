@@ -255,7 +255,7 @@ function triggerCatalogAudience(type: string) {
     hasArbox: true,
     existingTriggerTypes: ["lost_lead"],
   }).map((e) => e.type);
-  assert.ok(!leadsWithLostLead.includes("lost_lead"), "unique lost_lead: no create card");
+  assert.ok(leadsWithLostLead.includes("lost_lead"), "non-unique lost_lead: create-another card stays");
 
   const leadsWithTrialReminder = creatableCatalogEntriesForCell({
     activation: "automatic",
@@ -278,6 +278,17 @@ function triggerCatalogAudience(type: string) {
   assert.ok(membersWithPurchase.includes("missed_class"));
   assert.ok(membersWithPurchase.includes("attendance_gap"));
   assert.ok(!(membersWithPurchase as string[]).includes("attendance_gap_booked"));
+
+  const membersWithCancelled = creatableCatalogEntriesForCell({
+    activation: "automatic",
+    audience: "members",
+    hasArbox: true,
+    existingTriggerTypes: ["membership_cancelled"],
+  }).map((e) => e.type);
+  assert.ok(
+    membersWithCancelled.includes("membership_cancelled"),
+    "non-unique membership_cancelled: create-another card stays"
+  );
 
   const plannedMembers = plannedCatalogEntriesForCell({
     activation: "automatic",
@@ -366,12 +377,13 @@ function triggerCatalogAudience(type: string) {
 {
   assert.equal(uniqueCreateModeFor("incoming_lead"), "hide");
   assert.equal(uniqueCreateModeFor("arbox_new_lead"), "warn");
-  assert.equal(uniqueCreateModeFor("lost_lead"), "warn");
+  assert.equal(uniqueCreateModeFor("lost_lead"), undefined);
   assert.equal(uniqueCreateModeFor("trial_reminder"), "warn");
   assert.equal(uniqueCreateModeFor("purchase"), undefined);
   assert.equal(isUniquePerBusinessTriggerType("incoming_lead"), true);
   assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), true);
-  assert.equal(isUniquePerBusinessTriggerType("lost_lead"), true);
+  assert.equal(isUniquePerBusinessTriggerType("lost_lead"), false);
+  assert.equal(isUniquePerBusinessTriggerType("membership_cancelled"), false);
   assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
   assert.equal(isUniquePerBusinessTriggerType("no_response"), false);
 }
@@ -380,13 +392,15 @@ function triggerCatalogAudience(type: string) {
   assert.equal(minDelayDaysForTrigger("no_response"), 2);
   assert.equal(defaultDelayDays("no_response"), 2);
   assert.equal(defaultDelayDays("purchase"), 0);
+  assert.equal(defaultDelayDays("membership_cancelled"), 0);
   assert.equal(minDelayDaysForTrigger("purchase"), 0);
+  assert.equal(minDelayDaysForTrigger("membership_cancelled"), 0);
 }
 
 {
   assert.equal(forcesDelayAfter("purchase"), false);
   assert.equal(forcesDelayAfter("credit_refusal"), false);
-  assert.equal(forcesDelayAfter("membership_cancelled"), false);
+  assert.equal(forcesDelayAfter("membership_cancelled"), true);
   assert.equal(forcesDelayAfter("registered_after_trial"), true);
   assert.equal(forcesDelayAfter("not_registered_after_trial"), true);
   assert.equal(forcesDelayAfter("birthday"), false);
@@ -394,7 +408,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesDelayAfterFacade("birthday"), false);
   assert.equal(isImmediateDelayTrigger("purchase"), true);
   assert.equal(isImmediateDelayTrigger("credit_refusal"), true);
-  assert.equal(isImmediateDelayTrigger("membership_cancelled"), true);
+  assert.equal(isImmediateDelayTrigger("membership_cancelled"), false);
   assert.equal(isImmediateDelayTrigger("registered_after_trial"), false);
   assert.equal(showsItemTypeFilter("purchase"), true);
   assert.equal(showsItemTypeFilter("credit_refusal"), false);
@@ -440,7 +454,8 @@ function triggerCatalogAudience(type: string) {
     "5 ימים לפני פקיעת התוקף"
   );
   assert.equal(formatDelayLabel("purchase", 0, "after"), "נשלח מיד");
-  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "נשלח מיד");
+  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "ביום הביטול");
+  assert.equal(formatDelayLabel("membership_cancelled", 7, "after"), "7 ימים אחרי הביטול");
   assert.equal(formatDelayLabel("credit_refusal", 1, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
   assert.equal(formatDelayLabel("attendance_gap", 21, "after"), "21 ימי היעדרות");

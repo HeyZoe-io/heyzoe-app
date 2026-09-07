@@ -1,6 +1,7 @@
 -- A7 lost_lead win-back (lostLeadsReport).
 -- Scheduling: cron-job.org → GET /api/cron/arbox-daily-triggers (not Vercel crons — Hobby).
 -- Grain: (business_id, lead_id, lost_date) — trimmed report lost_date text (A9 cancelled_time grain).
+-- Sequences: later run supabase/arbox_lost_lead_sync_log_trigger_id.sql (PK adds trigger_id).
 -- A new lost_date for the same lead_id is a new PK → re-entry can fire again.
 -- First enable seeds the 30-day window without WhatsApp (arbox_lost_lead_seeded).
 -- Soft-seed: flag already true + empty sync_log (rule added later) marks the 30-day cohort

@@ -9,6 +9,10 @@ import {
   parseLostLeadId,
   seedLostLeadReportDateRange,
 } from "@/lib/leads/arbox-lost-lead";
+import {
+  isExactDaysAfterEvent,
+  lookbackDaysForSequenceDelays,
+} from "@/lib/leads/arbox-membership-cancelled";
 import { SALES_FLOW_START_TRIGGERS } from "@/lib/sales-flow-start-triggers";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import { TEMPLATE_PRESETS } from "@/lib/template-presets";
@@ -46,6 +50,10 @@ import {
   const forward = lostLeadReportDateRange({ seeded: true, now });
   assert.equal(forward.toDate, "2026-09-07");
   assert.equal(forward.fromDate, "2026-09-04");
+
+  const seq = lostLeadReportDateRange({ seeded: true, now, lookbackDays: 21 });
+  assert.equal(seq.toDate, "2026-09-07");
+  assert.equal(seq.fromDate, "2026-08-17");
 
   const first = lostLeadReportDateRange({ seeded: false, now });
   assert.deepEqual(first, seed);
@@ -93,8 +101,26 @@ import {
   assert.equal(minDelayDaysForTrigger("lost_lead"), 1);
   assert.equal(defaultDelayDays("lost_lead"), 1);
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
-  assert.equal(isUniquePerBusinessTriggerType("lost_lead"), true);
-  assert.equal(uniqueCreateModeFor("lost_lead"), "warn");
+  assert.equal(isUniquePerBusinessTriggerType("lost_lead"), false);
+  assert.equal(uniqueCreateModeFor("lost_lead"), undefined);
+}
+
+{
+  assert.equal(lookbackDaysForSequenceDelays([1], 3), 3);
+  assert.equal(lookbackDaysForSequenceDelays([1, 7, 21], 3), 21);
+  assert.equal(lookbackDaysForSequenceDelays([40], 3), 30);
+  assert.equal(
+    isExactDaysAfterEvent({ eventYmd: "2026-09-06", todayYmd: "2026-09-07", delayDays: 1 }),
+    true
+  );
+  assert.equal(
+    isExactDaysAfterEvent({ eventYmd: "2026-09-06", todayYmd: "2026-09-07", delayDays: 7 }),
+    false
+  );
+  assert.equal(
+    isExactDaysAfterEvent({ eventYmd: "2026-09-07", todayYmd: "2026-09-07", delayDays: 0 }),
+    true
+  );
 }
 
 console.log("arbox-lost-lead.test.ts: ok");

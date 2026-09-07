@@ -101,10 +101,12 @@ Rules:
 
 ## Seed vs forward-looking
 
-- **Historical reports** (cancellations, FAIL charges, leads): first run with an
+- Historical reports (cancellations, FAIL charges, leads): first run with an
   enabled rule upserts the window into sync_log, sets the seed flag, **returns
-  without WhatsApp**. After seed, use a short lookback (typically today +
-  yesterday) so late rows still appear; PK dedup prevents resend.
+  without WhatsApp**. After seed, lookback is typically yesterday+today; **A7/A9
+  sequences** widen lookback to `min(30, max(minLookback, max enabled delay_days))`
+  so day-7 / day-21 steps still see the row. PK dedup is per `trigger_id`.
+  Send on the **due day only** (re-read the report each cron run — do not enqueue).
 - **Forward-looking reports** (expiring memberships / packs): no seed flag —
   the API only returns future `end_date`s.
 
@@ -149,7 +151,7 @@ Rules:
 ## Delay mode `none` (immediate confirmations)
 
 - Catalog `delay: "none"` for `purchase`, `credit_refusal`,
-  `membership_cancelled`, `freeze_created` (and manual campaigns). UI hides before/after + days;
+  `freeze_created` (and manual campaigns). UI hides before/after + days;
   shows «נשלח מיד»; create/edit force `delay_days=0`.
 - Runtime still honors a stored `delay_days > 0` if present (no backfill) —
   existing rows are unchanged.
@@ -277,11 +279,15 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Cron: isolated try/catch on existing `arbox-daily-triggers` (not a new job).
   **IO:** 1 paginated GET per business per daily run when an enabled A7 rule
   with `template_name` exists. No per-lead Arbox calls.
-- Catalog: automatic × leads, `uniquePerBusiness: true`, `uniqueCreateMode: "warn"`,
-  delay **after**, `minDelayDays: 1`, default 1 day after `lost_date`, no product
-  filter. UI label **«win-back לליד אבוד (ארבוקס)»** (Arbox Mark as Lost, not Zoe
-  detection). Preset **MARKETING**
+- Catalog: automatic × leads, **`uniquePerBusiness: false`** (manual sequences:
+  day 1 / 7 / 21 replace planned D3). Delay **after**, `minDelayDays: 1`, default
+  1 day after `lost_date`, no product filter. UI label **«win-back לליד אבוד
+  (ארבוקס)»** (Arbox Mark as Lost, not Zoe detection). Preset **MARKETING**
   (`first_name` only). Button QUICK_REPLY **«אשמח לפרטים»**.
+- **Due-day send (not enqueue):** each enabled rule fires independently when
+  `ymdDiffDays(today, lost_date) === delay_days`. Daily re-fetch is the
+  stop-condition: if the lead left `lostLeadsReport` (came back / joined), later
+  steps do not send.
 - **Button → sales flow:** Meta QUICK_REPLY arrives as inbound text. The tap
   starts sales flow only because **«אשמח לפרטים»** is in
   `SALES_FLOW_START_TRIGGERS` (`lib/sales-flow-start-triggers.ts`) — same as
@@ -289,18 +295,34 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   button copy.** If a studio wants different wording, add that exact string to
   `SALES_FLOW_START_TRIGGERS` first; otherwise the tap will not restart the
   sales flow.
-- Dedup: `arbox_lost_lead_sync_log` PK `(business_id, lead_id, lost_date)` where
-  `lost_date` is **trimmed report text** (A9 `cancelled_time` grain). A new
-  `lost_date` → new PK → re-entry can fire again. Delayed send extras live in
-  `scheduled_template_sends.dedup_key` (`lost_lead:…:encodedLostDate`); drain
-  refills `first_name` from the contact.
+- Dedup: `arbox_lost_lead_sync_log` PK `(business_id, trigger_id, lead_id, lost_date)`
+  where `lost_date` is **trimmed report text**. A new `lost_date` → new grain →
+  re-entry can fire again. Each sequence step has its own `trigger_id`.
 - Seed: `businesses.arbox_lost_lead_seeded` — first enable marks the 30-day
-  window without WhatsApp. After seed, lookback **3 days** (not 1). Soft-seed
-  like freeze/C1: flag already true + empty log (rule added later) marks the
+  window without WhatsApp. After seed, lookback = `min(30, max(3, max delay))`.
+  Soft-seed per `trigger_id` (new rule later): empty log for that id marks the
   current 30-day cohort without send; empty cohort still gets a one-shot
   sentinel (`lead_id=0`, `lost_date=1970-01-01`). Retry: A9 `attempts`/`status`.
 - No conflict with `arbox_new_lead` (trial-sync appearance vs daily loss).
-- Migration: `supabase/arbox_lost_lead_sync_log.sql` (run before deploy).
+- Migrations: `supabase/arbox_lost_lead_sync_log.sql` then
+  `supabase/arbox_lost_lead_sync_log_trigger_id.sql` (run before deploy).
+
+## Membership cancelled sequences (A9)
+
+- Lost lead ≠ cancelled member: A7 is leads who never joined (`lostLeadsReport`);
+  A9 is former customers (`canceledMembershipsReport`). Different copy.
+- Catalog already `uniquePerBusiness: false`. Delay **after** (was `none`),
+  `minDelayDays: 0` so day-of-cancel + day 7 / 21 can coexist (replaces planned D4).
+  Delay 0 label **«ביום הביטול»**.
+- Same due-day + per-`trigger_id` PK as A7:
+  `(business_id, trigger_id, user_id, cancelled_time)`.
+- **Send-time re-check:** cancel rows are historical (a rejoin does not drop the
+  old row). Win-back steps (`delay_days > 0`) cross the A1 customer set
+  (`fetchArboxCustomerUserIds`, activeMemberships ∪ sessions). If `user_id` is
+  active again → skip send, mark sync_log `seeded` (`skipped_rejoined`). Day-of
+  confirmation (`delay 0`) still sends. Lazy fetch: +2 GETs only when a
+  delay>0 step is due today. A7 still stops when the lead leaves `lostLeadsReport`.
+- Migration: `supabase/arbox_cancellation_sync_log_trigger_id.sql` (run before deploy).
 
 ## Trial-class reminder (`trial_reminder`)
 

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import {
   ARBOX_SYNC_SEND_ATTEMPT_CAP,
   isCancellationSyncLogTerminal,
+  isExactDaysAfterEvent,
+  isMembershipCancelledWinBackStep,
+  lookbackDaysForSequenceDelays,
   membershipCancelledReportDateRange,
   nextCancellationSyncLogAfterDispatch,
   normalizeCancelledTimePk,
@@ -9,6 +12,7 @@ import {
   parseCancelledEventDate,
   seedMembershipCancelledReportDateRange,
   shouldRetryCancellationSyncLog,
+  shouldSkipCancelledWinBackBecauseActive,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import {
@@ -24,6 +28,7 @@ import {
 } from "@/lib/template-send-params";
 import {
   cancellationRowMatchesProductFilter,
+  matchingMembershipCancelledTemplateTriggerRules,
   pickMembershipCancelledTemplateTriggerRule,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
@@ -63,6 +68,10 @@ function rule(
   const forward = membershipCancelledReportDateRange({ seeded: true, now });
   assert.equal(forward.toDate, "2026-09-03");
   assert.equal(forward.fromDate, "2026-09-02");
+
+  const seq = membershipCancelledReportDateRange({ seeded: true, now, lookbackDays: 21 });
+  assert.equal(seq.toDate, "2026-09-03");
+  assert.equal(seq.fromDate, "2026-08-13");
 
   const first = membershipCancelledReportDateRange({ seeded: false, now });
   assert.deepEqual(first, seed);
@@ -132,6 +141,54 @@ function rule(
     nameById
   );
   assert.equal(onlyCatch?.id, "catch");
+
+  const day0 = rule({ id: "d0", delay_days: 0, updated_at: "2026-09-01T00:00:00Z" });
+  const day7 = rule({ id: "d7", delay_days: 7, updated_at: "2026-09-02T00:00:00Z" });
+  const matchingAll = matchingMembershipCancelledTemplateTriggerRules(
+    [day0, day7, other],
+    "מנוי חודשי",
+    nameById
+  );
+  assert.deepEqual(
+    matchingAll.map((r) => r.id).sort(),
+    ["d0", "d7"]
+  );
+  assert.equal(
+    isExactDaysAfterEvent({ eventYmd: "2026-09-03", todayYmd: "2026-09-03", delayDays: 0 }),
+    true
+  );
+  assert.equal(lookbackDaysForSequenceDelays([0, 7, 21], 1), 21);
+}
+
+{
+  const active = new Set<number>([44123]);
+  assert.equal(isMembershipCancelledWinBackStep(0), false);
+  assert.equal(isMembershipCancelledWinBackStep(7), true);
+  assert.equal(
+    shouldSkipCancelledWinBackBecauseActive({
+      delayDays: 0,
+      userId: 44123,
+      activeCustomerIds: active,
+    }),
+    false,
+    "day-of confirmation still sends after rejoin"
+  );
+  assert.equal(
+    shouldSkipCancelledWinBackBecauseActive({
+      delayDays: 7,
+      userId: 44123,
+      activeCustomerIds: active,
+    }),
+    true
+  );
+  assert.equal(
+    shouldSkipCancelledWinBackBecauseActive({
+      delayDays: 21,
+      userId: 99,
+      activeCustomerIds: active,
+    }),
+    false
+  );
 }
 
 {

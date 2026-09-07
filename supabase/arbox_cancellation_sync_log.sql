@@ -1,6 +1,7 @@
 -- Membership-cancelled trigger (Arbox canceledMembershipsReport — American spelling, one L).
 -- Scheduling: cron-job.org → GET /api/cron/arbox-daily-triggers (not Vercel crons — Hobby).
 -- Grain: user_id + cancelled_time (report has no membership_user_id).
+-- Sequences: later run supabase/arbox_cancellation_sync_log_trigger_id.sql (PK adds trigger_id).
 -- First enabled run seeds the 30-day window without sending WhatsApp.
 -- Server-side only (service_role); RLS enabled with no client policies (= deny-all).
 --

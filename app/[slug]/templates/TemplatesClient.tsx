@@ -568,9 +568,6 @@ export default function TemplatesClient({
       if (j.error === "arbox_new_lead_exists") {
         throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
       }
-      if (j.error === "lost_lead_exists") {
-        throw new Error("כבר קיים טריגר win-back לליד אבוד (ארבוקס) — ערכו את הקיים במקום ליצור עוד אחד");
-      }
       if (j.error === "trial_reminder_exists") {
         throw new Error("כבר קיים טריגר תזכורת לשיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
       }

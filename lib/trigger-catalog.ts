@@ -184,7 +184,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "none",
+    delay: "after",
     showProductFilter: true,
     uniquePerBusiness: false,
     minDelayDays: 0,
@@ -382,8 +382,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "after",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "warn",
+    uniquePerBusiness: false,
     minDelayDays: 1,
     recipient: "customer",
     presetKey: "lost_lead",
@@ -675,7 +674,7 @@ export function forcesDelayAfter(triggerType: string): boolean {
   return true;
 }
 
-/** Purchase / credit_refusal / membership_cancelled (+ manual): no before/after picker. */
+/** Purchase / credit_refusal / freeze_created (+ manual): no before/after picker. */
 export function isImmediateDelayTrigger(triggerType: string): boolean {
   return triggerCatalogEntry(triggerType)?.delay === "none";
 }
@@ -790,6 +789,9 @@ export function formatDelayLabel(
   }
   if (type === "lost_lead") {
     return `${Math.max(1, days)} ימים אחרי אובדן הליד`;
+  }
+  if (type === "membership_cancelled") {
+    return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
   if (type === "trial_reminder") {
     return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
