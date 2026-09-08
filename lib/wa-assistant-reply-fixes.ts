@@ -328,7 +328,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
 - אל תזמיני לבחירת אימון/שיעור ואל תפרטי רשימת אימונים — המערכת שולחת תפריט/שאלה בנפרד מיד אחרייך.
 - בלי להתפלסף: תשובות קצרות ולעניין. אם הליד לא מרגיש טוב - רק «מצטערת לשמוע, מאחלת החלמה מהירה!» (אסור «אני מבינה שזה מתסכל» / «קשה לעמוד בצד» / «ההשקעה הטובה ביותר»). עובדה מהידע: ישר «ניתן להקפיא…» בלי «הטוב שיש לנו מדיניות גמישה». בלבול בהקפאה/חיוב על מנוי קיים: משפט אמפתיה קצר והעברה לצוות — אסור «זה בדיוק משהו שצריך להתברר», אסור «חשוב שכל דבר יהיה על פי מה שביקשת». נכון: «זה משהו שצריך לברר מול הצוות». אם הליד מבקש מועד שכבר נקבע / ליומן ולא ברור אם מנוי או ניסיון — שאלי רק «היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?». אם מנוי קיים: מעבירה לצוות, לא שולחת להתקשר לבד.
 - אם הליד משתף כוונה/עדכון בלי שאלה («אנסה להגיע בסופ״ש») - אישור קצר וחם בלבד. אסור שיעורי חיים («אל תתנגדי לעצמך») ואסור «בואי תרשמי» - המערכת שולחת CTA בנפרד.
-- אחרי תודה / «חושבת על זה» / שיתוף שקשה עכשיו: אמפתיה קצרה בלבד. אסור «נשמח לראותך ביום X בשעה Y» אלא אם הליד ממש נרשם למועד הזה בשיחה. הצעת מאמן בהיסטוריה אינה הרשמה.
+- אחרי תודה / «חושבת על זה» / שיתוף שקשה עכשיו: אמפתיה קצרה בלבד. אסור «נשמח לראותך ביום X בשעה Y» אלא אם הליד ממש נרשם למועד הזה בשיחה. הצעת מאמן בהיסטוריה אינה הרשמה. אחרי סגירה שלמה כמו «נשמח לראותך בשיעור» — סיימי שם. אסור משפט נוסף («בינתיים תתאפרי», «תתפנקי»).
 - איחור / בדרך לשיעור: רק «בסדר גמור אנחנו כאן.» אסור «בטוח שזה יעבוד», אסור «קח את הזמן».
 ${lexicon ? `- מועדים לאימון שכבר נבחר — העתיקי בדיוק מהשורה: «${lexicon}». לציון מועד בודד: «ביום {יום} בשעה {שעה}» עם שם היום כמו בלקסיקון.` : ""}
 ${scheduleExample ? `- אם מוזכרים מועדים/זמנים אחרי שכבר נבחר אימון — ניסוח כמו: «${scheduleExample}» (לא «את מעניינת ב… תוכלי לבחור מהזמנים»).` : ""}`;
@@ -529,6 +529,37 @@ function stripFakeScheduleImagePlaceholders(text: string): string {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function looksOperationalSeeYouTail(tail: string): boolean {
+  return /https?:\/\/|\d{1,2}:\d{2}|₪|כתובת|רחוב|לינק/iu.test(tail);
+}
+
+/**
+ * אחרי סגירה שלמה «נשמח לראותך בשיעור» Claude מוסיף משפט ריק («בינתיים תתאפרי»).
+ * חותכים רק זנב אחרי נקודה/סימן קריאה — לא «בשיעור בשעה 18:00».
+ */
+export function stripFillerAfterSeeYouInClass(text: string): string {
+  const raw = String(text ?? "").trim();
+  if (!raw) return raw;
+  const close = raw.match(/נשמח\s+לראות(?:ך|כם)\s+בשיעור/u);
+  if (!close || close.index == null) return raw;
+  const afterClose = raw.slice(close.index + close[0].length);
+  const afterMatch = afterClose.match(
+    /^\s*[.!]+\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]+\s*)?([\s\S]*)$/u
+  );
+  if (!afterMatch) return raw;
+  const tail = String(afterMatch[1] ?? "").trim();
+  if (!tail || looksOperationalSeeYouTail(tail)) return raw;
+  return `${raw.slice(0, close.index + close[0].length)}.`;
+}
+
+/** סגירת «בינתיים + ציווי ריק» בסוף התשובה. */
+const TRAILING_MEANWHILE_FILLER_RE =
+  /\s*בינתיים\s+(?:תתאפר(?:י)?|תתפנק(?:י)?|תתחזק(?:י)?)\s*[!.]*\s*$/iu;
+
+export function stripTrailingMeanwhileFiller(text: string): string {
+  return String(text ?? "").replace(TRAILING_MEANWHILE_FILLER_RE, "").trim();
+}
+
 /** post-process על תשובת split לפני שליחה ל-WhatsApp (אפס API). */
 export function applyKnownAssistantReplyFixes(
   text: string,
@@ -563,6 +594,8 @@ export function applyKnownAssistantReplyFixes(
   }
 
   s = stripFakeScheduleImagePlaceholders(s);
+  s = stripFillerAfterSeeYouInClass(s);
+  s = stripTrailingMeanwhileFiller(s);
   const lang = resolveReplyFixLanguage(input);
   if (looksLikeBotConfigMetaReply(s)) {
     return buildStudioScopeRedirectReply(lang);

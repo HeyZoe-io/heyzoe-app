@@ -172,6 +172,43 @@ assert.match(keepSeeYouNoTime, /נשמח לראותך/);
 const keepSeeYouInClass = applyKnownAssistantReplyFixes("נשמח לראותך בשיעור", { knowledge });
 assert.equal(keepSeeYouInClass, "נשמח לראותך בשיעור");
 
+const limitlessRecovering = applyKnownAssistantReplyFixes(
+  "סבבה, אנחנו כאן כשתרצי 💜 אל תדחקי על עצמך - הגוף צריך זמן להחלים. כשתרגישי מוכנה, נשמח לראותך בשיעור. בינתיים תתאפרי!",
+  { knowledge }
+);
+assert.equal(
+  limitlessRecovering,
+  "סבבה, אנחנו כאן כשתרצי 💜 אל תדחקי על עצמך - הגוף צריך זמן להחלים. כשתרגישי מוכנה, נשמח לראותך בשיעור."
+);
+assert.doesNotMatch(limitlessRecovering, /תתאפרי|בינתיים/);
+
+const meanwhilePamperOnly = applyKnownAssistantReplyFixes(
+  "סבבה, אנחנו כאן כשתרצי 💜 בינתיים תתפנקי!",
+  { knowledge }
+);
+assert.equal(meanwhilePamperOnly, "סבבה, אנחנו כאן כשתרצי 💜");
+assert.doesNotMatch(meanwhilePamperOnly, /תתפנקי|בינתיים/);
+
+const keepSeeYouThenAddress = applyKnownAssistantReplyFixes(
+  "נשמח לראותך בשיעור. הכתובת היא בן עטר 31 https://maps.example.com",
+  { knowledge }
+);
+assert.match(keepSeeYouThenAddress, /כתובת/);
+assert.match(keepSeeYouThenAddress, /maps\.example\.com/);
+
+const extraAfterSeeYou = applyKnownAssistantReplyFixes(
+  "כשתרגישי מוכנה, נשמח לראותך בשיעור. שמרי על עצמך ואל תשכחי לשתות מים!",
+  { knowledge }
+);
+assert.equal(extraAfterSeeYou, "כשתרגישי מוכנה, נשמח לראותך בשיעור.");
+assert.doesNotMatch(extraAfterSeeYou, /שמרי על עצמך|לשתות מים/);
+
+const keepSeeYouWithTimeSameSentence = applyKnownAssistantReplyFixes(
+  "נשמח לראותך בשיעור בשעה הקרובה כשיהיה נוח",
+  { knowledge }
+);
+assert.match(keepSeeYouWithTimeSameSentence, /בשעה הקרובה/);
+
 const keepAfterRegSlot = applyKnownAssistantReplyFixes(
   "מתרגשות לראותך בקרוב ברפורמר ביום רביעי בשעה 18:00",
   { knowledge, trialRegistered: true }
@@ -228,5 +265,7 @@ assert.equal(
   "אם ברצונך לנסות שיעור אני כאן"
 );
 assert.match(spellingRule, /לא רק לחידוש/);
+assert.match(spellingRule, /בינתיים תתאפרי/);
+assert.match(spellingRule, /נשמח לראותך בשיעור/);
 
 console.log("wa-assistant-reply-fixes.test.ts: ok");
