@@ -108,8 +108,9 @@ export async function fetchPhoneNumbersForWaba(
 /**
  * Subscribes the HeyZoe Meta app to WABA webhooks (`subscribed_apps`).
  * Idempotent: Meta accepts repeated POST for an already-subscribed WABA.
- * App-level webhook fields (including `smb_message_echoes` for coexistence
- * phone-app sends) must be enabled in the Meta App Dashboard.
+ * App-level webhook fields (`smb_message_echoes` for coexistence phone-app
+ * sends, `user_preferences` for marketing Stop promotions) must be enabled in
+ * the Meta App Dashboard.
  */
 export async function subscribeWabaToAppWebhooks(wabaId: string, token: string): Promise<void> {
   const waba = String(wabaId ?? "").trim().replace(/\s+/g, "");

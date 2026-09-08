@@ -1,4 +1,5 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
+import { suppressMarketingOptOutFromSendError } from "@/lib/wa-marketing-opt-out";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 export type OwnerTemplateComponent = {
@@ -129,6 +130,13 @@ export async function sendBusinessTemplate(input: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
+      await suppressMarketingOptOutFromSendError({
+        phoneNumberId,
+        phone: to,
+        errorText: errText,
+      }).catch((e) =>
+        console.error("[sendBusinessTemplate] marketing opt-out suppress failed:", e)
+      );
       return { ok: false, error: errText || `http_${res.status}` };
     }
     return { ok: true };

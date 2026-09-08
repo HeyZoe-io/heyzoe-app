@@ -25,6 +25,7 @@ import {
 import { applyAlreadySentSkip } from "@/lib/manual-bulk/recurrence";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { contactBlocksMarketingBulk } from "@/lib/wa-marketing-opt-out";
 
 export type ManualBulkRecipient = {
   recipientKey: string;
@@ -56,6 +57,7 @@ type ContactRow = {
   phone: string | null;
   full_name: string | null;
   opted_out: boolean | null;
+  marketing_opted_out?: boolean | null;
   trial_registered: boolean | null;
   session_phase: string | null;
   self_reported_registered_at?: string | null;
@@ -131,6 +133,13 @@ async function loadAlreadySentKeys(input: {
   return keys;
 }
 
+const CONTACTS_SELECT_FULL =
+  "id, phone, full_name, opted_out, marketing_opted_out, trial_registered, session_phase, self_reported_registered_at, arbox_user_id";
+const CONTACTS_SELECT_NO_MARKETING_FLAG =
+  "id, phone, full_name, opted_out, trial_registered, session_phase, self_reported_registered_at, arbox_user_id";
+const CONTACTS_SELECT_MIN =
+  "id, phone, full_name, opted_out, trial_registered, session_phase, arbox_user_id";
+
 async function loadBusinessContacts(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -138,34 +147,41 @@ async function loadBusinessContacts(input: {
   const out: ContactRow[] = [];
   let from = 0;
   for (let page = 0; page < MANUAL_BULK_CONTACTS_MAX_PAGES; page += 1) {
-    const { data, error } = await input.admin
+    let data: ContactRow[] | null = null;
+    let error: { message: string } | null = null;
+    const first = await input.admin
       .from("contacts")
-      .select(
-        "id, phone, full_name, opted_out, trial_registered, session_phase, self_reported_registered_at, arbox_user_id"
-      )
+      .select(CONTACTS_SELECT_FULL)
       .eq("business_id", input.businessId)
       .range(from, from + MANUAL_BULK_CONTACTS_PAGE - 1);
-    if (error) {
-      if (/self_reported_registered_at|column/i.test(error.message)) {
+    data = (first.data ?? null) as ContactRow[] | null;
+    error = first.error;
+    if (error && /marketing_opted_out|column|schema cache/i.test(error.message)) {
+      const mid = await input.admin
+        .from("contacts")
+        .select(CONTACTS_SELECT_NO_MARKETING_FLAG)
+        .eq("business_id", input.businessId)
+        .range(from, from + MANUAL_BULK_CONTACTS_PAGE - 1);
+      if (!mid.error) {
+        data = (mid.data ?? []) as ContactRow[];
+        error = null;
+      } else if (/self_reported_registered_at|column/i.test(mid.error.message)) {
         const fallback = await input.admin
           .from("contacts")
-          .select("id, phone, full_name, opted_out, trial_registered, session_phase, arbox_user_id")
+          .select(CONTACTS_SELECT_MIN)
           .eq("business_id", input.businessId)
           .range(from, from + MANUAL_BULK_CONTACTS_PAGE - 1);
-        if (fallback.error) {
-          console.error("[manual-bulk] contacts lookup failed:", fallback.error.message);
-          throw new Error("contacts_lookup_failed");
-        }
-        const rows = (fallback.data ?? []) as ContactRow[];
-        out.push(...rows);
-        if (rows.length < MANUAL_BULK_CONTACTS_PAGE) break;
-        from += MANUAL_BULK_CONTACTS_PAGE;
-        continue;
+        data = (fallback.data ?? []) as ContactRow[];
+        error = fallback.error;
+      } else {
+        error = mid.error;
       }
+    }
+    if (error) {
       console.error("[manual-bulk] contacts lookup failed:", error.message);
       throw new Error("contacts_lookup_failed");
     }
-    const rows = (data ?? []) as ContactRow[];
+    const rows = data ?? [];
     out.push(...rows);
     if (rows.length < MANUAL_BULK_CONTACTS_PAGE) break;
     from += MANUAL_BULK_CONTACTS_PAGE;
@@ -375,7 +391,7 @@ export async function buildManualBulkAudience(input: {
         continue;
       }
       const contact = byArboxUserId.get(row.userId) ?? (row.phone ? findContactByPhone(byPhone, row.phone) : null);
-      if (contact?.opted_out === true) {
+      if (contact && contactBlocksMarketingBulk(contact)) {
         skipped.opted_out += 1;
         continue;
       }
@@ -468,7 +484,7 @@ export async function buildManualBulkAudience(input: {
       withPhone.push({ recipientKey, phone, fullName: null });
       continue;
     }
-    if (contact.opted_out === true) {
+    if (contactBlocksMarketingBulk(contact)) {
       skipped.opted_out += 1;
       continue;
     }

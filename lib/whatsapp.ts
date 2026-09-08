@@ -537,6 +537,7 @@ export function explainMetaWebhookSkip(payload: unknown): string {
   let messageCount = 0;
   let statusCount = 0;
   let echoCount = 0;
+  let userPrefCount = 0;
   let sawAnyChange = false;
 
   for (const entry of entries) {
@@ -553,9 +554,11 @@ export function explainMetaWebhookSkip(payload: unknown): string {
       const msgs = Array.isArray(v.messages) ? v.messages : [];
       const statuses = Array.isArray(v.statuses) ? v.statuses : [];
       const echoes = Array.isArray(v.message_echoes) ? v.message_echoes : [];
+      const field = String(ch.field ?? "").trim();
       messageCount += msgs.length;
       statusCount += statuses.length;
       echoCount += echoes.length;
+      if (field === "user_preferences") userPrefCount += 1;
       for (const rawMsg of msgs) {
         if (!rawMsg || typeof rawMsg !== "object") continue;
         const m = rawMsg as Record<string, unknown>;
@@ -585,6 +588,9 @@ export function explainMetaWebhookSkip(payload: unknown): string {
   if (!sawValue) return "no change.value objects in payload";
   if (messageCount === 0 && echoCount > 0) {
     return `smb_message_echoes (${echoCount}) — handled separately from inbound messages`;
+  }
+  if (messageCount === 0 && userPrefCount > 0) {
+    return `user_preferences (${userPrefCount}) — handled separately from inbound messages`;
   }
   if (messageCount === 0 && statusCount > 0) {
     return `status-only webhook (${statusCount} status(es), no messages — normal for delivery receipts)`;

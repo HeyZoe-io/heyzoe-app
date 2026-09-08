@@ -469,6 +469,11 @@ import {
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import {
+  handleMarketingOptOutWebhookSignals,
+  parseMarketingOptOutStatuses,
+  parseUserPreferencesWebhook,
+} from "@/lib/wa-marketing-opt-out";
+import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
   findCourseCycleByDisplayStartDate,
@@ -5282,6 +5287,8 @@ export async function POST(req: NextRequest) {
     }
     msg = parseMetaWebhook(metaPayload);
     const appEchoes = parseSmbMessageEchoes(metaPayload);
+    const marketingPrefs = parseUserPreferencesWebhook(metaPayload);
+    const marketingOptOutStatuses = parseMarketingOptOutStatuses(metaPayload);
     if (appEchoes.length) {
       after(() =>
         import("@/lib/wa-app-echo-pause")
@@ -5289,10 +5296,23 @@ export async function POST(req: NextRequest) {
           .catch((e) => console.error("[WA Webhook] smb_message_echoes handler error:", e))
       );
     }
+    if (marketingPrefs.length || marketingOptOutStatuses.length) {
+      after(() =>
+        handleMarketingOptOutWebhookSignals({
+          prefs: marketingPrefs,
+          statuses: marketingOptOutStatuses,
+        }).catch((e) => console.error("[WA Webhook] marketing opt-out handler error:", e))
+      );
+    }
     if (!msg) {
       if (appEchoes.length) {
         console.info("[WA Webhook] smb_message_echoes (no inbound message)", {
           count: appEchoes.length,
+        });
+      } else if (marketingPrefs.length || marketingOptOutStatuses.length) {
+        console.info("[WA Webhook] marketing opt-out signal (no inbound message)", {
+          user_preferences: marketingPrefs.length,
+          status_131050: marketingOptOutStatuses.length,
         });
       } else {
         console.warn("[WA Webhook] parseMetaWebhook: no inbound message —", explainMetaWebhookSkip(metaPayload));
