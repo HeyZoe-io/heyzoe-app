@@ -9,7 +9,8 @@ export type TemplateParamSlot =
   | "start_date"
   | "membership_type_name"
   | "class_name"
-  | "class_time";
+  | "class_time"
+  | "workout_n";
 
 export type TemplatePreset = {
   name: string;
@@ -41,6 +42,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   lost_lead: ["first_name"],
   trial_reminder: ["first_name", "class_name", "class_time"],
   milestones: ["first_name"],
+  nth_workout: ["first_name", "workout_n"],
 };
 
 const LEAD_OPENING_BODY =
@@ -161,6 +163,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "milestones",
     category: "MARKETING",
     body: "היי {{1}}, היחס האישי ורמת האימון חשובים לנו, נשמח לשמוע איך הולך.",
+  },
+  nth_workout: {
+    name: "nth_workout",
+    category: "MARKETING",
+    body: "היי {{1}}, ראינו שהיית לאחרונה, זה כבר האימון ה-{{2}} שלך אצלנו, נשמח לפידבק ולהגדיר מטרות.",
   },
 };
 
@@ -305,6 +312,7 @@ export function presetExampleForSlot(slot: TemplateParamSlot): string {
   if (slot === "membership_type_name") return "מנוי חודשי";
   if (slot === "class_name") return "יוגה";
   if (slot === "class_time") return "18:00";
+  if (slot === "workout_n") return "3";
   return "01.09.2026";
 }
 
@@ -318,6 +326,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     membership_type_name: "סוג מנוי",
     class_name: "שם השיעור",
     class_time: "שעת השיעור",
+    workout_n: "מספר האימון",
   };
   return slots
     .map((slot, i) => `{{${i + 1}}} = ${labels[slot]}`)

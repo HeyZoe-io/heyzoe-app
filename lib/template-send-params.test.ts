@@ -141,6 +141,7 @@ import {
     lost_lead: ["דנה"],
     trial_reminder: ["דנה", "יוגה", "18:00"],
     milestones: ["דנה"],
+    nth_workout: ["דנה", "3"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -151,6 +152,7 @@ import {
       className: "יוגה",
       classTime: "18:00",
       startDateYmd: "2026-09-01",
+      workoutN: 3,
     });
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
     assert.deepEqual(values, expected[type], type);
@@ -190,6 +192,10 @@ import {
     }
     if (type === "milestones") {
       assert.deepEqual(slots, ["first_name"]);
+      continue;
+    }
+    if (type === "nth_workout") {
+      assert.deepEqual(slots, ["first_name", "workout_n"]);
       continue;
     }
     if (type === "trial_reminder") {

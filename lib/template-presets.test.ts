@@ -100,6 +100,17 @@ assert.deepEqual(paramSlotsForTriggerType("milestones"), ["first_name"]);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.milestones.body), 1);
 assert.equal(isPresetAvailable("milestones", false), false);
 assert.equal(isPresetAvailable("milestones", true), true);
+assert.equal(TEMPLATE_PRESETS.nth_workout.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.nth_workout.name, "nth_workout");
+assert.equal(TEMPLATE_PRESETS.nth_workout.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.nth_workout.body,
+  "היי {{1}}, ראינו שהיית לאחרונה, זה כבר האימון ה-{{2}} שלך אצלנו, נשמח לפידבק ולהגדיר מטרות."
+);
+assert.deepEqual(paramSlotsForTriggerType("nth_workout"), ["first_name", "workout_n"]);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.nth_workout.body), 2);
+assert.equal(isPresetAvailable("nth_workout", false), false);
+assert.equal(isPresetAvailable("nth_workout", true), true);
 
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.incoming_lead.body), 1);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.purchase.body), 2);

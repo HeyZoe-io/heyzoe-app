@@ -19,6 +19,7 @@ function rule(
     item_type_filter: null,
     delay_days: 0,
     delay_direction: "after",
+    lookback_days: null,
     enabled: true,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",

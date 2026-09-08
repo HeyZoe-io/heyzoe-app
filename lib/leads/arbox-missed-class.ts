@@ -395,6 +395,8 @@ export type BookingsReportFetchPlan = {
   hasAttendanceGapRule: boolean;
   /** C5/C6 post-trial follow-up — widen past + sales join on daily cron. */
   hasPostTrialFollowupRule: boolean;
+  /** C7 nth_workout — widen past to 30d so new-customer join dates are covered. */
+  hasNthWorkoutRule: boolean;
 };
 
 /**
@@ -416,6 +418,7 @@ export async function businessNeedsBookingsReportFetch(
       "attendance_gap",
       "registered_after_trial",
       "not_registered_after_trial",
+      "nth_workout",
     ])
     .limit(40);
   if (error) {
@@ -425,6 +428,7 @@ export async function businessNeedsBookingsReportFetch(
       hasMissedRule: true,
       hasAttendanceGapRule: true,
       hasPostTrialFollowupRule: true,
+      hasNthWorkoutRule: true,
     };
   }
   const live = (data ?? []).filter((r) =>
@@ -443,6 +447,10 @@ export async function businessNeedsBookingsReportFetch(
     hasPostTrialFollowupRule: live.some((r) => {
       const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
       return t === "registered_after_trial" || t === "not_registered_after_trial";
+    }),
+    hasNthWorkoutRule: live.some((r) => {
+      const t = String((r as { trigger_type?: unknown }).trigger_type ?? "");
+      return t === "nth_workout";
     }),
   };
 }

@@ -44,7 +44,7 @@ export default async function TemplatesPage({ params }: Props) {
     admin
       .from("template_triggers")
       .select(
-        "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at"
+        "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: true }),
@@ -79,6 +79,10 @@ export default async function TemplatesPage({ params }: Props) {
     ...row,
     id: String((row as { id?: unknown }).id ?? ""),
     trigger_type: canonicalizeTriggerType(String(row.trigger_type)) as TriggerRow["trigger_type"],
+    lookback_days:
+      (row as { lookback_days?: unknown }).lookback_days == null
+        ? null
+        : Number((row as { lookback_days?: unknown }).lookback_days),
   }));
 
   return (

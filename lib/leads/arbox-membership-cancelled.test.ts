@@ -43,6 +43,7 @@ function rule(
     item_type_filter: null,
     delay_days: 0,
     delay_direction: "after",
+    lookback_days: null,
     template_name: "membership_cancelled",
     enabled: true,
     created_at: "2026-09-01T00:00:00.000Z",

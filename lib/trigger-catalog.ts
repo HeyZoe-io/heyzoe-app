@@ -340,6 +340,22 @@ export const TRIGGER_CATALOG = [
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {
+    type: "nth_workout",
+    labelHe: "אימון מספר N (לקוח חדש)",
+    activation: "automatic",
+    audience: "members",
+    implemented: true,
+    arboxOnly: true,
+    delay: "after",
+    showProductFilter: false,
+    uniquePerBusiness: false,
+    minDelayDays: 1,
+    recipient: "customer",
+    presetKey: "nth_workout",
+    uiOrder: 18,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
+  {
     type: "class_reminder_regular",
     labelHe: "תזכורת לשיעור",
     activation: "automatic",
@@ -640,6 +656,11 @@ export function isAttendanceGapTriggerType(value: string): boolean {
   return canonicalizeTriggerType(value) === "attendance_gap";
 }
 
+/** C7 nth_workout — delay_days is N (workout count); lookback_days is the new-customer window. */
+export function isNthWorkoutTriggerType(value: string): boolean {
+  return canonicalizeTriggerType(value) === "nth_workout";
+}
+
 /** C14/C15 — delay_days is days before end_suspend. */
 export function isFreezeEndingTriggerType(value: string): boolean {
   const t = canonicalizeTriggerType(value);
@@ -713,6 +734,7 @@ export function defaultDelayDays(triggerType: string): number {
   if (isFreezeEndingTriggerType(triggerType)) return 3;
   if (triggerType === "trial_reminder") return 1;
   if (triggerType === "milestones") return 90;
+  if (isNthWorkoutTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
 }
 
@@ -752,6 +774,32 @@ export function triggerSendScheduleHintHe(triggerType: string): string {
   return triggerCatalogEntry(triggerType)?.sendHintHe ?? "";
 }
 
+/** C7 new-customer window: 1–30 days. NULL in DB means 30. */
+export const NTH_WORKOUT_LOOKBACK_MAX = 30;
+export const NTH_WORKOUT_LOOKBACK_DEFAULT = 30;
+
+export function showsLookbackDays(triggerType: string): boolean {
+  return isNthWorkoutTriggerType(triggerType);
+}
+
+/** Parse owner lookback. null = use default at runtime. "invalid" for API 400. */
+export function parseLookbackDays(raw: unknown): number | null | "invalid" {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > NTH_WORKOUT_LOOKBACK_MAX) {
+    return "invalid";
+  }
+  return n;
+}
+
+export function defaultLookbackDays(): number {
+  return NTH_WORKOUT_LOOKBACK_DEFAULT;
+}
+
+export function formatLookbackLabel(days: number): string {
+  return `${Math.min(NTH_WORKOUT_LOOKBACK_MAX, Math.max(1, days))} ימים כלקוח חדש`;
+}
+
 export function formatDelayLabel(
   type: string,
   days: number,
@@ -777,6 +825,9 @@ export function formatDelayLabel(
   }
   if (type === "milestones") {
     return `${Math.max(1, days)} ימים מההצטרפות`;
+  }
+  if (isNthWorkoutTriggerType(type)) {
+    return `אימון מספר ${Math.max(1, days)}`;
   }
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;

@@ -23,6 +23,7 @@ export type TemplateSendParamContext = {
   membershipTypeName?: string | null;
   className?: string | null;
   classTime?: string | null;
+  workoutN?: number | string | null;
 };
 
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
@@ -144,6 +145,11 @@ export function resolveTemplateSlotValue(
   if (slot === "class_time") {
     const time = String(ctx.classTime ?? "").trim();
     return time || TEMPLATE_CLASS_TIME_FALLBACK;
+  }
+  if (slot === "workout_n") {
+    const n = Math.trunc(Number(ctx.workoutN));
+    if (Number.isFinite(n) && n > 0) return String(n);
+    return "3";
   }
   if (slot === "start_date") {
     const formatted = formatTemplateExpiryDate(ctx.startDateYmd);

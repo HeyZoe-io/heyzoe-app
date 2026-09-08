@@ -176,6 +176,7 @@ Calibration:
 - Win-back copy (“נשמח לראותך שוב”) is encouragement to return → MARKETING.
 - A dry system confirmation must stay UTILITY so Meta approval is reliable.
 - ימים במועדון / שימור (`milestones`) → **MARKETING**
+- אימון מספר N ללקוח חדש (`nth_workout`) → **MARKETING**
 - פער נוכחות ללא רישום עתידי (`attendance_gap`) → **MARKETING**
 - סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
 - ליד אבוד עם הטבת ניסיון + CTA (`lost_lead`) → **MARKETING**
@@ -348,6 +349,32 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   `member_since=1970-01-01` if nobody is past X). Retry: A9 `attempts`/`status`.
 - Schema already exists in Supabase — **no new migration**.
 
+## Nth workout for new customers (C7 `nth_workout`)
+
+- Source: `activeMembershipsReport` (`member_since`) × past `bookingsReport`
+  `check_in === "Yes"`. Count classes with `date >= member_since` and
+  `date < today`. Workouts **before join do not count**. Punch-card-only
+  (no `member_since`) skipped.
+- Audience: new members — join within `lookback_days` (1–30, NULL = 30).
+  Eligible only if `member_since >= bookings fetch fromDate` (avoid undercount).
+- **N** lives in `delay_days` (default 3, min 1). **Window** lives in
+  `template_triggers.lookback_days`. Fire when **`yesCount >= N`**, then log
+  once (not strict `=== N` — catches a missed cron or two workouts in one day).
+- Catalog: automatic × members, **`uniquePerBusiness: false`** (N=3 and N=10
+  coexist). Label **«אימון מספר N (לקוח חדש)»**. Delay label **«אימון מספר N»**.
+  Preset **MARKETING**, no button. Slots `first_name`, `workout_n` (`{{2}}` is
+  dynamic N at send time — same Meta template for N=3 and N=10). Body uses
+  **«לאחרונה»** (not «אתמול») because the trigger is count-based, not day-after.
+- Dedup: `arbox_nth_workout_sync_log` PK `(business_id, trigger_id, user_id)` —
+  **no `member_since`**. A returning member does not get C7 again.
+- Seed: `businesses.arbox_nth_workout_seeded` — first enable marks new members
+  already at/past N without WhatsApp. Soft-seed per empty `trigger_id`
+  (sentinel `user_id=0`). Retry: A9 (`gated` does not count).
+- Cron: isolated try/catch on `arbox-daily-triggers` **after** bookings
+  prefetch. Reuses `activeMembershipsReport` (birthday/C8) + past
+  `bookingsReport` (missed/gap/C5–C6). C7-only: +1 memberships +1 bookings (30d).
+- Migration: `supabase/arbox_nth_workout_sync_log.sql` (run before deploy).
+
 ## Trial-class reminder (`trial_reminder`)
 
 - Source: `bookingsReport` **future** window (`today … today+14` when this
@@ -390,7 +417,9 @@ filtering. New-lead customer reports (memberships + sessions) only when an
 unseen non-Zoe lead remains. Birthday always adds those two customer reports
 when a birthday / birthday_former rule is enabled. **C8 `milestones`** reuses
 the same `activeMembershipsReport` GET (rows kept); C8-only skips
-`sessionsReport`. **C5/C6 add one salesReport
+`sessionsReport`. **C7 `nth_workout`** reuses that memberships GET plus the
+shared past `bookingsReport` (force 30d when C7 is live); C7-only:
++1 memberships +1 bookings (30d). **C5/C6 add one salesReport
 GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
 events after seed, not the seed window. **Freeze A8/C14/C15:** +1
 `membersOnHoldReport` GET when any freeze rule is live; future bookings GET only

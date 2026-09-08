@@ -103,6 +103,7 @@ import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-ma
       item_type_filter: null,
       delay_days: 0,
       delay_direction: "after",
+      lookback_days: null,
       template_name: "T_attended",
       enabled: true,
       created_at: "2026-01-01T00:00:00.000Z",

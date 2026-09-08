@@ -15,6 +15,8 @@ import {
   minDelayDaysForTrigger,
   parseTriggerId,
   showsItemTypeFilter,
+  showsLookbackDays,
+  parseLookbackDays,
   type PurchaseItemType,
   type TriggerType,
 } from "@/lib/template-trigger-types";
@@ -44,6 +46,7 @@ type TriggerRow = {
   item_type_filter: PurchaseItemType[] | null;
   delay_days: number;
   delay_direction: DelayDirection;
+  lookback_days: number | null;
   template_name: string | null;
   enabled: boolean;
   created_at: string;
@@ -190,6 +193,12 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
       forcesDelayAfter(canonicalType) || isImmediateDelayTrigger(canonicalType)
         ? "after"
         : storedDirection,
+    lookback_days: showsLookbackDays(canonicalType)
+      ? (() => {
+          const parsed = parseLookbackDays(row.lookback_days);
+          return parsed === "invalid" ? null : parsed;
+        })()
+      : null,
     template_name: row.template_name != null ? String(row.template_name) : null,
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
@@ -276,7 +285,7 @@ async function findExistingTrialReminderRule(
 }
 
 const TRIGGER_SELECT =
-  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at";
+  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at";
 
 /**
  * GET /api/[slug]/triggers — list automation rules for the business.
@@ -424,6 +433,13 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   const enabled = body.enabled === undefined ? true : Boolean(body.enabled);
 
+  const lookbackDays = showsLookbackDays(triggerType)
+    ? parseLookbackDays(body.lookback_days)
+    : null;
+  if (lookbackDays === "invalid") {
+    return NextResponse.json({ error: "invalid_lookback_days" }, { status: 400 });
+  }
+
   const insertRow = {
     business_id: business.id,
     trigger_type: triggerType,
@@ -431,6 +447,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     item_type_filter: itemTypeFilter,
     delay_days: delayDays,
     delay_direction: delayDirection,
+    lookback_days: lookbackDays,
     template_name: templateName,
     enabled,
   };
@@ -499,6 +516,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
     if (!showsItemTypeFilter(triggerType)) {
       patch.item_type_filter = null;
+    }
+    if (!showsLookbackDays(triggerType)) {
+      patch.lookback_days = null;
     }
   }
 
@@ -583,6 +603,31 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       );
     }
     patch.item_type_filter = showsItemTypeFilter(typeForItem) ? itemTypeFilter : null;
+  }
+
+  if (body.lookback_days !== undefined) {
+    let typeForLookback =
+      patch.trigger_type != null ? String(patch.trigger_type) : null;
+    if (typeForLookback == null) {
+      const { data: existingForLookback } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      typeForLookback = String(
+        (existingForLookback as { trigger_type?: unknown } | null)?.trigger_type ?? ""
+      );
+    }
+    if (!showsLookbackDays(typeForLookback)) {
+      patch.lookback_days = null;
+    } else {
+      const lookbackDays = parseLookbackDays(body.lookback_days);
+      if (lookbackDays === "invalid") {
+        return NextResponse.json({ error: "invalid_lookback_days" }, { status: 400 });
+      }
+      patch.lookback_days = lookbackDays;
+    }
   }
 
   if (body.template_name !== undefined) {

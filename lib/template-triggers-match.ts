@@ -1,6 +1,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   isPurchaseItemType,
+  parseLookbackDays,
   type PurchaseItemType,
 } from "@/lib/trigger-catalog";
 
@@ -14,11 +15,19 @@ export type PurchaseTemplateTriggerRule = {
   item_type_filter: PurchaseItemType[] | null;
   delay_days: number;
   delay_direction: string;
+  /** C7 nth_workout: new-customer window 1–30. null = 30 at runtime. */
+  lookback_days: number | null;
   template_name: string | null;
   enabled: boolean;
   created_at: string;
   updated_at: string | null;
 };
+
+function parseLookbackDaysColumn(raw: unknown): number | null {
+  const parsed = parseLookbackDays(raw);
+  if (parsed === "invalid") return null;
+  return parsed;
+}
 
 function parseProductFilter(raw: unknown): number[] | null {
   if (raw === null || raw === undefined) return null;
@@ -57,6 +66,7 @@ function normalizeRule(row: Record<string, unknown>): PurchaseTemplateTriggerRul
     item_type_filter: parseItemTypeFilter(row.item_type_filter),
     delay_days: Number(row.delay_days ?? 0),
     delay_direction: String(row.delay_direction ?? "after"),
+    lookback_days: parseLookbackDaysColumn(row.lookback_days),
     template_name: row.template_name != null ? String(row.template_name).trim() || null : null,
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
@@ -123,7 +133,7 @@ export function pickPurchaseTemplateTriggerRule(
 }
 
 const PURCHASE_RULE_SELECT =
-  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, template_name, enabled, created_at, updated_at";
+  "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at, updated_at";
 
 export async function loadEnabledPurchaseTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -662,6 +672,26 @@ export async function resolveMilestonesTemplateTrigger(input: {
 }): Promise<PurchaseTemplateTriggerRule | null> {
   const rules = await loadEnabledMilestonesTemplateTriggers(input.admin, input.businessId);
   return pickMilestonesTemplateTriggerRule(rules);
+}
+
+/** Enabled nth_workout (C7) rules — daily handler fires each independently (N=3 / N=10). */
+export async function loadEnabledNthWorkoutTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", "nth_workout")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[template-triggers-match] load nth_workout rules failed:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
 }
 
 /** Enabled trial_reminder rules — pick newest with a template name. */
