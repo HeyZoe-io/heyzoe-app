@@ -20,6 +20,7 @@ assert.ok(defaultLegal.some((l) => l.includes("נכנסים, מבטלים את �
 assert.ok(defaultLegal.some((l) => l.includes("לא רק לחידוש")));
 assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך")));
 assert.ok(defaultLegal.some((l) => l.includes("בינתיים תתאפרי") && l.includes("נשמח לראותך בשיעור")));
+assert.ok(defaultLegal.some((l) => l.includes("נראה אותך בעוד X דקות") && l.includes("אין בעיה בכלל")));
 
 const defaultVoiceExamples =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -27,6 +28,9 @@ const defaultVoiceExamples =
     ?.sections?.find((s) => s.key === "voice_examples")?.lines ?? [];
 assert.ok(defaultVoiceExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
 assert.ok(defaultVoiceExamples.some((l) => l.includes("בינתיים תתאפרי") && l.includes("נשמח לראותך בשיעור")));
+assert.ok(
+  defaultVoiceExamples.some((l) => l.includes("נראה אותך בעוד 10 דקות") && l.includes("קח את הזמן"))
+);
 assert.ok(
   defaultVoiceExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים"))
 );

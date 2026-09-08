@@ -246,8 +246,8 @@ import {
   RENEWAL_HANDOFF_REPLY,
 } from "@/lib/wa-renewal-handoff";
 import {
+  buildRunningLateAck,
   matchesRunningLateStatusUpdate,
-  RUNNING_LATE_ACK_MESSAGE,
 } from "@/lib/wa-running-late";
 import {
   BOOKED_CLASS_MOVE_APP_MODEL,
@@ -7411,17 +7411,18 @@ async function processIncoming(
     }
   }
 
-  // מאחרת / בדרך לשיעור — אישור קצר, בלי Claude ובלי CTA
+  // מאחרת / בדרך לשיעור — תבנית קבועה (אישור + אנחנו כאן + הד ETA), בלי Claude ובלי CTA
   if (
     msg.type === "text" &&
     isSalesFlowFreeTextInbound(msg) &&
     matchesRunningLateStatusUpdate(msg.text)
   ) {
+    const lateAck = buildRunningLateAck(msg.text);
     try {
       await sendWhatsAppMessage(
         msg.toNumber,
         msg.from,
-        RUNNING_LATE_ACK_MESSAGE,
+        lateAck,
         accountSid,
         authToken
       );
@@ -7431,7 +7432,7 @@ async function processIncoming(
     await logMessage({
       business_slug,
       role: "assistant",
-      content: RUNNING_LATE_ACK_MESSAGE,
+      content: lateAck,
       model_used: "running_late_ack",
       session_id: sessionId,
     });

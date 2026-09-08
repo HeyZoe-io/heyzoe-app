@@ -109,6 +109,7 @@ const lateCheer = applyKnownAssistantReplyFixes(
   { knowledge }
 );
 assert.match(lateCheer, /אנחנו כאן/);
+assert.match(lateCheer, /נראה אותך בעוד 10 דקות/);
 assert.doesNotMatch(lateCheer, /בטוח שזה יעבוד|קח את הזמן|עד עכשיו/);
 
 const takeYourTime = applyKnownAssistantReplyFixes(
@@ -267,5 +268,6 @@ assert.equal(
 assert.match(spellingRule, /לא רק לחידוש/);
 assert.match(spellingRule, /בינתיים תתאפרי/);
 assert.match(spellingRule, /נשמח לראותך בשיעור/);
+assert.match(spellingRule, /נראה אותך בעוד X דקות/);
 
 console.log("wa-assistant-reply-fixes.test.ts: ok");
