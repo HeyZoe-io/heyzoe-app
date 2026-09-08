@@ -33,7 +33,8 @@ export type ArboxTrialClassRegisteredResult =
         | "no_channel"
         | "outside_24h_window"
         | "no_user_session"
-        | "send_failed";
+        | "send_failed"
+        | "opted_out";
       contact_created: boolean;
     }
   | { ok: false; error: string };

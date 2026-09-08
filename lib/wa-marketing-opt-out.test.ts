@@ -4,9 +4,13 @@ import {
   contactBlocksMarketingBulk,
   extractMetaErrorCode,
   isMarketingOptOutErrorCode,
+  isMarketingTemplateCategory,
   MARKETING_OPT_OUT_ERROR_CODE,
   parseMarketingOptOutStatuses,
   parseUserPreferencesWebhook,
+  shouldSuppressLeadTemplate,
+  shouldSuppressSessionMessage,
+  SUPPRESSED_OPT_OUT_ERROR,
 } from "@/lib/wa-marketing-opt-out";
 
 {
@@ -183,6 +187,60 @@ import {
   assert.equal(contactBlocksMarketingBulk({ opted_out: false, marketing_opted_out: true }), true);
   assert.equal(contactBlocksMarketingBulk({ opted_out: false, marketing_opted_out: false }), false);
   assert.equal(contactBlocksMarketingBulk({ opted_out: null, marketing_opted_out: null }), false);
+}
+
+{
+  assert.equal(isMarketingTemplateCategory(""), true);
+  assert.equal(isMarketingTemplateCategory(null), true);
+  assert.equal(isMarketingTemplateCategory("MARKETING"), true);
+  assert.equal(isMarketingTemplateCategory("marketing"), true);
+  assert.equal(isMarketingTemplateCategory("UTILITY"), false);
+  assert.equal(isMarketingTemplateCategory("AUTHENTICATION"), false);
+
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "MARKETING", optedOut: true, marketingOptedOut: false }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "UTILITY", optedOut: true, marketingOptedOut: false }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "AUTHENTICATION", optedOut: true, marketingOptedOut: false }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "MARKETING", optedOut: false, marketingOptedOut: true }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "", optedOut: false, marketingOptedOut: true }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: null, optedOut: false, marketingOptedOut: true }),
+    true
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "UTILITY", optedOut: false, marketingOptedOut: true }),
+    false
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({
+      category: "AUTHENTICATION",
+      optedOut: false,
+      marketingOptedOut: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldSuppressLeadTemplate({ category: "MARKETING", optedOut: false, marketingOptedOut: false }),
+    false
+  );
+
+  assert.equal(shouldSuppressSessionMessage(true), true);
+  assert.equal(shouldSuppressSessionMessage(false), false);
+  assert.equal(SUPPRESSED_OPT_OUT_ERROR, "suppressed_opt_out");
 }
 
 console.log("wa-marketing-opt-out.test.ts: ok");

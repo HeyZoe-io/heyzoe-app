@@ -1,6 +1,7 @@
 import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -339,6 +340,16 @@ export async function enqueueScheduledTemplateSend(input: {
     return { ok: false, error: "invalid_due_at" };
   }
 
+  const suppressed = await evaluateLeadTemplateSend({
+    admin: input.admin,
+    businessId,
+    phone: contactPhone,
+    templateName,
+  });
+  if (suppressed.suppress) {
+    return { ok: true, inserted: false };
+  }
+
   const nowIso = new Date().toISOString();
   const row = {
     business_id: businessId,
@@ -392,11 +403,13 @@ export function decideScheduledSendAfterMeta(input: {
   error?: string | null;
 }):
   | { status: "sent"; last_error: null }
-  | { status: "failed"; last_error: string } {
+  | { status: "failed"; last_error: string }
+  | { status: "canceled"; last_error: string } {
   if (input.ok) return { status: "sent", last_error: null };
-  return {
-    status: "failed",
-    last_error: String(input.error ?? "send_failed").slice(0, 500) || "send_failed",
-  };
+  const last_error = String(input.error ?? "send_failed").slice(0, 500) || "send_failed";
+  if (last_error === SUPPRESSED_OPT_OUT_ERROR || last_error.includes(SUPPRESSED_OPT_OUT_ERROR)) {
+    return { status: "canceled", last_error: SUPPRESSED_OPT_OUT_ERROR };
+  }
+  return { status: "failed", last_error };
 }
 

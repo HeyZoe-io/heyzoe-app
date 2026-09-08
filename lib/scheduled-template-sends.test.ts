@@ -14,6 +14,7 @@ import {
   NO_TEMPLATE_SKIPPED_ERROR,
   selectDuePendingScheduledSends,
 } from "@/lib/scheduled-template-sends";
+import { SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 const eventDate = new Date("2026-08-01T12:00:00.000Z");
@@ -137,6 +138,16 @@ const eventDate = new Date("2026-08-01T12:00:00.000Z");
   const after = decideScheduledSendAfterMeta({ ok: true });
   assert.equal(after.status, "sent");
   assert.equal(after.last_error, null);
+}
+
+/** suppressed opt-out is canceled, not a retryable Meta failure */
+{
+  const after = decideScheduledSendAfterMeta({
+    ok: false,
+    error: SUPPRESSED_OPT_OUT_ERROR,
+  });
+  assert.equal(after.status, "canceled");
+  assert.equal(after.last_error, SUPPRESSED_OPT_OUT_ERROR);
 }
 
 /** transient Meta error → failed (not canceled) */

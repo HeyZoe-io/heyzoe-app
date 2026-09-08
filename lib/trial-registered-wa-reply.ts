@@ -23,6 +23,7 @@ import {
   fetchLatestUserMessageAcrossChannels,
   loadActiveWaChannels,
 } from "@/lib/wa-resolve-send-channel";
+import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import {
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
@@ -34,7 +35,7 @@ const WA_USER_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type TrialRegisteredWaReplyResult =
   | { sent: true }
-  | { sent: false; reason: "no_channel" | "outside_24h_window" | "no_user_session" | "send_failed" };
+  | { sent: false; reason: "no_channel" | "outside_24h_window" | "no_user_session" | "send_failed" | "opted_out" };
 
 function isWithinWaUserSessionWindow(lastUserAtIso: string | null): boolean {
   if (!lastUserAtIso) return false;
@@ -96,6 +97,13 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = Number(input.businessId);
   if (!businessSlug || !businessId) return { sent: false, reason: "no_channel" };
+
+  const optedOut = await evaluateSessionMessageSend({
+    admin: input.admin,
+    businessId,
+    phone: input.phone,
+  });
+  if (optedOut.suppress) return { sent: false, reason: "opted_out" };
 
   const channels = await loadActiveWaChannels(input.admin, businessId);
   const phoneNumberIds = [...new Set(channels.map((c) => c.phoneNumberId).filter(Boolean))];

@@ -1,5 +1,9 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
-import { suppressMarketingOptOutFromSendError } from "@/lib/wa-marketing-opt-out";
+import {
+  evaluateLeadTemplateSendByPhoneNumberId,
+  SUPPRESSED_OPT_OUT_ERROR,
+  suppressMarketingOptOutFromSendError,
+} from "@/lib/wa-marketing-opt-out";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 
 export type OwnerTemplateComponent = {
@@ -90,6 +94,8 @@ export async function sendBusinessTemplate(input: {
   templateName: string;
   languageCode?: string;
   components?: OwnerTemplateComponent[];
+  /** Drain already evaluated opt-out — skip a second contacts/templates lookup. */
+  skipOptOutGate?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
@@ -104,6 +110,22 @@ export async function sendBusinessTemplate(input: {
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
+
+  if (!input.skipOptOutGate) {
+    const gate = await evaluateLeadTemplateSendByPhoneNumberId({
+      phoneNumberId,
+      phone: to,
+      templateName,
+    });
+    if (gate.suppress) {
+      console.info("[sendBusinessTemplate] suppressed opt-out", {
+        phoneNumberId,
+        to,
+        templateName,
+      });
+      return { ok: false, error: SUPPRESSED_OPT_OUT_ERROR };
+    }
+  }
 
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`;
   const body: Record<string, unknown> = {

@@ -15,6 +15,7 @@ import {
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
+import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 export const runtime = "nodejs";
 
@@ -64,6 +65,15 @@ export async function POST(req: NextRequest) {
     const parsed = parseSession(sessionId);
     if (!parsed) {
       return NextResponse.json({ error: "invalid_session_format" }, { status: 400 });
+    }
+
+    const sessionGate = await evaluateSessionMessageSend({
+      admin,
+      businessId: access.business.id,
+      phone: parsed.leadPhone,
+    });
+    if (sessionGate.suppress) {
+      return NextResponse.json({ error: "opted_out" }, { status: 409 });
     }
 
     const accountSid = resolveTwilioAccountSid();

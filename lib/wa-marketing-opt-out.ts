@@ -24,11 +24,44 @@ export type MarketingOptOutStatusEvent = {
   recipientPhone: string;
 };
 
+/** Queue/drain last_error when a lead is suppressed for opt-out. */
+export const SUPPRESSED_OPT_OUT_ERROR = "suppressed_opt_out";
+
+export type ContactSendFlags = {
+  optedOut: boolean;
+  marketingOptedOut: boolean;
+};
+
+/** Missing category is treated as MARKETING (safer). */
+export function isMarketingTemplateCategory(raw: unknown): boolean {
+  const cat = String(raw ?? "")
+    .trim()
+    .toUpperCase();
+  return !cat || cat === "MARKETING";
+}
+
+export function shouldSuppressLeadTemplate(input: {
+  category: unknown;
+  optedOut: boolean;
+  marketingOptedOut: boolean;
+}): boolean {
+  if (input.optedOut) return true;
+  return isMarketingTemplateCategory(input.category) && input.marketingOptedOut;
+}
+
+export function shouldSuppressSessionMessage(optedOut: boolean): boolean {
+  return optedOut === true;
+}
+
 export function contactBlocksMarketingBulk(contact: {
   opted_out?: boolean | null;
   marketing_opted_out?: boolean | null;
 }): boolean {
-  return contact.opted_out === true || contact.marketing_opted_out === true;
+  return shouldSuppressLeadTemplate({
+    category: "MARKETING",
+    optedOut: contact.opted_out === true,
+    marketingOptedOut: contact.marketing_opted_out === true,
+  });
 }
 
 export function isMarketingOptOutErrorCode(code: unknown): boolean {
@@ -346,5 +379,190 @@ export async function suppressMarketingOptOutFromSendError(input: {
     phone: input.phone,
     optedOut: true,
     source: "error_131050",
+  });
+}
+
+export async function loadContactSendFlags(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  phone: string
+): Promise<ContactSendFlags> {
+  const variants = contactPhoneLookupVariants(phone);
+  const lookup = variants.length ? variants : [String(phone ?? "").trim()].filter(Boolean);
+  if (!lookup.length) return { optedOut: false, marketingOptedOut: false };
+
+  const full = await admin
+    .from("contacts")
+    .select("opted_out, marketing_opted_out")
+    .eq("business_id", businessId)
+    .in("phone", lookup)
+    .limit(1)
+    .maybeSingle();
+  if (full.error && isMissingMarketingOptOutColumn(full.error.message)) {
+    const fallback = await admin
+      .from("contacts")
+      .select("opted_out")
+      .eq("business_id", businessId)
+      .in("phone", lookup)
+      .limit(1)
+      .maybeSingle();
+    if (fallback.error) {
+      console.error("[wa-send-suppression] contact flags lookup failed:", fallback.error.message);
+      return { optedOut: false, marketingOptedOut: false };
+    }
+    return {
+      optedOut: (fallback.data as { opted_out?: boolean } | null)?.opted_out === true,
+      marketingOptedOut: false,
+    };
+  }
+  if (full.error) {
+    console.error("[wa-send-suppression] contact flags lookup failed:", full.error.message);
+    return { optedOut: false, marketingOptedOut: false };
+  }
+  const row = full.data as { opted_out?: boolean; marketing_opted_out?: boolean } | null;
+  if (!row) return { optedOut: false, marketingOptedOut: false };
+  return {
+    optedOut: row.opted_out === true,
+    marketingOptedOut: row.marketing_opted_out === true,
+  };
+}
+
+export async function loadWhatsappTemplateCategory(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  templateName: string
+): Promise<string | null> {
+  const name = String(templateName ?? "").trim();
+  if (!name) return null;
+  const { data, error } = await admin
+    .from("whatsapp_templates")
+    .select("category")
+    .eq("business_id", businessId)
+    .eq("name", name)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[wa-send-suppression] template category lookup failed:", error.message);
+    return null;
+  }
+  const cat = String((data as { category?: unknown } | null)?.category ?? "").trim();
+  return cat || null;
+}
+
+export async function evaluateLeadTemplateSend(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  phone: string;
+  category?: unknown;
+  templateName?: string;
+}): Promise<{ suppress: boolean; flags: ContactSendFlags; category: string | null }> {
+  const flags = await loadContactSendFlags(input.admin, input.businessId, input.phone);
+  let category =
+    input.category !== undefined && input.category !== null && String(input.category).trim()
+      ? String(input.category).trim()
+      : null;
+  if (!category && input.templateName) {
+    category = await loadWhatsappTemplateCategory(input.admin, input.businessId, input.templateName);
+  }
+  return {
+    suppress: shouldSuppressLeadTemplate({
+      category,
+      optedOut: flags.optedOut,
+      marketingOptedOut: flags.marketingOptedOut,
+    }),
+    flags,
+    category,
+  };
+}
+
+export async function evaluateLeadTemplateSendByPhoneNumberId(input: {
+  phoneNumberId: string;
+  phone: string;
+  templateName: string;
+}): Promise<{ suppress: boolean }> {
+  const phoneNumberId = String(input.phoneNumberId ?? "").trim();
+  if (!phoneNumberId) return { suppress: false };
+  const admin = createSupabaseAdminClient();
+  const businessId = await lookupBusinessIdForPhoneNumberId(admin, phoneNumberId);
+  if (!businessId) return { suppress: false };
+  const result = await evaluateLeadTemplateSend({
+    admin,
+    businessId,
+    phone: input.phone,
+    templateName: input.templateName,
+  });
+  return { suppress: result.suppress };
+}
+
+export async function loadMarketingWhatsappTemplateCategory(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  templateName: string
+): Promise<string | null> {
+  const name = String(templateName ?? "").trim();
+  if (!name) return null;
+  const { data, error } = await admin
+    .from("marketing_whatsapp_templates")
+    .select("category")
+    .eq("name", name)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (!/does not exist|schema cache|marketing_whatsapp_templates/i.test(error.message)) {
+      console.error("[wa-send-suppression] marketing template category lookup failed:", error.message);
+    }
+    return null;
+  }
+  const cat = String((data as { category?: unknown } | null)?.category ?? "").trim();
+  return cat || null;
+}
+
+/** HeyZoe ads/marketing WABA: check flags only if a contact row exists for that line's business. */
+export async function evaluateMarketingLineTemplateSend(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  phoneNumberId: string;
+  phone: string;
+  templateName: string;
+}): Promise<{ suppress: boolean; flags: ContactSendFlags; category: string | null }> {
+  const businessId = await lookupBusinessIdForPhoneNumberId(input.admin, input.phoneNumberId);
+  if (!businessId) {
+    return {
+      suppress: false,
+      flags: { optedOut: false, marketingOptedOut: false },
+      category: null,
+    };
+  }
+  const marketingCategory = await loadMarketingWhatsappTemplateCategory(
+    input.admin,
+    input.templateName
+  );
+  return evaluateLeadTemplateSend({
+    admin: input.admin,
+    businessId,
+    phone: input.phone,
+    category: marketingCategory ?? undefined,
+    templateName: marketingCategory ? undefined : input.templateName,
+  });
+}
+
+export async function evaluateSessionMessageSend(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  phone: string;
+}): Promise<{ suppress: boolean }> {
+  const flags = await loadContactSendFlags(input.admin, input.businessId, input.phone);
+  return { suppress: shouldSuppressSessionMessage(flags.optedOut) };
+}
+
+export async function evaluateMarketingLineSessionSend(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  phoneNumberId: string;
+  phone: string;
+}): Promise<{ suppress: boolean }> {
+  const businessId = await lookupBusinessIdForPhoneNumberId(input.admin, input.phoneNumberId);
+  if (!businessId) return { suppress: false };
+  return evaluateSessionMessageSend({
+    admin: input.admin,
+    businessId,
+    phone: input.phone,
   });
 }

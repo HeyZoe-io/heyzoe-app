@@ -42,6 +42,11 @@ import {
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
 } from "@/lib/scheduled-template-sends";
+import {
+  evaluateMarketingLineSessionSend,
+  evaluateMarketingLineTemplateSend,
+  SUPPRESSED_OPT_OUT_ERROR,
+} from "@/lib/wa-marketing-opt-out";
 
 export const MARKETING_TEMPLATE_MODEL = "marketing_template";
 
@@ -110,10 +115,17 @@ async function lookupLeadFirstName(admin: AdminClient, phone: string): Promise<s
 async function lookupApprovedTemplate(
   admin: AdminClient,
   templateName: string
-): Promise<{ name: string; language: string; status: string; disabled: boolean; components: unknown } | null> {
+): Promise<{
+  name: string;
+  language: string;
+  status: string;
+  disabled: boolean;
+  components: unknown;
+  category: string | null;
+} | null> {
   const { data, error } = await admin
     .from("marketing_whatsapp_templates")
-    .select("name, language, status, disabled, components")
+    .select("name, language, status, disabled, components, category")
     .eq("name", templateName)
     .eq("disabled", false)
     .order("language", { ascending: true })
@@ -122,12 +134,15 @@ async function lookupApprovedTemplate(
   if (error || !data) return null;
   const status = String((data as { status?: unknown }).status ?? "").toUpperCase();
   if (status !== "APPROVED") return null;
-  return data as {
-    name: string;
-    language: string;
-    status: string;
-    disabled: boolean;
-    components: unknown;
+  return {
+    ...(data as {
+      name: string;
+      language: string;
+      status: string;
+      disabled: boolean;
+      components: unknown;
+    }),
+    category: String((data as { category?: unknown }).category ?? "").trim() || null,
   };
 }
 
@@ -161,6 +176,17 @@ export async function sendMarketingLeadTemplate(input: {
     return { ok: false, error: gate.last_error };
   }
 
+  const optOut = await evaluateMarketingLineTemplateSend({
+    admin: input.admin,
+    phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
+    phone,
+    templateName,
+  });
+  if (optOut.suppress) {
+    console.info("[marketing-template-dispatch] suppressed opt-out", { phone, templateName });
+    return { ok: false, error: SUPPRESSED_OPT_OUT_ERROR };
+  }
+
   const languageCode = String(approved?.language ?? "he").trim() || "he";
   const components = bodyComponentsFromParams(input.bodyParams);
   const sendResult = await sendBusinessTemplate({
@@ -168,6 +194,7 @@ export async function sendMarketingLeadTemplate(input: {
     phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
     templateName,
     languageCode,
+    skipOptOutGate: true,
     ...(components ? { components } : {}),
   });
 
@@ -198,10 +225,22 @@ export async function sendMarketingLeadTemplate(input: {
 }
 
 async function sendMarketingCallDayNoTimeFallback(input: {
+  admin: AdminClient;
   phone: string;
   firstName: string;
   components: unknown;
 }): Promise<{ ok: boolean; error?: string }> {
+  const sessionGate = await evaluateMarketingLineSessionSend({
+    admin: input.admin,
+    phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
+    phone: input.phone,
+  });
+  if (sessionGate.suppress) {
+    console.info("[marketing-template-dispatch] session fallback suppressed opted_out", {
+      phone: input.phone,
+    });
+    return { ok: false, error: SUPPRESSED_OPT_OUT_ERROR };
+  }
   const body = bodyTextFromTemplateComponents(input.components);
   const text = renderMarketingCallDayFallbackText({
     body,
@@ -335,6 +374,7 @@ async function dispatchOrEnqueue(input: {
   const bodyText = bodyTextFromTemplateComponents(approved?.components);
   const sent = shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm)
     ? await sendMarketingCallDayNoTimeFallback({
+        admin: input.admin,
         phone: input.phone,
         firstName: input.firstName,
         components: approved?.components,
@@ -346,11 +386,12 @@ async function dispatchOrEnqueue(input: {
         bodyParams,
       });
   const nowIso = new Date().toISOString();
+  const afterImmediate = decideScheduledSendAfterMeta({ ok: sent.ok, error: sent.error });
   const { error: markErr } = await input.admin
     .from("scheduled_marketing_template_sends")
     .update({
-      status: sent.ok ? "sent" : "failed",
-      last_error: sent.ok ? null : String(sent.error ?? "send_failed").slice(0, 500),
+      status: afterImmediate.status,
+      last_error: afterImmediate.status === "sent" ? null : afterImmediate.last_error,
       updated_at: nowIso,
     })
     .eq("dedup_key", input.dedupKey)
@@ -665,6 +706,34 @@ export async function dispatchDueMarketingScheduledSend(
     return "canceled";
   }
 
+  const optOut = await evaluateMarketingLineTemplateSend({
+    admin,
+    phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
+    phone,
+    templateName,
+  });
+  const callTimeHmPreview = resolveCallTimeHm(
+    parseScheduledBodyParams(row.body_params)[1],
+    liveSlot?.timeHm
+  );
+  const bodyTextPreview = bodyTextFromTemplateComponents(approved?.components);
+  const sessionFallback =
+    Boolean(callDateYmd) && shouldSendCallDayNoTimeAsSession(bodyTextPreview, callTimeHmPreview);
+  if (sessionFallback) {
+    const sessionGate = await evaluateMarketingLineSessionSend({
+      admin,
+      phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
+      phone,
+    });
+    if (sessionGate.suppress) {
+      await mark("canceled", SUPPRESSED_OPT_OUT_ERROR);
+      return "canceled";
+    }
+  } else if (optOut.suppress) {
+    await mark("canceled", SUPPRESSED_OPT_OUT_ERROR);
+    return "canceled";
+  }
+
   const bodyParams = await resolveDueMarketingBodyParams({
     admin,
     phone,
@@ -678,6 +747,7 @@ export async function dispatchDueMarketingScheduledSend(
   const sent =
     callDateYmd && shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm)
       ? await sendMarketingCallDayNoTimeFallback({
+          admin,
           phone,
           firstName: String(bodyParams[0] ?? "").trim() || (await lookupLeadFirstName(admin, phone)),
           components: approved?.components,
@@ -692,6 +762,10 @@ export async function dispatchDueMarketingScheduledSend(
   if (after.status === "failed") {
     await mark("failed", after.last_error);
     return "failed";
+  }
+  if (after.status === "canceled") {
+    await mark("canceled", after.last_error);
+    return "canceled";
   }
   await mark("sent", null);
   return "sent";

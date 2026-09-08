@@ -1,6 +1,8 @@
 import { mergeMarketingCallDayBodyParams } from "@/lib/marketing-template-presets";
+import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { evaluateMarketingLineTemplateSend } from "@/lib/wa-marketing-opt-out";
 import {
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
@@ -110,6 +112,16 @@ export async function enqueueScheduledMarketingTemplateSend(input: {
   if (!dedupKey) return { ok: false, error: "missing_dedup_key" };
   if (!contactPhone) return { ok: false, error: "missing_contact_phone" };
   if (!Number.isFinite(input.dueAt.getTime())) return { ok: false, error: "invalid_due_at" };
+
+  const suppressed = await evaluateMarketingLineTemplateSend({
+    admin: input.admin,
+    phoneNumberId: MARKETING_WA_PHONE_NUMBER_ID,
+    phone: contactPhone,
+    templateName,
+  });
+  if (suppressed.suppress) {
+    return { ok: true, inserted: false };
+  }
 
   const nowIso = new Date().toISOString();
   const row = {

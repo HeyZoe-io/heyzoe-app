@@ -61,7 +61,8 @@ export type ArboxTrialSaleRegisteredResult =
         | "throttled_2d"
         | "template_not_configured"
         | "no_matching_rule"
-        | "deferred";
+        | "deferred"
+        | "opted_out";
       contact_created: boolean;
     }
   | { ok: false; error: string };
@@ -618,7 +619,8 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "send_failed"
     | "template_not_configured"
     | "no_matching_rule"
-    | "deferred";
+    | "deferred"
+    | "opted_out";
 
   if (isTrialSale) {
     const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
@@ -634,6 +636,8 @@ export async function handleArboxTrialSaleRegistered(input: {
       whatsapp = "sent";
     } else if (waResult.reason === "send_failed") {
       whatsapp = "send_failed";
+    } else if (waResult.reason === "opted_out") {
+      whatsapp = "opted_out";
     } else {
       const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
         admin: input.admin,

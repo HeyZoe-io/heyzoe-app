@@ -31,6 +31,7 @@ import {
 import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { materializeDueManualBulkSchedules } from "@/lib/manual-bulk/schedules";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
  *  גם שוטף scheduled_marketing_template_sends ו-manual_bulk_queued_sends.
@@ -135,7 +136,7 @@ async function dispatchOneScheduledSend(
     admin.from("businesses").select("slug, waba_id, name").eq("id", businessId).maybeSingle(),
     admin
       .from("whatsapp_templates")
-      .select("id, status, language, components")
+      .select("id, status, language, category, components")
       .eq("business_id", businessId)
       .eq("name", templateName)
       .eq("status", "APPROVED")
@@ -167,6 +168,26 @@ async function dispatchOneScheduledSend(
     return "canceled";
   }
 
+  const optOut = await evaluateLeadTemplateSend({
+    admin,
+    businessId,
+    phone,
+    category: (approvedTpl as { category?: unknown } | null)?.category,
+    templateName,
+  });
+  if (optOut.suppress) {
+    console.info("[cron/scheduled-template-sends] suppressed opt-out", {
+      id: row.id,
+      businessId,
+      templateName,
+    });
+    await markScheduledSend(admin, row.id, {
+      status: "canceled",
+      last_error: SUPPRESSED_OPT_OUT_ERROR,
+    });
+    return "canceled";
+  }
+
   const fullName = await lookupContactFullName(admin, businessId, phone);
   const firstName = firstNameFromFullName(String(fullName ?? ""));
   const languageCode =
@@ -194,6 +215,7 @@ async function dispatchOneScheduledSend(
     phoneNumberId,
     templateName,
     languageCode,
+    skipOptOutGate: true,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
 
@@ -208,6 +230,14 @@ async function dispatchOneScheduledSend(
       last_error: afterMeta.last_error,
     });
     return "failed";
+  }
+
+  if (afterMeta.status === "canceled") {
+    await markScheduledSend(admin, row.id, {
+      status: "canceled",
+      last_error: afterMeta.last_error,
+    });
+    return "canceled";
   }
 
   await markScheduledSend(admin, row.id, { status: "sent" });

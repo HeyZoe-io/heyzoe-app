@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,14 @@ export async function POST(req: NextRequest) {
   let failed = 0;
 
   if (mode === "single") {
+    const sessionGate = await evaluateSessionMessageSend({
+      admin,
+      businessId,
+      phone,
+    });
+    if (sessionGate.suppress) {
+      return NextResponse.json({ sent: 0, failed: 0, skipped: "opted_out" });
+    }
     try {
       await sendMetaWhatsAppText({ phoneNumberId, to: phone, body: finalMessage, accessToken: metaToken });
       sent += 1;

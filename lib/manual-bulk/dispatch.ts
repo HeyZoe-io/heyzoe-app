@@ -12,6 +12,7 @@ import { templateSendPayload } from "@/lib/template-send-params";
 import { logMessage } from "@/lib/analytics";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
 
 export type ManualBulkQueuedSendRow = {
   id: string;
@@ -108,6 +109,19 @@ async function dispatchOne(
     return "canceled";
   }
 
+  const optOut = await evaluateLeadTemplateSend({
+    admin,
+    businessId,
+    phone,
+    category: (approvedTpl as { category?: unknown } | null)?.category,
+    templateName,
+  });
+  if (optOut.suppress) {
+    console.info("[manual-bulk] suppressed opt-out", { id: row.id, businessId, templateName });
+    await markQueued(admin, row.id, { status: "canceled", last_error: SUPPRESSED_OPT_OUT_ERROR });
+    return "canceled";
+  }
+
   const fullName = await lookupContactFullName(admin, businessId, phone);
   const firstName = firstNameFromFullName(String(fullName ?? ""));
   const languageCode =
@@ -125,6 +139,7 @@ async function dispatchOne(
     phoneNumberId,
     templateName,
     languageCode,
+    skipOptOutGate: true,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
 
@@ -135,6 +150,10 @@ async function dispatchOne(
   if (afterMeta.status === "failed") {
     await markQueued(admin, row.id, { status: "failed", last_error: afterMeta.last_error });
     return "failed";
+  }
+  if (afterMeta.status === "canceled") {
+    await markQueued(admin, row.id, { status: "canceled", last_error: afterMeta.last_error });
+    return "canceled";
   }
 
   await markQueued(admin, row.id, { status: "sent" });
