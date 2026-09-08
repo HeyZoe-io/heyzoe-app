@@ -29,13 +29,16 @@ import {
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
 import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
+import { materializeDueManualBulkSchedules } from "@/lib/manual-bulk/schedules";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
  *  גם שוטף scheduled_marketing_template_sends ו-manual_bulk_queued_sends.
+ *  קמפיין שבועי (manual_bulk_schedules) ממומש באותו טיק לפני ה-drain.
  *  חלון שליחה: isAllowedWhatsAppSendTimeIsrael (כמו wa-followups) — מחוץ לחלון לא
  *  שולחים; השורות נשארות pending. due_at לא משתנה.
- *  IO: מחוץ לחלון — בלי שאילתות. בתוך החלון — שאילתה לפי אינדקס (status, due_at). */
+ *  IO: מחוץ לחלון — מימוש schedules (שאילתה לפי next_run_at) בלי drain.
+ *  בתוך החלון — שאילתה לפי אינדקס (status, due_at). */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -244,6 +247,15 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const ranAt = now.toISOString();
   const nowIso = ranAt;
+  const admin = createSupabaseAdminClient();
+
+  let bulk_schedules = { due: 0, materialized: 0, skipped_dup: 0, errors: 0 };
+  try {
+    bulk_schedules = await materializeDueManualBulkSchedules({ admin, now });
+  } catch (e) {
+    console.error("[cron/scheduled-template-sends] bulk schedule materialize failed:", e);
+    bulk_schedules.errors += 1;
+  }
 
   const windowDecision = decideScheduledDrainDispatch(now);
   if (windowDecision.action === "hold") {
@@ -251,6 +263,7 @@ export async function GET(req: NextRequest) {
     console.info("[cron/scheduled-template-sends] skip", {
       skip_reason: "time_window",
       next_allowed_at: nextAllowedAt,
+      bulk_schedules,
     });
     return NextResponse.json({
       ok: true,
@@ -271,11 +284,10 @@ export async function GET(req: NextRequest) {
       bulk_sent: 0,
       bulk_failed: 0,
       bulk_canceled: 0,
+      bulk_schedules,
       batch_limit: BATCH_LIMIT,
     });
   }
-
-  const admin = createSupabaseAdminClient();
 
   try {
     const { data, error } = await admin
@@ -390,6 +402,7 @@ export async function GET(req: NextRequest) {
       bulk_sent,
       bulk_failed,
       bulk_canceled,
+      bulk_schedules,
       batch_limit: BATCH_LIMIT,
     });
 
@@ -409,6 +422,7 @@ export async function GET(req: NextRequest) {
       bulk_sent,
       bulk_failed,
       bulk_canceled,
+      bulk_schedules,
       batch_limit: BATCH_LIMIT,
     });
   } catch (e) {

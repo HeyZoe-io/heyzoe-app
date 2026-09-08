@@ -22,6 +22,7 @@ import {
   talkedRecipientKey,
   type ManualBulkAudienceType,
 } from "@/lib/manual-bulk/constants";
+import { applyAlreadySentSkip } from "@/lib/manual-bulk/recurrence";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -316,13 +317,18 @@ export async function buildManualBulkAudience(input: {
   weeks?: number;
   membershipTypeNames?: string[];
   includePunchCards?: boolean;
+  /** Weekly M1: do not skip people who already received this template. */
+  skipAlreadySentLog?: boolean;
 }): Promise<ManualBulkAudienceResult> {
   const skipped = emptySkips();
-  const alreadySent = await loadAlreadySentKeys({
-    admin: input.admin,
-    businessId: input.businessId,
-    templateName: input.templateName,
-  });
+  const skipAlreadySentLog = Boolean(input.skipAlreadySentLog);
+  const alreadySent = skipAlreadySentLog
+    ? new Set<string>()
+    : await loadAlreadySentKeys({
+        admin: input.admin,
+        businessId: input.businessId,
+        templateName: input.templateName,
+      });
   const contacts = await loadBusinessContacts({
     admin: input.admin,
     businessId: input.businessId,
@@ -358,7 +364,13 @@ export async function buildManualBulkAudience(input: {
     const withoutPhone: ManualBulkRecipient[] = [];
     for (const row of report.rows) {
       const recipientKey = membershipRecipientKey(row.userId);
-      if (alreadySent.has(recipientKey)) {
+      if (
+        applyAlreadySentSkip({
+          skipAlreadySentLog,
+          recipientKey,
+          alreadySent,
+        }) === "skip"
+      ) {
         skipped.already_sent += 1;
         continue;
       }
@@ -433,8 +445,23 @@ export async function buildManualBulkAudience(input: {
     if (!contact) {
       skipped.no_contact += 1;
       const recipientKey = talkedRecipientKey(null, phone);
-      if (alreadySent.has(recipientKey) || seenKeys.has(recipientKey)) {
-        if (alreadySent.has(recipientKey)) skipped.already_sent += 1;
+      if (
+        applyAlreadySentSkip({
+          skipAlreadySentLog,
+          recipientKey,
+          alreadySent,
+        }) === "skip" ||
+        seenKeys.has(recipientKey)
+      ) {
+        if (
+          applyAlreadySentSkip({
+            skipAlreadySentLog,
+            recipientKey,
+            alreadySent,
+          }) === "skip"
+        ) {
+          skipped.already_sent += 1;
+        }
         continue;
       }
       seenKeys.add(recipientKey);
@@ -455,8 +482,23 @@ export async function buildManualBulkAudience(input: {
       continue;
     }
     const recipientKey = talkedRecipientKey(String(contact.id), phone);
-    if (alreadySent.has(recipientKey) || seenKeys.has(recipientKey)) {
-      if (alreadySent.has(recipientKey)) skipped.already_sent += 1;
+    if (
+      applyAlreadySentSkip({
+        skipAlreadySentLog,
+        recipientKey,
+        alreadySent,
+      }) === "skip" ||
+      seenKeys.has(recipientKey)
+    ) {
+      if (
+        applyAlreadySentSkip({
+          skipAlreadySentLog,
+          recipientKey,
+          alreadySent,
+        }) === "skip"
+      ) {
+        skipped.already_sent += 1;
+      }
       continue;
     }
     seenKeys.add(recipientKey);

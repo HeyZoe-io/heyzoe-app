@@ -253,7 +253,8 @@ async function refreshJobStatus(
   const { error: updErr } = await admin
     .from("manual_bulk_jobs")
     .update({ status, updated_at: new Date().toISOString() })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .in("status", ["queued", "sending"]);
   if (updErr) {
     console.error("[manual-bulk] job status update failed:", updErr.message);
   }

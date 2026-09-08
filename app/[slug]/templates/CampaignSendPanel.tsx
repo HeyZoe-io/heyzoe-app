@@ -8,6 +8,12 @@ import {
   type ManualBulkAudienceType,
 } from "@/lib/manual-bulk/constants";
 import {
+  MANUAL_BULK_WEEKDAY_LABELS_HE,
+  MANUAL_BULK_WEEKDAYS,
+  nextWeeklyRunAt,
+  type ManualBulkWeekday,
+} from "@/lib/manual-bulk/recurrence";
+import {
   estimateManualBulkFinishAt,
   formatIsraelWallDateTimeHe,
   israelDatetimeLocalString,
@@ -36,6 +42,16 @@ type PreviewResult = {
   hit_message_page_cap?: boolean;
 };
 
+type ScheduleRow = {
+  id: string;
+  audience_type: string;
+  template_name: string;
+  weekday: number;
+  time_local: string;
+  enabled: boolean;
+  next_run_at: string;
+};
+
 const FIELD =
   "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 text-right";
 
@@ -60,10 +76,14 @@ export default function CampaignSendPanel(props: {
   const [membershipTypes, setMembershipTypes] = useState<MembershipTypeRow[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [includePunchCards, setIncludePunchCards] = useState(false);
-  const [whenMode, setWhenMode] = useState<"now" | "later">("now");
+  const [whenMode, setWhenMode] = useState<"now" | "later" | "recurring">("now");
   const [scheduledLocal, setScheduledLocal] = useState(() =>
     israelDatetimeLocalString(new Date(Date.now() + 60 * 60 * 1000))
   );
+  const [weekday, setWeekday] = useState<ManualBulkWeekday>(0);
+  const [timeLocal, setTimeLocal] = useState("09:00");
+  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+  const [scheduleBusyId, setScheduleBusyId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState<"preview" | "confirm" | null>(null);
@@ -76,6 +96,24 @@ export default function CampaignSendPanel(props: {
     setQueuedMsg(null);
     setError(null);
   }, [audienceType]);
+
+  async function loadSchedules() {
+    try {
+      const res = await fetch(`/api/${encodeURIComponent(props.slug)}/bulk-send/schedules`, {
+        cache: "no-store",
+      });
+      const j = (await res.json().catch(() => ({}))) as { schedules?: ScheduleRow[] };
+      if (!res.ok) return;
+      setSchedules(Array.isArray(j.schedules) ? j.schedules : []);
+    } catch {
+      /* list is optional */
+    }
+  }
+
+  useEffect(() => {
+    void loadSchedules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when slug/audience panel opens
+  }, [props.slug, audienceType]);
 
   useEffect(() => {
     if (audienceType !== "membership") return;
@@ -101,6 +139,7 @@ export default function CampaignSendPanel(props: {
   }, [audienceType, props.slug]);
 
   const scheduledAtRaw = whenMode === "later" ? scheduledLocal : undefined;
+  const isRecurring = whenMode === "recurring";
 
   const audiencePayload = useMemo(
     () => ({
@@ -117,8 +156,14 @@ export default function CampaignSendPanel(props: {
     () => ({
       ...audiencePayload,
       ...(scheduledAtRaw ? { scheduled_at: scheduledAtRaw } : {}),
+      ...(isRecurring ? { skip_already_sent: true, recurring: true } : {}),
     }),
-    [audiencePayload, scheduledAtRaw]
+    [audiencePayload, scheduledAtRaw, isRecurring]
+  );
+
+  const audienceSchedules = useMemo(
+    () => schedules.filter((s) => s.audience_type === audienceType),
+    [schedules, audienceType]
   );
 
   const schedule = useMemo(
@@ -169,7 +214,10 @@ export default function CampaignSendPanel(props: {
       const res = await fetch(`/api/${encodeURIComponent(props.slug)}/bulk-send/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(audiencePayload),
+        body: JSON.stringify({
+          ...audiencePayload,
+          ...(isRecurring ? { skip_already_sent: true } : {}),
+        }),
       });
       const j = (await res.json().catch(() => ({}))) as PreviewResult & { error?: string };
       if (!res.ok) {
@@ -191,10 +239,43 @@ export default function CampaignSendPanel(props: {
   }
 
   async function runConfirm() {
-    if (!preview || !ack || !schedule.ok) return;
+    if (!preview || !ack) return;
+    if (!isRecurring && !schedule.ok) return;
     setError(null);
     setBusy("confirm");
     try {
+      if (isRecurring) {
+        const res = await fetch(`/api/${encodeURIComponent(props.slug)}/bulk-send/schedules`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...audiencePayload,
+            weekday,
+            time_local: timeLocal,
+            confirmed: true,
+          }),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          schedule?: { next_run_at?: string };
+        };
+        if (!res.ok) {
+          throw new Error(
+            j.error === "invalid_weekday" || j.error === "invalid_recurrence_time"
+              ? "יום או שעה לא תקינים."
+              : j.error || "confirm_failed"
+          );
+        }
+        const next = j.schedule?.next_run_at
+          ? formatIsraelWallDateTimeHe(new Date(j.schedule.next_run_at))
+          : "";
+        setQueuedMsg(
+          `נשמר קמפיין שבועי. השליחה הבאה: ${next || "לפי הלוח"}. הרשימה מתעדכנת מחדש בכל שבוע.`
+        );
+        await loadSchedules();
+        return;
+      }
+
       const res = await fetch(`/api/${encodeURIComponent(props.slug)}/bulk-send/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,6 +311,25 @@ export default function CampaignSendPanel(props: {
     }
   }
 
+  async function toggleSchedule(row: ScheduleRow, enabled: boolean) {
+    setError(null);
+    setScheduleBusyId(row.id);
+    try {
+      const res = await fetch(`/api/${encodeURIComponent(props.slug)}/bulk-send/schedules`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, enabled }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "schedule_update_failed");
+      await loadSchedules();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "schedule_update_failed");
+    } finally {
+      setScheduleBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-4 text-right" dir="rtl">
       <div className="flex items-start justify-between gap-3">
@@ -249,6 +349,36 @@ export default function CampaignSendPanel(props: {
           </button>
         ) : null}
       </div>
+
+      {audienceSchedules.length > 0 ? (
+        <section className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+          <p className="text-sm font-medium text-zinc-800">קמפיינים שבועיים</p>
+          <ul className="space-y-2">
+            {audienceSchedules.map((row) => (
+              <li
+                key={row.id}
+                className="flex flex-col gap-1 rounded-lg border border-zinc-100 px-2 py-2 text-xs text-zinc-700 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span>
+                  כל יום {MANUAL_BULK_WEEKDAY_LABELS_HE[row.weekday as ManualBulkWeekday] ?? row.weekday}{" "}
+                  ב-{row.time_local} · {row.template_name}
+                  {row.enabled
+                    ? ` · הבא: ${formatIsraelWallDateTimeHe(new Date(row.next_run_at))}`
+                    : " · כבוי"}
+                </span>
+                <button
+                  type="button"
+                  disabled={scheduleBusyId === row.id}
+                  onClick={() => void toggleSchedule(row, !row.enabled)}
+                  className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {row.enabled ? "כיבוי" : "הפעלה"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
         {audienceType === "membership" ? (
@@ -360,7 +490,11 @@ export default function CampaignSendPanel(props: {
                 type="radio"
                 name="when"
                 checked={whenMode === "now"}
-                onChange={() => setWhenMode("now")}
+                onChange={() => {
+                  setWhenMode("now");
+                  setPreview(null);
+                  setAck(false);
+                }}
               />
             </label>
             <label className="flex items-center justify-end gap-2 text-sm">
@@ -369,7 +503,24 @@ export default function CampaignSendPanel(props: {
                 type="radio"
                 name="when"
                 checked={whenMode === "later"}
-                onChange={() => setWhenMode("later")}
+                onChange={() => {
+                  setWhenMode("later");
+                  setPreview(null);
+                  setAck(false);
+                }}
+              />
+            </label>
+            <label className="flex items-center justify-end gap-2 text-sm">
+              <span>חוזר כל שבוע</span>
+              <input
+                type="radio"
+                name="when"
+                checked={whenMode === "recurring"}
+                onChange={() => {
+                  setWhenMode("recurring");
+                  setPreview(null);
+                  setAck(false);
+                }}
               />
             </label>
             {whenMode === "later" ? (
@@ -385,7 +536,53 @@ export default function CampaignSendPanel(props: {
                 />
               </label>
             ) : null}
-            {scheduleHint ? (
+            {whenMode === "recurring" ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="block text-sm text-zinc-700">
+                  יום
+                  <select
+                    className={`${FIELD} mt-1`}
+                    value={weekday}
+                    onChange={(e) => setWeekday(Number(e.target.value) as ManualBulkWeekday)}
+                  >
+                    {MANUAL_BULK_WEEKDAYS.map((d) => (
+                      <option key={d} value={d}>
+                        {MANUAL_BULK_WEEKDAY_LABELS_HE[d]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm text-zinc-700">
+                  שעה (שעון ישראל)
+                  <input
+                    type="time"
+                    dir="ltr"
+                    className={`${FIELD} mt-1 text-left`}
+                    value={timeLocal}
+                    onChange={(e) => setTimeLocal(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+            {audienceType === "talked_not_registered" && whenMode === "recurring" ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                קמפיין חוזר לקהל «דיבר ולא נרשם» שולח לאותם לידים שבוע אחרי שבוע, כל עוד הם עדיין
+                בחלון ולא נרשמו. ודאו שזה רצוי לפני שמירה.
+              </p>
+            ) : null}
+            {isRecurring ? (
+              <p className="text-sm text-zinc-700">
+                {(() => {
+                  const next = nextWeeklyRunAt({
+                    weekday,
+                    timeLocal,
+                    from: new Date(),
+                  });
+                  if (!Number.isFinite(next.getTime())) return "יום או שעה לא תקינים.";
+                  return `השליחה הבאה: ${formatIsraelWallDateTimeHe(next)}. הספירה למעלה היא תמונת מצב — בכל שבוע הרשימה נבנית מחדש.`;
+                })()}
+              </p>
+            ) : scheduleHint ? (
               <p
                 className={`text-sm ${scheduleHint.kind === "error" ? "text-red-600" : scheduleHint.kind === "window" ? "text-amber-800" : "text-zinc-700"}`}
               >
@@ -399,16 +596,24 @@ export default function CampaignSendPanel(props: {
           </fieldset>
           <label className="flex items-center justify-end gap-2 text-sm">
             <span>
-              אני מאשר/ת לשלוח ל-{preview.with_phone_count} נמענים (כל אחד = שיחת MARKETING ב-WhatsApp)
+              {isRecurring
+                ? `אני מאשר/ת קמפיין שבועי לכ-${preview.with_phone_count} נמענים כרגע (כל שליחה = שיחות MARKETING; הרשימה משתנה כל שבוע)`
+                : `אני מאשר/ת לשלוח ל-${preview.with_phone_count} נמענים (כל אחד = שיחת MARKETING ב-WhatsApp)`}
             </span>
             <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} />
           </label>
           <Button
             type="button"
             onClick={() => void runConfirm()}
-            disabled={!ack || busy !== null || !schedule.ok}
+            disabled={!ack || busy !== null || (!isRecurring && !schedule.ok)}
           >
-            {busy === "confirm" ? "מכניס לתור…" : "אשר והכנס לתור"}
+            {busy === "confirm"
+              ? isRecurring
+                ? "שומר…"
+                : "מכניס לתור…"
+              : isRecurring
+                ? "אשר ושמור קמפיין שבועי"
+                : "אשר והכנס לתור"}
           </Button>
         </section>
       ) : null}

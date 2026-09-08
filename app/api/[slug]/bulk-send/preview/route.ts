@@ -63,6 +63,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
         ? body.membership_type_names.map((n) => String(n ?? "").trim()).filter(Boolean)
         : [],
       includePunchCards: body.include_punch_cards === true,
+      skipAlreadySentLog: body.skip_already_sent === true || body.recurring === true,
       scheduledAtRaw: body.scheduled_at,
     });
     return NextResponse.json({ ok: true, ...preview });

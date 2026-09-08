@@ -62,6 +62,7 @@ export async function previewManualBulkSend(input: {
   weeks?: number;
   membershipTypeNames?: string[];
   includePunchCards?: boolean;
+  skipAlreadySentLog?: boolean;
   scheduledAtRaw?: unknown;
   now?: Date;
 }): Promise<{
@@ -107,6 +108,7 @@ export async function previewManualBulkSend(input: {
     weeks: clampManualBulkWeeks(input.weeks),
     membershipTypeNames: input.membershipTypeNames,
     includePunchCards: input.includePunchCards,
+    skipAlreadySentLog: input.skipAlreadySentLog,
   });
 
   const sampleName = audience.withPhone.find((r) => r.fullName)?.fullName ?? "דנה";

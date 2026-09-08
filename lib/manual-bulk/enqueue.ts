@@ -19,6 +19,8 @@ export async function enqueueManualBulkSend(input: {
   membershipTypeNames?: string[];
   includePunchCards?: boolean;
   dueAt: Date;
+  scheduleId?: string | null;
+  skipAlreadySentLog?: boolean;
 }): Promise<{
   job_id: string;
   queued: number;
@@ -42,6 +44,7 @@ export async function enqueueManualBulkSend(input: {
     weeks: clampManualBulkWeeks(input.weeks),
     membershipTypeNames: input.membershipTypeNames,
     includePunchCards: input.includePunchCards,
+    skipAlreadySentLog: Boolean(input.skipAlreadySentLog),
   });
 
   const now = new Date();
@@ -70,6 +73,7 @@ export async function enqueueManualBulkSend(input: {
       without_phone_count: audience.withoutPhone.length,
       queued_count: 0,
       status: "queued",
+      schedule_id: input.scheduleId ?? null,
       updated_at: nowIso,
     })
     .select("id")
