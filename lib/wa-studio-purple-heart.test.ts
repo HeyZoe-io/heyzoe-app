@@ -41,6 +41,14 @@ assert.deepEqual(interactive, {
   footer: { text: "אנחנו כאן" },
 });
 
+assert.deepEqual(
+  applyStudioPurpleHeartPolicyDeep(
+    [{ type: "BODY", text: "היי {{1}} 💜 נשמח לראותך" }],
+    { slug: "apex" }
+  ),
+  [{ type: "BODY", text: "היי {{1}} נשמח לראותך" }]
+);
+
 async function main() {
   await withWaMessageLogScope({ businessSlug: "apex", sessionId: "wa_apex_test" }, async () => {
     assert.equal(shouldStripPurpleHearts(), true);

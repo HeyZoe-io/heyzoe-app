@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@/lib/meta-templates";
 import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
+import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
 export const runtime = "nodejs";
 
@@ -130,14 +131,17 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const name = String(body.name ?? "").trim();
   const category = String(body.category ?? "MARKETING").trim().toUpperCase() || "MARKETING";
   const language = String(body.language ?? "he").trim().toLowerCase() || "he";
-  const components = body.components;
+  const rawComponents = body.components;
 
   if (!TEMPLATE_NAME_RE.test(name)) {
     return NextResponse.json({ error: "invalid_template_name" }, { status: 400 });
   }
-  if (!Array.isArray(components) || components.length === 0) {
+  if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
+  const components = applyStudioPurpleHeartPolicyDeep(rawComponents, {
+    slug: String(slug ?? "").trim().toLowerCase(),
+  });
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -247,11 +251,14 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   const name = String(body.name ?? "").trim();
   const language = String(body.language ?? "").trim();
   const category = String(body.category ?? "").trim().toUpperCase();
-  const components = body.components;
+  const rawComponents = body.components;
 
-  if (!Array.isArray(components) || components.length === 0) {
+  if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
+  const components = applyStudioPurpleHeartPolicyDeep(rawComponents, {
+    slug: String(slug ?? "").trim().toLowerCase(),
+  });
   if (category && category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }

@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
+import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 
 export const runtime = "nodejs";
 
@@ -45,7 +46,9 @@ async function sendMetaWhatsAppText(params: {
       messaging_product: "whatsapp",
       to: params.to,
       type: "text",
-      text: { body: params.body },
+      text: {
+        body: applyStudioPurpleHeartPolicy(params.body, { fromNumber: params.phoneNumberId }),
+      },
     }),
   });
 

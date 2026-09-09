@@ -5,6 +5,7 @@ import {
   suppressMarketingOptOutFromSendError,
 } from "@/lib/wa-marketing-opt-out";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
 export type OwnerTemplateComponent = {
   type: "body" | "header";
@@ -136,7 +137,13 @@ export async function sendBusinessTemplate(input: {
     template: {
       name: templateName,
       language: { code: input.languageCode?.trim() || "he" },
-      ...(input.components?.length ? { components: sanitizeZoeOutboundDeep(input.components) } : {}),
+      ...(input.components?.length
+        ? {
+            components: sanitizeZoeOutboundDeep(
+              applyStudioPurpleHeartPolicyDeep(input.components, { fromNumber: phoneNumberId })
+            ),
+          }
+        : {}),
     },
   };
 

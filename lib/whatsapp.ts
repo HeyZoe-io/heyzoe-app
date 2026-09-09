@@ -881,12 +881,19 @@ export async function sendWhatsAppIdleFollowupMessage(
   footerText = applyStudioPurpleHeartPolicy(footerText, heartCtx);
   const foot = footerText.trim();
   const footClean = foot.replace(/^\s+/, "").trim();
-  const normalized: WaIdleFollowupCta | null =
+  const normalizedRaw: WaIdleFollowupCta | null =
     cta == null
       ? null
       : "mode" in cta
         ? cta
         : { mode: "url", label: cta.label, url: cta.url };
+  const normalized: WaIdleFollowupCta | null =
+    normalizedRaw == null
+      ? null
+      : {
+          ...normalizedRaw,
+          label: applyStudioPurpleHeartPolicy(normalizedRaw.label, heartCtx),
+        };
 
   if (
     normalized?.mode === "reply" &&
@@ -997,7 +1004,9 @@ export async function sendWhatsAppTextOrMenu(
   authToken: string,
   opts?: { footerHint?: string; language?: WaUiLanguage }
 ): Promise<void> {
-  const labels = truncateWaButtonLabels(menuOptionLabels);
+  const labels = truncateWaButtonLabels(
+    menuOptionLabels.map((label) => applyStudioPurpleHeartPolicy(label, { fromNumber }))
+  );
   const language = opts?.language ?? "he";
   const footer = applyStudioPurpleHeartPolicy(opts?.footerHint ?? "", { fromNumber }).trim();
   const withFooterPlain = (base: string) => {
@@ -1151,7 +1160,9 @@ async function sendMetaWhatsAppMediaByLink(
   caption?: string
 ): Promise<void> {
   const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
-  const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
+  const cap = caption?.trim()
+    ? formatWhatsAppRtlBody(applyStudioPurpleHeartPolicy(caption, { fromNumber: phoneNumberId }).trim())
+    : undefined;
   const payload: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -1229,7 +1240,9 @@ async function sendMetaWhatsAppMediaByUpload(
   if (!mediaId) throw new Error("[Meta WA upload media] missing media id");
 
   const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
-  const cap = caption?.trim() ? formatWhatsAppRtlBody(caption.trim()) : undefined;
+  const cap = caption?.trim()
+    ? formatWhatsAppRtlBody(applyStudioPurpleHeartPolicy(caption, { fromNumber: phoneNumberId }).trim())
+    : undefined;
   const payload: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
