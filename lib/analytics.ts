@@ -6,6 +6,7 @@ import {
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
+import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
 
@@ -327,18 +328,22 @@ export async function logMessage(input: MessageLogInput) {
     const { consumeWaOutboundIfLogged, noteWaLogInserted, shouldSkipDuplicateWaLog } = await import(
       "@/lib/wa-message-log-context"
     );
-    if (shouldSkipDuplicateWaLog(input.role, input.content)) {
-      if (input.role === "assistant") consumeWaOutboundIfLogged(input.content);
-      return;
-    }
-    const supabase = createSupabaseAdminClient();
     const businessSlug = String(input.business_slug ?? "")
       .trim()
       .toLowerCase();
+    const content =
+      input.role === "assistant"
+        ? applyStudioPurpleHeartPolicy(input.content, { slug: businessSlug })
+        : input.content;
+    if (shouldSkipDuplicateWaLog(input.role, content)) {
+      if (input.role === "assistant") consumeWaOutboundIfLogged(content);
+      return;
+    }
+    const supabase = createSupabaseAdminClient();
     const { error } = await supabase.from("messages").insert({
       business_slug: businessSlug,
       role: input.role,
-      content: input.content,
+      content,
       model_used: input.model_used ?? null,
       session_id: input.session_id ?? null,
       error_code: input.error_code ?? null,
@@ -347,8 +352,8 @@ export async function logMessage(input: MessageLogInput) {
       console.error("[analytics] logMessage insert error:", error.message);
       return;
     }
-    noteWaLogInserted(input.role, input.content);
-    if (input.role === "assistant") consumeWaOutboundIfLogged(input.content);
+    noteWaLogInserted(input.role, content);
+    if (input.role === "assistant") consumeWaOutboundIfLogged(content);
   } catch (e) {
     console.error("[analytics] logMessage failed:", e);
   }

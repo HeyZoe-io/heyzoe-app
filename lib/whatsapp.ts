@@ -14,6 +14,7 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { applyStudioPurpleHeartPolicy, applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
 function noteWaOutboundSent(content: string): void {
   const t = String(content ?? "").trim();
@@ -875,6 +876,9 @@ export async function sendWhatsAppIdleFollowupMessage(
   authToken: string,
   language: WaUiLanguage = "he"
 ): Promise<void> {
+  const heartCtx = { fromNumber };
+  bodyText = applyStudioPurpleHeartPolicy(bodyText, heartCtx);
+  footerText = applyStudioPurpleHeartPolicy(footerText, heartCtx);
   const foot = footerText.trim();
   const footClean = foot.replace(/^\s+/, "").trim();
   const normalized: WaIdleFollowupCta | null =
@@ -954,16 +958,17 @@ export async function sendMetaWhatsAppMessage(
   }
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const to = toE164.replace(/^\+/, "");
+  const prepared = applyStudioPurpleHeartPolicyDeep(outgoing, { fromNumber: phoneNumberId });
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to,
-    type: outgoing.type,
+    type: prepared.type,
   };
-  if (outgoing.type === "text") {
-    body.text = { body: formatWhatsAppRtlBody(sanitizeZoeDashes(outgoing.text)) };
+  if (prepared.type === "text") {
+    body.text = { body: formatWhatsAppRtlBody(sanitizeZoeDashes(prepared.text)) };
   } else {
-    body.interactive = sanitizeZoeOutboundDeep(outgoing.interactive);
+    body.interactive = sanitizeZoeOutboundDeep(prepared.interactive);
   }
 
   const res = await fetch(url, {
@@ -994,14 +999,17 @@ export async function sendWhatsAppTextOrMenu(
 ): Promise<void> {
   const labels = truncateWaButtonLabels(menuOptionLabels);
   const language = opts?.language ?? "he";
-  const footer = (opts?.footerHint ?? "").trim();
+  const footer = applyStudioPurpleHeartPolicy(opts?.footerHint ?? "", { fromNumber }).trim();
   const withFooterPlain = (base: string) => {
     const b = base.trim();
     return footer ? `${b}\n\n${footer}` : b;
   };
 
   // Defense-in-depth: never send assistant-authored numbered choice lists to WhatsApp.
-  bodyText = stripNumberedChoiceLinesAnywhere(bodyText, labels);
+  bodyText = stripNumberedChoiceLinesAnywhere(
+    applyStudioPurpleHeartPolicy(bodyText, { fromNumber }),
+    labels
+  );
 
   if (isMetaCloudPhoneNumberId(fromNumber) && resolveMetaAccessToken()) {
     const baseBody = bodyText.trim();
@@ -1057,6 +1065,7 @@ export async function sendWhatsAppMessage(
   accountSid: string,
   authToken: string
 ): Promise<void> {
+  text = applyStudioPurpleHeartPolicy(text, { fromNumber });
   const bodyText = formatWhatsAppRtlBody(sanitizeZoeDashes(text));
 
   const metaToken = resolveMetaAccessToken();
@@ -1257,6 +1266,7 @@ export async function sendWhatsAppMediaMessage(
 ): Promise<void> {
   const cleanUrl = mediaUrl.trim();
   if (!cleanUrl) return;
+  if (caption != null) caption = applyStudioPurpleHeartPolicy(caption, { fromNumber });
 
   const isVideo = inferMediaIsVideo(mediaKind, cleanUrl);
   const maxBytes = whatsappMediaMaxBytes(isVideo);
