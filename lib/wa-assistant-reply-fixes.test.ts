@@ -226,6 +226,12 @@ assert.match(spellingRule, /עיסוי זה לא ספא/);
 assert.match(spellingRule, /כשתהיי רוצה/);
 assert.match(spellingRule, /תרצי/);
 
+const scheduleFitRule = buildWaSpellingAndPhrasingPromptRule(knowledge, {
+  suppressFollowUpQuestion: true,
+  scheduleInterestServiceName: "קרב מגע לילדים",
+});
+assert.match(scheduleFitRule, /שם השירות האחר/);
+
 const wantConjugation = applyKnownAssistantReplyFixes(
   "מושלם! אנחנו כאן כשתהיי רוצה 🙂",
   { knowledge }

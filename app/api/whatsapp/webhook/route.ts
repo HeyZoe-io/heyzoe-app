@@ -153,8 +153,10 @@ import {
   OPENING_SERVICE_LIST_PICK_BRIDGE,
   buildAmbiguousCatalogTrialPickMessage,
   ensureOpeningServiceListPickBridge,
+  resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
+  type AssistantRecommendedOtherCatalogService,
 } from "@/lib/wa-opening-service-list-pick-bridge";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import {
@@ -2973,6 +2975,122 @@ async function commitImplicitServiceSwitch(input: {
     content: `${HEYZOE_SF_SERVICE_PREFIX}${input.serviceName}`,
     model_used: input.logModelUsed ?? "sf_service_implicit_switch",
     session_id: input.sessionId,
+  });
+  return nextPhase;
+}
+
+async function continueSalesFlowAfterCommittedServiceSwitch(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  phase: HeyzoeSessionPhase;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  trialRegistered: boolean | null;
+  allowTrialCta: boolean;
+  blockTrialPickMedia?: boolean;
+  sfConsumedKinds?: string[];
+  instagramFollowPromptSent?: boolean;
+}): Promise<void> {
+  const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
+    knowledge: input.knowledge,
+    supabase: input.supabase,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    blockTrialPickMedia: input.blockTrialPickMedia,
+    when: "after_service_pick",
+  });
+  if (scheduleAfterPick === "image") {
+    await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
+  }
+  await sendFlowContinuation({
+    phase: input.phase,
+    contact: { flow_step: 0 },
+    knowledge: input.knowledge,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    salesFlowServices: input.salesFlowServices,
+    trialRegistered: input.trialRegistered,
+    allowTrialCta: input.allowTrialCta,
+    blockTrialPickMedia: input.blockTrialPickMedia,
+    sfConsumedKinds: input.sfConsumedKinds,
+    instagramFollowPromptSent: input.instagramFollowPromptSent,
+  });
+}
+
+async function applyAssistantRecommendedCatalogRedirect(input: {
+  redirect: AssistantRecommendedOtherCatalogService;
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  trialRegistered: boolean | null;
+  allowTrialCta: boolean;
+  blockMedia?: boolean;
+  sfConsumedKinds?: string[];
+  instagramFollowPromptSent?: boolean;
+}): Promise<HeyzoeSessionPhase> {
+  if (input.redirect.mode === "ambiguous") {
+    await sendSalesFlowServiceRepickAckAndMenu({
+      knowledge: input.knowledge,
+      salesFlowServices: input.salesFlowServices,
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      supabase: input.supabase,
+      businessId: input.businessId,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+      blockMedia: input.blockMedia,
+      logModelUsed: "sales_flow_assistant_catalog_repick",
+    });
+    return "opening";
+  }
+
+  const nextPhase = await commitImplicitServiceSwitch({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    serviceName: input.redirect.serviceName,
+    msg: input.msg,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    logModelUsed: "sf_service_assistant_recommended_switch",
+  });
+  await continueSalesFlowAfterCommittedServiceSwitch({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    phase: nextPhase,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    trialRegistered: input.trialRegistered,
+    allowTrialCta: input.allowTrialCta,
+    blockTrialPickMedia: input.blockMedia,
+    sfConsumedKinds: input.sfConsumedKinds,
+    instagramFollowPromptSent: input.instagramFollowPromptSent,
   });
   return nextPhase;
 }
@@ -8279,26 +8397,10 @@ async function processIncoming(
       contactFlowStep = 0;
       contactScheduleRequestedDate = "";
       contactScheduleRequestedTime = "";
-      {
-        const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
-          knowledge,
-          supabase,
-          msg,
-          accountSid,
-          authToken,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          when: "after_service_pick",
-        });
-        if (scheduleAfterPick === "image") {
-          await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
-        }
-      }
-      await sendFlowContinuation({
-        phase: contactSessionPhase,
-        contact: { flow_step: 0 },
+      await continueSalesFlowAfterCommittedServiceSwitch({
         knowledge,
+        salesFlowServices,
+        phase: contactSessionPhase,
         msg,
         accountSid,
         authToken,
@@ -8306,7 +8408,6 @@ async function processIncoming(
         businessId,
         business_slug,
         sessionId,
-        salesFlowServices,
         trialRegistered: contactTrialRegistered,
         allowTrialCta: allowTrialCtaThisSession,
         blockTrialPickMedia: starterBlocksMedia,
@@ -11692,6 +11793,49 @@ async function processIncoming(
         salesFlowStarted &&
         replyRefersToCustomerService(incomingRaw, csPhoneForRedirect);
 
+      const assistantCatalogRedirect =
+        !skipFlowPromptResend &&
+        !needsCtaRepickBridge &&
+        !shouldOfferServicePickAfterCs &&
+        salesFlowServices.length > 1 &&
+        Boolean(lastPickedServiceName?.trim()) &&
+        contactTrialRegistered !== true &&
+        !registeredInCurrentFlow &&
+        (contactSessionPhase === "schedule_date" ||
+          contactSessionPhase === "schedule_time" ||
+          contactSessionPhase === "cta")
+          ? resolveAssistantRecommendedOtherCatalogService({
+              assistantReply: replyCoreClean,
+              lastPickedServiceName,
+              serviceNames: salesFlowServices.map((s) => s.name),
+            })
+          : null;
+
+      const runAssistantCatalogRedirect = async (): Promise<boolean> => {
+        if (!assistantCatalogRedirect || !knowledge || !businessId) return false;
+        contactSessionPhase = await applyAssistantRecommendedCatalogRedirect({
+          redirect: assistantCatalogRedirect,
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          blockMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        });
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+        return true;
+      };
+
       if (shouldOfferServicePickAfterCs && knowledge && businessId) {
         await sendCustomerServiceRedirectWithServicePickFollowUp({
           csMessage: stripTrailingFollowUpQuestion(
@@ -11723,7 +11867,10 @@ async function processIncoming(
         }
         const ctaMode = resolveSalesFlowCtaDeliveryMode(contactFreeTextRepliesSinceCta);
         const compactLabels =
-          !skipFlowPromptResend && !needsCtaRepickBridge && ctaMode === "compact"
+          !skipFlowPromptResend &&
+          !needsCtaRepickBridge &&
+          !assistantCatalogRedirect &&
+          ctaMode === "compact"
             ? buildCompactCtaMenuLabels(filteredCtaForAi, aiMenuContentLang)
             : [];
         try {
@@ -11755,7 +11902,9 @@ async function processIncoming(
           error_code: replyErrorCode,
         });
         assistantReplyLogged = true;
-        if (
+        if (await runAssistantCatalogRedirect()) {
+          // recommended another catalog product — do not resend the previous product's CTA
+        } else if (
           businessId &&
           knowledge?.salesFlowConfig &&
           !needsCtaRepickBridge &&
@@ -11828,7 +11977,9 @@ async function processIncoming(
           error_code: replyErrorCode,
         });
         assistantReplyLogged = true;
-        if (knowledge && businessId && !shouldOfferServicePickAfterCs) {
+        if (await runAssistantCatalogRedirect()) {
+          // recommended another catalog product — send that product's flow, not the previous schedule
+        } else if (knowledge && businessId && !shouldOfferServicePickAfterCs) {
           await continueDeterministicFlowAfterFreeTextAi({
             phase: contactSessionPhase,
             contact: { flow_step: contactFlowStep },
@@ -11887,6 +12038,7 @@ async function processIncoming(
           footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? menuFooter : "",
           language: aiMenuContentLang,
         });
+        await runAssistantCatalogRedirect();
       }
 
       // In CTA phase we already send the CTA menu explicitly as a second message (split mode),
@@ -11900,7 +12052,8 @@ async function processIncoming(
         !shouldSplitFreeTextAnswerAndResendPrompt &&
         !shouldOfferServicePickAfterCs &&
         !needsCtaRepickBridge &&
-        !skipFlowPromptResend
+        !skipFlowPromptResend &&
+        !assistantCatalogRedirect
       ) {
         await sendFlowContinuation({
           phase: contactSessionPhase,

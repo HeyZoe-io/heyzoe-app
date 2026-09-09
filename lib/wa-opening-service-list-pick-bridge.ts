@@ -90,6 +90,33 @@ export function assistantReplyMentionsCatalogService(
   return distinctive.some((tok) => reply.includes(tok));
 }
 
+export type AssistantRecommendedOtherCatalogService =
+  | { mode: "switch"; serviceName: string }
+  | { mode: "ambiguous" };
+
+/**
+ * אחרי בחירת מוצר: זואי ציינה אימון אחר מהקטלוג (גיל/קהל לא מתאים).
+ * התאמה יחידה → מעבר שקט; כמה התאמות → תפריט בחירה מחדש.
+ */
+export function resolveAssistantRecommendedOtherCatalogService(input: {
+  assistantReply: string;
+  lastPickedServiceName: string | null;
+  serviceNames: string[];
+}): AssistantRecommendedOtherCatalogService | null {
+  const last = String(input.lastPickedServiceName ?? "").trim();
+  const reply = String(input.assistantReply ?? "").trim();
+  if (!last || !reply) return null;
+  const names = [...new Set((input.serviceNames ?? []).map((n) => String(n ?? "").trim()).filter(Boolean))];
+  if (names.length < 2) return null;
+  const lastFold = foldForMention(last);
+  const others = names.filter((n) => foldForMention(n) !== lastFold);
+  const mentioned = others.filter((n) => assistantReplyMentionsCatalogService(reply, n));
+  const unique = [...new Set(mentioned)];
+  if (unique.length === 1) return { mode: "switch", serviceName: unique[0]! };
+  if (unique.length > 1) return { mode: "ambiguous" };
+  return null;
+}
+
 /**
  * רק כשממתינים לבחירת מוצר, עדיין אין sf_service, וזואי/הליד כבר «סגרו» אימון בעל־פה.
  * לא על שאלות מחיר/מידע כללי בלי שם מוצר מהרשימה.
