@@ -2,6 +2,12 @@ import { isContactTrialRegistered } from "@/lib/contact-status";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
+export function skipHumanRequestedOwnerWhatsAppWhenTaskCreated(
+  createdHumanRequestTask: boolean
+): boolean {
+  return createdHumanRequestTask === true;
+}
+
 export function buildHumanRequestedContactPatch(atIso: string): Record<string, unknown> {
   return {
     human_requested_at: atIso,
@@ -126,17 +132,10 @@ export async function handleLeadHumanRequested(input: {
     String((existing as { full_name?: string | null } | null)?.full_name ?? "").trim() ||
     null;
 
-  const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-  void triggerHumanRequestedNotification({
-    businessId,
-    leadPhone: input.phone,
-    requestedAtIso: input.nowIso,
-    callScheduleSlot: input.callScheduleSlot ?? null,
-  }).catch((e) => console.error("[human-requested] owner notification failed:", e));
-
+  let createdHumanRequestTask = false;
   try {
     const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-    await dispatchCrmEvent({
+    const crm = await dispatchCrmEvent({
       businessId,
       leadPhone: input.phone,
       kind: "human_requested",
@@ -144,9 +143,19 @@ export async function handleLeadHumanRequested(input: {
       eventAtIso: input.nowIso,
       skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
+    createdHumanRequestTask = crm.createdHumanRequestTask === true;
   } catch (e) {
     console.error("[human-requested] CRM dispatch failed:", e);
   }
+
+  const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
+  void triggerHumanRequestedNotification({
+    businessId,
+    leadPhone: input.phone,
+    requestedAtIso: input.nowIso,
+    callScheduleSlot: input.callScheduleSlot ?? null,
+    skipWhatsapp: skipHumanRequestedOwnerWhatsAppWhenTaskCreated(createdHumanRequestTask),
+  }).catch((e) => console.error("[human-requested] owner notification failed:", e));
 
   return { already: false };
 }
@@ -219,16 +228,10 @@ export async function markContactHumanRequestedManually(input: {
     String((existing as { full_name?: string | null } | null)?.full_name ?? "").trim() ||
     null;
 
-  const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-  void triggerHumanRequestedNotification({
-    businessId,
-    leadPhone: input.phone,
-    requestedAtIso: nowIso,
-  }).catch((e) => console.error("[human-requested] manual owner notification failed:", e));
-
+  let createdHumanRequestTask = false;
   try {
     const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-    await dispatchCrmEvent({
+    const crm = await dispatchCrmEvent({
       businessId,
       leadPhone: input.phone,
       kind: "human_requested",
@@ -236,9 +239,18 @@ export async function markContactHumanRequestedManually(input: {
       eventAtIso: nowIso,
       skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
+    createdHumanRequestTask = crm.createdHumanRequestTask === true;
   } catch (e) {
     console.error("[human-requested] manual CRM dispatch failed:", e);
   }
+
+  const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
+  void triggerHumanRequestedNotification({
+    businessId,
+    leadPhone: input.phone,
+    requestedAtIso: nowIso,
+    skipWhatsapp: skipHumanRequestedOwnerWhatsAppWhenTaskCreated(createdHumanRequestTask),
+  }).catch((e) => console.error("[human-requested] manual owner notification failed:", e));
 
   return { ok: true, human_requested_at: nowIso };
 }

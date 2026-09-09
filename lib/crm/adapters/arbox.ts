@@ -100,6 +100,16 @@ export function shouldCreateArboxHumanRequestTask(
   return kind === "human_requested" && parsePositiveIntId(taskTypeId) != null;
 }
 
+/** ליד חסר בארבוקס: יוצרים ליד גם אם «יצירת לידים» כבויה — רק כדי לשייך משימת בקשת נציג. */
+export function shouldCreateArboxLeadForMissingUser(input: {
+  leadCreationEnabled: boolean;
+  createHumanRequestTask: boolean;
+  createLeadIfMissingForTask: boolean;
+}): boolean {
+  if (input.leadCreationEnabled) return true;
+  return input.createHumanRequestTask && input.createLeadIfMissingForTask;
+}
+
 function parseLocationId(boxId: string): number | null {
   return parsePositiveIntId(boxId);
 }
@@ -494,11 +504,13 @@ export async function submitArboxCrmEvent(input: {
   statusId?: string | null;
   humanRequestTaskTypeId?: string | null;
   leadCreationEnabled?: boolean;
+  /** false = אל תיצרי ליד חדש (למשל כבר נרשם לניסיון). */
+  createLeadIfMissingForTask?: boolean;
   phone: string;
   fullName?: string | null;
   noteText: string;
   kind: CrmEventKind;
-}): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
+}): Promise<{ ok: true; createdHumanRequestTask: boolean } | { ok: false; error: string; detail?: string }> {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const noteText = String(input.noteText ?? "").trim();
@@ -532,8 +544,13 @@ export async function submitArboxCrmEvent(input: {
     }
 
     if (!userId) {
-      if (input.leadCreationEnabled !== true) {
-        return { ok: true };
+      const createLead = shouldCreateArboxLeadForMissingUser({
+        leadCreationEnabled: input.leadCreationEnabled === true,
+        createHumanRequestTask,
+        createLeadIfMissingForTask: input.createLeadIfMissingForTask !== false,
+      });
+      if (!createLead) {
+        return { ok: true, createdHumanRequestTask: false };
       }
       const created = await createArboxLead({
         apiKey,
@@ -569,7 +586,7 @@ export async function submitArboxCrmEvent(input: {
     });
 
     if (createdLead && !createHumanRequestTask) {
-      return { ok: true };
+      return { ok: true, createdHumanRequestTask: false };
     }
 
     if (createHumanRequestTask && humanRequestTaskTypeId != null) {
@@ -581,7 +598,7 @@ export async function submitArboxCrmEvent(input: {
         kind: input.kind,
         noteText,
       });
-      if (taskOk) return { ok: true };
+      if (taskOk) return { ok: true, createdHumanRequestTask: true };
       if (createdLead) {
         return { ok: false, error: "task_create_failed" };
       }
@@ -592,7 +609,7 @@ export async function submitArboxCrmEvent(input: {
     }
 
     if (createdLead) {
-      return { ok: true };
+      return { ok: true, createdHumanRequestTask: false };
     }
 
     const noteOk = await appendArboxNote({
@@ -605,7 +622,7 @@ export async function submitArboxCrmEvent(input: {
     if (!noteOk) {
       return { ok: false, error: "note_create_failed" };
     }
-    return { ok: true };
+    return { ok: true, createdHumanRequestTask: false };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[crm/arbox] request failed", {

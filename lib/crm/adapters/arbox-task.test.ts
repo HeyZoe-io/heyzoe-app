@@ -4,6 +4,7 @@ import {
   formatArboxTaskReminder,
   parseArboxTaskTypes,
   shouldCreateArboxHumanRequestTask,
+  shouldCreateArboxLeadForMissingUser,
 } from "@/lib/crm/adapters/arbox";
 
 {
@@ -65,6 +66,41 @@ import {
   assert.equal(shouldCreateArboxHumanRequestTask("human_requested", null), false);
   assert.equal(shouldCreateArboxHumanRequestTask("trial_registered", "7"), false);
   assert.equal(shouldCreateArboxHumanRequestTask("no_response", "7"), false);
+}
+
+{
+  assert.equal(
+    shouldCreateArboxLeadForMissingUser({
+      leadCreationEnabled: false,
+      createHumanRequestTask: true,
+      createLeadIfMissingForTask: true,
+    }),
+    true
+  );
+  assert.equal(
+    shouldCreateArboxLeadForMissingUser({
+      leadCreationEnabled: false,
+      createHumanRequestTask: true,
+      createLeadIfMissingForTask: false,
+    }),
+    false
+  );
+  assert.equal(
+    shouldCreateArboxLeadForMissingUser({
+      leadCreationEnabled: false,
+      createHumanRequestTask: false,
+      createLeadIfMissingForTask: true,
+    }),
+    false
+  );
+  assert.equal(
+    shouldCreateArboxLeadForMissingUser({
+      leadCreationEnabled: true,
+      createHumanRequestTask: false,
+      createLeadIfMissingForTask: false,
+    }),
+    true
+  );
 }
 
 console.log("arbox-task.test.ts: ok");

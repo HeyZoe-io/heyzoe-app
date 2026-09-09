@@ -95,18 +95,26 @@ export async function triggerHumanRequestedNotification(input: {
   requestedAtIso?: string;
   /** מועד שיחה שנבחר בפלואו — לגוף המייל בלבד */
   callScheduleSlot?: string | null;
+  /** משימת ארבוקס נוצרה — בלי וואטסאפ «בקשת נציג» לבעלים */
+  skipWhatsapp?: boolean;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   const requestedAtWa = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
-  await sendIfEnabled({
-    businessId: input.businessId,
-    key: "human_requested",
-    templateName: "human_agent_request",
-    components: buildHumanAgentRequestWaParams({
-      leadPhoneDisplay: phoneDisplay,
-      requestedAtHe: requestedAtWa,
-    }),
-  });
+  if (!input.skipWhatsapp) {
+    await sendIfEnabled({
+      businessId: input.businessId,
+      key: "human_requested",
+      templateName: "human_agent_request",
+      components: buildHumanAgentRequestWaParams({
+        leadPhoneDisplay: phoneDisplay,
+        requestedAtHe: requestedAtWa,
+      }),
+    });
+  } else {
+    console.info("[notifications] skip human_agent_request WhatsApp — Arbox task created", {
+      businessId: input.businessId,
+    });
+  }
 
   const requestedAt = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
   const slot = String(input.callScheduleSlot ?? "").trim();
