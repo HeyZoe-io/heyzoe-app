@@ -76,7 +76,7 @@ export function TemplateDraftFields({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 text-right" dir="rtl">
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-zinc-800">שם הטמפלייט</label>
         <input
@@ -106,7 +106,7 @@ export function TemplateDraftFields({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 text-right" dir="rtl">
           <label className="text-sm font-medium text-zinc-800">קטגוריה</label>
           <select
             value={value.category}
@@ -114,14 +114,20 @@ export function TemplateDraftFields({
               patch({ category: e.target.value as "MARKETING" | "UTILITY" })
             }
             disabled={categoryLocked}
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-500"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right disabled:bg-zinc-50 disabled:text-zinc-500"
+            dir="rtl"
           >
-            <option value="MARKETING">MARKETING</option>
-            <option value="UTILITY">UTILITY</option>
+            <option value="MARKETING">Marketing - 2 אגורות</option>
+            <option value="UTILITY">Utility - 13 אגורות</option>
           </select>
           {categoryLocked ? (
             <p className="text-xs text-zinc-500">לא ניתן לשנות קטגוריה של טמפלייט שכבר אושר.</p>
-          ) : null}
+          ) : (
+            <p className="text-xs text-zinc-500">
+              Utility - עדכון על פעולה שהלקוח עשה (13 אגורות). Marketing - יוזמה של העסק כמו מבצע
+              או שימור (2 אגורות). בספק - בחרו Marketing.
+            </p>
+          )}
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-zinc-800">שפה</label>

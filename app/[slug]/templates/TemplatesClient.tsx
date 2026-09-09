@@ -1236,16 +1236,16 @@ export default function TemplatesClient({
       dir="rtl"
       style={{ fontFamily: '"Fredoka", system-ui, sans-serif' }}
     >
-      <header className="space-y-2 text-right">
-        <h1 className="text-2xl font-semibold text-zinc-900 sm:text-3xl">טמפלייטים</h1>
+      <header className="space-y-2 text-right" dir="rtl">
+        <h1 className="text-2xl font-semibold text-zinc-900 sm:text-3xl">אוטומציות</h1>
         <p className="text-sm leading-relaxed text-zinc-600 sm:text-[15px]">
           טמפלייטים הם הודעות מוכנות מראש שחייבות אישור של Meta כדי לשלוח בוואטסאפ מחוץ לחלון 24
-          השעות. כל טמפלייט עובר אישור במטא (לרוב כמה דקות). שליחת טמפלייט שיווקי (Marketing)
-          למספר ישראלי עולה כ־₪0.13 להודעה (נתון לשינוי ע״י Meta).
+          השעות. כל טמפלייט עובר אישור במטא (לרוב כמה דקות). עלות למספר ישראלי: Utility כ-13
+          אגורות להודעה, Marketing כ-2 אגורות להודעה (נתון לשינוי ע״י Meta).
         </p>
       </header>
 
-      <section className="rounded-2xl border border-[#7133da]/25 bg-[#7133da]/5 p-4 sm:p-5 shadow-sm">
+      <section className="rounded-2xl border border-[#7133da]/25 bg-[#7133da]/5 p-4 sm:p-5 shadow-sm text-right" dir="rtl">
         <p className="text-sm leading-relaxed text-zinc-800 sm:text-[15px]">
           מריצים קמפיין לידים ורוצים שזואי תשלח הודעת ווטסאפ לליד שהשאיר פרטים? צרו טמפלייט פתיחה
           שישלח אוטומטית והוסיפו את זואי לאוטומציה שלכם.
@@ -2196,34 +2196,36 @@ export default function TemplatesClient({
         ) : null}
       </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white/85 p-4 sm:p-5 shadow-sm">
+      <section className="rounded-2xl border border-zinc-200 bg-white/85 p-4 sm:p-5 shadow-sm" dir="rtl">
         <details className="group text-right">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-zinc-900 marker:content-none [&::-webkit-details-marker]:hidden">
-            <span>איך בוחרים קטגוריה במטא — Utility מול Marketing</span>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-right text-sm font-semibold text-zinc-900 marker:content-none [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0 flex-1 text-right">
+              איך בוחרים קטגוריה במטא - Utility מול Marketing
+            </span>
             <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition-transform group-open:rotate-180" />
           </summary>
-          <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-600">
+          <div className="mt-3 space-y-3 text-right text-sm leading-relaxed text-zinc-600">
             <p>
               מטא מסווגת כל תבנית לאחת משתי קטגוריות. בחירה נכונה מזרזת אישור ומונעת דחייה.
             </p>
             <div className="space-y-2">
               <p>
-                <span className="font-medium text-zinc-800">UTILITY (עדכון עסקה):</span> הודעה
-                שקשורה לפעולה ספציפית שהלקוח עשה — אישור רכישה, אישור ביטול, סירוב אשראי, אישור
-                הקפאה, תזכורת לאימון שנרשם אליו.
+                <span className="font-medium text-zinc-800">UTILITY (עדכון עסקה) - 13 אגורות להודעה:</span>{" "}
+                הודעה שקשורה לפעולה ספציפית שהלקוח עשה - אישור רכישה, אישור ביטול, סירוב אשראי,
+                אישור הקפאה, תזכורת לאימון שנרשם אליו.
               </p>
               <p>
-                <span className="font-medium text-zinc-800">MARKETING (יוזמה של העסק):</span> כל
-                הודעה שהעסק יוזם ולא קשורה לעסקה ספציפית — מבצע, הטבה, עידוד הרשמה, ברכת יום
+                <span className="font-medium text-zinc-800">MARKETING (יוזמה של העסק) - 2 אגורות להודעה:</span>{" "}
+                כל הודעה שהעסק יוזם ולא קשורה לעסקה ספציפית - מבצע, הטבה, עידוד הרשמה, ברכת יום
                 הולדת, פנייה לחזרה (win-back), הודעת שימור / «איך הולך».
               </p>
             </div>
             <p>
-              אם ההודעה היא אישור/עדכון על פעולה שהלקוח עשה → Utility. אם העסק יוזם אותה (מבצע,
-              עידוד, שימור) → Marketing.
+              אם ההודעה היא אישור/עדכון על פעולה שהלקוח עשה - Utility. אם העסק יוזם אותה (מבצע,
+              עידוד, שימור) - Marketing.
             </p>
             <p className="text-xs text-zinc-500">
-              מטא עשויה לדחות תבנית ששויכה לקטגוריה הלא נכונה. בספק — בחרו Marketing.
+              מטא עשויה לדחות תבנית ששויכה לקטגוריה הלא נכונה. בספק - בחרו Marketing.
             </p>
           </div>
         </details>
