@@ -46,6 +46,8 @@ export const HE_EN_FLOW_DICTIONARY: Record<string, string> = {
     "So I can match you with the right fit,\nwhich class appeals to you most?",
   "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!":
     "So I can match you with the right fit,\nwhich class appeals to you most? I'll give you more details about it!",
+  "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!\n(תהיה אפשרות לבחור אימון אחר ולקבל גם עליו מידע מיד אחרי)":
+    "So I can match you with the right fit,\nwhich class appeals to you most? I'll give you more details about it!\n(You'll be able to pick another class and get details on that too right after)",
   "כאן ניתן לראות את מערכת השעות שלנו": "Here's our class schedule",
   "כל הכבוד! נרשמת בהצלחה 🎉": "Well done! You're registered 🎉",
 };
@@ -82,6 +84,8 @@ export const HE_RU_FLOW_DICTIONARY: Record<string, string> = {
     "Чтобы подобрать именно то, что вам интересно,\nкакая тренировка больше всего манит?",
   "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!":
     "Чтобы подобрать именно то, что вам интересно,\nкакая тренировка больше всего манит? Я расскажу о ней подробнее!",
+  "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!\n(תהיה אפשרות לבחור אימון אחר ולקבל גם עליו מידע מיד אחרי)":
+    "Чтобы подобрать именно то, что вам интересно,\nкакая тренировка больше всего манит? Я расскажу о ней подробнее!\n(Потом можно выбрать другую тренировку и сразу получить информацию и о ней)",
   "כאן ניתן לראות את מערכת השעות שלנו": "Здесь можно посмотреть наше расписание",
 };
 

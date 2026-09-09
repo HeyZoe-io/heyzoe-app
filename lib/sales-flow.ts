@@ -316,7 +316,7 @@ export function resolveWarmupExperienceReply(
 export const SCHEDULE_BOARD_CAPTION = "כאן ניתן לראות את מערכת השעות שלנו";
 export const SCHEDULE_BOARD_PREVIEW_IMAGE = "(תמונה)";
 export const DEFAULT_MULTI_SERVICE_QUESTION_TAIL =
-  "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!";
+  "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!\n(תהיה אפשרות לבחור אימון אחר ולקבל גם עליו מידע מיד אחרי)";
 
 export function buildDefaultMultiServiceQuestion(): string {
   return DEFAULT_MULTI_SERVICE_QUESTION_TAIL;
@@ -1777,11 +1777,12 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
           "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך"
         );
       }
-      // Previous default without “I’ll give you more details about it”.
-      const legacyFriendly =
-        "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?";
+      const legacyFriendlyDefaults = [
+        "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך?",
+        "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך,\nאיזה אימון הכי קורץ לך? אני אתן לך עליו עוד פרטים!",
+      ];
       const legacyDirect = "איזה אימון מעניין אותך?";
-      if (raw.trim() === legacyFriendly) return buildDefaultMultiServiceQuestion();
+      if (legacyFriendlyDefaults.includes(raw.trim())) return buildDefaultMultiServiceQuestion();
       if (raw.trim() === legacyDirect) return legacyDirect;
       return stripScheduleLineFromMultiServiceQuestion(raw);
     })(),

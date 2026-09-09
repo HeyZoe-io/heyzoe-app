@@ -47,11 +47,24 @@ assert.equal(
   "default product-pick question promises more details"
 );
 assert.equal(
+  hePick.includes("תהיה אפשרות לבחור אימון אחר"),
+  true,
+  "default product-pick question mentions picking another class"
+);
+assert.equal(
   localizedEn.multi_service_question.includes("I'll give you more details about it!"),
   true
 );
 assert.equal(
+  localizedEn.multi_service_question.includes("pick another class"),
+  true
+);
+assert.equal(
   localized.multi_service_question.includes("Я расскажу о ней подробнее!"),
+  true
+);
+assert.equal(
+  localized.multi_service_question.includes("другую тренировку"),
   true
 );
 
