@@ -316,6 +316,7 @@ import {
 } from "@/lib/wa-unclear-intent";
 import {
   KNOWLEDGE_GAP_NO_DETAILS_MODEL,
+  assistantReplyIsExplicitKnowledgeGap,
   pickKnowledgeGapNoDetailsReply,
 } from "@/lib/analytics-knowledge-gaps";
 import {
@@ -1667,6 +1668,47 @@ async function sendBookingLookupTeamHandoff(input: {
     role: "assistant",
     content: txt,
     model_used: BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendKnowledgeGapTeamHandoff(input: {
+  inboundText: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  const txt = pickKnowledgeGapNoDetailsReply(detectMessageLanguage(input.inboundText));
+  if (input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] knowledge-gap human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] Send knowledge-gap team handoff failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: KNOWLEDGE_GAP_NO_DETAILS_MODEL,
     session_id: input.sessionId,
   });
 }
@@ -11589,19 +11631,16 @@ async function processIncoming(
   if (!isFallbackErrorReply && didCallClaude) {
     const unclearAction = resolveUnclearIntentAction(replyCoreClean, aiSessionHistory);
     if (unclearAction && inboundLooksLikeClearKnowledgeQuestion(incomingRaw)) {
-      const lang = detectMessageLanguage(incomingRaw);
-      const gapTxt = pickKnowledgeGapNoDetailsReply(lang);
-      try {
-        await sendWhatsAppMessage(msg.toNumber, msg.from, gapTxt, accountSid, authToken);
-      } catch (e) {
-        console.error("[WA Webhook] Send knowledge-gap (unclear-misread) reply failed:", e);
-      }
-      await logMessage({
+      await sendKnowledgeGapTeamHandoff({
+        inboundText: incomingRaw,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
         business_slug,
-        role: "assistant",
-        content: gapTxt,
-        model_used: KNOWLEDGE_GAP_NO_DETAILS_MODEL,
-        session_id: sessionId,
+        sessionId,
+        nowIso,
       });
       return;
     }
@@ -11637,6 +11676,27 @@ async function processIncoming(
       });
       return;
     }
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    !matched?.reply &&
+    assistantReplyIsExplicitKnowledgeGap(replyCoreClean) &&
+    businessId
+  ) {
+    await sendKnowledgeGapTeamHandoff({
+      inboundText: incomingRaw,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      nowIso,
+    });
+    return;
   }
 
   function softenWebsiteAttribution(text: string): string {
@@ -11760,7 +11820,8 @@ async function processIncoming(
         !isFallbackErrorReply &&
         businessId &&
         !contactHumanRequestedAt &&
-        assistantReplyIndicatesTeamHandoff(replyCoreClean) &&
+        (assistantReplyIndicatesTeamHandoff(replyCoreClean) ||
+          assistantReplyIsExplicitKnowledgeGap(replyCoreClean)) &&
         !isSalesFlowStartTrigger(incomingRaw, {
           slug: business_slug,
           businessName: knowledge?.businessName,

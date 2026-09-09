@@ -11,6 +11,7 @@ import {
   matchCatalogServiceFromFreeText,
   parseRequestedClassDays,
   asksWhichClassesOnDay,
+  looksLikeHolidayClassScheduleAsk,
 } from "@/lib/wa-unknown-class-slot";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
 
@@ -170,6 +171,7 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
 
   const current = String(input.text ?? "").trim();
   if (!current || current.length > 500) return null;
+  if (looksLikeHolidayClassScheduleAsk(current)) return null;
   const prev = String(input.previousUserText ?? "").trim();
   const now = input.now ?? new Date();
   const act = classifyInboundSpeechAct(current, now);

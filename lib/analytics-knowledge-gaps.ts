@@ -44,9 +44,12 @@ export const KNOWLEDGE_GAP_NEEDLES = [
 ] as const;
 
 export const KNOWLEDGE_GAP_NO_DETAILS_MODEL = "knowledge_gap_no_details";
-export const KNOWLEDGE_GAP_NO_DETAILS_HE = "אין לי את הפרטים על כך.";
-export const KNOWLEDGE_GAP_NO_DETAILS_EN = "I don't have the details on that.";
-export const KNOWLEDGE_GAP_NO_DETAILS_RU = "У меня нет этих деталей.";
+export const KNOWLEDGE_GAP_NO_DETAILS_HE =
+  "אין לי את הפרטים על כך - אני מעבירה את הבקשה לצוות 💜";
+export const KNOWLEDGE_GAP_NO_DETAILS_EN =
+  "I don't have the details on that - I'll pass this to the team 💜";
+export const KNOWLEDGE_GAP_NO_DETAILS_RU =
+  "У меня нет этих деталей - передам обращение команде 💜";
 
 const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
 
@@ -223,9 +226,17 @@ function assistantTextIsExplicitKnowledgeGap(
   return EXPLICIT_KNOWLEDGE_GAP_NEEDLES.some((n) => lower.includes(n.toLowerCase()));
 }
 
+/** זואי אמרה שאין לה מידע — צריך העברה לצוות, לא רק «אין לי את הפרטים». */
+export function assistantReplyIsExplicitKnowledgeGap(
+  content: string,
+  modelUsed?: string | null
+): boolean {
+  return assistantTextIsExplicitKnowledgeGap(content, modelUsed);
+}
+
 /**
  * האם להציג ב«מידע ששווה להוסיף».
- * «אין לי את הפרטים» = חוסר ידע. «מעבירה לצוות» = רק אם הליד שאל שאלה.
+ * «אין לי את הפרטים» = חוסר ידע (וגם העברה לצוות). «מעבירה לצוות» בלבד = רק אם הליד שאל שאלה.
  */
 export function shouldIncludeKnowledgeGap(input: {
   question: string;

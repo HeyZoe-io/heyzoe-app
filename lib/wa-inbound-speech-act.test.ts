@@ -29,6 +29,10 @@ assert.equal(
 );
 
 assert.equal(classifyInboundSpeechAct("מתי יש אימון היום?", thu), "schedule_ask");
+assert.equal(
+  classifyInboundSpeechAct("הייי יגאל מה קורה יהיה אימון ביום שישי ערב חג ?", thu),
+  "schedule_ask"
+);
 assert.equal(classifyInboundSpeechAct("יש כיסא מחר?", thu), "schedule_ask");
 assert.equal(classifyInboundSpeechAct("אפשר לבוא לעוד אימון הערב?", thu), "schedule_ask");
 

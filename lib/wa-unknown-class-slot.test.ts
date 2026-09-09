@@ -5,6 +5,8 @@ import {
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceByDayAndTime,
   matchCatalogServiceFromFreeText,
+  looksLikeClassTimeQuestion,
+  looksLikeHolidayClassScheduleAsk,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 
@@ -266,5 +268,41 @@ assert.equal(
   ];
   assert.equal(matchCatalogServiceByDayAndTime("tomorrow at 8am", catalog, tue), "Power&HIIT");
 }
+
+const yigalHoliday = "הייי יגאל מה קורה יהיה אימון ביום שישי ערב חג ?";
+assert.equal(looksLikeClassTimeQuestion(yigalHoliday), true);
+assert.equal(looksLikeHolidayClassScheduleAsk(yigalHoliday), true);
+assert.equal(looksLikeHolidayClassScheduleAsk("חג שמח"), false);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: yigalHoliday,
+    services: [svc("איגרוף", [{ day: "ו", time: "19:00" }])],
+  }),
+  true,
+  "holiday eve must not answer from weekly Friday catalog"
+);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: yigalHoliday,
+    services: [],
+  }),
+  true
+);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יהיה אימון ביום שישי?",
+    services: [svc("איגרוף", [{ day: "ו", time: "19:00" }])],
+  }),
+  false,
+  "regular Friday with catalog slots should list, not handoff"
+);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יהיה אימון ביום שישי?",
+    services: [],
+  }),
+  true,
+  "Friday ask with empty catalog → team"
+);
 
 console.log("wa-unknown-class-slot.test.ts: ok");

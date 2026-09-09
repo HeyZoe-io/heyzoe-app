@@ -182,8 +182,25 @@ function looksLikeNamedClass(text: string): boolean {
 }
 
 export function looksLikeClassTimeQuestion(text: string): boolean {
-  return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|יש\s+במקרה|איזה\s+(?:אימונים|שיעורים)|אילו\s+אימונים|אם\s+יש.{0,24}(?:אימון|שיעור)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|אשמח.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
+  return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|יהיה\s+(?:ה)?(?:שיעור|אימון)|האם\s+יהיה.{0,24}(?:שיעור|אימון)|יש\s+במקרה|איזה\s+(?:אימונים|שיעורים)|אילו\s+אימונים|אם\s+יש.{0,24}(?:אימון|שיעור)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|אשמח.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
     text
+  );
+}
+
+const HOLIDAY_SCHEDULE_RE =
+  /ערב\s*חג|(?:^|[^\p{L}])בחג(?:[^\p{L}]|$)|חול\s*המועד|חוה["׳״']?מ|יום\s*כיפור|ראש\s*השנה|(?:^|[^\p{L}])סוכות(?:[^\p{L}]|$)|(?:^|[^\p{L}])פסח(?:[^\p{L}]|$)|שבועות|חנוכה|פורים|תשעה\s*באב|שמחת\s*תורה|ליל\s*הסדר/u;
+
+/**
+ * לוח שבועי לא מכסה חג / ערב חג — לא לענות ממועדי שישי הרגילים.
+ */
+export function looksLikeHolidayClassScheduleAsk(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 500) return false;
+  if (!HOLIDAY_SCHEDULE_RE.test(t)) return false;
+  if (!/(?:שיעור|אימון|class|lesson|מועד)/iu.test(t)) return false;
+  return (
+    looksLikeClassTimeQuestion(t) ||
+    /יהיה|האם|מתי|יש\s+(?:שיעור|אימון)|[?؟]/u.test(t)
   );
 }
 
@@ -334,6 +351,7 @@ export function shouldHandoffUnknownClassSlot(input: {
 
   const text = String(input.text ?? "").trim();
   if (!text || text.length > 500) return false;
+  if (looksLikeHolidayClassScheduleAsk(text)) return true;
 
   const now = input.now ?? new Date();
   const days = parseRequestedClassDays(text, now);

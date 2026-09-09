@@ -6,8 +6,11 @@ import {
   looksLikeScheduleRequest,
   parseMessageUuid,
   pickKnowledgeGapQuestion,
+  pickKnowledgeGapNoDetailsReply,
   resolveKnowledgeGapKind,
   shouldIncludeKnowledgeGap,
+  assistantReplyIsExplicitKnowledgeGap,
+  KNOWLEDGE_GAP_NO_DETAILS_HE,
 } from "@/lib/analytics-knowledge-gaps";
 import { WA_UNCLEAR_CLARIFY_HE } from "@/lib/wa-unclear-intent";
 import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
@@ -20,6 +23,10 @@ assert.equal(parseMessageUuid("not-a-uuid"), "");
 assert.equal(Number("73149a89-228e-4e53-b0b7-1a806e4cf3a0"), NaN);
 
 assert.equal(isKnowledgeGapAssistantText("אין לי את הפרטים על מדיניות הביטול."), true);
+assert.equal(isKnowledgeGapAssistantText(KNOWLEDGE_GAP_NO_DETAILS_HE), true);
+assert.equal(assistantReplyIsExplicitKnowledgeGap("אין לי את הפרטים על כך."), true);
+assert.equal(pickKnowledgeGapNoDetailsReply("he"), KNOWLEDGE_GAP_NO_DETAILS_HE);
+assert.match(KNOWLEDGE_GAP_NO_DETAILS_HE, /מעבירה את הבקשה לצוות/);
 assert.equal(isKnowledgeGapAssistantText("У меня нет этих деталей."), true);
 assert.equal(
   isKnowledgeGapAssistantText("אין לי כרגע את המידע על מחירי המנויים. מוזמנים לפנות לשירות הלקוחות."),
@@ -286,7 +293,7 @@ assert.equal(
 assert.equal(
   shouldIncludeKnowledgeGap({
     question: "יש מזגן בסטודיו?",
-    assistantContent: "אין לי את הפרטים על כך.",
+    assistantContent: KNOWLEDGE_GAP_NO_DETAILS_HE,
   }),
   true
 );

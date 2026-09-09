@@ -75,6 +75,10 @@ assert.equal(
   assistantReplyIndicatesTeamHandoff("אין בעיה אני מעבירה את הבקשה לצוות"),
   true
 );
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("אין לי את הפרטים על כך - אני מעבירה את הבקשה לצוות 💜"),
+  true
+);
 assert.equal(assistantReplyIndicatesTeamHandoff("בשמחה! אפשר לבחור מועד מהכפתורים."), false);
 
 assert.equal(

@@ -178,6 +178,37 @@ function upgradeCsPhoneHandoffGuidelineLines(lines: string[]): string[] {
   });
 }
 
+/** חוסר ידע = אין פרטים + העברה לצוות — בלי שמירה מחדש באדמין. */
+function upgradeKnowledgeGapTeamHandoffGuidelineLines(lines: string[]): string[] {
+  const defaults = allDefaultGuidelineLines();
+  const unknownLine = defaults.find(
+    (l) => l.includes("אין לי את הפרטים על כך") && l.includes("מעבירה את הבקשה לצוות") && l.includes("התראת נציג")
+  );
+  const identityLine = defaults.find(
+    (l) => l.includes("חוסר ידע (ברור מה שואלים") && l.includes("מעבירה את הבקשה לצוות")
+  );
+  return lines.map((line) => {
+    const t = line.trim();
+    if (
+      unknownLine &&
+      t.includes("רק אם באמת אין מידע") &&
+      t.includes("אין לי את הפרטים") &&
+      !t.includes("מעבירה את הבקשה לצוות")
+    ) {
+      return unknownLine;
+    }
+    if (
+      identityLine &&
+      t.includes("חוסר ידע (ברור מה שואלים") &&
+      t.includes("אין לי את הפרטים") &&
+      !t.includes("מעבירה את הבקשה לצוות")
+    ) {
+      return identityLine;
+    }
+    return line;
+  });
+}
+
 function ensureBookingLookupGuidelineLines(lines: string[]): string[] {
   if (lines.some((l) => l.includes("לשלוח זמן ליומן ולא ברור אם מנוי קיים"))) return lines;
   const bookingLine = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -426,19 +457,21 @@ function upgradeHebrewOnlyLanguageGuidelineLines(lines: string[]): string[] {
 
 function upgradeGuidelineLines(lines: string[]): string[] {
   return upgradeOwnerBotIdentityGuidelineLines(
-    ensureBirtzonchaDefaultGuidelineLines(
-      ensureNeutralCancelHowToGuidelineLines(
-        ensureWantConjugationGuidelineLines(
-          ensureNoInventedVenueGuidelineLines(
-            upgradeMassageNotSpaToneGuidelineLines(
-              ensureWordPrecisionGuidelineLines(
-                upgradeGenderNeutralVerbGuidelineLines(
-                  ensureBookingLookupGuidelineLines(
-                    upgradeCsPhoneHandoffGuidelineLines(
-                      upgradeLegalCsExampleLines(
-                        upgradeClassRescheduleGuidelineLines(
-                          upgradeQuotedFactsGuidelineLines(
-                            upgradeHebrewOnlyLanguageGuidelineLines(lines)
+    upgradeKnowledgeGapTeamHandoffGuidelineLines(
+      ensureBirtzonchaDefaultGuidelineLines(
+        ensureNeutralCancelHowToGuidelineLines(
+          ensureWantConjugationGuidelineLines(
+            ensureNoInventedVenueGuidelineLines(
+              upgradeMassageNotSpaToneGuidelineLines(
+                ensureWordPrecisionGuidelineLines(
+                  upgradeGenderNeutralVerbGuidelineLines(
+                    ensureBookingLookupGuidelineLines(
+                      upgradeCsPhoneHandoffGuidelineLines(
+                        upgradeLegalCsExampleLines(
+                          upgradeClassRescheduleGuidelineLines(
+                            upgradeQuotedFactsGuidelineLines(
+                              upgradeHebrewOnlyLanguageGuidelineLines(lines)
+                            )
                           )
                         )
                       )

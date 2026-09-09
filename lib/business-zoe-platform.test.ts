@@ -10,6 +10,7 @@ const defaultIdentity =
     .find((c) => c.id === "personality")
     ?.sections?.find((s) => s.key === "identity")?.lines ?? [];
 assert.ok(defaultIdentity.some((l) => l.includes("הבוטית של העסק") && l.includes("האקדמיה")));
+assert.ok(defaultIdentity.some((l) => l.includes("מעבירה את הבקשה לצוות") && l.includes("אין לי את הפרטים")));
 
 const defaultLegal =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -114,6 +115,36 @@ assert.ok(mergedIdentity.some((l) => l.includes("הבוטית של העסק") &&
 assert.ok(mergedIdentity.some((l) => l.includes("אהלן יגאל")));
 assert.ok(mergedIdentity.some((l) => l.includes("רק בנושאים מנהלתיים")));
 assert.equal(mergedIdentity.filter((l) => l.includes("נציגת השירות של העסק מול הלקוחות")).length, 0);
+
+const storedOldUnknownKnowledge = {
+  categories: [
+    {
+      id: "situations",
+      title: "מצבים מיוחדים",
+      description: "",
+      lines: [],
+      sections: [
+        {
+          key: "unknown_knowledge",
+          label: "אין תשובה בידע / הפניה לשירות",
+          lines: [
+            "רק אם באמת אין מידע: פתחי בנוסח תקני כמו «אין לי את הפרטים» / «אין לי כרגע מידע על כך».",
+          ],
+        },
+      ],
+    },
+  ],
+};
+const mergedUnknown =
+  mergeWithDefaultZoePlatform(storedOldUnknownKnowledge)
+    .categories.find((c) => c.id === "situations")
+    ?.sections?.find((s) => s.key === "unknown_knowledge")?.lines ?? [];
+assert.ok(mergedUnknown.some((l) => l.includes("מעבירה את הבקשה לצוות") && l.includes("התראת נציג")));
+assert.equal(
+  mergedUnknown.filter((l) => l.includes("פתחי בנוסח תקני כמו") && !l.includes("מעבירה את הבקשה לצוות"))
+    .length,
+  0
+);
 
 const marketingOld = [
   "עברית בלבד בפנייה לליד.",
