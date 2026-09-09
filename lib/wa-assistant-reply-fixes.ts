@@ -1,6 +1,7 @@
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import { pickContentCopy, type BusinessContentLanguage } from "@/lib/business-content-lang";
 import { knowledgeQaTextBlob } from "@/lib/knowledge-qa";
+import { resolveKnowledgeCatalogServices } from "@/lib/trial-service";
 import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 import {
   formatCourseCyclesForKnowledge,
@@ -162,7 +163,10 @@ function collectServiceNamesFromKnowledge(knowledge: BusinessKnowledgePack | nul
     const t = String(n ?? "").trim();
     if (t) names.add(t);
   }
-  for (const row of knowledge.salesFlowServices ?? []) {
+  for (const row of resolveKnowledgeCatalogServices({
+    knowledgeCatalog: knowledge.knowledgeCatalogServices,
+    salesFlow: knowledge.salesFlowServices,
+  })) {
     const t = String(row.name ?? "").trim();
     if (t) names.add(t);
   }

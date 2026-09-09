@@ -3,6 +3,7 @@ import type {
   ClosedPlaybookCategory,
   ClosedPlaybookKnowledge,
 } from "@/lib/wa-closed-playbook-types";
+import { resolveKnowledgeCatalogServices } from "@/lib/trial-service";
 
 const TOPIC_TERMS: Record<
   Exclude<ClosedPlaybookCategory, "discount" | "coach_owner">,
@@ -117,7 +118,11 @@ export function lookupPlaybookFact(
   const fromMemberships = firstMatchingLine(knowledge.membershipsAndCardsText ?? "", terms);
   if (fromMemberships) return fromMemberships;
   if (category === "group") {
-    for (const row of knowledge.salesFlowServices ?? []) {
+    const catalog = resolveKnowledgeCatalogServices({
+      knowledgeCatalog: knowledge.knowledgeCatalogServices,
+      salesFlow: knowledge.salesFlowServices,
+    });
+    for (const row of catalog) {
       const desc = String(row.descriptionText ?? "").trim();
       const benefit = String(row.benefit ?? "").trim();
       for (const blob of [desc, benefit]) {

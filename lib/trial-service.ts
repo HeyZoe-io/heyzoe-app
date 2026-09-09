@@ -18,3 +18,21 @@ export function isWhatsAppChatOverflowIndex(index: number): boolean {
 export function capWhatsAppProducts<T>(items: T[]): T[] {
   return items.slice(0, WA_MAX_PRODUCTS);
 }
+
+/** כל המוצרים לידע / שאלות פתוחות — כולל אפורים מעבר ל-10. */
+export function capKnowledgeCatalogProducts<T>(items: T[]): T[] {
+  return items.slice(0, DASHBOARD_MAX_PRODUCTS);
+}
+
+/**
+ * קטלוג לשאלות פתוחות ולוח מועדים.
+ * overflow (knowledgeCatalog) אם קיים; אחרת פלואו מכירה (תאימות לאריזות ישנות).
+ */
+export function resolveKnowledgeCatalogServices<T>(input: {
+  knowledgeCatalog?: T[] | null;
+  salesFlow?: T[] | null;
+}): T[] {
+  const full = Array.isArray(input.knowledgeCatalog) ? input.knowledgeCatalog : [];
+  if (full.length) return full;
+  return Array.isArray(input.salesFlow) ? input.salesFlow : [];
+}

@@ -38,6 +38,8 @@ export type ClosedPlaybookKnowledge = {
   membershipsAndCardsText?: string | null;
   /** Existing sales-flow catalog — lookup only, no schema change. */
   salesFlowServices?: ClosedPlaybookCatalogService[] | null;
+  /** Overflow products (beyond WhatsApp pick list) — facts / Q&A only. */
+  knowledgeCatalogServices?: ClosedPlaybookCatalogService[] | null;
 };
 
 export type ClosedPlaybookResolution = {

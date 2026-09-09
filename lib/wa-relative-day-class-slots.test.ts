@@ -234,4 +234,30 @@ const joeWeekly = [
   assert.equal(reply, null, "past class with a coach is not a schedule ask");
 }
 
+{
+  const overflowMat = svc("פילאטיס מזרן", [{ day: "ד", time: "18:30" }]);
+  const flowOnly = Array.from({ length: 10 }, (_, i) => svc(`אימון ${i + 1}`, [{ day: "א", time: "10:00" }]));
+  const wedAfternoon = new Date("2026-09-09T14:00:00.000Z");
+  assert.equal(matchCatalogServiceFromFreeText("יש מזרן היום?", flowOnly), null);
+  const withOverflow = [...flowOnly, overflowMat];
+  assert.equal(matchCatalogServiceFromFreeText("יש מזרן היום?", withOverflow), "פילאטיס מזרן");
+  const matToday = tryBuildRelativeDayClassSlotsReply({
+    text: "יש מזרן היום?",
+    services: withOverflow,
+    now: wedAfternoon,
+  });
+  assert.ok(matToday);
+  assert.match(matToday!.text, /18:30/);
+  assert.doesNotMatch(matToday!.text, /אין/);
+}
+
+{
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "הייי יגאל מה קורה יהיה אימון ביום שישי ערב חג ?",
+    services: [svc("איגרוף", [{ day: "ו", time: "19:00" }])],
+    now: new Date("2026-09-09T14:00:00.000Z"),
+  });
+  assert.equal(reply, null, "holiday eve must not list weekly Friday slots");
+}
+
 console.log("wa-relative-day-class-slots.test.ts: ok");

@@ -28,7 +28,11 @@ import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { studioOverviewCommunityClosing } from "@/lib/wa-studio-overview-intent";
-import { WA_MAX_PRODUCTS } from "@/lib/trial-service";
+import {
+  DASHBOARD_MAX_PRODUCTS,
+  resolveKnowledgeCatalogServices,
+  WA_MAX_PRODUCTS,
+} from "@/lib/trial-service";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 import {
   FACT_QUOTE_RULES,
@@ -95,8 +99,10 @@ export type BusinessKnowledgePack = {
   salesFlowPromptSection: string;
   /** WhatsApp lead UI language for this request — overrides studio default when set. */
   leadUiLang?: import("@/lib/business-content-lang").BusinessContentLanguage;
-  /** שירותים parsed ל-runtime פלואו ווטסאפ (עד 24, כמו limit הישן ב-webhook) */
+  /** שירותים parsed לתפריט פלואו ווטסאפ (עד 10 — מגבלת Meta list) */
   salesFlowServices: SfServiceRow[];
+  /** כל המוצרים לידע / שאלות פתוחות / לוח — כולל אפורים מעבר ל-10 */
+  knowledgeCatalogServices?: SfServiceRow[];
   /** קישור אינסטגרם (social_links.instagram) */
   instagramUrl: string;
   promotionsText: string;
@@ -236,7 +242,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
 
     const servicesText = services?.length
       ? services
-          .slice(0, 6)
+          .slice(0, DASHBOARD_MAX_PRODUCTS)
           .map((s, i) => {
             const meta = parseServiceMeta(String(s.description ?? ""));
             const descriptionText = String(meta.description_text ?? meta.description ?? s.description ?? "").trim();
@@ -379,6 +385,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       .filter((x): x is { name: string; offer_kind: OfferKind } => x !== null)
       .slice(0, WA_MAX_PRODUCTS);
     const serviceNamesForOpening = openingServices.map((r) => r.name);
+    const knowledgeCatalogServices = parseSfServiceRows(services ?? []).slice(0, DASHBOARD_MAX_PRODUCTS);
 
     const membershipsUrl =
       typeof social.memberships_url === "string" ? String(social.memberships_url).trim() : "";
@@ -456,7 +463,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       membershipsAndCardsText,
       salesFlowConfig,
       salesFlowPromptSection,
-      salesFlowServices: salesFlowConfig ? parseSfServiceRows(services ?? []).slice(0, WA_MAX_PRODUCTS) : [],
+      salesFlowServices: salesFlowConfig ? knowledgeCatalogServices.slice(0, WA_MAX_PRODUCTS) : [],
+      knowledgeCatalogServices,
       instagramUrl,
       promotionsText,
       traits: traitsList,
@@ -803,6 +811,14 @@ export function buildSystemPrompt(
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
     : "- אם נשאלת על הנחה או מבצע ואין מידע בשדה «הנחות ומבצעים» - אל תמציאי; אמרי שאין לך מבצע מוגדר כרגע והציעי לבדוק מול העסק.";
+  const overflowCatalogCount = resolveKnowledgeCatalogServices({
+    knowledgeCatalog: knowledge?.knowledgeCatalogServices,
+    salesFlow: knowledge?.salesFlowServices,
+  }).length;
+  const overflowCatalogRule =
+    overflowCatalogCount > WA_MAX_PRODUCTS
+      ? "מוצרים מעבר לעשרת הראשונים לא מופיעים בתפריט הבחירה בווטסאפ. אם שואלים עליהם במפורש — עני ממועדי הלוח/התיאור בידע. אסור להציע אותם כשורת בחירה בתפריט."
+      : "";
 
   const optionListingNoCountRule =
     "- כשמפרטים שירותים, אימונים או אפשרויות מהידע: פרטי אותן ישירות (רשימה או משפטים) — אסור לספור או לסכם כמות («יש לך שתי/שלוש אפשרויות», «אני רואה שיש לך X אפשרויות», «יש כמה אפשרויות» עם מספר). התחילי בפרט, לא בסיכום.";
@@ -876,7 +892,7 @@ ${formatBusinessFactsPromptBlock(knowledge)}
 הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
 שירותים:
 ${knowledge?.servicesText ?? "לא הוגדר"}
-${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:
+${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:
 ${knowledge?.faqsText ?? "לא הוגדר"}
 CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא הוגדר"}
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}

@@ -202,7 +202,7 @@ export const dashboardSettingsI18n = {
       productList: "רשימת מוצרים",
       productListWhatsAppCap: "עד 10 מוצרים (תקנון ווטסאפ)*",
       overflowNotInChat:
-        "לא יופיעו בצ׳אט בפועל — עד 10 מוצרים (מגבלת ווטסאפ)",
+        "לא יופיעו בתפריט הבחירה בווטסאפ — עד 10 מוצרים (מגבלת ווטסאפ). זואי עדיין תענה עליהם אם ישאלו.",
       items: (n: number) => `${n} פריטים`,
       openProduct: "פתח פרטי מוצר",
       closeProduct: "סגור פרטי מוצר",
@@ -712,7 +712,8 @@ export const dashboardSettingsI18n = {
       scanArboxFailed: "Arbox timetable scan failed. Try again.",
       productList: "Product list",
       productListWhatsAppCap: "Up to 10 products (WhatsApp policy)*",
-      overflowNotInChat: "Won't appear in the chat — up to 10 products (WhatsApp limit)",
+      overflowNotInChat:
+        "Won't appear in the WhatsApp pick list — up to 10 products (WhatsApp limit). Zoe can still answer if someone asks about them.",
       items: (n: number) => `${n} items`,
       openProduct: "Open product details",
       closeProduct: "Close product details",

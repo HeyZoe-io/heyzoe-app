@@ -90,6 +90,7 @@ function skipExactSet(knowledge: BusinessKnowledgePack): Set<string> {
     ...(knowledge.serviceNamesForOpening ?? []),
     ...(knowledge.openingServices ?? []).map((s) => s.name),
     ...(knowledge.salesFlowServices ?? []).map((s) => String(s.name ?? "")),
+    ...(knowledge.knowledgeCatalogServices ?? []).map((s) => String(s.name ?? "")),
     knowledge.businessName,
     knowledge.botName,
   ];
