@@ -334,16 +334,65 @@ export function catalogFromBoxCategoryRows(rows: Record<string, unknown>[]): Arb
   return { ids, names, nameToId, descriptionById, descriptionByName, fetchFailed: false };
 }
 
+export function resolveArboxClassDescriptionFromCatalog(
+  catalog: ArboxBoxCategoryCatalog,
+  stamp: {
+    arbox_box_category_id?: number | null;
+    box_category_id?: number | null;
+    arbox_class_name?: string;
+    session_name?: string;
+    product_name?: string;
+  }
+): string {
+  const id = stamp.arbox_box_category_id ?? stamp.box_category_id ?? null;
+  if (id != null && id > 0) {
+    const byId = catalog.descriptionById.get(id);
+    if (byId) return byId;
+  }
+  for (const raw of [stamp.arbox_class_name, stamp.session_name, stamp.product_name]) {
+    const name = String(raw ?? "").trim();
+    if (!name) continue;
+    const byName = catalog.descriptionByName.get(name);
+    if (byName) return byName;
+  }
+  return "";
+}
+
 function catalogDescriptionForClass(
   catalog: ArboxBoxCategoryCatalog,
   sessionName: string,
   boxCategoryId: number | null
 ): string {
-  if (boxCategoryId != null && boxCategoryId > 0) {
-    const byId = catalog.descriptionById.get(boxCategoryId);
-    if (byId) return byId;
+  return resolveArboxClassDescriptionFromCatalog(catalog, {
+    box_category_id: boxCategoryId,
+    session_name: sessionName,
+  });
+}
+
+/**
+ * Live class description for «ג׳נרט תיאור».
+ * IO: 1 GET /v3/schedule/boxCategories (page 2+ only if next_page_url).
+ * User-initiated — not a cron. Do not filter by location_id (full catalog).
+ */
+export async function fetchArboxClassDescriptionForProduct(input: {
+  apiKey: string;
+  arbox_box_category_id?: number | null;
+  arbox_class_name?: string;
+  product_name?: string;
+}): Promise<{ ok: true; description: string } | { ok: false; error: string; status?: number }> {
+  const cats = await fetchArboxBoxCategories({ apiKey: input.apiKey });
+  if (!cats.ok) {
+    return { ok: false, error: "box_categories_fetch_failed", status: cats.status };
   }
-  return catalog.descriptionByName.get(sessionName) ?? "";
+  const catalog = catalogFromBoxCategoryRows(cats.rows);
+  return {
+    ok: true,
+    description: resolveArboxClassDescriptionFromCatalog(catalog, {
+      arbox_box_category_id: input.arbox_box_category_id,
+      arbox_class_name: input.arbox_class_name,
+      product_name: input.product_name,
+    }),
+  };
 }
 
 export function normalizeTimetableToWeeklyClasses(
@@ -612,10 +661,15 @@ export async function persistCronArboxScheduleSync(input: {
     const hit = findWeeklyClassForStamp(classByKey, stamp);
     if (hit) {
       const slots = slotsToProductScheduleSlots(hit.slots, newSlotId);
-      const patch = mergeServiceDescriptionPatch(String(row.description ?? ""), {
+      const incomingDesc = hit.description.trim();
+      const patchBlob: ServiceDescriptionBlob = {
         schedule_slots: slots,
         schedule_removed_notice: null,
-      });
+        arbox_box_category_id: hit.box_category_id,
+        arbox_class_name: hit.session_name,
+      };
+      if (incomingDesc) patchBlob.arbox_class_description = incomingDesc;
+      const patch = mergeServiceDescriptionPatch(String(row.description ?? ""), patchBlob);
       const { error: upErr } = await input.admin
         .from("services")
         .update({ description: patch })

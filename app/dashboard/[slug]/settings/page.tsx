@@ -2515,6 +2515,7 @@ export default function SlugSettingsPage({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            slug,
             website_url: websiteUrl.trim(),
             business_name: name.trim(),
             niche: niche.trim(),
@@ -2528,6 +2529,8 @@ export default function SlugSettingsPage({
             duration: service.duration,
             description_current: service.description,
             class_source_text: String(service.description_meta?.arbox_class_description ?? "").trim(),
+            arbox_box_category_id: service.arbox_box_category_id,
+            arbox_class_name: service.arbox_class_name,
             location_mode: service.location_mode,
             course_dates_enabled: service.course_dates_enabled,
           }),
@@ -2551,16 +2554,26 @@ export default function SlugSettingsPage({
         }
         const description = typeof j.description === "string" ? j.description.trim() : "";
         if (!description) throw new Error(tp.unknown);
+        const arboxClassDescription =
+          typeof j.arbox_class_description === "string" ? j.arbox_class_description.trim() : "";
         setServicesFromUser((prev) =>
           prev.map((s) =>
             s.ui_id === uiId
-              ? { ...s, description, benefit_line: benefitLineFromProductDescription(description) }
+              ? {
+                  ...s,
+                  description,
+                  benefit_line: benefitLineFromProductDescription(description),
+                  description_meta: arboxClassDescription
+                    ? { ...s.description_meta, arbox_class_description: arboxClassDescription }
+                    : s.description_meta,
+                }
               : s
           )
         );
       });
     },
     [
+      slug,
       services,
       runBusy,
       websiteUrl,

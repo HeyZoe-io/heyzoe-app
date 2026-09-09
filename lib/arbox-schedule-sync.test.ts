@@ -3,6 +3,7 @@ import {
   addDaysYmd,
   arboxClassMatchKey,
   catalogFromBoxCategoryRows,
+  resolveArboxClassDescriptionFromCatalog,
   findWeeklyClassForStamp,
   hebrewDayLetterFromYmd,
   indexWeeklyClassesByMatchKey,
@@ -209,6 +210,48 @@ assert.equal(
   "Foundational drills.\nBuild strength."
 );
 assert.equal(sanitizeArboxClassDescription("   "), "");
+
+{
+  const catalog = catalogFromBoxCategoryRows([
+    {
+      box_category_id: 90177,
+      name: "PEAK 360",
+      description: "<p>הצטרפו לשיעור PEAK 360, מפגש קבוצתי.</p>",
+    },
+    {
+      box_category_id: 87462,
+      name: "פילאטיס מזרן",
+      description: "חיזוק ליבה על מזרן.",
+    },
+  ]);
+  assert.equal(
+    resolveArboxClassDescriptionFromCatalog(catalog, {
+      arbox_box_category_id: 90177,
+      arbox_class_name: "PEAK 360",
+      product_name: "אימון פונקציונלי",
+    }),
+    "הצטרפו לשיעור PEAK 360, מפגש קבוצתי."
+  );
+  assert.equal(
+    resolveArboxClassDescriptionFromCatalog(catalog, {
+      arbox_box_category_id: null,
+      arbox_class_name: "פילאטיס מזרן",
+    }),
+    "חיזוק ליבה על מזרן."
+  );
+  assert.equal(
+    resolveArboxClassDescriptionFromCatalog(catalog, {
+      product_name: "פילאטיס מזרן",
+    }),
+    "חיזוק ליבה על מזרן."
+  );
+  assert.equal(
+    resolveArboxClassDescriptionFromCatalog(catalog, {
+      product_name: "אימון פונקציונלי",
+    }),
+    ""
+  );
+}
 
 {
   const existing = JSON.stringify({ description_text: "keep me" });
