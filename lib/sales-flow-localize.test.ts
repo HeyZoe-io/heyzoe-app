@@ -40,4 +40,19 @@ assert.equal(
   "Привет"
 );
 
+const hePick = defaultSalesFlowConfig([]).multi_service_question;
+assert.equal(
+  hePick.includes("אני אתן לך עליו עוד פרטים!"),
+  true,
+  "default product-pick question promises more details"
+);
+assert.equal(
+  localizedEn.multi_service_question.includes("I'll give you more details about it!"),
+  true
+);
+assert.equal(
+  localized.multi_service_question.includes("Я расскажу о ней подробнее!"),
+  true
+);
+
 console.log("sales-flow-localize.test.ts: ok");
