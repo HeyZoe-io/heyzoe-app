@@ -17,6 +17,7 @@ import {
   buildStudioScopeRedirectReply,
   looksLikeBotConfigMetaReply,
 } from "@/lib/wa-bot-config-meta";
+import { rewriteAcademyReceptionistIdentity } from "@/lib/wa-owner-addressed-greeting";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -601,6 +602,7 @@ export function applyKnownAssistantReplyFixes(
   s = stripFakeScheduleImagePlaceholders(s);
   s = stripFillerAfterSeeYouInClass(s);
   s = stripTrailingMeanwhileFiller(s);
+  s = rewriteAcademyReceptionistIdentity(s, input.knowledge?.botName ?? "זואי");
   const lang = resolveReplyFixLanguage(input);
   if (looksLikeBotConfigMetaReply(s)) {
     return buildStudioScopeRedirectReply(lang);

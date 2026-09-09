@@ -5,6 +5,12 @@ import { withMarketingWordPrecisionGuideline } from "@/lib/marketing-zoe-legal-d
 
 const WORD_PRECISION = "מילים שדומות באות אחת";
 
+const defaultIdentity =
+  DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
+    .find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "identity")?.lines ?? [];
+assert.ok(defaultIdentity.some((l) => l.includes("הבוטית של העסק") && l.includes("האקדמיה")));
+
 const defaultLegal =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
     .find((c) => c.id === "personality")
@@ -78,6 +84,36 @@ assert.equal(
   mergedLegal.filter((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")).length,
   1
 );
+assert.equal(mergedLegal.filter((l) => l.includes("אהלן יגאל")).length, 0);
+
+const storedOldIdentity = {
+  categories: [
+    {
+      id: "personality",
+      title: "זהות, חוקיות ואופי",
+      description: "",
+      lines: [],
+      sections: [
+        {
+          key: "identity",
+          label: "מי זואי",
+          lines: [
+            "זואי היא נציגת השירות של העסק מול הלקוחות והלידים.",
+            "השם שמוצג ללקוחות הוא שם הנציגה של העסק.",
+          ],
+        },
+      ],
+    },
+  ],
+};
+const mergedIdentity =
+  mergeWithDefaultZoePlatform(storedOldIdentity)
+    .categories.find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "identity")?.lines ?? [];
+assert.ok(mergedIdentity.some((l) => l.includes("הבוטית של העסק") && l.includes("לא נציגת קבלה")));
+assert.ok(mergedIdentity.some((l) => l.includes("אהלן יגאל")));
+assert.ok(mergedIdentity.some((l) => l.includes("רק בנושאים מנהלתיים")));
+assert.equal(mergedIdentity.filter((l) => l.includes("נציגת השירות של העסק מול הלקוחות")).length, 0);
 
 const marketingOld = [
   "עברית בלבד בפנייה לליד.",

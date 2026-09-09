@@ -191,6 +191,10 @@ import {
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
 import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
+import {
+  buildOwnerAddressedGreetingReply,
+  parseOwnerAddressedGreeting,
+} from "@/lib/wa-owner-addressed-greeting";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
@@ -7251,6 +7255,7 @@ async function processIncoming(
     !isScheduleInquiryIntent(msg.text) &&
     !looksLikeBarePhoneMessage(msg.text) &&
     !isCasualHiGreeting(msg.text) &&
+    !parseOwnerAddressedGreeting(msg.text) &&
     !wantsRussianFlowRestart &&
     !isSalesFlowStartInbound(msg, { slug: business_slug, businessName: knowledge?.businessName })
   ) {
@@ -8043,6 +8048,25 @@ async function processIncoming(
         contactTrialRegistered = restartState.contactTrialRegistered;
         contactTrialRegisteredAt = restartState.contactTrialRegisteredAt;
       }
+      return;
+    }
+    const ownerAddressed = isSalesFlowFreeTextInbound(msg)
+      ? parseOwnerAddressedGreeting(msg.text)
+      : null;
+    if (ownerAddressed) {
+      const hiReply = buildOwnerAddressedGreetingReply(knowledge?.botName ?? "", ownerAddressed);
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, hiReply, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send owner-addressed greeting failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: hiReply,
+        model_used: "owner_addressed_greeting",
+        session_id: sessionId,
+      });
       return;
     }
     if (isSalesFlowFreeTextInbound(msg) && isCasualHiGreeting(msg.text)) {

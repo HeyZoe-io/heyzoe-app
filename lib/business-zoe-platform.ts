@@ -266,6 +266,33 @@ function allDefaultGuidelineLines(): string[] {
     .flat();
 }
 
+/** זואי = בוטית של המאמן/העסק; אקדמיה רק למנהלה — בלי שמירה מחדש באדמין. */
+function upgradeOwnerBotIdentityGuidelineLines(lines: string[]): string[] {
+  const isIdentitySection =
+    lines.some((l) => l.includes("נציגת השירות של העסק מול הלקוחות")) ||
+    lines.some((l) => l.includes("השם שמוצג ללקוחות")) ||
+    lines.some((l) => l.includes("הבוטית של העסק"));
+  if (!isIdentitySection) return lines;
+  const defaults = allDefaultGuidelineLines();
+  const botLine = defaults.find((l) => l.includes("הבוטית של העסק") && l.includes("לא נציגת קבלה"));
+  const greetLine = defaults.find((l) => l.includes("אהלן יגאל") && l.includes("זה לא הערוץ שלי"));
+  const adminLine = defaults.find((l) => l.includes("רק בנושאים מנהלתיים"));
+  let out = lines.map((line) => {
+    if (botLine && line.includes("נציגת השירות של העסק מול הלקוחות")) return botLine;
+    return line;
+  });
+  if (botLine && !out.some((l) => l.includes("הבוטית של העסק") && l.includes("לא נציגת קבלה"))) {
+    out = [botLine, ...out];
+  }
+  if (greetLine && !out.some((l) => l.includes("אהלן יגאל"))) {
+    out = [...out, greetLine];
+  }
+  if (adminLine && !out.some((l) => l.includes("רק בנושאים מנהלתיים"))) {
+    out = [...out, adminLine];
+  }
+  return out;
+}
+
 /** «כשתהיי רוצה» → «תרצי» — מזריקים בלי שמירה מחדש באדמין. */
 function ensureWantConjugationGuidelineLines(lines: string[]): string[] {
   if (lines.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי"))) return lines;
@@ -398,19 +425,21 @@ function upgradeHebrewOnlyLanguageGuidelineLines(lines: string[]): string[] {
 }
 
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return ensureBirtzonchaDefaultGuidelineLines(
-    ensureNeutralCancelHowToGuidelineLines(
-      ensureWantConjugationGuidelineLines(
-        ensureNoInventedVenueGuidelineLines(
-          upgradeMassageNotSpaToneGuidelineLines(
-            ensureWordPrecisionGuidelineLines(
-              upgradeGenderNeutralVerbGuidelineLines(
-                ensureBookingLookupGuidelineLines(
-                  upgradeCsPhoneHandoffGuidelineLines(
-                    upgradeLegalCsExampleLines(
-                      upgradeClassRescheduleGuidelineLines(
-                        upgradeQuotedFactsGuidelineLines(
-                          upgradeHebrewOnlyLanguageGuidelineLines(lines)
+  return upgradeOwnerBotIdentityGuidelineLines(
+    ensureBirtzonchaDefaultGuidelineLines(
+      ensureNeutralCancelHowToGuidelineLines(
+        ensureWantConjugationGuidelineLines(
+          ensureNoInventedVenueGuidelineLines(
+            upgradeMassageNotSpaToneGuidelineLines(
+              ensureWordPrecisionGuidelineLines(
+                upgradeGenderNeutralVerbGuidelineLines(
+                  ensureBookingLookupGuidelineLines(
+                    upgradeCsPhoneHandoffGuidelineLines(
+                      upgradeLegalCsExampleLines(
+                        upgradeClassRescheduleGuidelineLines(
+                          upgradeQuotedFactsGuidelineLines(
+                            upgradeHebrewOnlyLanguageGuidelineLines(lines)
+                          )
                         )
                       )
                     )

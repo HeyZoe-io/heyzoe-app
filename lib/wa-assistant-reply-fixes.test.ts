@@ -276,4 +276,11 @@ assert.match(spellingRule, /בינתיים תתאפרי/);
 assert.match(spellingRule, /נשמח לראותך בשיעור/);
 assert.match(spellingRule, /נראה אותך בעוד X דקות/);
 
+const academyReceptionist = applyKnownAssistantReplyFixes(
+  "היי דוד! אני גל, נציגת השירות של האקדמיה. יגאל הוא המאמן שלנו",
+  { knowledge: { ...knowledge, botName: "גל" } as BusinessKnowledgePack }
+);
+assert.match(academyReceptionist, /הבוטית של/);
+assert.doesNotMatch(academyReceptionist, /אקדמיה|המאמן שלנו/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");
