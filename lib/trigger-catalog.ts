@@ -174,7 +174,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "arbox_new_lead",
-    uiOrder: 2,
+    uiOrder: 3,
     sendHintHe: SEND_HINT_FREQUENT_HE,
   },
   {
@@ -403,7 +403,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "trial_reminder",
-    uiOrder: 31,
+    uiOrder: 2,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
   {

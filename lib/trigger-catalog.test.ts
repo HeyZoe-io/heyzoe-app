@@ -191,6 +191,7 @@ function triggerCatalogAudience(type: string) {
   assert.ok(leadTypes.includes("missed_trial"));
   assert.ok(leadTypes.includes("lost_lead"));
   assert.ok(leadTypes.includes("trial_reminder"));
+  assert.deepEqual(leadTypes.slice(0, 2), ["incoming_lead", "trial_reminder"]);
   assert.ok(!leadTypes.includes("purchase"));
   assert.ok(!leadTypes.includes("birthday"));
   assert.ok(!leadTypes.includes("missed_class"));
