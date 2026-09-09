@@ -3,6 +3,8 @@ import type { SfServiceRow } from "@/lib/sf-service-rows";
 import { matchCatalogServiceFromFreeText, shouldHandoffUnknownClassSlot } from "@/lib/wa-unknown-class-slot";
 import {
   buildIsraelNowSchedulePromptBlock,
+  formatDayClassScheduleLine,
+  formatNamedClassScheduleLine,
   previousUserTextFromHistory,
   RELATIVE_DAY_CLASS_SLOTS_MODEL,
   tryBuildRelativeDayClassSlotsReply,
@@ -50,6 +52,19 @@ const strength = svc("אימוני כוח - Strength", [
 
 const catalog = [chair, strength];
 
+assert.equal(
+  formatNamedClassScheduleLine("פילאטיס מכשירים", "מחר (חמישי)", ["19:30"]),
+  "פילאטיס מכשירים | מחר (חמישי) ב-19:30"
+);
+assert.equal(
+  formatNamedClassScheduleLine("פילאטיס מכשירים", "הערב", ["18:30", "19:30"]),
+  "פילאטיס מכשירים | הערב ב-18:30 וב-19:30"
+);
+assert.equal(
+  formatDayClassScheduleLine("היום", "18:30", "פילאטיס מזרן"),
+  "היום ב-18:30, פילאטיס מזרן"
+);
+
 assert.equal(matchCatalogServiceFromFreeText("כיסא", catalog), "פילאטיס מכשירים (כסא)");
 
 {
@@ -61,9 +76,9 @@ assert.equal(matchCatalogServiceFromFreeText("כיסא", catalog), "פילאטי
   });
   assert.ok(reply);
   assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
-  assert.match(reply!.text, /הערב/);
-  assert.match(reply!.text, /18:30/);
-  assert.match(reply!.text, /19:30/);
+  assert.match(reply!.text, /פילאטיס מכשירים \(כסא\) \| הערב ב-18:30 וב-19:30/);
+  assert.doesNotMatch(reply!.text, /הערב יש/);
+  assert.doesNotMatch(reply!.text, /18:30.{0,12}מכשירים.{0,12}הערב/);
   assert.doesNotMatch(reply!.text, /18:00/);
   assert.doesNotMatch(reply!.text, /19:00/);
 }
@@ -155,7 +170,6 @@ assert.equal(
     now: tueMorning,
   });
   assert.ok(reply);
-  assert.match(reply!.text, /הערב יש/);
   assert.match(reply!.text, /18:30/);
   assert.match(reply!.text, /19:30/);
 }
@@ -182,10 +196,11 @@ const joeWeekly = [
   assert.ok(reply, "generic Sunday ask should list catalog classes");
   assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
   assert.match(reply!.text, /ראשון/);
-  assert.match(reply!.text, /עמידות ידיים/);
+  assert.match(reply!.text, /ביום ראשון ב-18:00, עמידות ידיים/);
   assert.match(reply!.text, /18:00/);
   assert.doesNotMatch(reply!.text, /19:00/);
   assert.doesNotMatch(reply!.text, /אקרו יוגה/);
+  assert.doesNotMatch(reply!.text, /עמידות ידיים.{0,20}ב-18:00/);
 }
 
 {

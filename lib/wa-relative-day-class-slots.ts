@@ -38,6 +38,16 @@ function formatTimesPhrase(times: string[]): string {
   return `ב-${times.slice(0, -1).join(", ")} ו-${times[times.length - 1]}`;
 }
 
+/** לפי שם שיעור: שם | יום+שעות יחד (לא לפצל שעה לפני השם ויום אחרי). */
+export function formatNamedClassScheduleLine(serviceName: string, dayPhrase: string, times: string[]): string {
+  return `${serviceName} | ${dayPhrase} ${formatTimesPhrase(times)}`;
+}
+
+/** אילו שיעורים ביום: יום+שעה יחד, ואז שם השיעור. */
+export function formatDayClassScheduleLine(dayPhrase: string, time: string, serviceName: string): string {
+  return `${dayPhrase} ב-${time}, ${serviceName}`;
+}
+
 function dayAskPhrase(input: { text: string; day: IsraelDayLetter; now: Date }): string {
   const today = getIsraelDayLetter(input.now);
   const tomorrow = addIsraelDayLetter(today, 1);
@@ -98,7 +108,9 @@ function formatDaySlotLines(services: SfServiceRow[], day: IsraelDayLetter): str
     const slots = slotsForDay(s, day);
     if (!slots.length) continue;
     const times = [...new Set(slots.map((x) => x.time))];
-    lines.push(`- ${s.name}: ${times.join(", ")}`);
+    for (const time of times) {
+      lines.push(`- ${time}, ${s.name}`);
+    }
   }
   return lines.length ? lines.join("\n") : "- אין מועדים ליום הזה בלוח";
 }
@@ -114,7 +126,11 @@ ${formatIsraelNowLine(now)}
 ${formatDaySlotLines(services, today)}
 מועדים למחר (${DAY_NAME[tomorrow]}) בלבד:
 ${formatDaySlotLines(services, tomorrow)}
-כששואלים על שיעור ספציפי היום/הערב/מחר — רק השורות של אותו אימון ביום ששאלו. אם אין שורה: אמרי שאין, בלי לקחת שעה מיום אחר.`;
+כששואלים על שיעור ספציפי היום/הערב/מחר — רק השורות של אותו אימון ביום ששאלו. אם אין שורה: אמרי שאין, בלי לקחת שעה מיום אחר.
+ניסוח ללקוח — יום ושעה תמיד צמודים (לא «שעה + שם + יום»):
+- לפי שם שיעור: «פילאטיס מכשירים | מחר (חמישי) ב-19:30». כמה מועדים: «שם | יום א ב-שעה | יום ב ב-שעה».
+- אילו שיעורים ביום: «היום ב-18:30, פילאטיס מזרן». שורה לכל מועד.
+- אסור: «שבע וחצי מכשירים מחר (חמישי)». אסור לדחוס משפט שני באותה שורת תבליט.`;
 }
 
 export function buildRelativeDayClassSlotsReply(input: {
@@ -132,7 +148,7 @@ export function buildRelativeDayClassSlotsReply(input: {
     return `${phrase} אין ${input.serviceName}.`;
   }
   const times = [...new Set(slots.map((s) => s.time))];
-  return `${phrase} יש ${input.serviceName} ${formatTimesPhrase(times)} 💜`;
+  return `${formatNamedClassScheduleLine(input.serviceName, phrase, times)} 💜`;
 }
 
 /** כל האימונים שיש להם מועד ביום ששאלו — בלי להיתקע על אימון שנבחר קודם. */
@@ -148,11 +164,12 @@ export function buildCatalogDaySlotsReply(input: {
     const slots = slotsForDay(s, input.day);
     if (!slots.length) continue;
     const times = [...new Set(slots.map((x) => x.time))];
-    items.push(`${s.name} ${formatTimesPhrase(times)}`);
+    for (const time of times) {
+      items.push(formatDayClassScheduleLine(phrase, time, s.name));
+    }
   }
   if (!items.length) return null;
-  if (items.length === 1) return `${phrase} יש ${items[0]} 💜`;
-  return `${phrase} יש:\n${items.map((x) => `- ${x}`).join("\n")} 💜`;
+  return `${items.join("\n")} 💜`;
 }
 
 /**
@@ -209,20 +226,30 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   const askOk = looksLikeDayOrClassAsk(current) || looksLikeDayOrClassAsk(prev);
   if (!askOk) return null;
 
-  // כמה ימים באותה הודעה («היום ומחר») — פסקה לכל יום
-  const parts: string[] = [];
+  // כמה ימים באותה הודעה («היום ומחר») — שם | יום+שעות | יום+שעות
+  const foundBits: string[] = [];
+  const missing: string[] = [];
   for (const day of days) {
-    const line = buildRelativeDayClassSlotsReply({
-      serviceName,
-      day: day as IsraelDayLetter,
-      sourceText,
-      services: input.services,
-      now,
-    });
-    if (line) parts.push(line);
+    const service = input.services.find((s) => s.name === serviceName);
+    if (!service) continue;
+    const slots = slotsForDay(service, day as IsraelDayLetter);
+    const phrase = dayAskPhrase({ text: sourceText, day: day as IsraelDayLetter, now });
+    if (!slots.length) {
+      missing.push(`${phrase} אין ${serviceName}.`);
+      continue;
+    }
+    const times = [...new Set(slots.map((s) => s.time))];
+    foundBits.push(`${phrase} ${formatTimesPhrase(times)}`);
   }
-  if (!parts.length) return null;
-  return { text: parts.join("\n"), modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
+  if (!foundBits.length && !missing.length) return null;
+  const text = [
+    foundBits.length ? `${serviceName} | ${foundBits.join(" | ")} 💜` : "",
+    ...missing,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (!text) return null;
+  return { text, modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
 }
 
 export function previousUserTextFromHistory(input: {
