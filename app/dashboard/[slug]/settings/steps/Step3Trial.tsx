@@ -941,7 +941,7 @@ export default function Step3Trial(props: {
               </div>
             </div>
 
-            <div>
+            <div dir="rtl" className="hz-rtl-text text-right">
               <SalesPathFieldLabel
                 action={
                   <Button
@@ -965,7 +965,7 @@ export default function Step3Trial(props: {
                 {t.products.details}
               </SalesPathFieldLabel>
               <textarea
-                dir={dashboardDir(lang)}
+                dir="rtl"
                 value={s.description}
                 onChange={(e) => {
                   const nextDesc = e.target.value;

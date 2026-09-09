@@ -191,20 +191,30 @@ body {
 }
 
 /* RTL defaults (dashboard-heavy app).
-   LTR fields must explicitly set dir="ltr" in JSX. */
+   LTR fields must explicitly set dir="ltr" in JSX.
+   isolate (not plaintext) so dir="rtl" + text-align:right actually stick
+   even when the first character is a digit, Latin, or a URL. */
 input:not([dir="ltr"]),
 textarea:not([dir="ltr"]) {
   direction: rtl;
   text-align: right;
-  unicode-bidi: plaintext;
+  unicode-bidi: isolate;
 }
 
-/* Better punctuation placement for RTL text blocks */
-p,
-li,
-div,
-span,
-label {
+/* Forced RTL text boxes (product descriptions, sales-path copy). */
+.hz-rtl-text {
+  direction: rtl !important;
+  text-align: right !important;
+  unicode-bidi: isolate !important;
+}
+
+/* Better punctuation placement for RTL text blocks.
+   Skip .hz-rtl-text so product-description boxes keep isolate + dir=rtl. */
+p:not(.hz-rtl-text),
+li:not(.hz-rtl-text),
+div:not(.hz-rtl-text),
+span:not(.hz-rtl-text),
+label:not(.hz-rtl-text) {
   unicode-bidi: plaintext;
 }
 

@@ -239,7 +239,7 @@ export function WhatsAppSettingsPreview({
                         </span>
                       </Bubble>
                       <Bubble from="bot">
-                        <p className="whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed">
+                        <p className="hz-rtl-text whitespace-pre-wrap text-zinc-900 text-right text-[11px] leading-relaxed" dir="rtl">
                           {fillAfterServicePickTemplate(
                             salesFlowConfig.after_service_pick,
                             trialServices[0]?.name ?? "",
