@@ -78,6 +78,8 @@ export type SalesFlowCtaKind =
   | "trial"
   | "memberships"
   | "address"
+  /** כפתור נוסף עם לינק קבוע מהדשבורד (לא מטאב מוצרים) */
+  | "custom_link"
   /** מוצג אחרי לחיצה על «מחירי מנויים» באותה ריצה — לא נשמר בדשבורד */
   | "human_contact"
   | "workshop_purchase"
@@ -127,7 +129,59 @@ export type SalesFlowCtaButton = {
   memberships_price_range_max?: string;
   /** workshop_purchase | course_enroll — לינק מתוך השירות או טל׳ שירות לקוחות */
   secondary_purchase_delivery?: SecondaryPurchaseCtaDelivery;
+  /** רק custom_link — לינק קבוע מהדשבורד */
+  custom_cta_url?: string;
 };
+
+export const CUSTOM_LINK_CTA_ID = "cta-custom-link";
+
+export function isCustomLinkCtaButton(b: Pick<SalesFlowCtaButton, "kind" | "id">): boolean {
+  return b.kind === "custom_link" || b.id === CUSTOM_LINK_CTA_ID;
+}
+
+export function isValidSalesFlowHttpUrl(url: string): boolean {
+  const u = String(url ?? "").trim();
+  return u.startsWith("https://") || u.startsWith("http://");
+}
+
+export function isCustomLinkCtaEnabled(b: SalesFlowCtaButton): boolean {
+  return (
+    isCustomLinkCtaButton(b) &&
+    Boolean(String(b.label ?? "").trim()) &&
+    isValidSalesFlowHttpUrl(String(b.custom_cta_url ?? ""))
+  );
+}
+
+export function defaultCustomLinkCtaButton(): SalesFlowCtaButton {
+  return {
+    id: CUSTOM_LINK_CTA_ID,
+    label: "",
+    kind: "custom_link",
+    custom_cta_url: "",
+  };
+}
+
+export function normalizeCustomLinkCtaButton(button: SalesFlowCtaButton): SalesFlowCtaButton {
+  return {
+    id: String(button.id ?? "").trim() || CUSTOM_LINK_CTA_ID,
+    label: truncateWaButtonLabel(button.label ?? ""),
+    kind: "custom_link",
+    custom_cta_url: String(button.custom_cta_url ?? "").trim(),
+  };
+}
+
+export function upsertCustomLinkCtaButton(
+  buttons: SalesFlowCtaButton[],
+  patch: Partial<Pick<SalesFlowCtaButton, "label" | "custom_cta_url">>
+): SalesFlowCtaButton[] {
+  const idx = buttons.findIndex(isCustomLinkCtaButton);
+  const next = normalizeCustomLinkCtaButton({
+    ...(idx >= 0 ? buttons[idx]! : defaultCustomLinkCtaButton()),
+    ...patch,
+  });
+  if (idx < 0) return [...buttons, next];
+  return buttons.map((b, i) => (i === idx ? next : b));
+}
 
 export type SalesFlowConfig = {
   opening_note: string;
@@ -750,11 +804,13 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
     if (!x || typeof x !== "object") continue;
     const o = x as Record<string, unknown>;
     const kind =
-      o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships" || o.kind === "address"
-        ? o.kind
-        : o.kind === "next_class"
-          ? "schedule"
-          : "trial";
+      o.kind === "custom_link" || o.id === CUSTOM_LINK_CTA_ID
+        ? "custom_link"
+        : o.kind === "schedule" || o.kind === "trial" || o.kind === "memberships" || o.kind === "address"
+          ? o.kind
+          : o.kind === "next_class"
+            ? "schedule"
+            : "trial";
     const scheduleDelivery =
       o.schedule_cta_delivery === "image" || o.schedule_cta_delivery === "link" || o.schedule_cta_delivery === "none"
         ? o.schedule_cta_delivery
@@ -807,26 +863,31 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
             schedule_cta_image_type: scheduleImgType,
           }
         : {}),
+      ...(kind === "custom_link"
+        ? { custom_cta_url: typeof o.custom_cta_url === "string" ? o.custom_cta_url.trim() : "" }
+        : {}),
     });
   }
-  const base = out.length ? out : structuredClone(FRIENDLY.cta_buttons);
-  return base.map((btn, i) => normalizeCtaButtonForSlot(btn, i));
+  const extras = out.filter(isCustomLinkCtaButton).map(normalizeCustomLinkCtaButton);
+  const locked = out.filter((b) => !isCustomLinkCtaButton(b));
+  const base = locked.length ? locked : structuredClone(FRIENDLY.cta_buttons);
+  const extra = extras[0] ? [normalizeCustomLinkCtaButton(extras[0])] : [];
+  return [...base.map((btn, i) => normalizeCtaButtonForSlot(btn, i)), ...extra];
 }
 
+type SalesFlowLockedCtaKind = "trial" | "schedule" | "memberships";
+
 /** סוג כפתור קבוע לפי ה־id (טאב מסלול — שלושה כפתורים; בלי מעבר בין ניסיון/מערכת/מנויים) */
-export function ctaLockedKindForSlot(
-  buttonIndex: number,
-  buttonId: string
-): Exclude<SalesFlowCtaButton["kind"], "address"> {
+export function ctaLockedKindForSlot(buttonIndex: number, buttonId: string): SalesFlowLockedCtaKind {
   if (buttonId === "cta-trial") return "trial";
   if (buttonId === "cta-schedule") return "schedule";
   if (buttonId === "cta-memberships") return "memberships";
-  const order: Exclude<SalesFlowCtaButton["kind"], "address">[] = ["trial", "schedule", "memberships"];
+  const order: SalesFlowLockedCtaKind[] = ["trial", "schedule", "memberships"];
   return order[Math.min(Math.max(buttonIndex, 0), order.length - 1)]!;
 }
 
 /** כותרת משבצת בדשבורד */
-export function ctaSlotRoleLabel(locked: Exclude<SalesFlowCtaButton["kind"], "address">): string {
+export function ctaSlotRoleLabel(locked: SalesFlowLockedCtaKind): string {
   if (locked === "trial") return "שיעור ניסיון";
   if (locked === "schedule") return "מערכת שעות";
   return "מנויים / כרטיסיות";
@@ -834,6 +895,7 @@ export function ctaSlotRoleLabel(locked: Exclude<SalesFlowCtaButton["kind"], "ad
 
 /** תאימות JSON ישן: כל כפתור מקבל רק את המבנה של סוגו (לפי id / מיקום) */
 export function normalizeCtaButtonForSlot(button: SalesFlowCtaButton, index: number): SalesFlowCtaButton {
+  if (isCustomLinkCtaButton(button)) return normalizeCustomLinkCtaButton(button);
   const locked = ctaLockedKindForSlot(index, button.id);
   const id = button.id;
   const label = truncateWaButtonLabel(button.label ?? "");
@@ -889,7 +951,7 @@ export type CtaSlotSubChoice = "link" | "none" | "image" | "range";
 
 export function salesFlowSubChoiceForSlot(
   b: SalesFlowCtaButton,
-  locked: Exclude<SalesFlowCtaButton["kind"], "address">
+  locked: SalesFlowLockedCtaKind
 ): CtaSlotSubChoice {
   if (locked === "trial") return "link";
   if (locked === "memberships") {
@@ -907,7 +969,7 @@ export function salesFlowSubChoiceForSlot(
 export function salesFlowApplyLockedSubChoice(
   base: Pick<SalesFlowCtaButton, "id" | "label">,
   previous: SalesFlowCtaButton,
-  lockedKind: Exclude<SalesFlowCtaButton["kind"], "address">,
+  lockedKind: SalesFlowLockedCtaKind,
   sub: CtaSlotSubChoice,
   options?: { scheduleScanImageUrl?: string }
 ): SalesFlowCtaButton {
@@ -1081,6 +1143,9 @@ export function getEffectiveSalesFlowCtaButtons(
       if ((b.trial_cta_delivery ?? "link") === "none") return false;
       return true;
     }
+    if (b.kind === "custom_link") {
+      return isCustomLinkCtaEnabled(b);
+    }
     if (b.kind === "schedule") {
       if ((b.schedule_cta_delivery ?? "link") === "none") return false;
     }
@@ -1110,14 +1175,15 @@ export function getEffectiveSalesFlowCtaButtons(
 
   const order: Record<SalesFlowCtaKind, number> = {
     trial: 0,
-    schedule: 1,
-    memberships: 2,
-    human_contact: 2,
-    address: 3,
-    workshop_purchase: 4,
-    workshop_contact: 5,
-    course_enroll: 6,
-    course_contact: 7,
+    custom_link: 1,
+    schedule: 2,
+    memberships: 3,
+    human_contact: 3,
+    address: 4,
+    workshop_purchase: 5,
+    workshop_contact: 6,
+    course_enroll: 7,
+    course_contact: 8,
   };
   return [...out].sort((a, b) => (order[a.kind] ?? 99) - (order[b.kind] ?? 99));
 }
@@ -1836,7 +1902,7 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
       migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body)
     ),
     cta_buttons: migrateLegacyCtaButtons(parseCtaButtons(o.cta_buttons), base.cta_buttons).map((btn, i) =>
-      normalizeCtaButtonForSlot(btn, i)
+      isCustomLinkCtaButton(btn) ? normalizeCustomLinkCtaButton(btn) : normalizeCtaButtonForSlot(btn, i)
     ),
     cta_workshop_body:
       typeof o.cta_workshop_body === "string" ? o.cta_workshop_body : base.cta_workshop_body,
@@ -2075,6 +2141,9 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
         row.memberships_cta_delivery = delivery;
         row.memberships_price_range_min = min;
         row.memberships_price_range_max = max;
+      }
+      if (b.kind === "custom_link") {
+        row.custom_cta_url = String(b.custom_cta_url ?? "").trim();
       }
       return row;
     }),
@@ -3326,6 +3395,7 @@ export function formatSalesFlowForPrompt(
     if (b.kind === "trial" && (b.trial_cta_delivery ?? "link") === "none") return false;
     if (b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "none") return false;
     if (b.kind === "memberships" && (b.memberships_cta_delivery ?? "link") === "none") return false;
+    if (b.kind === "custom_link" && !isCustomLinkCtaEnabled(b)) return false;
     return true;
   });
 
@@ -3338,6 +3408,8 @@ export function formatSalesFlowForPrompt(
             : "כשמשתמש בוחר: אם קיימת תמונת מערכת שעות בלינקים/CTA — שולחים תמונה; אחרת לינק מערכת שעות מטאב לינקים"
           : b.kind === "trial"
             ? "כשמשתמש בוחר: לינק הרשמה/תשלום משדה הקישור באימון הניסיון שנבחר (טאב אימון ניסיון)"
+            : b.kind === "custom_link"
+              ? "כשמשתמש בוחר: לינק קבוע מהדשבורד בסשן הנעה לפעולה (לא מטאב מוצרים)"
             : b.kind === "address"
               ? "משיב עם הכתובת של העסק מהדשבורד"
             : b.kind === "memberships"

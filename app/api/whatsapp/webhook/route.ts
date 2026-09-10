@@ -60,6 +60,7 @@ import {
   getEffectiveSalesFlowCtaButtons,
   getEffectiveSecondaryOfferCtaButtons,
   applyOnlineCourseCtaButtonLabels,
+  isCustomLinkCtaEnabled,
   ONLINE_COURSE_ENROLL_CTA_LABEL,
   ONLINE_COURSE_ENROLL_CTA_LABEL_EN,
   ONLINE_COURSE_ENROLL_CTA_LABEL_RU,
@@ -9608,11 +9609,14 @@ async function processIncoming(
 
         const consumedSf = (k: string) => sfClickedCtaKinds.includes(k);
         const trialBtn = ctaBs.find((b) => b.kind === "trial");
+        const customLinkBtn = ctaBs.find((b) => b.kind === "custom_link");
         const schedBtn =
           ctaBs.find((b) => b.kind === "schedule") ?? cfg.cta_buttons?.find((b) => b.kind === "schedule");
         const memBtn = ctaBs.find((b) => b.kind === "memberships");
         const addressBtn = ctaBs.find((b) => b.kind === "address");
         const trialCtaOn = Boolean(trialBtn && (trialBtn.trial_cta_delivery ?? "link") !== "none");
+        const customLinkCtaOn = Boolean(customLinkBtn && isCustomLinkCtaEnabled(customLinkBtn));
+        const customLinkUrl = String(customLinkBtn?.custom_cta_url ?? "").trim();
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
         const wantsScheduleByIntent =
@@ -9640,6 +9644,9 @@ async function processIncoming(
                   waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_RU) ||
                   waLabelMatches(incomingResolved, CALL_SCHEDULE_CTA_LABEL_LEGACY)))
             : false);
+        const wantsCustomLink =
+          customLinkCtaOn &&
+          Boolean(customLinkBtn && waLabelMatches(incomingResolved, customLinkBtn.label));
         const wantsSchedule =
           wantsScheduleByIntent ||
           (!consumedSf("schedule") &&
@@ -9824,6 +9831,50 @@ async function processIncoming(
             role: "assistant",
             content: txt,
             model_used: "sales_flow_trial_missing",
+            session_id: sessionId,
+          });
+          return;
+        }
+
+        if (wantsCustomLink && customLinkUrl) {
+          if (businessId) {
+            try {
+              const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+            } catch (e) {
+              console.warn("[WA Webhook] markRegistrationCtaClicked (custom link) failed:", e);
+            }
+          }
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const postCtaHint = trialLinkPostCtaMessage(
+            contentLang,
+            resolveRegistrationConfirmationMode(knowledge.salesFlowConfig)
+          );
+          const txt = `${trialSignupLinkIntro(contentLang)}\n${customLinkUrl}`;
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send custom CTA link failed:", e)
+          );
+          await sendWhatsAppMessage(msg.toNumber, msg.from, postCtaHint, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send custom CTA post-hint failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: `${txt}\n\n${postCtaHint}`,
+            model_used: "sales_flow_custom_link",
+            session_id: sessionId,
+          });
+          return;
+        }
+        if (wantsCustomLink && !customLinkUrl) {
+          const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+          const txt = trialSignupLinkMissing(contentLang);
+          await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch(() => {});
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: txt,
+            model_used: "sales_flow_custom_link_missing",
             session_id: sessionId,
           });
           return;

@@ -1,7 +1,12 @@
 import type { BusinessContentLanguage } from "@/lib/business-content-lang";
 import { metaWhatsNextBody } from "@/lib/business-content-lang";
 import { findWaMenuOptionIndex, waLabelMatches } from "@/lib/wa-menu-choice";
-import type { SalesFlowConfig, SalesFlowCtaButton, SalesFlowCtaKind } from "@/lib/sales-flow";
+import {
+  isCustomLinkCtaEnabled,
+  type SalesFlowConfig,
+  type SalesFlowCtaButton,
+  type SalesFlowCtaKind,
+} from "@/lib/sales-flow";
 
 export const SALES_FLOW_CTA_COMPACT_MODEL = "sales_flow_cta_compact";
 export const SALES_FLOW_CTA_HAVE_A_QUESTION_MODEL = "sales_flow_cta_have_a_question";
@@ -49,8 +54,9 @@ export function buildCompactCtaMenuLabels(
   lang: BusinessContentLanguage = "he"
 ): string[] {
   const register = pickRegistrationCtaButton(buttons)?.label.trim() ?? "";
+  const custom = buttons.find(isCustomLinkCtaEnabled)?.label.trim() ?? "";
   const question = ctaHaveAQuestionLabel(lang);
-  return [register, question].filter((l) => l.length > 0).slice(0, 3);
+  return [register, custom, question].filter((l) => l.length > 0).slice(0, 3);
 }
 
 type SalesFlowCtaLabelSource = Pick<

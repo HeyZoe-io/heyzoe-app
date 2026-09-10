@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   GripVertical,
   HelpCircle,
+  Link,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,9 @@ import {
   resolveRegistrationConfirmationMode,
   resolveAfterRegistrationDirectionsMediaEnabled,
   defaultAfterRegistrationDirectionsMediaCaption,
+  defaultCustomLinkCtaButton,
+  isCustomLinkCtaButton,
+  upsertCustomLinkCtaButton,
 } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -793,12 +797,17 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     salesFlowConfig.cta_course_online_body,
   ]);
 
-  const trialCtaButtonsForUi = useMemo(
+  const trialCtaLockedButtonsForUi = useMemo(
     () =>
-      showScheduleSelectionSession
+      (showScheduleSelectionSession
         ? salesFlowConfig.cta_buttons.filter((b) => b.kind !== "schedule")
-        : salesFlowConfig.cta_buttons,
+        : salesFlowConfig.cta_buttons
+      ).filter((b) => !isCustomLinkCtaButton(b)),
     [showScheduleSelectionSession, salesFlowConfig.cta_buttons]
+  );
+  const customLinkCtaButtonForUi = useMemo(
+    () => salesFlowConfig.cta_buttons.find(isCustomLinkCtaButton) ?? defaultCustomLinkCtaButton(),
+    [salesFlowConfig.cta_buttons]
   );
   const scheduleBoardConfigured = Boolean(
     String(scheduleScanImageUrl ?? "").trim() || String(scheduleBoardLink ?? "").trim()
@@ -1846,9 +1855,15 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </p>
             </Field>
             <div
-              className={`grid grid-cols-1 gap-3 ${showScheduleSelectionSession ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}
+              className={`grid grid-cols-1 gap-3 ${
+                trialCtaLockedButtonsForUi.length + 1 >= 4
+                  ? "sm:grid-cols-2"
+                  : trialCtaLockedButtonsForUi.length + 1 === 3
+                    ? "sm:grid-cols-3"
+                    : "sm:grid-cols-2"
+              }`}
             >
-              {trialCtaButtonsForUi.map((b: SalesFlowCtaButton, bi: number) => {
+              {trialCtaLockedButtonsForUi.map((b: SalesFlowCtaButton, bi: number) => {
                 const locked = ctaLockedKindForSlot(bi, b.id);
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
                 return (
@@ -2093,6 +2108,49 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   </div>
                 );
               })}
+              <div className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                <Field
+                  label={t.salesFlow.button(trialCtaLockedButtonsForUi.length + 1)}
+                  description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)}
+                  lang={lang}
+                >
+                  <WaButtonLabelInput
+                    value={customLinkCtaButtonForUi.label}
+                    onValueChange={(v) => {
+                      setSalesFlowConfig((c) => ({
+                        ...c,
+                        cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { label: v }),
+                      }));
+                    }}
+                    placeholder={t.salesFlow.customLinkCtaPlaceholder}
+                  />
+                </Field>
+                <div className="space-y-1.5">
+                  <label className="block text-center text-xs font-medium text-zinc-600">
+                    {t.salesFlow.customLinkCta}
+                  </label>
+                  <p className="text-center text-[11px] leading-relaxed text-zinc-500">
+                    {t.salesFlow.customLinkCtaHint}
+                  </p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+                    <Input
+                      dir="ltr"
+                      value={customLinkCtaButtonForUi.custom_cta_url ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSalesFlowConfig((c) => ({
+                          ...c,
+                          cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { custom_cta_url: v }),
+                        }));
+                      }}
+                      placeholder="https://..."
+                      className="min-w-0 flex-1 text-left font-mono text-sm"
+                      aria-label={t.salesFlow.customLinkCtaUrl}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
             {ctaOfferTab === "trial" && salesFlowCallSchedulingEnabled ? (
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">

@@ -32,6 +32,21 @@ assert.deepEqual(buildCompactCtaMenuLabels(trialBtns, "he"), [
   "יש לי שאלה",
 ]);
 
+const trialBtnsWithCustom: SalesFlowCtaButton[] = [
+  ...trialBtns,
+  {
+    id: "cta-custom-link",
+    label: "שני שיעורי היכרות",
+    kind: "custom_link",
+    custom_cta_url: "https://example.com/two",
+  },
+];
+assert.deepEqual(buildCompactCtaMenuLabels(trialBtnsWithCustom, "he"), [
+  "הרשמה לשיעור ניסיון",
+  "שני שיעורי היכרות",
+  "יש לי שאלה",
+]);
+
 const courseBtns: SalesFlowCtaButton[] = [
   { id: "cta-enroll", label: "להרשמה לקורס", kind: "course_enroll" },
   { id: "cta-contact", label: "יצירת קשר", kind: "course_contact" },
