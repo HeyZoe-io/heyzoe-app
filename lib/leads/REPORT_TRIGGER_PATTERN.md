@@ -178,7 +178,8 @@ Calibration:
 - ימים במועדון / שימור (`milestones`) → **MARKETING**
 - אימון מספר N ללקוח חדש (`nth_workout`) → **MARKETING**
 - פער נוכחות ללא רישום עתידי (`attendance_gap`) → **MARKETING**
-- סיום הקפאה בלי הזמנה (C14) → **MARKETING**; עם הזמנה (C15) → **UTILITY**
+- נרשם אחרי ניסיון (C5, אישור הרשמה בלי CTA) → **UTILITY**; לא נרשם אחרי ניסיון (C6) → **MARKETING**
+- סיום הקפאה בלי הזמנה (C14, עדכון תאריך בלי הזמנה לחזור) → **UTILITY**; עם הזמנה (C15) → **UTILITY**
 - ליד אבוד עם הטבת ניסיון + CTA (`lost_lead`) → **MARKETING**
 
 Existing presets may predate this rule; **new** presets must follow it.
@@ -212,7 +213,7 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   product is **not** a trial membership (`item_type=trial`, trial membership type ids, or
   trial-like `item_name`). Session punch-cards count as registered (C5).
 - C5 `registered_after_trial` / C6 `not_registered_after_trial` — automatic × leads,
-  MARKETING presets (`first_name`, `class_name`).
+  C5 UTILITY (registration confirmation, no CTA) / C6 MARKETING (`first_name`, `class_name`).
 - **Decision delay:** `delay_days` after `class_date` (default 3, min 2). Send immediate once
   due; do not use delay as Meta enqueue offset.
 - Dedup: `arbox_post_trial_followup_sync_log` PK `(business_id, user_id, class_date)` with
@@ -268,8 +269,8 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Seed: `businesses.arbox_freeze_seeded` + soft-seed when either table is empty after
   the flag is true. Seeds all current (future-ending) holds **without WhatsApp**.
   Retry: A9 `attempts`/`status`.
-- Presets: A8 UTILITY; C14 MARKETING; C15 UTILITY. Ending delay label
-  «ימים לפני סיום ההקפאה».
+- Presets: A8 / C14 / C15 UTILITY (C14 is a dry end-date notice, no come-back CTA).
+  Ending delay label «ימים לפני סיום ההקפאה».
 - Migration: `supabase/arbox_freeze_sync_log.sql` (run before deploy).
 
 ## Lost lead win-back (A7)
@@ -293,7 +294,7 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - **Button → sales flow:** Meta QUICK_REPLY arrives as inbound text. The tap
   starts sales flow only because **«אשמח לפרטים»** is in
   `SALES_FLOW_START_TRIGGERS` (`lib/sales-flow-start-triggers.ts`) — same as
-  `no_response` / `registered_after_trial`. **Do not tell APEX to change the
+  `no_response` / `lost_lead`. **Do not tell APEX to change the
   button copy.** If a studio wants different wording, add that exact string to
   `SALES_FLOW_START_TRIGGERS` first; otherwise the tap will not restart the
   sales flow.

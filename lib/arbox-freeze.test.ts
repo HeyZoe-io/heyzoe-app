@@ -245,7 +245,7 @@ assert.equal(isHoldEndInFuture("2026-09-05", "2026-09-06"), false);
 
 {
   assert.equal(TEMPLATE_PRESETS.freeze_created.category, "UTILITY");
-  assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "MARKETING");
+  assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "UTILITY");
   assert.equal(TEMPLATE_PRESETS.freeze_ending_booked.category, "UTILITY");
   assert.deepEqual(
     resolveTemplateBodyParamValues({

@@ -104,9 +104,8 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   },
   registered_after_trial: {
     name: "registered_after_trial",
-    category: "MARKETING",
-    body: "היי {{1}}, איך היה בשיעור הניסיון ({{2}})? שמחנו לראות שנרשמת להמשך — איך אפשר לעזור?",
-    button_text: "אשמח לפרטים",
+    category: "UTILITY",
+    body: "היי {{1}}, שמחנו לראות שנרשמת להמשך אחרי שיעור הניסיון ({{2}}).",
   },
   not_registered_after_trial: {
     name: "not_registered_after_trial",
@@ -142,9 +141,8 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   },
   freeze_ending_unbooked: {
     name: "freeze_ending_unbooked",
-    category: "MARKETING",
-    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}. בא לך שנמצא יחד שיעור לחזרה?",
-    button_text: "אשמח לחזור",
+    category: "UTILITY",
+    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}.",
   },
   freeze_ending_booked: {
     name: "freeze_ending_booked",

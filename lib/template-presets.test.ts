@@ -12,11 +12,11 @@ import {
 assert.equal(TEMPLATE_PRESETS.incoming_lead.body, TEMPLATE_PRESETS.arbox_new_lead.body);
 assert.equal(TEMPLATE_PRESETS.incoming_lead.category, "MARKETING");
 assert.equal(TEMPLATE_PRESETS.arbox_new_lead.category, "MARKETING");
-assert.equal(TEMPLATE_PRESETS.registered_after_trial.category, "MARKETING");
-assert.equal(TEMPLATE_PRESETS.registered_after_trial.button_text, "אשמח לפרטים");
+assert.equal(TEMPLATE_PRESETS.registered_after_trial.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.registered_after_trial.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.registered_after_trial.body,
-  "היי {{1}}, איך היה בשיעור הניסיון ({{2}})? שמחנו לראות שנרשמת להמשך — איך אפשר לעזור?"
+  "היי {{1}}, שמחנו לראות שנרשמת להמשך אחרי שיעור הניסיון ({{2}})."
 );
 assert.equal(TEMPLATE_PRESETS.not_registered_after_trial.category, "MARKETING");
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.registered_after_trial.body), 2);
@@ -57,7 +57,12 @@ assert.deepEqual(paramSlotsForTriggerType("attendance_gap"), [
 assert.equal(isPresetAvailable("attendance_gap", false), false);
 assert.equal(isPresetAvailable("attendance_gap", true), true);
 assert.equal(TEMPLATE_PRESETS.freeze_created.category, "UTILITY");
-assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "MARKETING");
+assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.freeze_ending_unbooked.body,
+  "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}."
+);
 assert.equal(TEMPLATE_PRESETS.freeze_ending_booked.category, "UTILITY");
 assert.deepEqual(paramSlotsForTriggerType("freeze_created"), [
   "first_name",

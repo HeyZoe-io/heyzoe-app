@@ -170,7 +170,7 @@ assert.equal(formatDelayLabel("registered_after_trial", 3, "after"), "3 ימים
 }
 
 {
-  assert.equal(TEMPLATE_PRESETS.registered_after_trial.category, "MARKETING");
+  assert.equal(TEMPLATE_PRESETS.registered_after_trial.category, "UTILITY");
   assert.equal(TEMPLATE_PRESETS.not_registered_after_trial.category, "MARKETING");
   assert.deepEqual(
     resolveTemplateBodyParamValues({
