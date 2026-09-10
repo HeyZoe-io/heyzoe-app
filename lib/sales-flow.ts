@@ -1187,8 +1187,9 @@ export function getEffectiveSalesFlowCtaButtons(
 
   const order: Record<SalesFlowCtaKind, number> = {
     trial: 0,
-    custom_link: 1,
-    schedule: 2,
+    schedule: 1,
+    // הכפתור המותאם יושב בדיוק לפני «מחירי מנויים»
+    custom_link: 2,
     memberships: 3,
     human_contact: 3,
     address: 4,

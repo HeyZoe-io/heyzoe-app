@@ -48,7 +48,7 @@ assert.equal(hidden.some((b) => b.kind === "custom_link"), false);
 const shown = getEffectiveSalesFlowCtaButtons(withCustom!.cta_buttons, emptyEff);
 assert.deepEqual(
   shown.map((b) => b.kind),
-  ["trial", "custom_link", "schedule", "memberships"]
+  ["trial", "schedule", "custom_link", "memberships"]
 );
 
 const noUrl = parseSalesFlowFromSocial({

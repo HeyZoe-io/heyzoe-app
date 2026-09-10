@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import {
   Loader2,
   Sparkles,
@@ -1863,12 +1863,68 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     : "sm:grid-cols-2"
               }`}
             >
-              {trialCtaLockedButtonsForUi.map((b: SalesFlowCtaButton, bi: number) => {
+              {(() => {
+                const membershipsSlot = trialCtaLockedButtonsForUi.findIndex(
+                  (x, i) => ctaLockedKindForSlot(i, x.id) === "memberships"
+                );
+                // הכפתור המותאם נכנס בדיוק לפני «מחירי מנויים» (או בסוף אם אין כזה).
+                const customLinkBeforeSlot =
+                  membershipsSlot >= 0 ? membershipsSlot : trialCtaLockedButtonsForUi.length - 1;
+                return trialCtaLockedButtonsForUi.map((b: SalesFlowCtaButton, bi: number) => {
                 const locked = ctaLockedKindForSlot(bi, b.id);
                 const slotSub = salesFlowSubChoiceForSlot(b, locked);
+                const showCustomLinkHere = bi === customLinkBeforeSlot;
+                // הכפתור המותאם נדחף פנימה, ולכן «מחירי מנויים» וכל מה שאחריו מוזזים במספר אחד.
+                const slotNumber = membershipsSlot >= 0 && bi >= membershipsSlot ? bi + 2 : bi + 1;
                 return (
-                  <div key={b.id} className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                    <Field label={t.salesFlow.button(bi + 1)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
+                  <Fragment key={b.id}>
+                  {showCustomLinkHere ? (
+                    <div className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                      <Field
+                        label={t.salesFlow.button(bi + 1)}
+                        description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)}
+                        lang={lang}
+                      >
+                        <WaButtonLabelInput
+                          value={customLinkCtaButtonForUi.label}
+                          onValueChange={(v) => {
+                            setSalesFlowConfig((c) => ({
+                              ...c,
+                              cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { label: v }),
+                            }));
+                          }}
+                          placeholder={t.salesFlow.customLinkCtaPlaceholder}
+                        />
+                      </Field>
+                      <div className="space-y-1.5">
+                        <label className="block text-center text-xs font-medium text-zinc-600">
+                          {t.salesFlow.customLinkCta}
+                        </label>
+                        <p className="text-center text-[11px] leading-relaxed text-zinc-500">
+                          {t.salesFlow.customLinkCtaHint}
+                        </p>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+                          <Input
+                            dir="ltr"
+                            value={customLinkCtaButtonForUi.custom_cta_url ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSalesFlowConfig((c) => ({
+                                ...c,
+                                cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { custom_cta_url: v }),
+                              }));
+                            }}
+                            placeholder="https://..."
+                            className="min-w-0 flex-1 text-left font-mono text-sm"
+                            aria-label={t.salesFlow.customLinkCtaUrl}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
+                    <Field label={t.salesFlow.button(slotNumber)} description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)} lang={lang}>
                       <WaButtonLabelInput
                         value={b.label}
                         onValueChange={(v) => {
@@ -2106,51 +2162,10 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                       </div>
                     ) : null}
                   </div>
+                  </Fragment>
                 );
-              })}
-              <div className="space-y-2 rounded-xl border border-zinc-100 bg-white/80 p-3">
-                <Field
-                  label={t.salesFlow.button(trialCtaLockedButtonsForUi.length + 1)}
-                  description={t.salesFlow.charsMax(WA_BUTTON_LABEL_MAX_CHARS)}
-                  lang={lang}
-                >
-                  <WaButtonLabelInput
-                    value={customLinkCtaButtonForUi.label}
-                    onValueChange={(v) => {
-                      setSalesFlowConfig((c) => ({
-                        ...c,
-                        cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { label: v }),
-                      }));
-                    }}
-                    placeholder={t.salesFlow.customLinkCtaPlaceholder}
-                  />
-                </Field>
-                <div className="space-y-1.5">
-                  <label className="block text-center text-xs font-medium text-zinc-600">
-                    {t.salesFlow.customLinkCta}
-                  </label>
-                  <p className="text-center text-[11px] leading-relaxed text-zinc-500">
-                    {t.salesFlow.customLinkCtaHint}
-                  </p>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
-                    <Input
-                      dir="ltr"
-                      value={customLinkCtaButtonForUi.custom_cta_url ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setSalesFlowConfig((c) => ({
-                          ...c,
-                          cta_buttons: upsertCustomLinkCtaButton(c.cta_buttons, { custom_cta_url: v }),
-                        }));
-                      }}
-                      placeholder="https://..."
-                      className="min-w-0 flex-1 text-left font-mono text-sm"
-                      aria-label={t.salesFlow.customLinkCtaUrl}
-                    />
-                  </div>
-                </div>
-              </div>
+                });
+              })()}
             </div>
             {ctaOfferTab === "trial" && salesFlowCallSchedulingEnabled ? (
               <div className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">
