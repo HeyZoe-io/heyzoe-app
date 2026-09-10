@@ -125,6 +125,18 @@ function isIncomingLeadType(type: string): boolean {
   return isIncomingLeadTriggerType(type);
 }
 
+function AutomationConnectLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-xs font-medium text-[#7133da] hover:underline"
+    >
+      איך מחברים לאוטומציה?
+    </button>
+  );
+}
+
 type Props = {
   slug: string;
   initialTemplates: TemplateRow[];
@@ -1245,20 +1257,6 @@ export default function TemplatesClient({
         </p>
       </header>
 
-      <section className="rounded-2xl border border-[#7133da]/25 bg-[#7133da]/5 p-4 sm:p-5 shadow-sm text-right" dir="rtl">
-        <p className="text-sm leading-relaxed text-zinc-800 sm:text-[15px]">
-          מריצים קמפיין לידים ורוצים שזואי תשלח הודעת ווטסאפ לליד שהשאיר פרטים? צרו טמפלייט פתיחה
-          שישלח אוטומטית והוסיפו את זואי לאוטומציה שלכם.
-        </p>
-        <button
-          type="button"
-          onClick={() => setShowAutomation(true)}
-          className="mt-3 inline-flex items-center rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0]"
-        >
-          איך מחברים לאוטומציה?
-        </button>
-      </section>
-
       {(error || success) && (
         <div
           className={`rounded-xl border px-3 py-2 text-sm ${
@@ -1563,6 +1561,9 @@ export default function TemplatesClient({
                       <p className="text-xs text-zinc-500">
                         {triggerSendScheduleHintHe(trigger.trigger_type)}
                       </p>
+                      {isIncomingLeadType(trigger.trigger_type) ? (
+                        <AutomationConnectLink onClick={() => setShowAutomation(true)} />
+                      ) : null}
                       <p className="text-xs text-zinc-600 break-all" dir="ltr">
                         טמפלייט: {trigger.template_name || "—"}
                       </p>
@@ -1744,6 +1745,9 @@ export default function TemplatesClient({
                       <div className="min-w-0 space-y-1">
                         <p className="font-medium text-zinc-900">{entry.labelHe}</p>
                         <p className="text-xs text-zinc-500">{entry.sendHintHe}</p>
+                        {type === "incoming_lead" ? (
+                          <AutomationConnectLink onClick={() => setShowAutomation(true)} />
+                        ) : null}
                       </div>
                       {!open ? (
                         <button
@@ -2135,6 +2139,7 @@ export default function TemplatesClient({
                   </span>
                   .
                 </p>
+                <AutomationConnectLink onClick={() => setShowAutomation(true)} />
                 <CopyBlock label="Webhook URL" text={incomingLeadWebhookUrl} />
                 {!leadsWebhookSecret ? (
                   <p className="text-xs text-amber-800">
