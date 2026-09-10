@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { canManageAccountUsers, parseAccountUsersSlug } from "@/lib/account/users-request";
+import { assertBusinessAccess, normDashboardSlug } from "@/lib/dashboard-business-access";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 
 export const runtime = "nodejs";
 
@@ -81,6 +84,40 @@ async function requireAdminForBusiness(admin: ReturnType<typeof createSupabaseAd
   return row?.role === "admin";
 }
 
+async function canManageUsers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  user: { id: string; email?: string | null }
+) {
+  if (isAdminAllowedEmail(user.email ?? "")) return true;
+  const membershipAdmin = await requireAdminForBusiness(admin, businessId, user.id);
+  return canManageAccountUsers({
+    isPlatformAdmin: false,
+    membershipRole: membershipAdmin ? "admin" : null,
+  });
+}
+
+type ResolvedUsersBusiness =
+  | { ok: true; businessId: number; slug: string }
+  | { ok: false; status: 400 | 403 | 404; error: string };
+
+async function resolveBusinessForUsersRequest(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  user: { id: string; email?: string | null },
+  slugParam: string
+): Promise<ResolvedUsersBusiness> {
+  const slug = normDashboardSlug(slugParam);
+  if (slug) {
+    const access = await assertBusinessAccess(admin, user, slug);
+    if (!access.ok) return { ok: false, status: access.status, error: access.error };
+    return { ok: true, businessId: access.business.id, slug: access.business.slug };
+  }
+
+  const bizInfo = await resolveBusinessForUser(admin, user.id);
+  if (!bizInfo) return { ok: false, status: 404, error: "business_not_found" };
+  return { ok: true, businessId: bizInfo.businessId, slug: bizInfo.slug };
+}
+
 async function getAuthUsersByIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   userIds: string[]
@@ -147,11 +184,22 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const admin = createSupabaseAdminClient();
-    const bizInfo = await resolveBusinessForUser(admin, user.id);
-    if (!bizInfo) {
-      console.info("[api/account/users][GET] no_business", { user_id: user.id });
-      return NextResponse.json({ members: [] });
+    const slugParam = parseAccountUsersSlug(req.nextUrl.searchParams);
+    const resolved = await resolveBusinessForUsersRequest(admin, user, slugParam);
+    if (!resolved.ok) {
+      if (!slugParam && resolved.status === 404) {
+        console.info("[api/account/users][GET] no_business", { user_id: user.id });
+        return NextResponse.json({ members: [] });
+      }
+      console.info("[api/account/users][GET] resolve_failed", {
+        user_id: user.id,
+        slug: slugParam,
+        status: resolved.status,
+        error: resolved.error,
+      });
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
+    const bizInfo = resolved;
 
     // Ensure owner is present as primary admin membership for safety rules
     const { data: biz, error: bizErr } = await admin
@@ -262,10 +310,12 @@ export async function POST(req: NextRequest) {
   if (!email || !fullName) return NextResponse.json({ error: "missing_fields" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const bizInfo = await resolveBusinessForUser(admin, user.id);
-  if (!bizInfo) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+  const slugParam = parseAccountUsersSlug(req.nextUrl.searchParams, body);
+  const resolved = await resolveBusinessForUsersRequest(admin, user, slugParam);
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  const bizInfo = resolved;
 
-  const isAdmin = await requireAdminForBusiness(admin, bizInfo.businessId, user.id);
+  const isAdmin = await canManageUsers(admin, bizInfo.businessId, user);
   if (!isAdmin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const invite = await admin.auth.admin.inviteUserByEmail(email, {
@@ -313,10 +363,12 @@ export async function DELETE(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "missing_user_id" }, { status: 400 });
 
   const admin = createSupabaseAdminClient();
-  const bizInfo = await resolveBusinessForUser(admin, user.id);
-  if (!bizInfo) return NextResponse.json({ error: "business_not_found" }, { status: 404 });
+  const slugParam = parseAccountUsersSlug(url.searchParams);
+  const resolved = await resolveBusinessForUsersRequest(admin, user, slugParam);
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  const bizInfo = resolved;
 
-  const isAdmin = await requireAdminForBusiness(admin, bizInfo.businessId, user.id);
+  const isAdmin = await canManageUsers(admin, bizInfo.businessId, user);
   if (!isAdmin) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { data: target } = await admin

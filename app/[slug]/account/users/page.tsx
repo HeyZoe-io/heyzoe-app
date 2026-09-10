@@ -1,11 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+
+function accountUsersApiUrl(slug: string, extra?: Record<string, string>) {
+  const params = new URLSearchParams();
+  const s = String(slug ?? "").trim().toLowerCase();
+  if (s) params.set("slug", s);
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) {
+      if (value) params.set(key, value);
+    }
+  }
+  const qs = params.toString();
+  return qs ? `/api/account/users?${qs}` : "/api/account/users";
+}
 
 type Member = {
   user_id: string;
@@ -22,6 +36,8 @@ const roleHelp: Record<Member["role"], string> = {
 };
 
 export default function AccountUsersPage() {
+  const params = useParams();
+  const slug = String(params?.slug ?? "").trim().toLowerCase();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [meId, setMeId] = useState<string>("");
 
@@ -38,10 +54,11 @@ export default function AccountUsersPage() {
   const [removingByUserId, setRemovingByUserId] = useState<Record<string, boolean>>({});
 
   async function load() {
+    if (!slug) return;
     setLoadError("");
     try {
       const [res, meRes] = await Promise.all([
-        fetch("/api/account/users"),
+        fetch(accountUsersApiUrl(slug)),
         supabase.auth.getUser(),
       ]);
       const data = await res.json().catch(() => ({}));
@@ -61,18 +78,21 @@ export default function AccountUsersPage() {
   }
 
   useEffect(() => {
+    if (!slug) return;
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [slug]);
 
   async function invite() {
+    if (!slug) return;
     setInviting(true);
     setMessage("");
     try {
-      const res = await fetch("/api/account/users", {
+      const res = await fetch(accountUsersApiUrl(slug), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          slug,
           email: inviteEmail.trim(),
           full_name: inviteName.trim(),
           role: inviteRole,
@@ -100,6 +120,7 @@ export default function AccountUsersPage() {
   }
 
   async function cancelInvite(userId: string) {
+    if (!slug) return;
     if (!confirm("לבטל את ההזמנה?")) return;
     setMessage("");
     const prev = members;
@@ -107,7 +128,7 @@ export default function AccountUsersPage() {
     setCancellingByUserId((m) => ({ ...m, [userId]: true }));
     try {
       const res = await fetch(
-        `/api/account/users?user_id=${encodeURIComponent(userId)}&cancel_invite=1`,
+        accountUsersApiUrl(slug, { user_id: userId, cancel_invite: "1" }),
         { method: "DELETE" }
       );
       const j = await res.json().catch(() => ({}));
@@ -125,11 +146,12 @@ export default function AccountUsersPage() {
   }
 
   async function removeMember(userId: string) {
+    if (!slug) return;
     if (!confirm("למחוק את המשתמש מהעסק?")) return;
     setMessage("");
     setRemovingByUserId((m) => ({ ...m, [userId]: true }));
     try {
-      const res = await fetch(`/api/account/users?user_id=${encodeURIComponent(userId)}`, {
+      const res = await fetch(accountUsersApiUrl(slug, { user_id: userId }), {
         method: "DELETE",
       });
       const j = await res.json().catch(() => ({}));
