@@ -69,4 +69,22 @@ const upserted = upsertCustomLinkCtaButton(defaultSalesFlowConfig([]).cta_button
 const roundTrip = parseSalesFlowFromSocial(serializeSalesFlowConfig({ ...defaultSalesFlowConfig([]), cta_buttons: upserted }));
 assert.equal(roundTrip?.cta_buttons.find((b) => b.kind === "custom_link")?.custom_cta_url, "https://apex.example/intro-2");
 
+// בזמן הקלדה: רווחים בתווית (כולל רווח בסוף) נשמרים — לא עוברים trim מוקדם
+const typing = upsertCustomLinkCtaButton(defaultSalesFlowConfig([]).cta_buttons, {
+  label: "שני שיעורי ",
+});
+assert.equal(typing.find((b) => b.kind === "custom_link")?.label, "שני שיעורי ");
+const typingMore = upsertCustomLinkCtaButton(typing, { label: "שני שיעורי היכרות" });
+assert.equal(typingMore.find((b) => b.kind === "custom_link")?.label, "שני שיעורי היכרות");
+
+// אבל השמירה (serialize) עדיין מנרמלת ומורידה רווחים בקצוות
+const serializedTyping = serializeSalesFlowConfig({
+  ...defaultSalesFlowConfig([]),
+  cta_buttons: typing,
+});
+const serializedCustom = (serializedTyping.cta_buttons as Array<{ kind?: string; label?: string }>).find(
+  (b) => b.kind === "custom_link"
+);
+assert.equal(serializedCustom?.label, "שני שיעורי");
+
 console.log("sales-flow-custom-link-cta: assertions passed");

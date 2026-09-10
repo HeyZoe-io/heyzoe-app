@@ -14,7 +14,11 @@ import {
   fillProductDescriptionTemplate,
   type ProductDescriptionFillInput,
 } from "@/lib/product-description-template";
-import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
+import {
+  clampWaButtonLabelInput,
+  truncateWaButtonLabel,
+  truncateWaButtonLabels,
+} from "@/lib/wa-button-label";
 import { matchesClassRescheduleUpdate } from "@/lib/wa-class-reschedule";
 import { matchCancellationPlaybook } from "@/lib/wa-closed-playbook-intents";
 import { stripUnresolvedLeadPlaceholders } from "@/lib/zoe-text";
@@ -175,10 +179,18 @@ export function upsertCustomLinkCtaButton(
   patch: Partial<Pick<SalesFlowCtaButton, "label" | "custom_cta_url">>
 ): SalesFlowCtaButton[] {
   const idx = buttons.findIndex(isCustomLinkCtaButton);
-  const next = normalizeCustomLinkCtaButton({
+  const merged = {
     ...(idx >= 0 ? buttons[idx]! : defaultCustomLinkCtaButton()),
     ...patch,
-  });
+  };
+  // חיתוך אורך בלבד בזמן הקלדה — בלי trim, כדי שאפשר יהיה להקליד רווחים בתווית / בלינק.
+  // הנרמול המלא (trim) קורה ב-serializeSalesFlowConfig / parseCtaButtons.
+  const next: SalesFlowCtaButton = {
+    id: String(merged.id ?? "").trim() || CUSTOM_LINK_CTA_ID,
+    label: clampWaButtonLabelInput(merged.label ?? ""),
+    kind: "custom_link",
+    custom_cta_url: String(merged.custom_cta_url ?? ""),
+  };
   if (idx < 0) return [...buttons, next];
   return buttons.map((b, i) => (i === idx ? next : b));
 }
