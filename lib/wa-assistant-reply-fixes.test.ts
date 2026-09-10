@@ -225,6 +225,8 @@ assert.match(spellingRule, /מנוי/);
 assert.match(spellingRule, /עיסוי זה לא ספא/);
 assert.match(spellingRule, /כשתהיי רוצה/);
 assert.match(spellingRule, /תרצי/);
+assert.match(spellingRule, /תענוג!/);
+assert.match(spellingRule, /קטן!/);
 
 const scheduleFitRule = buildWaSpellingAndPhrasingPromptRule(knowledge, {
   suppressFollowUpQuestion: true,
@@ -282,5 +284,14 @@ const academyReceptionist = applyKnownAssistantReplyFixes(
 );
 assert.match(academyReceptionist, /הבוטית של/);
 assert.doesNotMatch(academyReceptionist, /אקדמיה|המאמן שלנו/);
+
+const slangJoy = applyKnownAssistantReplyFixes("קטן! 🎉\nנשמח לראותך מחר בבוקר 💜", { knowledge });
+assert.equal(slangJoy, "איזה כיף! 🎉\nנשמח לראותך מחר בבוקר 💜");
+assert.equal(applyKnownAssistantReplyFixes("בקטנה!", { knowledge }), "איזה כיף!");
+assert.match(
+  applyKnownAssistantReplyFixes("השיעורים אצלנו קטנים ואינטימיים, ויש יחס אישי.", { knowledge }),
+  /קטנים/
+);
+assert.match(applyKnownAssistantReplyFixes("זה סטודיו בוטיק, השיעורים קטנים.", { knowledge }), /קטנים/);
 
 console.log("wa-assistant-reply-fixes.test.ts: ok");

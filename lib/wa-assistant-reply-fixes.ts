@@ -326,6 +326,7 @@ export function buildWaSpellingAndPhrasingPromptRule(
 - איות: «אימון» לא «אימן»; «לומדים» לא «למדים»; «אין לי» לא «לא יש לי»; «בהצלחה» לא «מצליחה»; «החלמה מהירה» לא «בהחלמה מהירה»; «בדיוק» לא «לבדיוק»; «לוודא» לא «ליוודע»; «יכולה» לא «יוכלה»; «מתאים לך» לא «מתוקף לך»; «רצפת האגן» לא «הרצפה האגן»; «להגיד לה» לא «להגידה לה».
 - הטיית עתיד: אסור «כשתהיי רוצה» / «תהיי רוצה» — נכון «תרצי» / «כשתרצי» (נקבה) או «ברצונך» (ניטרלי). אל תבני «תהיי» + בינוני של פועל. ניסוחי זואי: «אנחנו כאן כשתרצי», «תרצי - כתבי לי».
 - דיוק במילים: לפני סיום, ודאי שכל מילה אומרת בדיוק את מה שהתכוונת. מילים שדומות באות אחת אך שונות במשמעות («מתוקה»/«מצוקה», «קשה»/«קושי», «מנוי»/«מנוע») - קל להחליף ביניהן. קראי את המשפט שוב וודאי שהוא הגיוני בהקשר של השיחה.
+- שמחה על משהו שהליד אמר או עשה: רק «איזה כיף!», «מעולה!», «תענוג!», «נהדר!». אסור «קטן!» / «בקטנה» (סלנג של קל, לא שמחה).
 - מקף: רק מקף רגיל (-). אסור מקף ארוך (—) או מקף בינוני (–).
 - כשמסבירים על התמחות/סוג השירות: קצר ועובדתי, למשל «ההתמחות שלנו היא ביוגה». אסור «גופים» ברבים ואסור ניסוחים כמו «לכל סוגי הגופים» / «לכל סוגי גופים ודרישות» - זה לא תקני בעברית. אם רוצים להרחיב: «לכל הרמות» או «מתאים לכל אחת ואחד».
 - אל תסיקי לבד שהליד לא רלוונטי. כשהליד אמר במפורש שזה לא מתאים (רחוק מדי / לא מחפש / לא מעוניין) - סיימי רק במשפט הבא בדיוק: «אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 🙂» — בלי שאלה, בלי הנעה לפעולה, בלי «בהצלחה בחיפוש» / «מוזמנים בחזרה». שאלה על שירות שלא קיים אצלנו (למשל פילאטיס בסטודיו יוגה) אינה «לא רלוונטי» - עני עובדתית מה כן יש, בלי משפט הסיום הזה. אם הליד אומר שזה כן רלוונטי או ממשיך שיחה רגילה - אסור משפט הסיום הזה.
@@ -570,6 +571,18 @@ export function stripTrailingMeanwhileFiller(text: string): string {
   return String(text ?? "").replace(TRAILING_MEANWHILE_FILLER_RE, "").trim();
 }
 
+const SLANG_JOY_OPENER_RE =
+  /^(קטן|בקטנה)(?![א-ת])(\s*[!.]*)(?=\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]|$|\n))/u;
+
+const ALLOWED_JOY_OPENER = "איזה כיף!";
+
+/** «קטן!» / «בקטנה» כפתיח שמחה - מחליפים למילת שמחה מותרת. לא נוגע ב«קטנים» / «שיעור קטן». */
+export function replaceSlangJoyOpener(text: string): string {
+  const raw = String(text ?? "");
+  if (!raw) return raw;
+  return raw.replace(SLANG_JOY_OPENER_RE, ALLOWED_JOY_OPENER);
+}
+
 /** post-process על תשובת split לפני שליחה ל-WhatsApp (אפס API). */
 export function applyKnownAssistantReplyFixes(
   text: string,
@@ -606,6 +619,7 @@ export function applyKnownAssistantReplyFixes(
   s = stripFakeScheduleImagePlaceholders(s);
   s = stripFillerAfterSeeYouInClass(s);
   s = stripTrailingMeanwhileFiller(s);
+  s = replaceSlangJoyOpener(s);
   s = rewriteAcademyReceptionistIdentity(s, input.knowledge?.botName ?? "זואי");
   const lang = resolveReplyFixLanguage(input);
   if (looksLikeBotConfigMetaReply(s)) {

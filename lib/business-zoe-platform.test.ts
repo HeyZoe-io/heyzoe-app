@@ -42,12 +42,14 @@ assert.ok(
   defaultVoiceExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים"))
 );
 assert.ok(defaultVoiceExamples.some((l) => l.includes("כל «רוצה» לליד") && l.includes("אם ברצונך להגיע מחר")));
+assert.ok(defaultVoiceExamples.some((l) => l.includes("כן יאללה נרשמתי") && l.includes("קטן!")));
 
 const defaultVoiceStyle =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
     .find((c) => c.id === "personality")
     ?.sections?.find((s) => s.key === "voice_style")?.lines ?? [];
 assert.ok(defaultVoiceStyle.some((l) => l.includes("לכל משפט של רצון")));
+assert.ok(defaultVoiceStyle.some((l) => l.includes("תענוג!") && l.includes("קטן!")));
 
 const storedWithoutPrecision = {
   categories: [
@@ -216,8 +218,10 @@ const mergedStyle = mergedPersonality.find((s) => s.key === "voice_style")?.line
 assert.ok(mergedExamples.some((l) => l.includes("כשתהיי רוצה") && l.includes("אנחנו כאן כשתרצי")));
 assert.ok(mergedExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים")));
 assert.ok(mergedExamples.some((l) => l.includes("כל «רוצה» לליד") && l.includes("אם ברצונך להגיע מחר")));
+assert.ok(mergedExamples.some((l) => l.includes("כן יאללה נרשמתי") && l.includes("קטן!")));
 assert.ok(mergedStyle.some((l) => l.includes("תהיי רוצה") && l.includes("תרצי")));
 assert.ok(mergedStyle.some((l) => l.includes("לכל משפט של רצון")));
+assert.ok(mergedStyle.some((l) => l.includes("תענוג!") && l.includes("קטן!")));
 
 const storedOldGender = {
   categories: [

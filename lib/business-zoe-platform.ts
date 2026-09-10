@@ -370,6 +370,40 @@ function ensureNeutralCancelHowToGuidelineLines(lines: string[]): string[] {
   return lines;
 }
 
+/** מילות שמחה מוגדרות — מזריקים בלי שמירה מחדש באדמין. */
+function ensureJoyVocabGuidelineLines(lines: string[]): string[] {
+  const defaults = allDefaultGuidelineLines();
+  const style = defaults.find((l) => l.includes("תענוג!") && l.includes("קטן!"));
+  const example = defaults.find((l) => l.includes("כן יאללה נרשמתי") && l.includes("קטן!"));
+  const vibe = defaults.find((l) => l.startsWith("חברי:") && l.includes("קטן!"));
+  let out = lines;
+
+  const vibeIdx = out.findIndex((l) => l.startsWith("חברי:"));
+  if (vibe && vibeIdx >= 0 && !out[vibeIdx]!.includes("קטן!")) {
+    out = [...out.slice(0, vibeIdx), vibe, ...out.slice(vibeIdx + 1)];
+  }
+
+  if (
+    style &&
+    out.some((l) => l.includes("עברית מדוברת וטבעית")) &&
+    !out.some((l) => l.includes("תענוג!") && l.includes("קטן!"))
+  ) {
+    const spokenIdx = out.findIndex((l) => l.includes("עברית מדוברת וטבעית"));
+    if (spokenIdx >= 0) {
+      out = [...out.slice(0, spokenIdx + 1), style, ...out.slice(spokenIdx + 1)];
+    }
+  }
+
+  if (
+    example &&
+    out.some((l) => l.includes("ליד:") || l.includes("ליד על")) &&
+    !out.some((l) => l.includes("כן יאללה נרשמתי"))
+  ) {
+    out = [...out, example];
+  }
+  return out;
+}
+
 /** «ברצונך» לכל רצון — מזריקים לסגנון ולדוגמאות בלי שמירה מחדש. */
 function ensureBirtzonchaDefaultGuidelineLines(lines: string[]): string[] {
   const defaults = allDefaultGuidelineLines();
@@ -458,19 +492,21 @@ function upgradeHebrewOnlyLanguageGuidelineLines(lines: string[]): string[] {
 function upgradeGuidelineLines(lines: string[]): string[] {
   return upgradeOwnerBotIdentityGuidelineLines(
     upgradeKnowledgeGapTeamHandoffGuidelineLines(
-      ensureBirtzonchaDefaultGuidelineLines(
-        ensureNeutralCancelHowToGuidelineLines(
-          ensureWantConjugationGuidelineLines(
-            ensureNoInventedVenueGuidelineLines(
-              upgradeMassageNotSpaToneGuidelineLines(
-                ensureWordPrecisionGuidelineLines(
-                  upgradeGenderNeutralVerbGuidelineLines(
-                    ensureBookingLookupGuidelineLines(
-                      upgradeCsPhoneHandoffGuidelineLines(
-                        upgradeLegalCsExampleLines(
-                          upgradeClassRescheduleGuidelineLines(
-                            upgradeQuotedFactsGuidelineLines(
-                              upgradeHebrewOnlyLanguageGuidelineLines(lines)
+      ensureJoyVocabGuidelineLines(
+        ensureBirtzonchaDefaultGuidelineLines(
+          ensureNeutralCancelHowToGuidelineLines(
+            ensureWantConjugationGuidelineLines(
+              ensureNoInventedVenueGuidelineLines(
+                upgradeMassageNotSpaToneGuidelineLines(
+                  ensureWordPrecisionGuidelineLines(
+                    upgradeGenderNeutralVerbGuidelineLines(
+                      ensureBookingLookupGuidelineLines(
+                        upgradeCsPhoneHandoffGuidelineLines(
+                          upgradeLegalCsExampleLines(
+                            upgradeClassRescheduleGuidelineLines(
+                              upgradeQuotedFactsGuidelineLines(
+                                upgradeHebrewOnlyLanguageGuidelineLines(lines)
+                              )
                             )
                           )
                         )
