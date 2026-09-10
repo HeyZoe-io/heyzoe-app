@@ -109,6 +109,28 @@ assert.equal(
 );
 assert.deepEqual(paramSlotsForTriggerType("nth_workout"), ["first_name", "workout_n"]);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.nth_workout.body), 2);
+assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.trainer_trial_heads_up.body,
+  "היי, מחר מגיע אליך {{1}} לאימון ניסיון {{2}} בשעה {{3}}. כדאי להציג את עצמך ולתת חוויה טובה 🙏"
+);
+assert.deepEqual(paramSlotsForTriggerType("trainer_trial_heads_up"), [
+  "first_name",
+  "class_name",
+  "class_time",
+]);
+assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.category, "UTILITY");
+assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.button_text, undefined);
+assert.equal(
+  TEMPLATE_PRESETS.class_cancelled_staff.body,
+  "שים לב - השיעור {{1}} בתאריך {{2}} בשעה {{3}} בוטל."
+);
+assert.deepEqual(paramSlotsForTriggerType("class_cancelled_staff"), [
+  "class_name",
+  "class_date",
+  "class_time",
+]);
 assert.equal(isPresetAvailable("nth_workout", false), false);
 assert.equal(isPresetAvailable("nth_workout", true), true);
 

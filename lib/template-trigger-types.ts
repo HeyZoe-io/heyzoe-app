@@ -25,6 +25,7 @@ export {
   isFreezeEndingTriggerType,
   isPostTrialFollowupTriggerType,
   isImmediateDelayTrigger,
+  isStaffRecipientTriggerType,
   showsItemTypeFilter,
   showsLookbackDays,
   parseLookbackDays,

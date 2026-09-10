@@ -422,6 +422,40 @@ export const TRIGGER_CATALOG = [
     uiOrder: 13,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
+  {
+    type: "trainer_trial_heads_up",
+    labelHe: "התראה למאמן — שיעור ניסיון",
+    activation: "automatic",
+    audience: "staff",
+    implemented: true,
+    arboxOnly: true,
+    delay: "before",
+    showProductFilter: true,
+    uniquePerBusiness: true,
+    uniqueCreateMode: "warn",
+    minDelayDays: 0,
+    recipient: "staff",
+    presetKey: "trainer_trial_heads_up",
+    uiOrder: 1,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
+  {
+    type: "class_cancelled_staff",
+    labelHe: "ביטול שיעור (למאמן)",
+    activation: "automatic",
+    audience: "staff",
+    implemented: true,
+    arboxOnly: true,
+    delay: "after",
+    showProductFilter: false,
+    uniquePerBusiness: true,
+    uniqueCreateMode: "warn",
+    minDelayDays: 0,
+    recipient: "staff",
+    presetKey: "class_cancelled_staff",
+    uiOrder: 2,
+    sendHintHe: SEND_HINT_DAILY_HE,
+  },
 
   // —— Manual (M1) — not persisted on template_triggers ——
   {
@@ -541,6 +575,10 @@ export function canonicalizeTriggerType(value: string): string {
 
 export function triggerCatalogEntry(triggerType: string): TriggerCatalogEntry | undefined {
   return CATALOG_BY_TYPE.get(canonicalizeTriggerType(triggerType));
+}
+
+export function isStaffRecipientTriggerType(value: string): boolean {
+  return triggerCatalogEntry(value)?.recipient === "staff";
 }
 
 /** True for any catalog id (including manual / planned). */
@@ -732,7 +770,7 @@ export function minDelayDaysForTrigger(triggerType: string): number {
 export function defaultDelayDays(triggerType: string): number {
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   if (isFreezeEndingTriggerType(triggerType)) return 3;
-  if (triggerType === "trial_reminder") return 1;
+  if (triggerType === "trial_reminder" || triggerType === "trainer_trial_heads_up") return 1;
   if (triggerType === "milestones") return 90;
   if (isNthWorkoutTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
@@ -832,8 +870,11 @@ export function formatDelayLabel(
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
-  if (type === "trial_reminder") {
+  if (type === "trial_reminder" || type === "trainer_trial_heads_up") {
     return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
+  }
+  if (type === "class_cancelled_staff") {
+    return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
   if (isIncomingLeadTriggerType(type) || type === "arbox_new_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי הליד`;

@@ -18,10 +18,12 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
+import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
 import {
+  classDateYmdFromStaffDedupKey,
   classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
+  clientFirstNameFromStaffDedupKey,
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
   startDateYmdFromScheduledDedupKey,
@@ -154,6 +156,13 @@ async function dispatchOneScheduledSend(
     .trim()
     .replace(/\s+/g, "");
 
+  const triggerType = canonicalizeTriggerType(
+    String((triggerRow as { trigger_type?: unknown } | null)?.trigger_type ?? "").trim() ||
+      triggerTypeFromScheduledDedupKey(row.dedup_key) ||
+      ""
+  );
+  const isStaffRecipient = isStaffRecipientTriggerType(triggerType);
+
   const gate = decideScheduledSendGate({
     hasChannel: Boolean(phoneNumberId),
     hasWaba: Boolean(wabaId),
@@ -161,6 +170,15 @@ async function dispatchOneScheduledSend(
   });
 
   if (gate.action === "cancel") {
+    if (isStaffRecipient) {
+      console.info("[cron/scheduled-template-sends] staff gated — leave pending", {
+        id: row.id,
+        businessId,
+        triggerType,
+        last_error: gate.last_error,
+      });
+      return "skipped";
+    }
     await markScheduledSend(admin, row.id, {
       status: "canceled",
       last_error: gate.last_error,
@@ -168,42 +186,43 @@ async function dispatchOneScheduledSend(
     return "canceled";
   }
 
-  const optOut = await evaluateLeadTemplateSend({
-    admin,
-    businessId,
-    phone,
-    category: (approvedTpl as { category?: unknown } | null)?.category,
-    templateName,
-  });
-  if (optOut.suppress) {
-    console.info("[cron/scheduled-template-sends] suppressed opt-out", {
-      id: row.id,
+  if (!isStaffRecipient) {
+    const optOut = await evaluateLeadTemplateSend({
+      admin,
       businessId,
+      phone,
+      category: (approvedTpl as { category?: unknown } | null)?.category,
       templateName,
     });
-    await markScheduledSend(admin, row.id, {
-      status: "canceled",
-      last_error: SUPPRESSED_OPT_OUT_ERROR,
-    });
-    return "canceled";
+    if (optOut.suppress) {
+      console.info("[cron/scheduled-template-sends] suppressed opt-out", {
+        id: row.id,
+        businessId,
+        templateName,
+      });
+      await markScheduledSend(admin, row.id, {
+        status: "canceled",
+        last_error: SUPPRESSED_OPT_OUT_ERROR,
+      });
+      return "canceled";
+    }
   }
 
-  const fullName = await lookupContactFullName(admin, businessId, phone);
-  const firstName = firstNameFromFullName(String(fullName ?? ""));
+  const staffClientFirst = isStaffRecipient
+    ? clientFirstNameFromStaffDedupKey(row.dedup_key)
+    : null;
+  const fullName = isStaffRecipient ? null : await lookupContactFullName(admin, businessId, phone);
+  const firstName = firstNameFromFullName(String(staffClientFirst || fullName || ""));
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
-  const triggerType = canonicalizeTriggerType(
-    String((triggerRow as { trigger_type?: unknown } | null)?.trigger_type ?? "").trim() ||
-      triggerTypeFromScheduledDedupKey(row.dedup_key) ||
-      ""
-  );
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const { sendComponents, bodyParams } = templateSendPayload({
     triggerType,
     storedComponents,
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-    expiryDateYmd: expiryYmdFromScheduledDedupKey(row.dedup_key),
+    expiryDateYmd:
+      classDateYmdFromStaffDedupKey(row.dedup_key) ?? expiryYmdFromScheduledDedupKey(row.dedup_key),
     startDateYmd: startDateYmdFromScheduledDedupKey(row.dedup_key),
     membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
     className: classNameFromScheduledDedupKey(row.dedup_key),
@@ -216,6 +235,7 @@ async function dispatchOneScheduledSend(
     templateName,
     languageCode,
     skipOptOutGate: true,
+    ...(isStaffRecipient ? { recipientKind: "staff" as const } : {}),
     ...(sendComponents ? { components: sendComponents } : {}),
   });
 
@@ -242,22 +262,24 @@ async function dispatchOneScheduledSend(
 
   await markScheduledSend(admin, row.id, { status: "sent" });
 
-  const businessSlug = String((bizRow as { slug?: unknown } | null)?.slug ?? "")
-    .trim()
-    .toLowerCase();
-  if (businessSlug) {
-    const sessionId = buildWaSessionId(phoneNumberId, phone);
-    await logMessage({
-      business_slug: businessSlug,
-      role: "assistant",
-      content: formatLeadTemplateMessageContent(templateName, {
-        firstName,
-        components: storedComponents,
-        bodyParams,
-      }),
-      model_used: LEAD_TEMPLATE_MODEL,
-      session_id: sessionId,
-    });
+  if (!isStaffRecipient) {
+    const businessSlug = String((bizRow as { slug?: unknown } | null)?.slug ?? "")
+      .trim()
+      .toLowerCase();
+    if (businessSlug) {
+      const sessionId = buildWaSessionId(phoneNumberId, phone);
+      await logMessage({
+        business_slug: businessSlug,
+        role: "assistant",
+        content: formatLeadTemplateMessageContent(templateName, {
+          firstName,
+          components: storedComponents,
+          bodyParams,
+        }),
+        model_used: LEAD_TEMPLATE_MODEL,
+        session_id: sessionId,
+      });
+    }
   }
 
   return "sent";

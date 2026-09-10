@@ -6,6 +6,9 @@ import {
 } from "@/lib/template-presets";
 import {
   classNameFromScheduledDedupKey,
+  classTimeFromScheduledDedupKey,
+  clientFirstNameFromStaffDedupKey,
+  classDateYmdFromStaffDedupKey,
   expiryYmdFromScheduledDedupKey,
   formatTemplateExpiryDate,
   membershipTypeNameFromScheduledDedupKey,
@@ -47,10 +50,46 @@ import {
     ),
     "יוגה"
   );
+  assert.equal(
+    classNameFromScheduledDedupKey(
+      "trainer_trial_heads_up:1:rule:972501234567:9:2026-09-11:18%3A00#%D7%93%D7%A0%D7%94#%D7%99%D7%95%D7%92%D7%94"
+    ),
+    "יוגה"
+  );
+  assert.equal(
+    classNameFromScheduledDedupKey(
+      "class_cancelled_staff:1:rule:88#%D7%99%D7%95%D7%92%D7%94#2026-09-11#18%3A00"
+    ),
+    "יוגה"
+  );
   assert.equal(classNameFromScheduledDedupKey("trial_attended:1:rule:9:2026-09-05"), null);
   assert.equal(triggerTypeFromScheduledDedupKey("site_lead:1:rule:050:2026-08-19"), "incoming_lead");
   assert.equal(triggerTypeFromScheduledDedupKey("arbox_new_lead:1:rule:9"), "arbox_new_lead");
   assert.equal(triggerTypeFromScheduledDedupKey("missed_trial:1:rule:9:2026-09-05:10%3A00#x"), "missed_trial");
+  assert.equal(
+    clientFirstNameFromStaffDedupKey(
+      "trainer_trial_heads_up:1:rule:972501234567:9:2026-09-11:18%3A00#%D7%93%D7%A0%D7%94#%D7%99%D7%95%D7%92%D7%94"
+    ),
+    "דנה"
+  );
+  assert.equal(
+    classTimeFromScheduledDedupKey(
+      "trainer_trial_heads_up:1:rule:972501234567:9:2026-09-11:18%3A00#%D7%93%D7%A0%D7%94#%D7%99%D7%95%D7%92%D7%94"
+    ),
+    "18:00"
+  );
+  assert.equal(
+    classDateYmdFromStaffDedupKey(
+      "class_cancelled_staff:1:rule:88#%D7%99%D7%95%D7%92%D7%94#2026-09-11#18%3A00"
+    ),
+    "2026-09-11"
+  );
+  assert.equal(
+    classTimeFromScheduledDedupKey(
+      "class_cancelled_staff:1:rule:88#%D7%99%D7%95%D7%92%D7%94#2026-09-11#18%3A00"
+    ),
+    "18:00"
+  );
 }
 
 {
@@ -142,6 +181,8 @@ import {
     trial_reminder: ["דנה", "יוגה", "18:00"],
     milestones: ["דנה"],
     nth_workout: ["דנה", "3"],
+    trainer_trial_heads_up: ["דנה", "יוגה", "18:00"],
+    class_cancelled_staff: ["יוגה", "15.09.2026", "18:00"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -198,8 +239,12 @@ import {
       assert.deepEqual(slots, ["first_name", "workout_n"]);
       continue;
     }
-    if (type === "trial_reminder") {
+    if (type === "trial_reminder" || type === "trainer_trial_heads_up") {
       assert.deepEqual(slots, ["first_name", "class_name", "class_time"]);
+      continue;
+    }
+    if (type === "class_cancelled_staff") {
+      assert.deepEqual(slots, ["class_name", "class_date", "class_time"]);
       continue;
     }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");

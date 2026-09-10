@@ -10,6 +10,7 @@ export type TemplateParamSlot =
   | "membership_type_name"
   | "class_name"
   | "class_time"
+  | "class_date"
   | "workout_n";
 
 export type TemplatePreset = {
@@ -43,6 +44,8 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   trial_reminder: ["first_name", "class_name", "class_time"],
   milestones: ["first_name"],
   nth_workout: ["first_name", "workout_n"],
+  trainer_trial_heads_up: ["first_name", "class_name", "class_time"],
+  class_cancelled_staff: ["class_name", "class_date", "class_time"],
 };
 
 const LEAD_OPENING_BODY =
@@ -168,6 +171,16 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "nth_workout",
     category: "MARKETING",
     body: "היי {{1}}, ראינו שהיית לאחרונה, זה כבר האימון ה-{{2}} שלך אצלנו, נשמח לפידבק ולהגדיר מטרות.",
+  },
+  trainer_trial_heads_up: {
+    name: "trainer_trial_heads_up",
+    category: "UTILITY",
+    body: "היי, מחר מגיע אליך {{1}} לאימון ניסיון {{2}} בשעה {{3}}. כדאי להציג את עצמך ולתת חוויה טובה 🙏",
+  },
+  class_cancelled_staff: {
+    name: "class_cancelled_staff",
+    category: "UTILITY",
+    body: "שים לב - השיעור {{1}} בתאריך {{2}} בשעה {{3}} בוטל.",
   },
 };
 
@@ -326,6 +339,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     membership_type_name: "סוג מנוי",
     class_name: "שם השיעור",
     class_time: "שעת השיעור",
+    class_date: "תאריך השיעור",
     workout_n: "מספר האימון",
   };
   return slots

@@ -85,13 +85,21 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
     !raw.startsWith("registered_after_trial:") &&
     !raw.startsWith("not_registered_after_trial:") &&
     !raw.startsWith("freeze_ending_booked:") &&
-    !raw.startsWith("trial_reminder:")
+    !raw.startsWith("trial_reminder:") &&
+    !raw.startsWith("trainer_trial_heads_up:") &&
+    !raw.startsWith("class_cancelled_staff:")
   ) {
     return null;
   }
   const hash = raw.indexOf("#");
   if (hash < 0) return null;
   try {
+    if (raw.startsWith("trainer_trial_heads_up:") || raw.startsWith("class_cancelled_staff:")) {
+      const parts = raw.slice(hash + 1).split("#");
+      const classEnc = raw.startsWith("trainer_trial_heads_up:") ? (parts[1] ?? "") : (parts[0] ?? "");
+      const decoded = decodeURIComponent(classEnc.trim());
+      return decoded || null;
+    }
     const decoded = decodeURIComponent(raw.slice(hash + 1).trim());
     return decoded || null;
   } catch {
@@ -99,10 +107,46 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
   }
 }
 
+/** Staff B2: client first name is the first hash segment. */
+export function clientFirstNameFromStaffDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("trainer_trial_heads_up:")) return null;
+  const hash = raw.indexOf("#");
+  if (hash < 0) return null;
+  try {
+    const clientEnc = (raw.slice(hash + 1).split("#")[0] ?? "").trim();
+    const decoded = decodeURIComponent(clientEnc);
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Staff B5: class date YMD is the second hash segment. */
+export function classDateYmdFromStaffDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("class_cancelled_staff:")) return null;
+  const hash = raw.indexOf("#");
+  if (hash < 0) return null;
+  const ymd = (raw.slice(hash + 1).split("#")[1] ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
+}
+
 /** trial_reminder delayed send: class_time is the last segment before `#`. */
 export function classTimeFromScheduledDedupKey(dedupKey: string): string | null {
   const raw = String(dedupKey ?? "");
-  if (!raw.startsWith("trial_reminder:")) return null;
+  if (raw.startsWith("class_cancelled_staff:")) {
+    const hash = raw.indexOf("#");
+    if (hash < 0) return null;
+    try {
+      const timeEnc = (raw.slice(hash + 1).split("#")[2] ?? "").trim();
+      const decoded = decodeURIComponent(timeEnc);
+      return decoded || null;
+    } catch {
+      return null;
+    }
+  }
+  if (!raw.startsWith("trial_reminder:") && !raw.startsWith("trainer_trial_heads_up:")) return null;
   const beforeHash = raw.split("#")[0] ?? "";
   const parts = beforeHash.split(":");
   if (parts.length < 6) return null;
@@ -145,6 +189,10 @@ export function resolveTemplateSlotValue(
   if (slot === "class_time") {
     const time = String(ctx.classTime ?? "").trim();
     return time || TEMPLATE_CLASS_TIME_FALLBACK;
+  }
+  if (slot === "class_date") {
+    const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
+    return formatted || TEMPLATE_EXPIRY_FALLBACK;
   }
   if (slot === "workout_n") {
     const n = Math.trunc(Number(ctx.workoutN));

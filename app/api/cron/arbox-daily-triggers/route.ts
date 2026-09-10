@@ -32,6 +32,11 @@ import {
   syncArboxTrialReminderForBusiness,
 } from "@/lib/leads/arbox-trial-reminder";
 import {
+  businessNeedsTrainerTrialHeadsUpSync,
+  syncArboxTrainerTrialHeadsUpForBusiness,
+} from "@/lib/leads/arbox-trainer-trial-heads-up";
+import { syncArboxClassCancelledStaffForBusiness } from "@/lib/leads/arbox-class-cancelled-staff";
+import {
   fetchArboxBookingsReport,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
@@ -44,8 +49,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * post-trial C5/C6 + nth_workout C7), freeze cluster A8/C14/C15, trial_reminder, sessions_expiring,
  * membership_cancelled, lost_lead (A7).
  * activeMembershipsReport is fetched once when birthday, C8, or C7 is live (C8/C7-only skips sessionsReport).
- * Future bookings GET when freeze_ending or trial_reminder needs it
- * (attendance_gap does not need it). trial_reminder widens the window to today…+14.
+ * Future bookings GET when freeze_ending, trial_reminder, or trainer_trial_heads_up needs it
+ * (attendance_gap does not need it). trial_reminder / B2 widen the window to today…+14.
+ * Staff B5: cancelledSessionsReport + classesSummaryReport (yesterday+today) when enabled.
  * Scheduling: cron-job.org daily (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
  */
@@ -166,6 +172,8 @@ export async function GET(req: NextRequest) {
     membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
     lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
     trial_reminder?: Awaited<ReturnType<typeof syncArboxTrialReminderForBusiness>>;
+    trainer_trial_heads_up?: Awaited<ReturnType<typeof syncArboxTrainerTrialHeadsUpForBusiness>>;
+    class_cancelled_staff?: Awaited<ReturnType<typeof syncArboxClassCancelledStaffForBusiness>>;
     days_in_club?: Awaited<ReturnType<typeof syncArboxDaysInClubForBusiness>>;
     nth_workout?: Awaited<ReturnType<typeof syncArboxNthWorkoutForBusiness>>;
   }> = [];
@@ -370,6 +378,7 @@ export async function GET(req: NextRequest) {
     let prefetchedFuturePages = 0;
     let freezePlan = { needsFreeze: false, needsEndingFuture: false };
     let trialReminderPlan = { needsTrialReminder: false, hasTrialProductIds: false };
+    let trainerHeadsUpPlan = { needsTrainerTrialHeadsUp: false, hasTrialProductIds: false };
     try {
       freezePlan = await businessNeedsFreezeSync(admin, business.id);
       trialReminderPlan = await businessNeedsTrialReminderSync(
@@ -377,8 +386,14 @@ export async function GET(req: NextRequest) {
         business.id,
         business.arbox_trial_membership_type_ids
       );
+      trainerHeadsUpPlan = await businessNeedsTrainerTrialHeadsUpSync(
+        admin,
+        business.id,
+        business.arbox_trial_membership_type_ids
+      );
       const includeToday =
-        trialReminderPlan.needsTrialReminder && trialReminderPlan.hasTrialProductIds;
+        (trialReminderPlan.needsTrialReminder && trialReminderPlan.hasTrialProductIds) ||
+        (trainerHeadsUpPlan.needsTrainerTrialHeadsUp && trainerHeadsUpPlan.hasTrialProductIds);
       const needsFuture = freezePlan.needsEndingFuture || includeToday;
       if (needsFuture) {
         const futureWindow = sharedFutureBookingsWindow(now, { includeToday });
@@ -667,6 +682,77 @@ export async function GET(req: NextRequest) {
         gated: 0,
         no_phone: 0,
         abandoned: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: trainer_trial_heads_up (staff B2) ---
+    try {
+      entry.trainer_trial_heads_up = await syncArboxTrainerTrialHeadsUpForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        businessTrialIds: business.arbox_trial_membership_type_ids,
+        now,
+        ...(trainerHeadsUpPlan.needsTrainerTrialHeadsUp &&
+        trainerHeadsUpPlan.hasTrialProductIds &&
+        prefetchedFutureRows
+          ? {
+              prefetchedFutureRows,
+              prefetchedFuturePages,
+            }
+          : {}),
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] trainer_trial_heads_up step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.trainer_trial_heads_up = {
+        fetched: 0,
+        pages_fetched: 0,
+        trial_rows: 0,
+        due: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        gated: 0,
+        no_phone: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+
+    // --- Step: class_cancelled_staff (staff B5) ---
+    try {
+      entry.class_cancelled_staff = await syncArboxClassCancelledStaffForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] class_cancelled_staff step threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.class_cancelled_staff = {
+        fetched_cancelled: 0,
+        fetched_summary: 0,
+        pages_fetched: 0,
+        cancelled_rows: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        gated: 0,
+        no_phone: 0,
         errors: 1,
         fetch_error: message,
       };

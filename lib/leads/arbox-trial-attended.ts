@@ -56,6 +56,8 @@ export type ArboxBookingReportRow = {
   membership_type_name?: unknown;
   /** Not present on live acrobyjoe bookingsReport; kept for defensive id match if API adds it. */
   membership_type_id?: unknown;
+  /** Trainer WhatsApp for staff B2. Present on live bookingsReport. */
+  staff_member_phone?: unknown;
 };
 
 export type TrialAttendedDispatch =

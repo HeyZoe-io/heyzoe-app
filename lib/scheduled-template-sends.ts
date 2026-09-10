@@ -208,6 +208,63 @@ export function buildTrialReminderScheduledDedupKey(
   return `trial_reminder:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
 }
 
+/** B2 staff: once per trainer+client booking. Hash: clientFirst#className. */
+export function buildTrainerTrialHeadsUpScheduledDedupKey(input: {
+  businessId: number;
+  triggerId: string;
+  trainerPhone: string;
+  userId: number;
+  classDateYmd: string;
+  classTime: string;
+  clientFirstName: string;
+  className: string;
+}): string {
+  const timeEnc = encodeURIComponent(String(input.classTime ?? "").trim());
+  const clientEnc = encodeURIComponent(String(input.clientFirstName ?? "").trim());
+  const nameEnc = encodeURIComponent(String(input.className ?? "").trim());
+  return `trainer_trial_heads_up:${input.businessId}:${String(input.triggerId).trim()}:${String(input.trainerPhone).trim()}:${input.userId}:${String(input.classDateYmd).trim()}:${timeEnc}#${clientEnc}#${nameEnc}`;
+}
+
+/** B5 staff: once per cancelled schedule instance. Hash: className#dateYmd#time. */
+export function buildClassCancelledStaffScheduledDedupKey(input: {
+  businessId: number;
+  triggerId: string;
+  scheduleId: string;
+  className: string;
+  classDateYmd: string;
+  classTime: string;
+}): string {
+  const scheduleEnc = encodeURIComponent(String(input.scheduleId ?? "").trim());
+  const nameEnc = encodeURIComponent(String(input.className ?? "").trim());
+  const timeEnc = encodeURIComponent(String(input.classTime ?? "").trim());
+  return `class_cancelled_staff:${input.businessId}:${String(input.triggerId).trim()}:${scheduleEnc}#${nameEnc}#${String(input.classDateYmd).trim()}#${timeEnc}`;
+}
+
+/** Mark a pending scheduled send as sent after an immediate staff dispatch. */
+export async function markScheduledTemplateSendSentByDedupKey(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  dedupKey: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const dedupKey = String(input.dedupKey ?? "").trim();
+  if (!dedupKey) return { ok: false, error: "missing_dedup_key" };
+  const { error } = await input.admin
+    .from("scheduled_template_sends")
+    .update({
+      status: "sent",
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("dedup_key", dedupKey)
+    .eq("status", "pending");
+  if (error) {
+    console.error("[scheduled-template-sends] mark sent failed:", error.message, {
+      dedup_key: dedupKey,
+    });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
 /** A7 lost_lead enqueue key: once per business+trigger+lead_id+lost_date (text grain). */
 export function buildLostLeadScheduledDedupKey(
   businessId: number,
@@ -321,6 +378,8 @@ export async function enqueueScheduledTemplateSend(input: {
   templateName: string;
   dueAt: Date;
   dedupKey: string;
+  /** Staff templates skip customer opt-out even if a contacts row exists. */
+  recipientKind?: "customer" | "staff";
 }): Promise<EnqueueScheduledTemplateSendResult> {
   const businessId = Number(input.businessId);
   const triggerId = String(input.triggerId ?? "").trim();
@@ -340,14 +399,16 @@ export async function enqueueScheduledTemplateSend(input: {
     return { ok: false, error: "invalid_due_at" };
   }
 
-  const suppressed = await evaluateLeadTemplateSend({
-    admin: input.admin,
-    businessId,
-    phone: contactPhone,
-    templateName,
-  });
-  if (suppressed.suppress) {
-    return { ok: true, inserted: false };
+  if (input.recipientKind !== "staff") {
+    const suppressed = await evaluateLeadTemplateSend({
+      admin: input.admin,
+      businessId,
+      phone: contactPhone,
+      templateName,
+    });
+    if (suppressed.suppress) {
+      return { ok: true, inserted: false };
+    }
   }
 
   const nowIso = new Date().toISOString();

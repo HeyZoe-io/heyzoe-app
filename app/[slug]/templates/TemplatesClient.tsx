@@ -604,6 +604,12 @@ export default function TemplatesClient({
       if (j.error === "trial_reminder_exists") {
         throw new Error("כבר קיים טריגר תזכורת לשיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
       }
+      if (j.error === "trainer_trial_heads_up_exists") {
+        throw new Error("כבר קיים טריגר התראה למאמן על שיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
+      }
+      if (j.error === "class_cancelled_staff_exists") {
+        throw new Error("כבר קיים טריגר ביטול שיעור למאמן — ערכו את הקיים במקום ליצור עוד אחד");
+      }
       throw new Error(j.error || `http_${res.status}`);
     }
     return j.trigger ?? null;
@@ -1497,13 +1503,7 @@ export default function TemplatesClient({
           </div>
         </div>
 
-        {axisAudience === "staff" ? (
-          <p className="text-sm text-zinc-500 text-right">
-            טריגרי צוות יגיעו כאן בקרוב.
-          </p>
-        ) : null}
-
-        {axisActivation === "automatic" && axisAudience !== "staff" ? (
+        {axisActivation === "automatic" ? (
           <>
             {!hasArbox ? (
               <p className="text-sm leading-relaxed text-zinc-700 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-right">
@@ -1773,13 +1773,15 @@ export default function TemplatesClient({
                         {showNewProductFilter ? (
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-zinc-800">
-                              {newTriggerType === "trial_reminder"
+                              {newTriggerType === "trial_reminder" ||
+                              newTriggerType === "trainer_trial_heads_up"
                                 ? "מוצרי ניסיון"
                                 : "סינון מוצרים (אופציונלי)"}
                             </label>
                             <p className="text-xs text-zinc-500">
-                              {newTriggerType === "trial_reminder"
-                                ? "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה התזכורת לא תישלח."
+                              {newTriggerType === "trial_reminder" ||
+                              newTriggerType === "trainer_trial_heads_up"
+                                ? "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה ההתראה לא תישלח."
                                 : "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM."}
                             </p>
                             {arboxMembershipTypesLoading ? (
@@ -1809,8 +1811,9 @@ export default function TemplatesClient({
                               </div>
                             ) : arboxMembershipTypes.length === 0 ? (
                               <p className="text-xs text-zinc-500">
-                                {newTriggerType === "trial_reminder"
-                                  ? "לא נמצאו מוצרים — התזכורת לא תישלח עד שיוגדרו מוצרי ניסיון."
+                                {newTriggerType === "trial_reminder" ||
+                                newTriggerType === "trainer_trial_heads_up"
+                                  ? "לא נמצאו מוצרים — ההתראה לא תישלח עד שיוגדרו מוצרי ניסיון."
                                   : "לא נמצאו מוצרים — יוחל על כל המוצרים."}
                               </p>
                             ) : (

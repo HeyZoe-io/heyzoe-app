@@ -728,6 +728,57 @@ export async function resolveTrialReminderTemplateTrigger(input: {
   return pickTrialReminderTemplateTriggerRule(rules);
 }
 
+async function loadEnabledTemplateTriggersByType(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  triggerType: string
+): Promise<PurchaseTemplateTriggerRule[]> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select(PURCHASE_RULE_SELECT)
+    .eq("business_id", businessId)
+    .eq("trigger_type", triggerType)
+    .eq("enabled", true);
+
+  if (error) {
+    console.error(
+      `[template-triggers-match] load ${triggerType} rules failed:`,
+      error.message
+    );
+    return [];
+  }
+
+  return (data ?? []).map((row) => normalizeRule(row as Record<string, unknown>));
+}
+
+/** Enabled trainer_trial_heads_up (staff B2) rules — pick newest with a template name. */
+export async function loadEnabledTrainerTrialHeadsUpTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  return loadEnabledTemplateTriggersByType(admin, businessId, "trainer_trial_heads_up");
+}
+
+export function pickTrainerTrialHeadsUpTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+/** Enabled class_cancelled_staff (staff B5) rules — pick newest with a template name. */
+export async function loadEnabledClassCancelledStaffTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  return loadEnabledTemplateTriggersByType(admin, businessId, "class_cancelled_staff");
+}
+
+export function pickClassCancelledStaffTemplateTriggerRule(
+  rules: PurchaseTemplateTriggerRule[]
+): PurchaseTemplateTriggerRule | null {
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
 /** Enabled membership_cancelled rules — product_filter matches membership_type_name via /v3/membershipTypes. */
 export async function loadEnabledMembershipCancelledTemplateTriggers(
   admin: ReturnType<typeof createSupabaseAdminClient>,

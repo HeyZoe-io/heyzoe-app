@@ -258,16 +258,17 @@ async function findExistingArboxNewLeadRule(
   return { id };
 }
 
-async function findExistingTrialReminderRule(
+async function findExistingTriggerOfType(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
+  triggerType: string,
   excludeId?: string
 ): Promise<{ id: string } | null> {
   let q = admin
     .from("template_triggers")
     .select("id")
     .eq("business_id", businessId)
-    .eq("trigger_type", "trial_reminder")
+    .eq("trigger_type", triggerType)
     .limit(1);
   const exclude = parseTriggerId(excludeId);
   if (exclude) {
@@ -275,13 +276,36 @@ async function findExistingTrialReminderRule(
   }
   const { data, error } = await q;
   if (error) {
-    console.error("[api/triggers] trial_reminder uniqueness lookup failed:", error.message);
-    throw new Error("trial_reminder_lookup_failed");
+    console.error(`[api/triggers] ${triggerType} uniqueness lookup failed:`, error.message);
+    throw new Error(`${triggerType}_lookup_failed`);
   }
   const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
   const id = parseTriggerId(row?.id);
   if (!id) return null;
   return { id };
+}
+
+const UNIQUE_TRIGGER_EXISTS_MESSAGE: Record<string, { error: string; message: string }> = {
+  trial_reminder: {
+    error: "trial_reminder_exists",
+    message: "כבר קיים טריגר תזכורת לשיעור ניסיון",
+  },
+  trainer_trial_heads_up: {
+    error: "trainer_trial_heads_up_exists",
+    message: "כבר קיים טריגר התראה למאמן על שיעור ניסיון",
+  },
+  class_cancelled_staff: {
+    error: "class_cancelled_staff_exists",
+    message: "כבר קיים טריגר ביטול שיעור למאמן",
+  },
+};
+
+async function findExistingTrialReminderRule(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  excludeId?: string
+): Promise<{ id: string } | null> {
+  return findExistingTriggerOfType(admin, businessId, "trial_reminder", excludeId);
 }
 
 const TRIGGER_SELECT =
@@ -380,6 +404,21 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "trial_reminder_lookup_failed" }, { status: 500 });
+    }
+  }
+
+  const uniqueExists = UNIQUE_TRIGGER_EXISTS_MESSAGE[triggerType];
+  if (uniqueExists && triggerType !== "trial_reminder") {
+    try {
+      const existing = await findExistingTriggerOfType(admin, business.id, triggerType);
+      if (existing) {
+        return NextResponse.json(
+          { error: uniqueExists.error, message: uniqueExists.message },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: `${triggerType}_lookup_failed` }, { status: 500 });
     }
   }
 
@@ -691,6 +730,30 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       }
     } catch {
       return NextResponse.json({ error: "trial_reminder_lookup_failed" }, { status: 500 });
+    }
+  }
+
+  const patchUnique =
+    patch.trigger_type != null ? UNIQUE_TRIGGER_EXISTS_MESSAGE[String(patch.trigger_type)] : undefined;
+  if (patchUnique && patch.trigger_type !== "trial_reminder") {
+    try {
+      const existing = await findExistingTriggerOfType(
+        admin,
+        business.id,
+        String(patch.trigger_type),
+        id
+      );
+      if (existing) {
+        return NextResponse.json(
+          { error: patchUnique.error, message: patchUnique.message },
+          { status: 409 }
+        );
+      }
+    } catch {
+      return NextResponse.json(
+        { error: `${String(patch.trigger_type)}_lookup_failed` },
+        { status: 500 }
+      );
     }
   }
 

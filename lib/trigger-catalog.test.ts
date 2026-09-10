@@ -26,6 +26,7 @@ import {
   showsProductFilter,
   showsItemTypeFilter,
   isImmediateDelayTrigger,
+  isStaffRecipientTriggerType,
   TRIGGER_CATALOG,
   TRIGGER_TYPE_OPTIONS,
   triggerTypeLabel,
@@ -62,6 +63,8 @@ const LIVE_AUTOMATIC = [
   "lost_lead",
   "trial_reminder",
   "missed_trial",
+  "trainer_trial_heads_up",
+  "class_cancelled_staff",
 ] as const;
 
 const PREVIOUS_ARBOX = [
@@ -85,6 +88,8 @@ const PREVIOUS_ARBOX = [
   "lost_lead",
   "trial_reminder",
   "missed_trial",
+  "trainer_trial_heads_up",
+  "class_cancelled_staff",
 ] as const;
 
 {
@@ -149,7 +154,10 @@ function triggerCatalogAudience(type: string) {
   const manualLeads = catalogEntriesFor({ activation: "manual", audience: "leads" });
   assert.ok(manualLeads.some((e) => e.type === "manual_talked_not_registered" && e.implemented));
   assert.ok(manualLeads.some((e) => e.type === "manual_lost_leads" && !e.implemented));
-  assert.deepEqual(catalogEntriesFor({ activation: "automatic", audience: "staff" }), []);
+  const autoStaff = catalogEntriesFor({ activation: "automatic", audience: "staff" });
+  assert.ok(autoStaff.some((e) => e.type === "trainer_trial_heads_up" && e.implemented));
+  assert.ok(autoStaff.some((e) => e.type === "class_cancelled_staff" && e.implemented));
+  assert.equal(autoStaff.length, 2);
 }
 
 /** Create dropdown is cell-scoped — not the flat TRIGGER_TYPE_OPTIONS catalog. */
@@ -197,11 +205,17 @@ function triggerCatalogAudience(type: string) {
   assert.ok(!leadTypes.includes("missed_class"));
   assert.ok(!(leadTypes as string[]).includes("post_trial_followup"));
 
+  const staffTypes = creatableTriggerOptionsForCell({
+    activation: "automatic",
+    audience: "staff",
+    hasArbox: true,
+  }).map((o) => o.value as string);
+  assert.deepEqual(staffTypes, ["trainer_trial_heads_up", "class_cancelled_staff"]);
   assert.deepEqual(
     creatableTriggerOptionsForCell({
       activation: "automatic",
       audience: "staff",
-      hasArbox: true,
+      hasArbox: false,
     }),
     []
   );
@@ -407,7 +421,8 @@ function triggerCatalogAudience(type: string) {
         type === "not_registered_after_trial" ||
         type === "membership_cancelled" ||
         type === "missed_trial" ||
-        type === "trial_reminder"
+        type === "trial_reminder" ||
+        type === "trainer_trial_heads_up"
     );
   }
 }
@@ -417,6 +432,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(uniqueCreateModeFor("arbox_new_lead"), "warn");
   assert.equal(uniqueCreateModeFor("lost_lead"), undefined);
   assert.equal(uniqueCreateModeFor("trial_reminder"), "warn");
+  assert.equal(uniqueCreateModeFor("trainer_trial_heads_up"), "warn");
+  assert.equal(uniqueCreateModeFor("class_cancelled_staff"), "warn");
   assert.equal(uniqueCreateModeFor("purchase"), undefined);
   assert.equal(isUniquePerBusinessTriggerType("incoming_lead"), true);
   assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), true);
@@ -425,6 +442,11 @@ function triggerCatalogAudience(type: string) {
   assert.equal(isUniquePerBusinessTriggerType("milestones"), false);
   assert.equal(isUniquePerBusinessTriggerType("nth_workout"), false);
   assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
+  assert.equal(isUniquePerBusinessTriggerType("trainer_trial_heads_up"), true);
+  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_staff"), true);
+  assert.equal(isStaffRecipientTriggerType("trainer_trial_heads_up"), true);
+  assert.equal(isStaffRecipientTriggerType("class_cancelled_staff"), true);
+  assert.equal(isStaffRecipientTriggerType("trial_reminder"), false);
   assert.equal(isUniquePerBusinessTriggerType("no_response"), false);
 }
 
@@ -464,6 +486,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
   assert.equal(defaultDelayDirection("freeze_ending_booked"), "before");
   assert.equal(defaultDelayDirection("trial_reminder"), "before");
+  assert.equal(defaultDelayDirection("trainer_trial_heads_up"), "before");
+  assert.equal(defaultDelayDirection("class_cancelled_staff"), "after");
   assert.equal(defaultDelayDirection("purchase"), "after");
   assert.equal(defaultDelayDirection("birthday"), "after");
   assert.equal(defaultDelayDirection("birthday_former"), "after");
@@ -480,6 +504,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesAfterNoProductFilter("membership_cancelled"), false);
   assert.equal(forcesAfterNoProductFilter("milestones"), true);
   assert.equal(forcesAfterNoProductFilter("nth_workout"), true);
+  assert.equal(forcesAfterNoProductFilter("class_cancelled_staff"), true);
+  assert.equal(forcesAfterNoProductFilter("trainer_trial_heads_up"), false);
 }
 
 {
@@ -509,6 +535,12 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
+  assert.equal(formatDelayLabel("trainer_trial_heads_up", 0, "before"), "בוקר האימון");
+  assert.equal(formatDelayLabel("trainer_trial_heads_up", 1, "before"), "1 ימים לפני האימון");
+  assert.equal(defaultDelayDays("trainer_trial_heads_up"), 1);
+  assert.equal(formatDelayLabel("class_cancelled_staff", 0, "after"), "ביום הביטול");
+  assert.equal(triggerTypeLabel("trainer_trial_heads_up"), "התראה למאמן — שיעור ניסיון");
+  assert.equal(triggerTypeLabel("class_cancelled_staff"), "ביטול שיעור (למאמן)");
   assert.equal(formatDelayLabel("milestones", 90, "after"), "90 ימים מההצטרפות");
   assert.equal(formatDelayLabel("milestones", 30, "after"), "30 ימים מההצטרפות");
   assert.equal(minDelayDaysForTrigger("milestones"), 1);

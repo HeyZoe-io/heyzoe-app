@@ -97,6 +97,8 @@ export async function sendBusinessTemplate(input: {
   components?: OwnerTemplateComponent[];
   /** Drain already evaluated opt-out — skip a second contacts/templates lookup. */
   skipOptOutGate?: boolean;
+  /** Staff recipient: skip customer opt-out and do not insert a contacts row on 131050. */
+  recipientKind?: "customer" | "staff";
 }): Promise<{ ok: boolean; error?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
@@ -112,7 +114,9 @@ export async function sendBusinessTemplate(input: {
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
 
-  if (!input.skipOptOutGate) {
+  const isStaffRecipient = input.recipientKind === "staff";
+
+  if (!input.skipOptOutGate && !isStaffRecipient) {
     const gate = await evaluateLeadTemplateSendByPhoneNumberId({
       phoneNumberId,
       phone: to,
@@ -159,13 +163,15 @@ export async function sendBusinessTemplate(input: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
-      await suppressMarketingOptOutFromSendError({
-        phoneNumberId,
-        phone: to,
-        errorText: errText,
-      }).catch((e) =>
-        console.error("[sendBusinessTemplate] marketing opt-out suppress failed:", e)
-      );
+      if (!isStaffRecipient) {
+        await suppressMarketingOptOutFromSendError({
+          phoneNumberId,
+          phone: to,
+          errorText: errText,
+        }).catch((e) =>
+          console.error("[sendBusinessTemplate] marketing opt-out suppress failed:", e)
+        );
+      }
       return { ok: false, error: errText || `http_${res.status}` };
     }
     return { ok: true };
