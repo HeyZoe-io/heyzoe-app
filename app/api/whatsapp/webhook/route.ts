@@ -102,6 +102,10 @@ import {
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
 import {
+  scheduleCtaSendsImageAndLink,
+  scheduleCtaImageFollowUpLinkText,
+} from "@/lib/wa-studio-schedule-cta";
+import {
   applyCallScheduleCtaLabelOverride,
   CALL_SCHEDULE_CTA_LABEL,
   CALL_SCHEDULE_CTA_LABEL_EN,
@@ -1974,6 +1978,23 @@ async function sendScheduleBoardAfterOpening(input: {
         session_id: sessionId,
       });
       await sleepMs(900);
+      // מדיניות סטודיו (Apex): גם תמונה וגם לינק בסשן מערכת שעות
+      if (scheduleCtaSendsImageAndLink(business_slug)) {
+        const followUp = scheduleCtaImageFollowUpLinkText(assets.link);
+        if (followUp) {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, followUp, accountSid, authToken).catch((e) =>
+            console.error("[WA Webhook] Send schedule board link after image failed:", e)
+          );
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: followUp,
+            model_used: `${modelUsed}_link`,
+            session_id: sessionId,
+          });
+          await sleepMs(600);
+        }
+      }
       return "image";
     } catch (e) {
       console.error("[WA Webhook] Send schedule board after opening failed:", e);
@@ -10124,6 +10145,25 @@ async function processIncoming(
               sessionId,
               caption: SCHEDULE_BOARD_CAPTION,
             });
+            // מדיניות סטודיו (Apex): גם תמונה וגם לינק בסשן מערכת שעות
+            if (scheduleCtaSendsImageAndLink(business_slug)) {
+              const followUp = scheduleCtaImageFollowUpLinkText(
+                (scheduleBoardAssets.link || scheduleUrlFull).trim()
+              );
+              if (followUp) {
+                await sleepMs(600);
+                await sendWhatsAppMessage(msg.toNumber, msg.from, followUp, accountSid, authToken).catch(
+                  (e) => console.error("[WA Webhook] Send schedule link after image (CTA) failed:", e)
+                );
+                await logMessage({
+                  business_slug,
+                  role: "assistant",
+                  content: followUp,
+                  model_used: "sales_flow_schedule_link_after_image",
+                  session_id: sessionId,
+                });
+              }
+            }
             sfClickedCtaKinds = await bumpSfConsumedCtaKind({
               supabase,
               businessId,
