@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendEmail, welcomeEmail } from "@/lib/email";
+import { newDashboardWaSalesFollowupEnabledFields } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
           address: address?.trim() || "",
           tagline: description?.trim() || "",
           business_description: description?.trim() || "",
+          ...newDashboardWaSalesFollowupEnabledFields(),
         },
         plan: plan === "pro" ? "premium" : "basic",
       } as any)

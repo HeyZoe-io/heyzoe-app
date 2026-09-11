@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   isWaSalesFollowupStageEnabled,
+  newDashboardWaSalesFollowupEnabledFields,
   resolveWaFollowupSendPlan,
   resolveWaSalesFollowupEnabled,
   socialFlagEnabled,
@@ -19,6 +20,15 @@ assert.deepEqual(resolveWaSalesFollowupEnabled({}), { e1: true, e2: true, e3: tr
 assert.deepEqual(resolveWaSalesFollowupEnabled(null), { e1: true, e2: true, e3: true });
 assert.deepEqual(resolveWaSalesFollowupEnabled([]), { e1: true, e2: true, e3: true });
 assert.deepEqual(resolveWaSalesFollowupEnabled("oops"), { e1: true, e2: true, e3: true });
+assert.deepEqual(newDashboardWaSalesFollowupEnabledFields(), {
+  wa_sales_followup_1_enabled: false,
+  wa_sales_followup_2_enabled: false,
+  wa_sales_followup_3_enabled: false,
+});
+assert.deepEqual(
+  resolveWaSalesFollowupEnabled(newDashboardWaSalesFollowupEnabledFields()),
+  { e1: false, e2: false, e3: false }
+);
 assert.deepEqual(
   resolveWaSalesFollowupEnabled({
     wa_sales_followup_1_enabled: false,

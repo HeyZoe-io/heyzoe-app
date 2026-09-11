@@ -54,9 +54,25 @@ export function resolveWaSalesFollowupTemplates(social: unknown): {
   };
 }
 
-/** ברירת מחדל: פעיל. רק `false` מפורש מכבה (עסקים קיימים בלי השדה ממשיכים לשלוח). */
+/** ברירת מחדל לקריאה: פעיל. רק `false` מפורש מכבה (עסקים קיימים בלי השדה ממשיכים לשלוח). */
 export function socialFlagEnabled(value: unknown): boolean {
   return value !== false;
+}
+
+/**
+ * דשבורד חדש: פולואפים כבויים עד שמפעילים בטאגל.
+ * נכתב במפורש ב-social_links ביצירת העסק — בלי לגעת בקיימים (חסר = פעיל).
+ */
+export function newDashboardWaSalesFollowupEnabledFields(): {
+  wa_sales_followup_1_enabled: false;
+  wa_sales_followup_2_enabled: false;
+  wa_sales_followup_3_enabled: false;
+} {
+  return {
+    wa_sales_followup_1_enabled: false,
+    wa_sales_followup_2_enabled: false,
+    wa_sales_followup_3_enabled: false,
+  };
 }
 
 export type WaSalesFollowupEnabled = {

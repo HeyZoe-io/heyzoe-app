@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { newDashboardWaSalesFollowupEnabledFields } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 
@@ -96,7 +97,7 @@ export async function POST() {
     name: displayName,
     niche: "",
     bot_name: "זואי",
-    social_links: {},
+    social_links: { ...newDashboardWaSalesFollowupEnabledFields() },
   } as any)
     .select("id, slug")
     .single();
