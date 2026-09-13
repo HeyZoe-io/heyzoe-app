@@ -30,8 +30,7 @@ export {
  * Group: unique catalog product → source catalog (webhook re-sends product pick);
  * else fact; else default. notifyHumanRequested is the webhook notify flag.
  *
- * Class-cancel action (תבטלי את השיעור) → team handoff, no facts, notify.
- * Class-cancel policy → app how-to fact or default, no notify.
+ * Class-cancel (action or policy) → app how-to fact or default; action also notifies the team.
  * Group + unique catalog product → catalog (webhook: product-pick menu), no notify.
  * Discount + relevant promo → promo text, no notify.
  * Coach/owner → default, notify (no facts-check).
@@ -79,17 +78,6 @@ export function resolveClosedPlaybook(opts: {
     };
   }
 
-  if (intent.category === "class_cancel" && intent.shape === "action") {
-    return {
-      category: "class_cancel",
-      shape: "action",
-      reply: buildClosedPlaybookDefaultReply("class_cancel", botName, "action"),
-      modelUsed: closedPlaybookModelUsed("class_cancel", "default"),
-      notifyHumanRequested: true,
-      source: "default",
-    };
-  }
-
   if (intent.category === "group") {
     const catalogName = findMatchingGroupCatalogProduct(opts.inbound, knowledge.salesFlowServices);
     if (catalogName) {
@@ -123,7 +111,7 @@ export function resolveClosedPlaybook(opts: {
     shape: intent.shape,
     reply: buildClosedPlaybookDefaultReply(intent.category, botName),
     modelUsed: closedPlaybookModelUsed(intent.category, "default"),
-    notifyHumanRequested: intent.category === "class_cancel" ? false : true,
+    notifyHumanRequested: intent.category === "class_cancel" ? intent.shape === "action" : true,
     source: "default",
   };
 }

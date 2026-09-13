@@ -5,7 +5,6 @@ import { matchesOutOfScopeTeamHandoff } from "@/lib/wa-out-of-scope-handoff";
 import { matchesRunningLateStatusUpdate } from "@/lib/wa-running-late";
 import {
   CLOSED_PLAYBOOK_CANCELLATION_REPLY,
-  CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
   CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY,
   CLOSED_PLAYBOOK_COACH_OWNER_REPLY,
   CLOSED_PLAYBOOK_COMPLAINT_REPLY,
@@ -282,9 +281,9 @@ const classCancelQa = {
 const sigalResolved = resolveClosedPlaybook({ inbound: sigalClassCancel, knowledge: classCancelQa });
 assert.equal(sigalResolved?.category, "class_cancel");
 assert.equal(sigalResolved?.shape, "action");
-assert.equal(sigalResolved?.source, "default");
+assert.equal(sigalResolved?.source, "fact");
 assert.equal(sigalResolved?.notifyHumanRequested, true);
-assert.equal(sigalResolved?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+assert.match(sigalResolved?.reply ?? "", /דרך האפליקציה/);
 
 const classCancelPolicy = resolveClosedPlaybook({
   inbound: "אפשר לבטל הרשמה לשיעור?",
@@ -299,7 +298,7 @@ const classCancelDefault = resolveClosedPlaybook({
   inbound: "לבטל את האימון של היום",
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
-assert.equal(classCancelDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+assert.equal(classCancelDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
 assert.equal(classCancelDefault?.notifyHumanRequested, true);
 assert.equal(classCancelDefault?.modelUsed, "closed_playbook_class_cancel");
 
@@ -315,7 +314,7 @@ const shirCancel = `היוש, וולקאם באק 🙂 תבטלי את השיע�
 const shirResolved = resolveClosedPlaybook({ inbound: shirCancel, knowledge: classCancelQa });
 assert.equal(shirResolved?.category, "class_cancel");
 assert.equal(shirResolved?.notifyHumanRequested, true);
-assert.equal(shirResolved?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY);
+assert.match(shirResolved?.reply ?? "", /דרך האפליקציה/);
 
 const freezeStillFreeze = resolveClosedPlaybook({
   inbound: "אפשר להקפיא את המנוי?",
