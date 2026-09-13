@@ -104,6 +104,31 @@ assert.equal(hebrewDayLetterFromYmd("2026-08-27"), "ה"); // Thursday
 }
 
 {
+  // acrobyjoe-style placeholder: is_transparent=0, but the name itself marks it cancelled.
+  const catalog = catalogFromBoxCategoryRows([{ box_category_id: 1, name: "Class Cancelled" }]);
+  const { classes } = normalizeTimetableToWeeklyClasses(
+    [
+      { session_name: "Class Cancelled", date: "2026-08-23", start_time: "18:00", is_transparent: 0 },
+      { session_name: "Class Cancelled", date: "2026-08-24", start_time: "18:00", is_transparent: 0 },
+      { session_name: "class cancelled", date: "2026-08-25", start_time: "18:00", is_transparent: 0 },
+      { session_name: " Class Cancelled ", date: "2026-08-26", start_time: "18:00", is_transparent: 0 },
+      { session_name: "Class Cancelled Today", date: "2026-08-27", start_time: "18:00", is_transparent: 0 },
+    ],
+    catalog
+  );
+  assert.equal(
+    classes.some((c) => c.session_name.toLowerCase() === "class cancelled"),
+    false,
+    "literal placeholder name (any case/whitespace) must never become a product"
+  );
+  assert.equal(
+    classes.some((c) => c.session_name === "Class Cancelled Today"),
+    true,
+    "only an exact literal match is filtered — a real class whose name happens to contain the phrase is not"
+  );
+}
+
+{
   assert.equal(
     arboxClassMatchKey({ arbox_box_category_id: 53273, arbox_class_name: "renamed" }),
     "id:53273"

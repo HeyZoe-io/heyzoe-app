@@ -395,6 +395,10 @@ export async function fetchArboxClassDescriptionForProduct(input: {
   };
 }
 
+/** Some businesses (e.g. acrobyjoe) use this literal placeholder name instead of removing the
+ * occurrence — Arbox still returns it with is_transparent=0, so it isn't caught by that check. */
+const CANCELLED_PLACEHOLDER_SESSION_NAME = "class cancelled";
+
 export function normalizeTimetableToWeeklyClasses(
   scheduleRows: Record<string, unknown>[],
   catalog: ArboxBoxCategoryCatalog
@@ -411,6 +415,7 @@ export function normalizeTimetableToWeeklyClasses(
   for (const row of scheduleRows) {
     if (Number(row.is_transparent) === 1) continue;
     const session_name = String(row.session_name ?? row.class_name ?? "").trim();
+    if (session_name.toLowerCase() === CANCELLED_PLACEHOLDER_SESSION_NAME) continue;
     const date = String(row.date ?? "").trim().slice(0, 10);
     const start_time = normalizeHhmm(row.start_time ?? row.time);
     if (!session_name || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !start_time) continue;
