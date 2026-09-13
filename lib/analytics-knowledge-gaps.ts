@@ -45,11 +45,11 @@ export const KNOWLEDGE_GAP_NEEDLES = [
 
 export const KNOWLEDGE_GAP_NO_DETAILS_MODEL = "knowledge_gap_no_details";
 export const KNOWLEDGE_GAP_NO_DETAILS_HE =
-  "אין לי את הפרטים על כך - אני מעבירה את הבקשה לצוות 💜";
+  "מתנצלת אין לי מידע על כך, אני מעבירה לצוות לטיפול!";
 export const KNOWLEDGE_GAP_NO_DETAILS_EN =
-  "I don't have the details on that - I'll pass this to the team 💜";
+  "Sorry, I don't have information about that - I'm passing it to the team to handle!";
 export const KNOWLEDGE_GAP_NO_DETAILS_RU =
-  "У меня нет этих деталей - передам обращение команде 💜";
+  "Извините, у меня нет информации об этом - передаю обращение команде!";
 
 const EXCLUDED_MODELS = new Set(["claude_limit_24h"]);
 

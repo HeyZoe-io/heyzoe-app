@@ -325,6 +325,14 @@ import {
   pickKnowledgeGapNoDetailsReply,
 } from "@/lib/analytics-knowledge-gaps";
 import {
+  TODAY_SCHEDULE_FOUND_MODEL,
+  TODAY_SCHEDULE_NOT_FOUND_MODEL,
+  TODAY_SCHEDULE_NOT_FOUND_REPLY,
+  buildTodayScheduleFoundReply,
+  looksLikeBusinessOpenOrClosedTodayQuestion,
+  resolveTodayScheduleClasses,
+} from "@/lib/wa-today-schedule-status";
+import {
   assistantReplySteersBackToStudioScope,
   buildOutOfScopeTeamHandoffReply,
   matchesOutOfScopeTeamHandoff,
@@ -1714,6 +1722,74 @@ async function sendKnowledgeGapTeamHandoff(input: {
     role: "assistant",
     content: txt,
     model_used: KNOWLEDGE_GAP_NO_DETAILS_MODEL,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendTodayScheduleFoundReply(input: {
+  classes: ReturnType<typeof resolveTodayScheduleClasses>;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const txt = buildTodayScheduleFoundReply(input.classes);
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, txt, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] Send today-schedule found reply failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: txt,
+    model_used: TODAY_SCHEDULE_FOUND_MODEL,
+    session_id: input.sessionId,
+  });
+}
+
+async function sendTodayScheduleNotFoundReply(input: {
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  if (input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] today-schedule-not-found human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      TODAY_SCHEDULE_NOT_FOUND_REPLY,
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[WA Webhook] Send today-schedule not-found reply failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: TODAY_SCHEDULE_NOT_FOUND_REPLY,
+    model_used: TODAY_SCHEDULE_NOT_FOUND_MODEL,
     session_id: input.sessionId,
   });
 }
@@ -11776,6 +11852,38 @@ async function processIncoming(
     assistantReplyIsExplicitKnowledgeGap(replyCoreClean) &&
     businessId
   ) {
+    // "האם חדר הכושר פתוח או סגור היום" — לעסקי ארבוקס, לפני העברה גנרית: לבדוק שיעורי היום במערכת השעות.
+    if (looksLikeBusinessOpenOrClosedTodayQuestion(incomingRaw)) {
+      const arboxCreds = await loadArboxScheduleLookupConnection({
+        supabase,
+        businessId: Number(businessId),
+      });
+      if (arboxCreds) {
+        const todaysClasses = resolveTodayScheduleClasses(knowledge?.knowledgeCatalogServices ?? []);
+        if (todaysClasses.length) {
+          await sendTodayScheduleFoundReply({
+            classes: todaysClasses,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+          });
+        } else {
+          await sendTodayScheduleNotFoundReply({
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            nowIso,
+          });
+        }
+        return;
+      }
+    }
     await sendKnowledgeGapTeamHandoff({
       inboundText: incomingRaw,
       msg,

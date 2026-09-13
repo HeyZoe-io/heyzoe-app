@@ -26,7 +26,7 @@ assert.equal(isKnowledgeGapAssistantText("אין לי את הפרטים על מ�
 assert.equal(isKnowledgeGapAssistantText(KNOWLEDGE_GAP_NO_DETAILS_HE), true);
 assert.equal(assistantReplyIsExplicitKnowledgeGap("אין לי את הפרטים על כך."), true);
 assert.equal(pickKnowledgeGapNoDetailsReply("he"), KNOWLEDGE_GAP_NO_DETAILS_HE);
-assert.match(KNOWLEDGE_GAP_NO_DETAILS_HE, /מעבירה את הבקשה לצוות/);
+assert.match(KNOWLEDGE_GAP_NO_DETAILS_HE, /מעבירה לצוות לטיפול/);
 assert.equal(isKnowledgeGapAssistantText("У меня нет этих деталей."), true);
 assert.equal(
   isKnowledgeGapAssistantText("אין לי כרגע את המידע על מחירי המנויים. מוזמנים לפנות לשירות הלקוחות."),
