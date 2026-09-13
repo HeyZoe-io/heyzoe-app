@@ -121,6 +121,57 @@ export function addIsraelDayLetter(day: IsraelDayLetter, delta: number): IsraelD
   return ISRAEL_DAY_LETTERS[((idx + delta) % n + n) % n]!;
 }
 
+export type ResolvedOccurrence = {
+  /** YYYY-MM-DD (Israel) of the next concrete calendar occurrence. */
+  ymd: string;
+  /** 0 = today, 1-6 = later this week/next week. */
+  daysAhead: number;
+};
+
+const WEEKLY_SLOT_PASSED_GRACE_MINUTES = 15;
+
+/**
+ * Weekly recurring day-letter + HH:MM → next concrete Israel calendar date.
+ * If the slot falls today but its time (+ grace) already passed, rolls to next week —
+ * a recurring "today" slot always means the next real occurrence, never one already over.
+ */
+export function resolveNextOccurrence(
+  day: IsraelDayLetter,
+  time: string,
+  now: Date = new Date(),
+  graceMinutes: number = WEEKLY_SLOT_PASSED_GRACE_MINUTES
+): ResolvedOccurrence {
+  const p = getLocalPartsInTz(now, IL_TZ);
+  const targetIdx = ISRAEL_DAY_LETTERS.indexOf(day);
+  let daysAhead = targetIdx < 0 ? 0 : (((targetIdx - p.weekday) % 7) + 7) % 7;
+
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(time ?? "").trim());
+  if (daysAhead === 0 && m) {
+    const slotMinutes = Number(m[1]) * 60 + Number(m[2]);
+    const nowMinutes = p.hour * 60 + p.minute;
+    if (nowMinutes >= slotMinutes + graceMinutes) {
+      daysAhead = 7;
+    }
+  }
+
+  const dayStartUtc = getIsraelDayStartUtc(p.year, p.month, p.day);
+  const targetUtc = new Date(dayStartUtc.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+  const tp = getLocalPartsInTz(targetUtc, IL_TZ);
+  const ymd = `${tp.year}-${String(tp.month).padStart(2, "0")}-${String(tp.day).padStart(2, "0")}`;
+  return { ymd, daysAhead };
+}
+
+/** True only when `day` is today (Israel) and `time` (+ grace) has already passed. */
+export function hasWeeklySlotPassedToday(
+  day: IsraelDayLetter,
+  time: string,
+  now: Date = new Date(),
+  graceMinutes: number = WEEKLY_SLOT_PASSED_GRACE_MINUTES
+): boolean {
+  if (day !== getIsraelDayLetter(now)) return false;
+  return resolveNextOccurrence(day, time, now, graceMinutes).daysAhead !== 0;
+}
+
 export type DailySummaryCronPeriod =
   | { skip: true; reason: "shabbat" }
   | {

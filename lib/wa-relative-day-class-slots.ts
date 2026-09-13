@@ -4,7 +4,12 @@ import {
   sortProductScheduleSlots,
 } from "@/lib/product-schedule-slots";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
-import { addIsraelDayLetter, getIsraelDayLetter, type IsraelDayLetter } from "@/lib/israel-time";
+import {
+  addIsraelDayLetter,
+  getIsraelDayLetter,
+  hasWeeklySlotPassedToday,
+  type IsraelDayLetter,
+} from "@/lib/israel-time";
 import {
   isCatalogWideClassDayAsk,
   looksLikeClassTimeQuestion,
@@ -27,9 +32,12 @@ const DAY_NAME: Record<IsraelDayLetter, string> = {
   ש: "שבת",
 };
 
-function slotsForDay(service: SfServiceRow, day: IsraelDayLetter): { day: string; time: string }[] {
+/** Same-day slots whose time already passed (+ grace) are dropped — a recurring "today" slot
+ * that's already over isn't a real offer until it recurs next week. */
+function slotsForDay(service: SfServiceRow, day: IsraelDayLetter, now: Date): { day: string; time: string }[] {
   const rows = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
-  return sortProductScheduleSlots(rows.filter((s) => String(s.day ?? "").trim() === day));
+  const sameDay = sortProductScheduleSlots(rows.filter((s) => String(s.day ?? "").trim() === day));
+  return sameDay.filter((s) => !hasWeeklySlotPassedToday(day, s.time, now));
 }
 
 function formatTimesPhrase(times: string[]): string {
@@ -102,10 +110,10 @@ function formatIsraelNowLine(now: Date): string {
   return `עכשיו בישראל: יום ${name} ${d}.${m}, שעה ${hh}:${mm}. «היום»/«הערב» = ${name}. «מחר» = ${DAY_NAME[addIsraelDayLetter(letter, 1)]}.`;
 }
 
-function formatDaySlotLines(services: SfServiceRow[], day: IsraelDayLetter): string {
+function formatDaySlotLines(services: SfServiceRow[], day: IsraelDayLetter, now: Date): string {
   const lines: string[] = [];
   for (const s of services) {
-    const slots = slotsForDay(s, day);
+    const slots = slotsForDay(s, day, now);
     if (!slots.length) continue;
     const times = [...new Set(slots.map((x) => x.time))];
     for (const time of times) {
@@ -123,9 +131,9 @@ export function buildIsraelNowSchedulePromptBlock(services: SfServiceRow[], now:
   return `
 ${formatIsraelNowLine(now)}
 מועדים להיום (${DAY_NAME[today]}) בלבד — אסור לערבב שעות מיום אחר:
-${formatDaySlotLines(services, today)}
+${formatDaySlotLines(services, today, now)}
 מועדים למחר (${DAY_NAME[tomorrow]}) בלבד:
-${formatDaySlotLines(services, tomorrow)}
+${formatDaySlotLines(services, tomorrow, now)}
 כששואלים על שיעור ספציפי היום/הערב/מחר — רק השורות של אותו אימון ביום ששאלו. אם אין שורה: אמרי שאין, בלי לקחת שעה מיום אחר.
 ניסוח ללקוח — יום ושעה תמיד צמודים (לא «שעה + שם + יום»):
 - לפי שם שיעור: «פילאטיס מכשירים | מחר (חמישי) ב-19:30». כמה מועדים: «שם | יום א ב-שעה | יום ב ב-שעה».
@@ -142,7 +150,7 @@ export function buildRelativeDayClassSlotsReply(input: {
 }): string | null {
   const service = input.services.find((s) => s.name === input.serviceName);
   if (!service) return null;
-  const slots = slotsForDay(service, input.day);
+  const slots = slotsForDay(service, input.day, input.now);
   const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
   if (!slots.length) {
     return `${phrase} אין ${input.serviceName}.`;
@@ -161,7 +169,7 @@ export function buildCatalogDaySlotsReply(input: {
   const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
   const items: string[] = [];
   for (const s of input.services) {
-    const slots = slotsForDay(s, input.day);
+    const slots = slotsForDay(s, input.day, input.now);
     if (!slots.length) continue;
     const times = [...new Set(slots.map((x) => x.time))];
     for (const time of times) {
@@ -232,7 +240,7 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   for (const day of days) {
     const service = input.services.find((s) => s.name === serviceName);
     if (!service) continue;
-    const slots = slotsForDay(service, day as IsraelDayLetter);
+    const slots = slotsForDay(service, day as IsraelDayLetter, now);
     const phrase = dayAskPhrase({ text: sourceText, day: day as IsraelDayLetter, now });
     if (!slots.length) {
       missing.push(`${phrase} אין ${serviceName}.`);

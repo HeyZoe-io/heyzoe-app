@@ -275,4 +275,40 @@ const joeWeekly = [
   assert.equal(reply, null, "holiday eve must not list weekly Friday slots");
 }
 
+{
+  // Tuesday 19:00 Israel — chair's 18:30 Tuesday slot already passed, 19:30 hasn't.
+  const tueEvening = new Date("2026-09-01T16:00:00.000Z");
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "יש כיסא הערב?",
+    services: catalog,
+    now: tueEvening,
+  });
+  assert.ok(reply, "19:30 is still ahead — a reply should still be built");
+  assert.doesNotMatch(reply!.text, /18:30/, "already-passed 18:30 must not be offered");
+  assert.match(reply!.text, /19:30/, "19:30 hasn't passed yet — still offered");
+}
+
+{
+  // Tuesday 19:45 Israel — both chair Tuesday slots (18:30, 19:30) already passed.
+  const tueLate = new Date("2026-09-01T16:45:00.000Z");
+  const reply = tryBuildRelativeDayClassSlotsReply({
+    text: "יש כיסא הערב?",
+    services: catalog,
+    now: tueLate,
+  });
+  assert.ok(reply, "no slots left today should still produce the 'none today' reply");
+  assert.match(reply!.text, /אין/);
+  assert.doesNotMatch(reply!.text, /18:30/);
+  assert.doesNotMatch(reply!.text, /19:30/);
+}
+
+{
+  // Prompt-block backup path: today's already-passed slot must not appear either.
+  const tueEvening = new Date("2026-09-01T16:00:00.000Z");
+  const block = buildIsraelNowSchedulePromptBlock(catalog, tueEvening);
+  const todayLine = block.split("מועדים למחר")[0]!;
+  assert.doesNotMatch(todayLine, /18:30/, "prompt block must drop today's already-passed slot");
+  assert.match(todayLine, /19:30/, "prompt block keeps today's still-upcoming slot");
+}
+
 console.log("wa-relative-day-class-slots.test.ts: ok");
