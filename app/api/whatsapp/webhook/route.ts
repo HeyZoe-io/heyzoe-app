@@ -234,10 +234,18 @@ import {
 } from "@/lib/wa-unknown-class-slot";
 import {
   REGISTRATION_CTA_ASK_CLASS_MODEL,
+  REGISTRATION_CTA_CANCELLED_MODEL,
+  REGISTRATION_CTA_FULL_MODEL,
   REGISTRATION_CTA_LINK_MODEL,
+  classCancelledNotice,
+  classFullNotice,
+  formatServiceAndTime,
+  resolveCtaOccurrenceOutcome,
   resolveRegistrationCtaDecision,
   shouldLookupRegistrationCta,
 } from "@/lib/wa-registration-cta-from-slot";
+import { getOccurrenceState } from "@/lib/arbox-occurrence-state";
+import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
   buildIsraelNowSchedulePromptBlock,
   previousUserTextFromHistory,
@@ -3004,6 +3012,55 @@ async function sendMatchedClassRegistrationLink(input: {
     phase: "cta",
   });
   return true;
+}
+
+/**
+ * The lead asked for a concrete occurrence that's full or cancelled per live Arbox data —
+ * tell them honestly instead of sending the registration link, and fire the same human-handoff
+ * mechanism used everywhere else in this file so the "אעביר לצוות" promise is real. Uses the
+ * service's DISPLAY name, never arbox_class_name (that's the join key only, never lead-facing).
+ */
+async function sendClassFullOrCancelledNotice(input: {
+  state: "full" | "cancelled";
+  service: SfServiceRow;
+  time: string;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  const serviceAndTime = formatServiceAndTime(input.service.name, input.time);
+  const text = input.state === "full" ? classFullNotice(serviceAndTime) : classCancelledNotice(serviceAndTime);
+  const modelUsed = input.state === "full" ? REGISTRATION_CTA_FULL_MODEL : REGISTRATION_CTA_CANCELLED_MODEL;
+
+  await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, text, input.accountSid, input.authToken).catch((e) =>
+    console.error("[WA Webhook] Send class full/cancelled notice failed:", e)
+  );
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: text,
+    model_used: modelUsed,
+    session_id: input.sessionId,
+  });
+
+  try {
+    const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+    await handleLeadHumanRequested({
+      supabase: input.supabase,
+      businessId: Number(input.businessId),
+      businessSlug: input.business_slug,
+      phone: input.msg.from,
+      nowIso: input.nowIso,
+      sessionId: input.sessionId,
+    });
+  } catch (e) {
+    console.error("[WA Webhook] class full/cancelled handoff failed:", e);
+  }
 }
 
 async function sendTryClassInfoOffer(input: {
@@ -5839,10 +5896,15 @@ async function processIncoming(
   // query). Stays `null` (treated as not-activated) if this lookup fails; see the gate after
   // the paused_sessions check.
   let zoeActivated: boolean | null = null;
+  // Arbox credentials for the per-occurrence fullness/cancellation check — same business row,
+  // no extra query. Empty string when the business isn't Arbox-connected (the occurrence-state
+  // resolver treats missing credentials as "nothing resolvable", never suppressing a slot).
+  let crmApiKey = "";
+  let crmBoxId = "";
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated")
+      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated, crm_api_key, crm_box_id")
       .eq("slug", business_slug)
       .maybeSingle();
     if (bizErr || !biz) {
@@ -5854,6 +5916,8 @@ async function processIncoming(
       businessId = resolvedId != null ? String(resolvedId) : null;
     }
     zoeActivated = (biz as { zoe_activated?: boolean | null }).zoe_activated === true;
+    crmApiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+    crmBoxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
     if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
@@ -6926,6 +6990,42 @@ async function processIncoming(
         salesFlowServices.find((s) => s.name === regCta.serviceName) ??
         (salesFlowServices.length === 1 ? salesFlowServices[0]! : null);
       if (service && validRegistrationHttpUrl(service.paymentLink)) {
+        // Gate ordering: only a stamped product (arbox_class_name) with an unambiguous
+        // concrete day+time (regCta.day/time — unset for a bare "I want to register") and
+        // live Arbox credentials on this business gets checked. Anything else — unstamped
+        // product, no concrete slot, business not Arbox-connected — costs zero Arbox calls
+        // and behaves exactly as today (state stays null -> resolveCtaOccurrenceOutcome sends
+        // the link, same as "open"/"unknown").
+        let occurrenceState: "open" | "full" | "cancelled" | "unknown" | null = null;
+        if (regCta.day && regCta.time && service.arboxClassName && businessId && crmApiKey && crmBoxId) {
+          const occDate = resolveNextOccurrence(regCta.day, regCta.time, new Date(nowIso)).ymd;
+          const occResult = await getOccurrenceState({
+            businessId,
+            apiKey: crmApiKey,
+            boxId: crmBoxId,
+            date: occDate,
+            time: regCta.time,
+            className: service.arboxClassName,
+          });
+          occurrenceState = occResult.state;
+        }
+        const ctaOutcome = resolveCtaOccurrenceOutcome(occurrenceState);
+        if (ctaOutcome === "notice_full" || ctaOutcome === "notice_cancelled") {
+          await sendClassFullOrCancelledNotice({
+            state: ctaOutcome === "notice_full" ? "full" : "cancelled",
+            service,
+            time: regCta.time!,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId: String(businessId),
+            business_slug,
+            sessionId,
+            nowIso,
+          });
+          return;
+        }
         const sent = await sendMatchedClassRegistrationLink({
           service,
           knowledge,
@@ -7685,11 +7785,14 @@ async function processIncoming(
         currentText: inboundForDaySlots,
         userMessagesOldestFirst: recentForDaySlots.filter((m) => m.role === "user").map((m) => m.content),
       });
-      const relativeDayReply = tryBuildRelativeDayClassSlotsReply({
+      const relativeDayReply = await tryBuildRelativeDayClassSlotsReply({
         text: inboundForDaySlots,
         previousUserText: prevUserForDaySlots,
         services: salesFlowServices,
         sessionPhase: contactSessionPhase,
+        businessId,
+        arboxApiKey: crmApiKey,
+        arboxBoxId: crmBoxId,
       });
       if (relativeDayReply) {
         try {

@@ -10,7 +10,7 @@ export const UNKNOWN_CLASS_SLOT_HANDOFF_MODEL = "unknown_class_slot_team_handoff
 
 const DAY_LETTER_SET = new Set(["א", "ב", "ג", "ד", "ה", "ו", "ש"]);
 
-type DayLetter = "א" | "ב" | "ג" | "ד" | "ה" | "ו" | "ש";
+export type DayLetter = "א" | "ב" | "ג" | "ד" | "ה" | "ו" | "ש";
 
 const DAY_PATTERNS: { day: DayLetter; re: RegExp }[] = [
   { day: "ג", re: /(?:יום\s*)?שלישי/u },
@@ -340,6 +340,44 @@ export function matchCatalogServiceByDayAndTime(
 ): string | null {
   const matches = matchCatalogServicesByDayAndTime(text, services, now);
   return matches.length === 1 ? matches[0]! : null;
+}
+
+export type MatchedServiceSlot = { serviceName: string; day: DayLetter; time: string };
+
+/**
+ * Like matchCatalogServiceByDayAndTime, but also returns the SPECIFIC (day, time) that
+ * matched — only when both the service AND the (day,time) pair are unambiguous (exactly one
+ * of each). Used to resolve a concrete occurrence for an Arbox fullness/cancellation check;
+ * any ambiguity here means there's no single slot to check, so callers should skip the check
+ * rather than guess.
+ */
+export function matchCatalogServiceSlotByDayAndTime(
+  text: string,
+  services: SfServiceRow[],
+  now: Date = new Date()
+): MatchedServiceSlot | null {
+  const days = parseRequestedClassDays(text, now);
+  const times = parseRequestedTimes(text);
+  if (!days.length || !times.length) return null;
+
+  const serviceName = matchCatalogServiceByDayAndTime(text, services, now);
+  if (!serviceName) return null;
+  const service = services.find((s) => s.name === serviceName);
+  if (!service) return null;
+
+  const hitKeys = new Set<string>();
+  const hits: MatchedServiceSlot[] = [];
+  for (const day of days) {
+    for (const time of times) {
+      if (!serviceHasTime(service, time, day)) continue;
+      const normTime = normalizeSlotTime(time);
+      const key = `${day}|${normTime}`;
+      if (hitKeys.has(key)) continue;
+      hitKeys.add(key);
+      hits.push({ serviceName, day, time: normTime });
+    }
+  }
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 export function assistantReplyIsUnknownClassSlotHandoff(text: string): boolean {

@@ -32,6 +32,7 @@ function svc(name: string, slots: { day: string; time: string }[]): SfServiceRow
     locationMode: "location",
     locationText: "",
     courseDatesEnabled: true,
+    arboxClassName: "",
   };
 }
 

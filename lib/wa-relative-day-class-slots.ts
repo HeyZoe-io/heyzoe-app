@@ -8,6 +8,7 @@ import {
   addIsraelDayLetter,
   getIsraelDayLetter,
   hasWeeklySlotPassedToday,
+  resolveNextOccurrence,
   type IsraelDayLetter,
 } from "@/lib/israel-time";
 import {
@@ -19,6 +20,12 @@ import {
   looksLikeHolidayClassScheduleAsk,
 } from "@/lib/wa-unknown-class-slot";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
+import {
+  getOccurrenceRawData,
+  resolveOccurrenceState,
+  type ArboxOccurrenceRaw,
+  type ArboxOccurrenceStateResult,
+} from "@/lib/arbox-occurrence-state";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 
@@ -38,6 +45,75 @@ function slotsForDay(service: SfServiceRow, day: IsraelDayLetter, now: Date): { 
   const rows = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
   const sameDay = sortProductScheduleSlots(rows.filter((s) => String(s.day ?? "").trim() === day));
   return sameDay.filter((s) => !hasWeeklySlotPassedToday(day, s.time, now));
+}
+
+export type RawDataFetcher = (input: {
+  businessId: number | string;
+  apiKey: string;
+  boxId: string;
+  date: string;
+}) => Promise<ArboxOccurrenceRaw>;
+
+export type ArboxOfferContext = {
+  businessId?: number | string | null;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
+  /** Test-only override — production callers must not set this. */
+  rawDataFetcherImpl?: RawDataFetcher;
+};
+
+function occurrenceStateKey(dateYmd: string, time: string, arboxClassName: string): string {
+  return `${dateYmd}|${time}|${arboxClassName}`;
+}
+
+/**
+ * Fetches raw Arbox data ONCE per distinct date, then resolves every candidate locally via
+ * the pure resolveOccurrenceState — NOT once per candidate. Calling getOccurrenceState once
+ * per candidate would be wrong here: unstable_cache only de-dupes once the first call has
+ * resolved, so N candidates fired concurrently (Promise.all) on the same date would each miss
+ * the still-empty cache and trigger N real fetches (verified live: 11 concurrent callers -> 11
+ * real fetches). Fetching once per date up front and reusing the raw rows in-memory is what
+ * actually guarantees one fetch pair per distinct date, regardless of candidate count.
+ * Unstamped products (no arbox_class_name) never contribute a date to fetch — gate #1. No
+ * businessId/apiKey/boxId → nothing is resolvable, nothing gets filtered (safety rule).
+ */
+async function resolveOccurrenceStatesForCandidates(
+  candidates: { dateYmd: string; time: string; arboxClassName: string }[],
+  ctx: ArboxOfferContext
+): Promise<Map<string, ArboxOccurrenceStateResult>> {
+  const map = new Map<string, ArboxOccurrenceStateResult>();
+  const businessId = ctx.businessId;
+  const apiKey = String(ctx.arboxApiKey ?? "").trim();
+  const boxId = String(ctx.arboxBoxId ?? "").trim();
+  if (businessId == null || String(businessId).trim() === "" || !apiKey || !boxId) return map;
+
+  const stamped = candidates.filter((c) => c.arboxClassName); // gate #1
+  if (!stamped.length) return map;
+
+  const dates = [...new Set(stamped.map((c) => c.dateYmd))];
+  const fetcher = ctx.rawDataFetcherImpl ?? getOccurrenceRawData;
+  const rawByDate = new Map<string, ArboxOccurrenceRaw>();
+  await Promise.all(
+    dates.map(async (date) => {
+      const raw = await fetcher({ businessId, apiKey, boxId, date });
+      rawByDate.set(date, raw);
+    })
+  );
+
+  const seen = new Set<string>();
+  for (const c of stamped) {
+    const key = occurrenceStateKey(c.dateYmd, c.time, c.arboxClassName);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const raw = rawByDate.get(c.dateYmd) ?? { scheduleRows: null, summaryRows: null };
+    map.set(key, resolveOccurrenceState(raw, c.dateYmd, c.time, c.arboxClassName));
+  }
+  return map;
+}
+
+/** "full"/"cancelled" are the only states a caller should ever omit on — "unknown" behaves as "open". */
+function isSuppressedOccurrenceState(state: ArboxOccurrenceStateResult["state"] | undefined): boolean {
+  return state === "full" || state === "cancelled";
 }
 
 function formatTimesPhrase(times: string[]): string {
@@ -160,37 +236,58 @@ export function buildRelativeDayClassSlotsReply(input: {
 }
 
 /** כל האימונים שיש להם מועד ביום ששאלו — בלי להיתקע על אימון שנבחר קודם. */
-export function buildCatalogDaySlotsReply(input: {
-  day: IsraelDayLetter;
-  sourceText: string;
-  services: SfServiceRow[];
-  now: Date;
-}): string | null {
+export async function buildCatalogDaySlotsReply(
+  input: {
+    day: IsraelDayLetter;
+    sourceText: string;
+    services: SfServiceRow[];
+    now: Date;
+  } & ArboxOfferContext
+): Promise<string | null> {
   const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
-  const items: string[] = [];
+
+  type Item = { time: string; serviceName: string; arboxClassName: string; dateYmd: string };
+  const items: Item[] = [];
   for (const s of input.services) {
     const slots = slotsForDay(s, input.day, input.now);
     if (!slots.length) continue;
     const times = [...new Set(slots.map((x) => x.time))];
     for (const time of times) {
-      items.push(formatDayClassScheduleLine(phrase, time, s.name));
+      items.push({
+        time,
+        serviceName: s.name,
+        arboxClassName: s.arboxClassName,
+        dateYmd: resolveNextOccurrence(input.day, time, input.now).ymd,
+      });
     }
   }
   if (!items.length) return null;
-  return `${items.join("\n")} 💜`;
+
+  const stateMap = await resolveOccurrenceStatesForCandidates(items, input);
+
+  const lines: string[] = [];
+  for (const item of items) {
+    const state = stateMap.get(occurrenceStateKey(item.dateYmd, item.time, item.arboxClassName))?.state;
+    if (isSuppressedOccurrenceState(state)) continue;
+    lines.push(formatDayClassScheduleLine(phrase, item.time, item.serviceName));
+  }
+  if (!lines.length) return null;
+  return `${lines.join("\n")} 💜`;
 }
 
 /**
  * שאלה על שיעור ספציפי היום/מחר/יום בשבוע — תשובה מהלוח, בלי Claude.
  * ההודעה הקודמת נספרת רק כשהנוכחית חסרה יום או שם אימון (למשל «כיסא» אחרי «הערב»).
  */
-export function tryBuildRelativeDayClassSlotsReply(input: {
-  text: string;
-  previousUserText?: string | null;
-  services: SfServiceRow[];
-  sessionPhase?: string | null;
-  now?: Date;
-}): { text: string; modelUsed: string } | null {
+export async function tryBuildRelativeDayClassSlotsReply(
+  input: {
+    text: string;
+    previousUserText?: string | null;
+    services: SfServiceRow[];
+    sessionPhase?: string | null;
+    now?: Date;
+  } & ArboxOfferContext
+): Promise<{ text: string; modelUsed: string } | null> {
   const phase = String(input.sessionPhase ?? "").trim();
   if (phase === "schedule_date" || phase === "schedule_time") return null;
 
@@ -211,11 +308,15 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   if (isCatalogWideClassDayAsk(current, input.services, now)) {
     const parts: string[] = [];
     for (const day of daysCurrent.length ? daysCurrent : days) {
-      const line = buildCatalogDaySlotsReply({
+      const line = await buildCatalogDaySlotsReply({
         day: day as IsraelDayLetter,
         sourceText: current,
         services: input.services,
         now,
+        businessId: input.businessId,
+        arboxApiKey: input.arboxApiKey,
+        arboxBoxId: input.arboxBoxId,
+        rawDataFetcherImpl: input.rawDataFetcherImpl,
       });
       if (line) parts.push(line);
     }
@@ -234,12 +335,14 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
   const askOk = looksLikeDayOrClassAsk(current) || looksLikeDayOrClassAsk(prev);
   if (!askOk) return null;
 
+  const service = input.services.find((s) => s.name === serviceName);
+  if (!service) return null;
+
   // כמה ימים באותה הודעה («היום ומחר») — שם | יום+שעות | יום+שעות
-  const foundBits: string[] = [];
+  type DayGroup = { phrase: string; slots: { time: string; dateYmd: string }[] };
+  const dayGroups: DayGroup[] = [];
   const missing: string[] = [];
   for (const day of days) {
-    const service = input.services.find((s) => s.name === serviceName);
-    if (!service) continue;
     const slots = slotsForDay(service, day as IsraelDayLetter, now);
     const phrase = dayAskPhrase({ text: sourceText, day: day as IsraelDayLetter, now });
     if (!slots.length) {
@@ -247,8 +350,35 @@ export function tryBuildRelativeDayClassSlotsReply(input: {
       continue;
     }
     const times = [...new Set(slots.map((s) => s.time))];
-    foundBits.push(`${phrase} ${formatTimesPhrase(times)}`);
+    dayGroups.push({
+      phrase,
+      slots: times.map((time) => ({ time, dateYmd: resolveNextOccurrence(day as IsraelDayLetter, time, now).ymd })),
+    });
   }
+
+  const candidates = dayGroups.flatMap((g) =>
+    g.slots.map((s) => ({ dateYmd: s.dateYmd, time: s.time, arboxClassName: service.arboxClassName }))
+  );
+  const stateMap = await resolveOccurrenceStatesForCandidates(candidates, input);
+
+  const foundBits: string[] = [];
+  for (const g of dayGroups) {
+    const openTimes = g.slots
+      .filter((s) => {
+        const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
+        return !isSuppressedOccurrenceState(state);
+      })
+      .map((s) => s.time);
+    if (!openTimes.length) {
+      // All of this day's times were full/cancelled. If it's the only day the lead asked
+      // about, fall through to the existing "none today" message; otherwise the day-line
+      // simply disappears from a multi-day reply rather than falsely saying "none".
+      if (days.length === 1) missing.push(`${g.phrase} אין ${serviceName}.`);
+      continue;
+    }
+    foundBits.push(`${g.phrase} ${formatTimesPhrase(openTimes)}`);
+  }
+
   if (!foundBits.length && !missing.length) return null;
   const text = [
     foundBits.length ? `${serviceName} | ${foundBits.join(" | ")} 💜` : "",

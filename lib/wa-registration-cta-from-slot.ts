@@ -7,7 +7,9 @@ import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 import {
   matchCatalogServiceByDayAndTime,
   matchCatalogServiceFromFreeText,
+  matchCatalogServiceSlotByDayAndTime,
   parseRequestedClassDays,
+  type DayLetter,
 } from "@/lib/wa-unknown-class-slot";
 import { matchesTryClassIntent } from "@/lib/wa-try-class-offer";
 import { normalizeTrialSignupIntentText } from "@/lib/wa-trial-signup-intent";
@@ -15,6 +17,34 @@ import { matchesUnspecifiedClassPriceQuestion } from "@/lib/wa-price-which-servi
 
 export const REGISTRATION_CTA_LINK_MODEL = "registration_cta_class_link";
 export const REGISTRATION_CTA_ASK_CLASS_MODEL = "registration_cta_ask_class";
+export const REGISTRATION_CTA_FULL_MODEL = "registration_cta_class_full";
+export const REGISTRATION_CTA_CANCELLED_MODEL = "registration_cta_class_cancelled";
+
+/** Display name + time, never arbox_class_name — the lead never sees the Arbox join key. */
+export function formatServiceAndTime(displayName: string, time: string): string {
+  return `${displayName} ב-${time}`;
+}
+
+export function classFullNotice(serviceAndTime: string): string {
+  return `כרגע אני רואה שהשיעור ${serviceAndTime} מלא במערכת, אבל אני לא תמיד מעודכנת 100%, אפשר לבדוק באפליקציה ואני גם אעביר את הפניה לצוות סבבה?`;
+}
+
+export function classCancelledNotice(serviceAndTime: string): string {
+  return `רגע, אני רואה שהמפגש של ${serviceAndTime} לא מתקיים השבוע. השיעור עצמו קבוע במערכת, אז סביר שהוא חוזר בשבוע הבא - אני מעבירה את הפנייה לצוות שיעדכן אותך בדיוק, בסדר?`;
+}
+
+export type CtaOccurrenceOutcome = "notice_full" | "notice_cancelled" | "send_link";
+
+/**
+ * Maps a raw occurrence-check result to the final CTA action. "open" and "unknown" — and a
+ * check that was never attempted (state === null, e.g. no concrete day/time, no stamp, no
+ * Arbox context) — all resolve to "send_link": suppress only on positive evidence.
+ */
+export function resolveCtaOccurrenceOutcome(state: "open" | "full" | "cancelled" | "unknown" | null): CtaOccurrenceOutcome {
+  if (state === "cancelled") return "notice_cancelled";
+  if (state === "full") return "notice_full";
+  return "send_link";
+}
 
 const SKIP_PHASES = new Set([
   "schedule_date",
@@ -25,7 +55,10 @@ const SKIP_PHASES = new Set([
 ]);
 
 export type RegistrationCtaDecision =
-  | { action: "send_link"; serviceName: string }
+  /** day/time are set only when the lead named an unambiguous concrete slot ("tomorrow at
+   * 8") — a generic "I want to register" with no day/time mentioned leaves them unset, and
+   * callers must not attempt an occurrence check in that case (nothing to check). */
+  | { action: "send_link"; serviceName: string; day?: DayLetter; time?: string }
   | { action: "ask_class" }
   | { action: "none" };
 
@@ -124,7 +157,13 @@ export function resolveRegistrationCtaDecision(input: {
   const canSend =
     Boolean(matched) && (registerAsk || (trialInBlob && Boolean(uniqueSlot)));
 
-  if (canSend && matched) return { action: "send_link", serviceName: matched };
+  if (canSend && matched) {
+    const matchedSlot = matchCatalogServiceSlotByDayAndTime(blob, input.services, input.now ?? new Date());
+    if (matchedSlot && matchedSlot.serviceName === matched) {
+      return { action: "send_link", serviceName: matched, day: matchedSlot.day, time: matchedSlot.time };
+    }
+    return { action: "send_link", serviceName: matched };
+  }
   if (registerAsk && input.services.length > 1) return { action: "ask_class" };
   if (registerAsk && input.services.length === 1) {
     return { action: "send_link", serviceName: input.services[0]!.name };
