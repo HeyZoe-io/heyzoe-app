@@ -424,7 +424,7 @@ export default function CampaignSendPanel(props: {
           <div className="space-y-2">
             <p className="text-sm text-zinc-700">סוגי מנוי וכרטיסיות</p>
             <p className="text-xs text-zinc-500">
-              מוצגים רק מנויים וכרטיסיות — לא שיעורים, שירותים או ניסיון. ריק = כולם. אפשר לבחור כמה.
+              ריק = כולם. אפשר לבחור מספר קבלים.
             </p>
             {membershipTypesLoading ? (
               <p className="text-xs text-zinc-500">טוען סוגי מנוי וכרטיסיות…</p>
