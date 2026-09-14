@@ -1,4 +1,5 @@
 import { offerKindFromServiceMeta } from "@/lib/sales-flow";
+import { parseArboxClassStamp } from "@/lib/arbox-schedule-sync";
 import {
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
@@ -35,6 +36,8 @@ export type SfServiceRow = {
   locationText: string;
   /** קורס: האם יש תאריכי התחלה/סיום (מחזורים). ברירת מחדל true */
   courseDatesEnabled: boolean;
+  /** Stamped Arbox class name (join key for per-occurrence fullness checks) — "" when unstamped. */
+  arboxClassName: string;
 };
 
 export type RawServiceRowInput = {
@@ -125,6 +128,7 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       locationMode: resolveSfLocationMode(locationModeFromMeta ?? s.location_mode),
       locationText: String(s.location_text ?? meta.location_text ?? "").trim(),
       courseDatesEnabled,
+      arboxClassName: parseArboxClassStamp(meta).arbox_class_name,
     };
   } catch {
     const raw = String(s.description ?? "");
@@ -153,6 +157,7 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       locationMode: resolveSfLocationMode(s.location_mode),
       locationText: String(s.location_text ?? "").trim(),
       courseDatesEnabled: true,
+      arboxClassName: "",
     };
   }
 }

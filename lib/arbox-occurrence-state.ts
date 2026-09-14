@@ -51,6 +51,7 @@ export async function fetchOccurrenceRawData(
   const schedQs = new URLSearchParams({ from_date: date, to_date: date, location_id: boxId }).toString();
   const summaryQs = new URLSearchParams({ fromDate: date, toDate: date, location_id: boxId }).toString();
 
+  console.info("[arbox-occurrence-state] real_fetch", { businessId, date });
   const [schedResult, summaryResult] = await Promise.allSettled([
     fetchImpl(`/v3/schedule?${schedQs}`, { apiKey, method: "GET" }),
     fetchImpl(`/v3/reports/classesSummaryReport?${summaryQs}`, { apiKey, method: "GET" }),
@@ -97,6 +98,28 @@ async function getRawDataSafely(businessId: string, date: string, apiKey: string
     });
     return fetchOccurrenceRawData(businessId, date, apiKey, boxId);
   }
+}
+
+/**
+ * unstable_cache only de-duplicates once the first call has resolved and written the cache —
+ * concurrent callers (e.g. Promise.all over many slots on the same businessId+date, fired
+ * within milliseconds of each other) each miss the still-empty cache and trigger their own
+ * real fetch (verified live: 11 concurrent callers -> 11 real Arbox fetches, not 1). This
+ * in-process in-flight map is what actually guarantees "one fetch pair per businessId+date" —
+ * concurrent callers share the same pending promise; unstable_cache still gives cross-request
+ * reuse within the 60s window once that promise has settled.
+ */
+const inFlightRawFetches = new Map<string, Promise<ArboxOccurrenceRaw>>();
+
+async function getRawDataDeduped(businessId: string, date: string, apiKey: string, boxId: string): Promise<ArboxOccurrenceRaw> {
+  const key = `${businessId}|${date}`;
+  const existing = inFlightRawFetches.get(key);
+  if (existing) return existing;
+  const promise = getRawDataSafely(businessId, date, apiKey, boxId).finally(() => {
+    inFlightRawFetches.delete(key);
+  });
+  inFlightRawFetches.set(key, promise);
+  return promise;
 }
 
 function matchesOccurrence(
@@ -157,6 +180,55 @@ export function resolveOccurrenceState(
   return { state: "open", maxParticipants: max, registrationCount: reg, freeSpots: Math.max(0, max - reg) };
 }
 
+/**
+ * The cached, deduped, timeout-bounded raw fetch — the only Arbox-touching entry point.
+ * Callers with MULTIPLE candidates on the same businessId+date (the list path) should call
+ * this ONCE per distinct date and run the pure resolveOccurrenceState locally per candidate,
+ * rather than calling getOccurrenceState per candidate — that would each independently pay
+ * this same dedup cost correctly, but going through the raw fetch directly once is simpler
+ * and makes the "one fetch pair per date" guarantee obvious at the call site.
+ */
+export async function getOccurrenceRawData(input: {
+  businessId: number | string;
+  apiKey: string;
+  boxId: string;
+  date: string;
+  fetchImpl?: typeof arboxPublicFetch;
+  timeoutMs?: number;
+  skipCache?: boolean;
+}): Promise<ArboxOccurrenceRaw> {
+  const businessId = String(input.businessId ?? "").trim();
+  const apiKey = String(input.apiKey ?? "").trim();
+  const boxId = String(input.boxId ?? "").trim();
+  const date = String(input.date ?? "").trim();
+  const empty: ArboxOccurrenceRaw = { scheduleRows: null, summaryRows: null };
+  if (!businessId || !apiKey || !boxId || !date) return empty;
+
+  const fetchImpl = input.fetchImpl ?? arboxPublicFetch;
+  const timeoutMs = input.timeoutMs ?? OCCURRENCE_STATE_TIMEOUT_MS;
+
+  const work = (async (): Promise<ArboxOccurrenceRaw> => {
+    try {
+      return input.skipCache || input.fetchImpl
+        ? await fetchOccurrenceRawData(businessId, date, apiKey, boxId, fetchImpl)
+        : await getRawDataDeduped(businessId, date, apiKey, boxId);
+    } catch (e) {
+      console.error("[arbox-occurrence-state] raw fetch failed", {
+        businessId,
+        date,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return empty;
+    }
+  })();
+
+  const timeout = new Promise<ArboxOccurrenceRaw>((resolve) => {
+    setTimeout(() => resolve(empty), timeoutMs);
+  });
+
+  return Promise.race([work, timeout]);
+}
+
 export async function getOccurrenceState(input: {
   businessId: number | string;
   apiKey: string;
@@ -173,43 +245,26 @@ export async function getOccurrenceState(input: {
   skipCache?: boolean;
 }): Promise<ArboxOccurrenceStateResult> {
   const businessId = String(input.businessId ?? "").trim();
-  const apiKey = String(input.apiKey ?? "").trim();
-  const boxId = String(input.boxId ?? "").trim();
   const date = String(input.date ?? "").trim();
-  if (!businessId || !apiKey || !boxId || !date) return { state: "unknown" };
+  if (!businessId || !input.apiKey?.trim() || !input.boxId?.trim() || !date) return { state: "unknown" };
 
-  const fetchImpl = input.fetchImpl ?? arboxPublicFetch;
-  const timeoutMs = input.timeoutMs ?? OCCURRENCE_STATE_TIMEOUT_MS;
-
-  const work = (async (): Promise<ArboxOccurrenceStateResult> => {
-    try {
-      const raw =
-        input.skipCache || input.fetchImpl
-          ? await fetchOccurrenceRawData(businessId, date, apiKey, boxId, fetchImpl)
-          : await getRawDataSafely(businessId, date, apiKey, boxId);
-      const result = resolveOccurrenceState(raw, date, input.time, input.className);
-      console.info("[arbox-occurrence-state]", {
-        businessId,
-        date,
-        className: input.className,
-        state: result.state,
-        maxParticipants: result.maxParticipants,
-        registrationCount: result.registrationCount,
-      });
-      return result;
-    } catch (e) {
-      console.error("[arbox-occurrence-state] failed", {
-        businessId,
-        date,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      return { state: "unknown" };
-    }
-  })();
-
-  const timeout = new Promise<ArboxOccurrenceStateResult>((resolve) => {
-    setTimeout(() => resolve({ state: "unknown" }), timeoutMs);
+  const raw = await getOccurrenceRawData({
+    businessId,
+    apiKey: input.apiKey,
+    boxId: input.boxId,
+    date,
+    fetchImpl: input.fetchImpl,
+    timeoutMs: input.timeoutMs,
+    skipCache: input.skipCache,
   });
-
-  return Promise.race([work, timeout]);
+  const result = resolveOccurrenceState(raw, date, input.time, input.className);
+  console.info("[arbox-occurrence-state]", {
+    businessId,
+    date,
+    className: input.className,
+    state: result.state,
+    maxParticipants: result.maxParticipants,
+    registrationCount: result.registrationCount,
+  });
+  return result;
 }
