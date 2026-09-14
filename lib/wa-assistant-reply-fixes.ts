@@ -571,16 +571,25 @@ export function stripTrailingMeanwhileFiller(text: string): string {
   return String(text ?? "").replace(TRAILING_MEANWHILE_FILLER_RE, "").trim();
 }
 
-const SLANG_JOY_OPENER_RE =
-  /^(קטן|בקטנה)(?![א-ת])(\s*[!.]*)(?=\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]|$|\n))/u;
+/** «קטן!» / «בקטנה!» בכל מקום בתשובה — לא רק כפתיח. «!» הוא הסימן שמבדיל בין שמחה (אסורה) לשימוש תקני של המילה («כלב קטן»). */
+const SLANG_JOY_EXCLAIM_RE = new RegExp(
+  `${HEB_BOUND}(קטן|בקטנה)(?![א-ת])\\s*!+`,
+  "gu"
+);
+
+/** «קטן» / «בקטנה» כהודעה שלמה בפני עצמה (בלי «!») — עדיין פתיח שמחה. */
+const SLANG_JOY_BARE_OPENER_RE =
+  /^(קטן|בקטנה)(?![א-ת])(\s*[.]*)(?=\s*(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}]|$|\n))/u;
 
 const ALLOWED_JOY_OPENER = "איזה כיף!";
 
-/** «קטן!» / «בקטנה» כפתיח שמחה - מחליפים למילת שמחה מותרת. לא נוגע ב«קטנים» / «שיעור קטן». */
+/** «קטן!» / «בקטנה» כביטוי שמחה - מחליפים למילת שמחה מותרת בכל מקום בתשובה. לא נוגע ב«קטנים» / «שיעור קטן». */
 export function replaceSlangJoyOpener(text: string): string {
   const raw = String(text ?? "");
   if (!raw) return raw;
-  return raw.replace(SLANG_JOY_OPENER_RE, ALLOWED_JOY_OPENER);
+  let s = raw.replace(SLANG_JOY_EXCLAIM_RE, ALLOWED_JOY_OPENER);
+  s = s.replace(SLANG_JOY_BARE_OPENER_RE, ALLOWED_JOY_OPENER);
+  return s;
 }
 
 /** post-process על תשובת split לפני שליחה ל-WhatsApp (אפס API). */

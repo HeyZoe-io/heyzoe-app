@@ -294,4 +294,19 @@ assert.match(
 );
 assert.match(applyKnownAssistantReplyFixes("זה סטודיו בוטיק, השיעורים קטנים.", { knowledge }), /קטנים/);
 
+// «קטן!» באמצע/בסוף התשובה — לא רק כפתיח (זו הייתה נקודה עיוורת: הרגקס הישן תפס רק את תחילת המחרוזת).
+const slangJoyMidMessage = applyKnownAssistantReplyFixes(
+  "היי! 😊 שמחה לשמוע. קטן! נדבר מחר בבוקר",
+  { knowledge }
+);
+assert.doesNotMatch(slangJoyMidMessage, /קטן!/);
+assert.match(slangJoyMidMessage, /איזה כיף!/);
+
+const slangJoyTrailing = applyKnownAssistantReplyFixes(
+  "מעולה שהצטרפת אלינו, בקטנה! נתראה בשיעור",
+  { knowledge }
+);
+assert.doesNotMatch(slangJoyTrailing, /בקטנה!/);
+assert.match(slangJoyTrailing, /איזה כיף!/);
+
 console.log("wa-assistant-reply-fixes.test.ts: ok");
