@@ -252,6 +252,12 @@ import {
   isFreezeBillingAccountDispute,
 } from "@/lib/wa-freeze-billing-handoff";
 import {
+  FREEZE_ACTION_HANDOFF_MODEL,
+  FREEZE_ACTION_HANDOFF_REPLY,
+  hasBusinessFreezeActionKnowledge,
+  isFreezeActionRequest,
+} from "@/lib/wa-freeze-action-handoff";
+import {
   isRenewalTemplateHandoffText,
   RENEWAL_HANDOFF_MODEL,
   RENEWAL_HANDOFF_REPLY,
@@ -6697,6 +6703,47 @@ async function processIncoming(
       role: "assistant",
       content: FREEZE_BILLING_HANDOFF_REPLY,
       model_used: FREEZE_BILLING_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  // מנוי בהקפאה שהליד רוצה לפעול עליו (לבטל/להסיר כדי להירשם) — רק אם אין ידע עסקי ספציפי לטיפול בהקפאה
+  if (
+    msg.type === "text" &&
+    businessId &&
+    isFreezeActionRequest(msg.text) &&
+    !hasBusinessFreezeActionKnowledge(knowledge?.knowledgeQa)
+  ) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] freeze-action human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        FREEZE_ACTION_HANDOFF_REPLY,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send freeze-action team handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: FREEZE_ACTION_HANDOFF_REPLY,
+      model_used: FREEZE_ACTION_HANDOFF_MODEL,
       session_id: sessionId,
     });
     return;
