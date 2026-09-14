@@ -8,6 +8,8 @@ export const MAX_ARBOX_MEMBERSHIP_TYPE_PAGES = 10;
 export type ArboxMembershipTypeRow = {
   membership_type_id: number;
   membership_type_name: string;
+  /** Arbox `type`: plan | session | service | trial. Omitted when the API did not send one. */
+  type?: string;
 };
 
 type ArboxMembershipTypesResponse = {
@@ -36,7 +38,12 @@ export function parseArboxMembershipTypeRows(json: unknown): ArboxMembershipType
     const id = Number(row.membership_type_id);
     if (!Number.isFinite(id) || id <= 0) continue;
     const name = String(row.membership_type_name ?? "").trim();
-    out.push({ membership_type_id: Math.trunc(id), membership_type_name: name || String(id) });
+    const type = String(row.type ?? "").trim().toLowerCase();
+    out.push({
+      membership_type_id: Math.trunc(id),
+      membership_type_name: name || String(id),
+      ...(type ? { type } : {}),
+    });
   }
   return out;
 }
@@ -154,4 +161,17 @@ export function filterArboxMembershipTypesByWords<
   const selectedIdSet = new Set(selectedRows.map((row) => row.membership_type_id));
   const rest = matching.filter((row) => !selectedIdSet.has(row.membership_type_id));
   return [...selectedRows, ...rest];
+}
+
+/** Manual bulk picker: memberships and punch cards only — not services, trials, or classes. */
+export function isArboxPlanOrPunchCardType(type: string | undefined | null): boolean {
+  const normalized = String(type ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === "plan" || normalized === "session";
+}
+
+export function filterArboxPlanAndPunchCardTypes<T extends { type?: string | null }>(
+  types: readonly T[]
+): T[] {
+  return types.filter((row) => isArboxPlanOrPunchCardType(row.type));
 }

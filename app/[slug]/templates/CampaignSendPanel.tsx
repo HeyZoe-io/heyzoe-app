@@ -19,6 +19,12 @@ import {
   israelDatetimeLocalString,
   resolveManualBulkSchedule,
 } from "@/lib/manual-bulk/schedule";
+import {
+  filterArboxMembershipTypesByWords,
+  filterArboxPlanAndPunchCardTypes,
+  type ArboxMembershipTypeRow,
+} from "@/lib/arbox-membership-types";
+import { PURCHASE_ITEM_TYPE_LABELS_HE } from "@/lib/trigger-catalog";
 
 export type CampaignSendTemplateOption = {
   name: string;
@@ -28,7 +34,7 @@ export type CampaignSendTemplateOption = {
   language?: string;
 };
 
-type MembershipTypeRow = { membership_type_id: number; membership_type_name: string };
+type MembershipTypeRow = ArboxMembershipTypeRow;
 
 type PreviewResult = {
   with_phone_count: number;
@@ -74,8 +80,9 @@ export default function CampaignSendPanel(props: {
   const [weeks, setWeeks] = useState(MANUAL_BULK_WEEKS_DEFAULT);
   const [templateName, setTemplateName] = useState(props.templates[0]?.name ?? "");
   const [membershipTypes, setMembershipTypes] = useState<MembershipTypeRow[]>([]);
+  const [membershipTypesLoading, setMembershipTypesLoading] = useState(false);
+  const [membershipTypeQuery, setMembershipTypeQuery] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
-  const [includePunchCards, setIncludePunchCards] = useState(false);
   const [whenMode, setWhenMode] = useState<"now" | "later" | "recurring">("now");
   const [scheduledLocal, setScheduledLocal] = useState(() =>
     israelDatetimeLocalString(new Date(Date.now() + 60 * 60 * 1000))
@@ -118,6 +125,7 @@ export default function CampaignSendPanel(props: {
   useEffect(() => {
     if (audienceType !== "membership") return;
     let cancelled = false;
+    setMembershipTypesLoading(true);
     void (async () => {
       try {
         const res = await fetch(
@@ -131,12 +139,43 @@ export default function CampaignSendPanel(props: {
         setMembershipTypes(Array.isArray(j.types) ? j.types : []);
       } catch {
         /* types stay empty — filter = all */
+      } finally {
+        if (!cancelled) setMembershipTypesLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [audienceType, props.slug]);
+
+  const planAndPunchCardTypes = useMemo(
+    () => filterArboxPlanAndPunchCardTypes(membershipTypes),
+    [membershipTypes]
+  );
+
+  const selectedMembershipTypeIds = useMemo(() => {
+    const wanted = new Set(selectedTypes);
+    return planAndPunchCardTypes
+      .filter((row) => wanted.has(row.membership_type_name))
+      .map((row) => row.membership_type_id);
+  }, [planAndPunchCardTypes, selectedTypes]);
+
+  const visibleMembershipTypes = useMemo(
+    () =>
+      filterArboxMembershipTypesByWords(
+        planAndPunchCardTypes,
+        membershipTypeQuery,
+        selectedMembershipTypeIds
+      ),
+    [planAndPunchCardTypes, membershipTypeQuery, selectedMembershipTypeIds]
+  );
+
+  function toggleMembershipTypeName(name: string) {
+    setSelectedTypes((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+    setPreview(null);
+  }
 
   const scheduledAtRaw = whenMode === "later" ? scheduledLocal : undefined;
   const isRecurring = whenMode === "recurring";
@@ -147,9 +186,9 @@ export default function CampaignSendPanel(props: {
       template_name: templateName,
       weeks,
       membership_type_names: selectedTypes,
-      include_punch_cards: includePunchCards,
+      include_punch_cards: audienceType === "membership",
     }),
-    [audienceType, templateName, weeks, selectedTypes, includePunchCards]
+    [audienceType, templateName, weeks, selectedTypes]
   );
 
   const payload = useMemo(
@@ -382,36 +421,66 @@ export default function CampaignSendPanel(props: {
 
       <section className="rounded-xl border border-zinc-200 bg-white p-3 space-y-3">
         {audienceType === "membership" ? (
-          <div className="space-y-3">
-            <label className="block text-sm text-zinc-700">
-              סוגי מנוי (ריק = כולם)
-              <select
-                multiple
-                className={`${FIELD} mt-1 h-32`}
-                value={selectedTypes}
-                onChange={(e) => {
-                  setSelectedTypes(Array.from(e.target.selectedOptions).map((o) => o.value));
-                  setPreview(null);
-                }}
-              >
-                {membershipTypes.map((t) => (
-                  <option key={t.membership_type_id} value={t.membership_type_name}>
-                    {t.membership_type_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center justify-end gap-2 text-sm">
-              <span>כולל כרטיסיות / sessions</span>
-              <input
-                type="checkbox"
-                checked={includePunchCards}
-                onChange={(e) => {
-                  setIncludePunchCards(e.target.checked);
-                  setPreview(null);
-                }}
-              />
-            </label>
+          <div className="space-y-2">
+            <p className="text-sm text-zinc-700">סוגי מנוי וכרטיסיות</p>
+            <p className="text-xs text-zinc-500">
+              מוצגים רק מנויים וכרטיסיות — לא שיעורים, שירותים או ניסיון. ריק = כולם. אפשר לבחור כמה.
+            </p>
+            {membershipTypesLoading ? (
+              <p className="text-xs text-zinc-500">טוען סוגי מנוי וכרטיסיות…</p>
+            ) : planAndPunchCardTypes.length === 0 ? (
+              <p className="text-xs text-zinc-500">לא נמצאו מנויים או כרטיסיות.</p>
+            ) : (
+              <div className="space-y-2">
+                <input
+                  type="search"
+                  value={membershipTypeQuery}
+                  onChange={(e) => setMembershipTypeQuery(e.target.value)}
+                  placeholder="סינון לפי מילים…"
+                  aria-label="סינון סוגי מנוי וכרטיסיות"
+                  autoComplete="off"
+                  className={FIELD}
+                />
+                {visibleMembershipTypes.length === 0 ? (
+                  <p className="text-xs text-zinc-500">אין סוגים שמתאימים לסינון.</p>
+                ) : (
+                  <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
+                    {visibleMembershipTypes.map((row) => {
+                      const checked = selectedTypes.includes(row.membership_type_name);
+                      const inputId = `bulk-membership-type-${row.membership_type_id}`;
+                      const kindLabel =
+                        row.type === "plan"
+                          ? PURCHASE_ITEM_TYPE_LABELS_HE.plan
+                          : row.type === "session"
+                            ? PURCHASE_ITEM_TYPE_LABELS_HE.session
+                            : null;
+                      return (
+                        <li key={row.membership_type_id}>
+                          <label
+                            htmlFor={inputId}
+                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                          >
+                            <input
+                              id={inputId}
+                              type="checkbox"
+                              className="mt-0.5 shrink-0"
+                              checked={checked}
+                              onChange={() => toggleMembershipTypeName(row.membership_type_name)}
+                            />
+                            <span className="text-xs leading-snug text-zinc-800">
+                              {row.membership_type_name}
+                              {kindLabel ? (
+                                <span className="text-zinc-400"> · {kindLabel}</span>
+                              ) : null}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <label className="block text-sm text-zinc-700">

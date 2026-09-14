@@ -5,6 +5,8 @@ import {
   buildArboxMembershipTypesPath,
   fetchAllArboxMembershipTypes,
   filterArboxMembershipTypesByWords,
+  filterArboxPlanAndPunchCardTypes,
+  isArboxPlanOrPunchCardType,
   membershipTypeNameById,
   parseArboxMembershipTypeRows,
 } from "@/lib/arbox-membership-types";
@@ -166,6 +168,31 @@ async function main() {
     filtered.map((r) => r.membership_type_id),
     [1, 2],
     "selected stay visible while filtering"
+  );
+}
+
+{
+  assert.equal(isArboxPlanOrPunchCardType("plan"), true);
+  assert.equal(isArboxPlanOrPunchCardType("SESSION"), true);
+  assert.equal(isArboxPlanOrPunchCardType("service"), false);
+  assert.equal(isArboxPlanOrPunchCardType("trial"), false);
+  assert.equal(isArboxPlanOrPunchCardType(""), true);
+  assert.equal(isArboxPlanOrPunchCardType(undefined), true);
+
+  const parsed = parseArboxMembershipTypeRows({
+    data: [
+      { membership_type_id: 1, membership_type_name: "מנוי חודשי", type: "plan" },
+      { membership_type_id: 2, membership_type_name: "10 כניסות", type: "SESSION" },
+      { membership_type_id: 3, membership_type_name: "עיסוי", type: "service" },
+      { membership_type_id: 4, membership_type_name: "שיעור ניסיון", type: "trial" },
+      { membership_type_id: 5, membership_type_name: "בלי type" },
+    ],
+  });
+  assert.equal(parsed[0]?.type, "plan");
+  assert.equal(parsed[1]?.type, "session");
+  assert.deepEqual(
+    filterArboxPlanAndPunchCardTypes(parsed).map((r) => r.membership_type_id),
+    [1, 2, 5]
   );
 }
 
