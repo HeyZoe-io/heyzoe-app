@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   formatAgorot,
   META_RATES_IL,
+  metaMonthlyExampleBillableMessages,
   metaMonthlyExampleIls,
   metaMonthlyExampleMessages,
   usdRateToAgorot,
@@ -15,6 +16,7 @@ assert.equal(usdRateToIls(META_RATES_IL.service), "0.016", "service rate ILS");
 assert.equal(usdRateToIls(META_RATES_IL.utility), "0.016", "utility rate ILS");
 assert.equal(usdRateToIls(META_RATES_IL.marketing), "0.107", "marketing rate ILS");
 assert.equal(metaMonthlyExampleMessages(), 1600, "200 conversations x 8 messages");
-assert.equal(metaMonthlyExampleIls(), 26, "monthly example rounds to 26 ILS");
+assert.equal(metaMonthlyExampleBillableMessages(), 600, "1,600 minus the 1,000 free tier");
+assert.equal(metaMonthlyExampleIls(), 10, "monthly example rounds to 10 ILS");
 
 console.log("meta-pricing-notice: ok");

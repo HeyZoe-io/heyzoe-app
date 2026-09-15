@@ -6,6 +6,7 @@ import {
   formatAgorot,
   META_PRICING_NOTICE_KEY,
   META_RATES_IL,
+  metaMonthlyExampleBillableMessages,
   metaMonthlyExampleIls,
   metaMonthlyExampleMessages,
   usdRateToAgorot,
@@ -25,13 +26,14 @@ function MetaPricingFlowDiagram() {
   const serviceAgorot = formatAgorot(usdRateToAgorot(META_RATES_IL.service));
   const exampleMessages = metaMonthlyExampleMessages().toLocaleString("en-US");
   const exampleIls = metaMonthlyExampleIls();
+  const freeTier = META_RATES_IL.freeServiceMessagesPerNumberPerMonth.toLocaleString("en-US");
 
   return (
-    <svg width="100%" viewBox="0 0 520 430" preserveAspectRatio="xMidYMid meet" role="img">
+    <svg width="100%" viewBox="0 0 520 450" preserveAspectRatio="xMidYMid meet" role="img">
       <title>עדכון מחירי מטא החל מ-1.10.26</title>
       <desc>
         ליד ממודעת Click to WhatsApp מקבל 72 שעות חינם, וליד מכל מקור אחר מחויב כ-{serviceAgorot} אגורות לכל הודעה
-        יוצאת
+        יוצאת אחרי {freeTier} הודעות שירות חינם בחודש לכל מספר עסקי
       </desc>
       <defs>
         <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -105,13 +107,16 @@ function MetaPricingFlowDiagram() {
         200 שיחות × 8 הודעות
       </text>
       <text x="130" y="352" textAnchor="middle" dominantBaseline="central" direction="rtl" fill="#7A3FA3" fontSize="13">
-        {exampleMessages} הודעות = כ-{exampleIls} ₪ בחודש
+        {exampleMessages} פחות {freeTier} חינם = כ-{exampleIls} ₪
       </text>
 
       <text x="260" y="396" textAnchor="middle" direction="rtl" fill="#7A3FA3" fontSize="13">
+        {freeTier} הודעות השירות הראשונות בחודש חינם, לכל מספר עסקי
+      </text>
+      <text x="260" y="416" textAnchor="middle" direction="rtl" fill="#7A3FA3" fontSize="13">
         סגול מלא = חינם · סגול בהיר = בתשלום
       </text>
-      <text x="260" y="416" textAnchor="middle" direction="rtl" fill="#9C9A92" fontSize="13">
+      <text x="260" y="436" textAnchor="middle" direction="rtl" fill="#9C9A92" fontSize="13">
         התעריף נגבה בדולרים; המרה לשקלים לפי שער 14.9.26
       </text>
     </svg>
@@ -140,6 +145,9 @@ export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricing
 
   const serviceAgorot = formatAgorot(usdRateToAgorot(META_RATES_IL.service));
   const marketingAgorot = formatAgorot(usdRateToAgorot(META_RATES_IL.marketing));
+  const freeTier = META_RATES_IL.freeServiceMessagesPerNumberPerMonth.toLocaleString("en-US");
+  const exampleMessages = metaMonthlyExampleMessages().toLocaleString("en-US");
+  const exampleBillable = metaMonthlyExampleBillableMessages().toLocaleString("en-US");
   const exampleIls = metaMonthlyExampleIls();
 
   async function handleConfirm() {
@@ -206,13 +214,20 @@ export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricing
             </p>
             <p>
               <span className="font-semibold text-zinc-900">שיחות שהתחילו לא ממודעת Click to WhatsApp:</span> כ-
-              {serviceAgorot} אגורות ({usdRateToIls(META_RATES_IL.service)} ₪) להודעה יוצאת. 200 שיחות בחודש × 8
-              הודעות = כ-{exampleIls} ₪.
+              {serviceAgorot} אגורות ({usdRateToIls(META_RATES_IL.service)} ₪) להודעה יוצאת, אחרי {freeTier}{" "}
+              הודעות שירות חינם בחודש לכל מספר עסקי. החיוב מתחיל מההודעה ה-1,001, והמסגרת מתאפסת בתחילת כל חודש
+              ולא נגררת. 200 שיחות בחודש × 8 הודעות = {exampleMessages} הודעות, מהן {exampleBillable} בחיוב = כ-
+              {exampleIls} ₪.
             </p>
             <p>
               <span className="font-semibold text-zinc-900">טמפלייטים (אוטומציות) ללא שינוי:</span> כ-{serviceAgorot}{" "}
               אגורות ({usdRateToIls(META_RATES_IL.utility)} ₪) ליוטיליטי, כ-{marketingAgorot} אגורות (
-              {usdRateToIls(META_RATES_IL.marketing)} ₪) למרקטינג.
+              {usdRateToIls(META_RATES_IL.marketing)} ₪) למרקטינג. התבניות לא נכנסות ל-{freeTier} ההודעות
+              החינמיות ומחויבות מההודעה הראשונה.
+            </p>
+            <p>
+              <span className="font-semibold text-zinc-900">לתשומת לבכם:</span> מטא דורשת אמצעי תשלום מעודכן
+              בחשבון עד 30.9.2026. חשבון ללא אמצעי תשלום עלול להיחסם ממסירת הודעות שירות מ-1.10.
             </p>
           </div>
 

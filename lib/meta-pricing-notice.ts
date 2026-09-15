@@ -8,6 +8,8 @@ export const META_RATES_IL = {
   utility: 0.0053,
   authentication: 0.0053,
   service: 0.0053,
+  /** Free service messages per business phone number, per month (Meta, from 2026-10-01). */
+  freeServiceMessagesPerNumberPerMonth: 1000,
 } as const;
 
 /** USD-per-message rate -> agorot (1 ILS = 100 agorot), rounded to 1 decimal. */
@@ -34,9 +36,16 @@ export function metaMonthlyExampleMessages(): number {
   return META_MONTHLY_EXAMPLE.conversationsPerMonth * META_MONTHLY_EXAMPLE.messagesPerConversation;
 }
 
+/** Billable portion of the monthly example after the free service-message tier. */
+export function metaMonthlyExampleBillableMessages(): number {
+  return Math.max(
+    0,
+    metaMonthlyExampleMessages() - META_RATES_IL.freeServiceMessagesPerNumberPerMonth
+  );
+}
+
 /** Monthly ILS cost for the 200-conversation / 8-message example, rounded to the nearest shekel. */
 export function metaMonthlyExampleIls(): number {
-  const totalMessages = metaMonthlyExampleMessages();
-  const totalUsd = totalMessages * META_RATES_IL.service;
-  return Math.round(totalUsd * META_RATES_IL.usdIlsRate);
+  const billable = metaMonthlyExampleBillableMessages();
+  return Math.round(billable * META_RATES_IL.service * META_RATES_IL.usdIlsRate);
 }
