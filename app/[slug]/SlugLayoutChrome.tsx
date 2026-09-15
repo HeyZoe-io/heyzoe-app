@@ -8,6 +8,7 @@ import { SettingsUnsavedProvider } from "./settings/settings-unsaved-context";
 import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
+import MetaPricingNoticeModal, { type MetaPricingNoticeData } from "./MetaPricingNoticeModal";
 import {
   dashboardWhatsAppChannelSwrKey,
   dashboardZoeActivatedSwrKey,
@@ -18,11 +19,13 @@ export default function SlugLayoutChrome({
   slug,
   showOwnerWhatsappOptIn,
   zoeActivated,
+  metaPricingNotice,
   children,
 }: {
   slug: string;
   showOwnerWhatsappOptIn: boolean;
   zoeActivated: boolean;
+  metaPricingNotice: MetaPricingNoticeData | null;
   children: ReactNode;
 }) {
   const pathname = usePathname() ?? "";
@@ -40,8 +43,18 @@ export default function SlugLayoutChrome({
   });
   const activated = Boolean(activatedFromCache);
 
+  const noticeModal =
+    metaPricingNotice && !metaPricingNotice.acknowledged ? (
+      <MetaPricingNoticeModal notice={metaPricingNotice} />
+    ) : null;
+
   if (isAccountArea) {
-    return <>{children}</>;
+    return (
+      <>
+        {children}
+        {noticeModal}
+      </>
+    );
   }
 
   async function activateZoe() {
@@ -117,6 +130,7 @@ export default function SlugLayoutChrome({
       <DashboardHelpChatWidget slug={slug} />
       <DashboardPwaPrompt />
       {showOwnerWhatsappOptIn ? <OwnerWhatsappOptInModal slug={normSlug} /> : null}
+      {noticeModal}
     </SettingsUnsavedProvider>
   );
 }
