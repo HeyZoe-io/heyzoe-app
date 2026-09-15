@@ -156,8 +156,11 @@ import {
 } from "@/lib/wa-cta-service-repick";
 import {
   OPENING_SERVICE_LIST_PICK_BRIDGE,
+  CATALOG_FAMILY_PICK_MODEL,
+  CATALOG_FAMILY_PICK_QUESTION_HE,
   buildAmbiguousCatalogTrialPickMessage,
   ensureOpeningServiceListPickBridge,
+  looksLikeOutOfFlowCatalogClassPick,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
@@ -225,6 +228,7 @@ import {
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceFromFreeText,
   matchCatalogServicesFromFreeText,
+  matchCatalogServicesSharingDistinctiveToken,
   parseRequestedClassDays,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
@@ -2864,10 +2868,14 @@ async function sendOpeningServicePickMenu(input: {
   skipScheduleBoard?: boolean;
   /** בקשת אימון אחר — שורת אישור מעל טקסט בחירת המוצר מהדשבורד, באותה הודעה. */
   prependOtherServiceAck?: boolean;
+  /** תת-רשימה (משפחת פילאטיס) — במקום כל הקטלוג. */
+  menuServices?: SfServiceRow[];
+  questionOverride?: string;
 }): Promise<boolean> {
   const cfg = input.knowledge.salesFlowConfig;
   if (!cfg) return false;
-  const labels = input.salesFlowServices.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
+  const menuSource = input.menuServices?.length ? input.menuServices : input.salesFlowServices;
+  const labels = menuSource.map((s) => s.name.trim()).filter(Boolean).slice(0, 12);
   if (labels.length < 2) return false;
   await ensureSalesFlowStartedMarker({
     business_slug: input.business_slug,
@@ -2875,7 +2883,10 @@ async function sendOpeningServicePickMenu(input: {
     phone: input.msg.from,
   });
 
-  const qRaw = String(cfg.multi_service_question ?? "").trim() || buildDefaultMultiServiceQuestion();
+  const qRaw =
+    String(input.questionOverride ?? "").trim() ||
+    String(cfg.multi_service_question ?? "").trim() ||
+    buildDefaultMultiServiceQuestion();
   const assets = scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockMedia ?? false);
   const placement = resolveScheduleBoardPlacement(cfg);
   if (!input.skipScheduleBoard && placement === "before_service_pick") {
@@ -6800,10 +6811,18 @@ async function processIncoming(
         business_slug,
         session_id: sessionId,
       });
+      const lastAssistContentForTryOffer =
+        inboundYes && lastAssistForTryOffer !== TRY_CLASS_OFFER_MODEL
+          ? await fetchLastAssistantMessageContent({
+              business_slug,
+              session_id: sessionId,
+            })
+          : "";
       if (
         shouldStartProductPickAfterTryClassOffer({
           inbound: msg.text,
           lastAssistantModel: lastAssistForTryOffer,
+          lastAssistantContent: lastAssistContentForTryOffer,
         }) &&
         !detectClosedPlaybookIntent(msg.text)
       ) {
@@ -8711,6 +8730,71 @@ async function processIncoming(
     }
   }
 
+  // Out-of-flow: שם אימון / משפחה («פילאטיס מזרן») — לא לשלוח predefined_choice_guard.
+  // משפחה (≥2) → «האם זה האימון שמעניין אותך?» + כפתורי המשפחה. התאמה יחידה → סשן בחירת מוצר מלא.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    knowledge?.salesFlowConfig &&
+    businessId &&
+    salesFlowServices.length > 1 &&
+    contactTrialRegistered !== true &&
+    contactSessionPhase !== "registered" &&
+    (contactSessionPhase === "opening" || !salesFlowStarted) &&
+    !isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority) &&
+    looksLikeOutOfFlowCatalogClassPick(msg.text)
+  ) {
+    const familyNames = matchCatalogServicesSharingDistinctiveToken(msg.text, salesFlowServices);
+    const uniqueNames = matchCatalogServicesFromFreeText(msg.text, salesFlowServices);
+    const familyRows = salesFlowServices.filter((s) => familyNames.includes(s.name));
+    try {
+      if (familyRows.length >= 2) {
+        await updateContactSessionPhase({
+          supabase,
+          businessId,
+          phone: msg.from,
+          phase: "opening",
+        });
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        const sentFamily = await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          menuServices: familyRows,
+          questionOverride: CATALOG_FAMILY_PICK_QUESTION_HE,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: CATALOG_FAMILY_PICK_MODEL,
+        });
+        if (sentFamily) return;
+      }
+      if (uniqueNames.length === 1 || familyRows.length === 1) {
+        await beginSalesFlowAtProductPick({
+          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          entryContent: "[heyzoe:signup_intent_flow_entry]",
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          allowTrialCta: true,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("[WA Webhook] out-of-flow catalog class pick failed:", e);
+    }
+  }
+
   // 1) Sales flow: בחירת שירות (מרובים) → מענה + שאלת ניסיון (לא בשלב חימום — «1» לא ייבחר בטעות כשירות ראשון)
   if (
     msg.type === "text" &&
@@ -8732,16 +8816,38 @@ async function processIncoming(
       const num = Number(rawLower);
       const catalogMatches = matchCatalogServicesFromFreeText(resolved, named);
       const catalogTyped = catalogMatches.length === 1 ? catalogMatches[0]! : null;
+      const familyMatches = matchCatalogServicesSharingDistinctiveToken(resolved, named);
+      const ambiguousNames = catalogMatches.length >= 2 ? catalogMatches : familyMatches.length >= 2 ? familyMatches : [];
 
       if (
-        catalogMatches.length >= 2 &&
+        ambiguousNames.length >= 2 &&
         shouldPromptAmbiguousCatalogTrialPick({
           inboundText: resolved,
-          matchCount: catalogMatches.length,
+          matchCount: ambiguousNames.length,
           awaitingOpeningServicePick: true,
         })
       ) {
-        const ambiguousMsg = buildAmbiguousCatalogTrialPickMessage(catalogMatches.length);
+        const familyRows = named.filter((s) => ambiguousNames.includes(s.name));
+        const sentFamily = await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          menuServices: familyRows.length >= 2 ? familyRows : undefined,
+          questionOverride: CATALOG_FAMILY_PICK_QUESTION_HE,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+          modelUsed: CATALOG_FAMILY_PICK_MODEL,
+        });
+        if (sentFamily) {
+          contactSessionPhase = "opening";
+          contactFlowStep = 0;
+          return;
+        }
+        const ambiguousMsg = buildAmbiguousCatalogTrialPickMessage(ambiguousNames.length);
         await sendWhatsAppMessage(msg.toNumber, msg.from, ambiguousMsg, accountSid, authToken).catch(
           (e) => console.error("[WA Webhook] ambiguous catalog pick bridge failed:", e)
         );
@@ -10816,9 +10922,19 @@ async function processIncoming(
     isMetaInteractiveMenuReply(msg) &&
     (contactSessionPhase === "warmup" || isWarmupExtraMenuModel(await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })));
   const matchedPredefinedClosedLabel =
-    !skipPredefinedForWarmupMenuReply &&
-    !matched?.reply &&
-    predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label));
+    !skipPredefinedForWarmupMenuReply && !matched?.reply
+      ? predefinedClosedLabels.find((label) => waLabelMatches(incomingAsLabel, label))
+      : undefined;
+  const awaitingOpeningPickForGuard = isAwaitingOpeningServicePick(
+    contactSessionPhase,
+    salesFlowStarted,
+    lastAssistForWarmupPriority
+  );
+  const matchedStaleServiceName =
+    Boolean(matchedPredefinedClosedLabel) &&
+    !awaitingOpeningPickForGuard &&
+    salesFlowServices.some((s) => waLabelMatches(matchedPredefinedClosedLabel ?? "", s.name));
+  const matchedMenuGuardLabel = matchedStaleServiceName ? undefined : matchedPredefinedClosedLabel;
   const lastPickedServiceName =
     msg.type === "text" && knowledge?.salesFlowConfig && salesFlowServices.length > 1
       ? await fetchLastSfServiceEventName({ business_slug, session_id: sessionId })
@@ -10925,7 +11041,7 @@ async function processIncoming(
     // Static answer for a predefined quick-reply button
     replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
-  } else if (matchedPredefinedClosedLabel) {
+  } else if (matchedMenuGuardLabel) {
     await recoverUnrecognizedMenuPick({
       knowledge,
       salesFlowServices,

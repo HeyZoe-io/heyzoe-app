@@ -3,12 +3,16 @@ import {
   OPENING_SERVICE_LIST_PICK_BRIDGE,
   assistantReplyMentionsCatalogService,
   buildAmbiguousCatalogTrialPickMessage,
+  CATALOG_FAMILY_PICK_MODEL,
+  CATALOG_FAMILY_PICK_QUESTION_HE,
+  looksLikeOutOfFlowCatalogClassPick,
   ensureOpeningServiceListPickBridge,
   inboundLooksLikeTrialClassRegistrationPick,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
 } from "@/lib/wa-opening-service-list-pick-bridge";
+import { isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
 import { matchCatalogServicesFromFreeText } from "@/lib/wa-unknown-class-slot";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 
@@ -224,5 +228,13 @@ assert.equal(
   null,
   "no last pick → opening bridge handles this"
 );
+
+assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס מזרן"), true);
+assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס"), true);
+assert.equal(looksLikeOutOfFlowCatalogClassPick("יש פילאטיס?"), false, "info question");
+assert.equal(looksLikeOutOfFlowCatalogClassPick("כמה עולה פילאטיס מזרן"), false);
+assert.equal(CATALOG_FAMILY_PICK_QUESTION_HE, "האם זה האימון שמעניין אותך?");
+assert.equal(CATALOG_FAMILY_PICK_MODEL, "sales_flow_catalog_family_pick");
+assert.equal(isOpeningServicePickMenuModel(CATALOG_FAMILY_PICK_MODEL), true);
 
 console.log("wa-opening-service-list-pick-bridge.test.ts: ok");

@@ -123,14 +123,30 @@ export function shouldSendTryClassInfoOffer(input: {
   return matchesTryClassIntent(input.inbound);
 }
 
+/** קלוד שאלה בטקסט חופשי אם בא לנסות אימון ניסיון — בלי כפתורי ההצעה המובנית. */
+export function assistantAskedToTryAClass(raw: string): boolean {
+  const t = String(raw ?? "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!t || t.length > 800) return false;
+  const asks = /[?؟]|ברצונך|בא לך/u.test(t);
+  if (!asks) return false;
+  return /(?:אימון|שיעור).{0,24}(?:ניסיון|נסיון|היכרות|הכרות)|לנסות\s+(?:אימון|שיעור)\s*(?:ניסיון|נסיון)?/u.test(
+    t
+  );
+}
+
 /** Last Zoe turn was the offer, and the lead said yes / repeated try-intent. */
 export function shouldStartProductPickAfterTryClassOffer(input: {
   inbound: string;
   lastAssistantModel: string | null | undefined;
+  lastAssistantContent?: string | null;
 }): boolean {
-  if (input.lastAssistantModel !== TRY_CLASS_OFFER_MODEL) return false;
   if (isTryClassOfferNegative(input.inbound)) return false;
-  return isTryClassOfferAffirmative(input.inbound);
+  if (!isTryClassOfferAffirmative(input.inbound)) return false;
+  if (input.lastAssistantModel === TRY_CLASS_OFFER_MODEL) return true;
+  return assistantAskedToTryAClass(input.lastAssistantContent ?? "");
 }
 
 export function shouldDeclineTryClassOffer(input: {

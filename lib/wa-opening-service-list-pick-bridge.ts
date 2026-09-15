@@ -22,6 +22,19 @@ export function buildAmbiguousCatalogTrialPickMessage(matchCount: number): strin
   return `מצאתי ${n} אימונים שתואמים לבחירה שלך, הכי כדאי לבחור מתוך הרשימה`;
 }
 
+/** אישור משפחת אימונים («פילאטיס») לפני בחירת המוצר המדויק. */
+export const CATALOG_FAMILY_PICK_QUESTION_HE = "האם זה האימון שמעניין אותך?";
+export const CATALOG_FAMILY_PICK_MODEL = "sales_flow_catalog_family_pick";
+
+/** שם אימון / משפחה קצרה מחוץ לפלואו — לא שאלת מחיר/מידע. */
+export function looksLikeOutOfFlowCatalogClassPick(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t || t.length > 80) return false;
+  if (looksLikeInfoQuestionOnly(t)) return false;
+  if (/(?:כמה\s+עולה|מה\s+המחיר|how much)/iu.test(t)) return false;
+  return true;
+}
+
 function looksLikeInfoQuestionOnly(text: string): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;

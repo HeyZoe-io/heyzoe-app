@@ -5,6 +5,7 @@ import {
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceByDayAndTime,
   matchCatalogServiceFromFreeText,
+  matchCatalogServicesSharingDistinctiveToken,
   looksLikeClassTimeQuestion,
   looksLikeHolidayClassScheduleAsk,
   shouldHandoffUnknownClassSlot,
@@ -304,5 +305,28 @@ assert.equal(
   true,
   "Friday ask with empty catalog → team"
 );
+
+const apexPilatesLike = [
+  svc("פילאטיס מכשירים", []),
+  svc("פילאטיס - נשים בלבד", []),
+  svc("יוגה", []),
+  svc("פילאטיס מזרן", []),
+  svc("פאוור פילאטיס", []),
+  svc("אימון כוח (FLEX)", []),
+];
+{
+  const familyFromMat = matchCatalogServicesSharingDistinctiveToken("פילאטיס מזרן", apexPilatesLike);
+  assert.ok(familyFromMat.includes("פילאטיס מזרן"), "mat class in pilates family");
+  assert.ok(familyFromMat.includes("פילאטיס מכשירים"), "reformer in pilates family");
+  assert.ok(familyFromMat.includes("פאוור פילאטיס"), "power pilates in family");
+  assert.equal(familyFromMat.includes("יוגה"), false, "yoga is not pilates family");
+  assert.ok(familyFromMat.length >= 3, "pilates token yields the pilates family");
+}
+assert.deepEqual(
+  matchCatalogServicesSharingDistinctiveToken("תרשמי לי לוח של כל השעורים שקיימים בקבוצות.", apexPilatesLike),
+  [],
+  "schedule-board request is not a pilates family pick"
+);
+assert.equal(matchCatalogServiceFromFreeText("פילאטיס מזרן", apexPilatesLike), "פילאטיס מזרן");
 
 console.log("wa-unknown-class-slot.test.ts: ok");

@@ -276,6 +276,44 @@ export function matchCatalogServiceFromFreeText(
 }
 
 /**
+ * כל המוצרים שחולקים טוקן מבחין מההודעה («פילאטיס» → כל שיעורי הפילאטיס).
+ * טוקן קצר/כללי לא נספר. אם כמה טוקנים פוגעים — בוחרים את המשפחה הגדולה ביותר.
+ */
+export function matchCatalogServicesSharingDistinctiveToken(
+  text: string,
+  services: Pick<SfServiceRow, "name">[]
+): string[] {
+  const foldedUser = foldClassName(text);
+  if (!foldedUser) return [];
+  const tokens = [
+    ...new Set(
+      foldedUser
+        .split(" ")
+        .map((w) => stripCatalogTokenPunctuation(foldHebrewServiceToken(w)))
+        .filter((w) => w.length >= 4 && !isGenericCatalogMatchToken(w))
+    ),
+  ];
+  if (!tokens.length) return [];
+
+  let best: string[] = [];
+  for (const tok of tokens) {
+    const names: string[] = [];
+    for (const s of services) {
+      const name = String(s.name ?? "").trim();
+      if (!name) continue;
+      const folded = foldClassName(name);
+      const foldedToks = folded
+        .split(" ")
+        .map((w) => foldHebrewServiceToken(w))
+        .join(" ");
+      if (folded.includes(tok) || foldedToks.includes(tok)) names.push(name);
+    }
+    if (names.length > best.length) best = names;
+  }
+  return [...new Set(best)];
+}
+
+/**
  * שיעורים עם מועד שתואם יום+שעה שצוינו בטקסט (מחר ב-8:00, tomorrow 8am).
  * בלי יום או בלי שעה — ריק (לא מנחשים).
  */

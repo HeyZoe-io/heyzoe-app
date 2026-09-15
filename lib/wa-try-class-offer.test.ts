@@ -4,6 +4,7 @@ import {
   matchesTryClassIntent,
   shouldSendTryClassInfoOffer,
   shouldStartProductPickAfterTryClassOffer,
+  assistantAskedToTryAClass,
   shouldDeclineTryClassOffer,
   TRY_CLASS_OFFER_MODEL,
   TRY_CLASS_OFFER_QUESTION_HE,
@@ -104,7 +105,23 @@ assert.equal(
     lastAssistantModel: "claude-haiku-4-5",
   }),
   false,
-  "bare yes only after the offer"
+  "bare yes without trial-offer wording"
+);
+assert.equal(
+  assistantAskedToTryAClass(
+    "הצוות שלנו יחזור אלייך. ברצונך לנסות אימון ניסיון בחינם ולהכיר את המקום?"
+  ),
+  true
+);
+assert.equal(
+  shouldStartProductPickAfterTryClassOffer({
+    inbound: "כן",
+    lastAssistantModel: "claude-haiku-4-5",
+    lastAssistantContent:
+      "המחירים נעים בין 165 ש\"ח. ברצונך לנסות אימון ניסיון בחינם ולהכיר את המקום?",
+  }),
+  true,
+  "bare yes after Claude asked to try a trial class"
 );
 assert.equal(
   shouldDeclineTryClassOffer({
