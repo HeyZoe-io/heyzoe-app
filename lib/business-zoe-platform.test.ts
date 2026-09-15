@@ -41,6 +41,9 @@ assert.ok(
 assert.ok(
   defaultVoiceExamples.some((l) => l.includes("אם ברצונך לבטל את השיעור") && l.includes("נכנסים, מבטלים"))
 );
+assert.ok(
+  defaultVoiceExamples.some((l) => l.includes("אני צריכה לבטל היום לצערי") && l.includes("ומבטלים את ההרשמה"))
+);
 assert.ok(defaultVoiceExamples.some((l) => l.includes("כל «רוצה» לליד") && l.includes("אם ברצונך להגיע מחר")));
 assert.ok(defaultVoiceExamples.some((l) => l.includes("כן יאללה נרשמתי") && l.includes("קטן!")));
 

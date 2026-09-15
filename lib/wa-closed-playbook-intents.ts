@@ -104,7 +104,10 @@ export function matchClassCancelPlaybook(raw: string): ClosedPlaybookIntent | nu
     /בטל(?:י|ו)\s+(?:לי\s+)?(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
     /ביטול.{0,24}(?:ה)?(?:אימון|שיעור)/u.test(t) ||
     /לבטל.{0,32}הרשמ(?:ה)?\s+ל(?:שיעור|אימון)/u.test(t) ||
+    /לבטל.{0,20}היום/u.test(t) ||
+    /(?:צריך|צריכה|צריכים)\s+לבטל.{0,24}(?:היום|מחר)/u.test(t) ||
     /(?:אפשר|ניתן|איך|כיצד)\s+לבטל.{0,40}(?:שיעור|אימון|הרשמ(?:ה)?\s+ל)/u.test(t) ||
+    /i\s+need\s+to\s+cancel\s+today\b/i.test(n) ||
     /להחליף\s+(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
     /(?:אפשר|ניתן|איך)\s+להחליף\s+שיעור/u.test(t) ||
     /cancel.{0,40}(?:a\s+|the\s+|my\s+)?(?:class|session|lesson|spot)\b/i.test(n) ||

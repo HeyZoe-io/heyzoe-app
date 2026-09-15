@@ -223,6 +223,7 @@ assert.match(spellingRule, /מילים שדומות באות אחת/);
 assert.match(spellingRule, /מתוקה/);
 assert.match(spellingRule, /מנוי/);
 assert.match(spellingRule, /להצטפן/);
+assert.match(spellingRule, /ובוטלים/);
 assert.match(spellingRule, /עיסוי זה לא ספא/);
 assert.match(spellingRule, /כשתהיי רוצה/);
 assert.match(spellingRule, /תרצי/);
@@ -248,6 +249,15 @@ const cancelHowTo = applyKnownAssistantReplyFixes(
 assert.equal(
   cancelHowTo,
   "מצטערת לשמוע! 💜 אם ברצונך לבטל את השיעור של מחר או להחליף אותו לשיעור אחר - אפשר לעשות את זה ישירות מהאפליקציה: נכנסים, מבטלים את ההרשמה ונרשמים לשיעור חדש. אם יש בעיה או שצריך עזרה - אני כאן! 🙂"
+);
+
+const cancelHowToBotlim = applyKnownAssistantReplyFixes(
+  "מצטערת לשמוע! 💜 אפשר לבטל את ההרשמה ישירות מהאפליקציה Arbox - נכנסים, מוצאים את השיעור ובוטלים את ההרשמה. אם המערכת לא נותנת לך לבטל - אני אעביר את זה לצוות וידאגו שלך בהקדם! כשתרצי לחזור - אנחנו כאן 💜",
+  { knowledge }
+);
+assert.equal(
+  cancelHowToBotlim,
+  "מצטערת לשמוע! 💜 אפשר לבטל את ההרשמה ישירות מהאפליקציה Arbox - נכנסים, מוצאים את השיעור ומבטלים את ההרשמה. אם המערכת לא נותנת לך לבטל - אני אעביר את זה לצוות וידאגו שלך בהקדם! כשתרצי לחזור - אנחנו כאן 💜"
 );
 
 assert.match(spellingRule, /נכנסים, מבטלים/);

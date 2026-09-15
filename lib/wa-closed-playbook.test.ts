@@ -86,6 +86,9 @@ assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.category, "class
 assert.equal(cat("אפשר לבטל הרשמה לשיעור?")?.shape, "policy");
 assert.equal(cat("אפשר להחליף שיעור?"), null, "swap request → membership-vs-trial, not playbook");
 assert.equal(cat("לבטל את השיעור של היום")?.category, "class_cancel");
+assert.equal(cat("היי! אני צריכה לבטל היום לצערי: (")?.category, "class_cancel");
+assert.equal(cat("היי! אני צריכה לבטל היום לצערי: (")?.shape, "action");
+assert.equal(cat("אני צריכה לבטל את המנוי")?.category, "cancellation");
 assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.category, "class_cancel");
 assert.equal(cat("תבטלי את השיעור עם שיר בבקשה. היא חולה.")?.shape, "action");
 assert.equal(cat("היא חולה"), null, "illness reason alone is not playbook");
@@ -299,6 +302,15 @@ const classCancelDefault = resolveClosedPlaybook({
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
 assert.equal(classCancelDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
+assert.match(CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY, /ומבטלים את ההרשמה/);
+assert.equal(/ובוטלים/.test(CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY), false);
+
+const karenNeedCancelToday = resolveClosedPlaybook({
+  inbound: "היי! אני צריכה לבטל היום לצערי: (",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+});
+assert.equal(karenNeedCancelToday?.category, "class_cancel");
+assert.equal(karenNeedCancelToday?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
 assert.equal(classCancelDefault?.notifyHumanRequested, true);
 assert.equal(classCancelDefault?.modelUsed, "closed_playbook_class_cancel");
 

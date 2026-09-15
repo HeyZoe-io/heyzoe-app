@@ -60,6 +60,8 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/[\u2013\u2014]/g, "-")
     .replace(/\bלהטפל\b/gu, "לטפל")
     .replace(hebWord("להצטפן"), "להצטרף")
+    .replace(hebWord("ובוטלים"), "ומבטלים")
+    .replace(hebWord("בוטלים"), "מבטלים")
     .replace(/\bאימן\b/gu, "אימון")
     .replace(hebWord("למדים"), "לומדים")
     .replace(/לא\s+יש\s+לי\s+את/giu, "אין לי את")

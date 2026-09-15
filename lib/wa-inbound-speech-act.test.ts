@@ -9,6 +9,7 @@ const shir = `היוש, וולקאם באק 🙂 תבטלי את השיעור ע
 assert.equal(classifyInboundSpeechAct(shir, thu), "booking_mutation");
 assert.equal(classifyInboundSpeechAct("תבטלי את השיעור עם שיר בבקשה. היא חולה.", thu), "booking_mutation");
 assert.equal(classifyInboundSpeechAct("לבטל את השיעור של היום", thu), "booking_mutation");
+assert.equal(classifyInboundSpeechAct("היי! אני צריכה לבטל היום לצערי: (", thu), "booking_mutation");
 
 assert.equal(classifyInboundSpeechAct("חולה", thu), "illness_only");
 assert.equal(classifyInboundSpeechAct("היא חולה", thu), "illness_only");
