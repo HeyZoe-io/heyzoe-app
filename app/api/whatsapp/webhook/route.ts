@@ -248,7 +248,13 @@ import { getOccurrenceState } from "@/lib/arbox-occurrence-state";
 import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
   buildIsraelNowSchedulePromptBlock,
+  filterScheduleSlotsByOccurrenceState,
+  isScheduleSlotPickAllFullRepickLabel,
+  isScheduleSlotPickAllFullResult,
   previousUserTextFromHistory,
+  SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
+  SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
+  SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL,
   tryBuildRelativeDayClassSlotsReply,
 } from "@/lib/wa-relative-day-class-slots";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
@@ -3213,6 +3219,8 @@ async function continueSalesFlowAfterCommittedServiceSwitch(input: {
   blockTrialPickMedia?: boolean;
   sfConsumedKinds?: string[];
   instagramFollowPromptSent?: boolean;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
 }): Promise<void> {
   const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
     knowledge: input.knowledge,
@@ -3245,6 +3253,8 @@ async function continueSalesFlowAfterCommittedServiceSwitch(input: {
     blockTrialPickMedia: input.blockTrialPickMedia,
     sfConsumedKinds: input.sfConsumedKinds,
     instagramFollowPromptSent: input.instagramFollowPromptSent,
+    arboxApiKey: input.arboxApiKey,
+    arboxBoxId: input.arboxBoxId,
   });
 }
 
@@ -3264,6 +3274,8 @@ async function applyAssistantRecommendedCatalogRedirect(input: {
   blockMedia?: boolean;
   sfConsumedKinds?: string[];
   instagramFollowPromptSent?: boolean;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
 }): Promise<HeyzoeSessionPhase> {
   if (input.redirect.mode === "ambiguous") {
     await sendSalesFlowServiceRepickAckAndMenu({
@@ -3309,6 +3321,8 @@ async function applyAssistantRecommendedCatalogRedirect(input: {
     blockTrialPickMedia: input.blockMedia,
     sfConsumedKinds: input.sfConsumedKinds,
     instagramFollowPromptSent: input.instagramFollowPromptSent,
+    arboxApiKey: input.arboxApiKey,
+    arboxBoxId: input.arboxBoxId,
   });
   return nextPhase;
 }
@@ -3324,8 +3338,24 @@ async function sendScheduleSlotPickMenu(input: {
   businessId: string;
   business_slug: string;
   sessionId: string;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
+  now?: Date;
 }): Promise<void> {
-  const slots = (input.selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
+  const creds = await resolveArboxCredsForSlotPick(input);
+  const rawSlots = input.selectedService?.scheduleSlots ?? [];
+  const filtered = await filterScheduleSlotsByOccurrenceState(rawSlots, input.selectedService?.arboxClassName ?? "", {
+    businessId: input.businessId,
+    arboxApiKey: creds.arboxApiKey,
+    arboxBoxId: creds.arboxBoxId,
+    now: input.now,
+  });
+  if (isScheduleSlotPickAllFullResult(rawSlots.length, filtered.length)) {
+    await sendScheduleSlotPickAllFullMenu(input);
+    return;
+  }
+
+  const slots = filtered.slice(0, SCHEDULE_SLOT_PICK_MAX);
   if (!slots.length) {
     await sendScheduleSelectionDateQuestion({
       knowledge: input.knowledge,
@@ -3380,6 +3410,106 @@ async function sendScheduleSlotPickMenu(input: {
     businessId: input.businessId,
     phone: input.msg.from,
     phase: "schedule_date",
+  });
+}
+
+async function resolveArboxCredsForSlotPick(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
+}): Promise<{ arboxApiKey: string; arboxBoxId: string }> {
+  let arboxApiKey = String(input.arboxApiKey ?? "").trim();
+  let arboxBoxId = String(input.arboxBoxId ?? "").trim();
+  if (arboxApiKey && arboxBoxId) return { arboxApiKey, arboxBoxId };
+  try {
+    const { data, error } = await input.supabase
+      .from("businesses")
+      .select("crm_api_key, crm_box_id")
+      .eq("id", input.businessId)
+      .maybeSingle();
+    if (error) {
+      console.error("[WA Webhook] Arbox creds lookup for slot pick failed:", error.message);
+      return { arboxApiKey, arboxBoxId };
+    }
+    if (!arboxApiKey) arboxApiKey = String((data as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    if (!arboxBoxId) arboxBoxId = String((data as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
+  } catch (e) {
+    console.error("[WA Webhook] Arbox creds lookup for slot pick failed:", e instanceof Error ? e.message : String(e));
+  }
+  return { arboxApiKey, arboxBoxId };
+}
+
+async function sendScheduleSlotPickAllFullMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const body = SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE;
+  const labels = [SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL];
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  let outboundLog = body;
+  if (isMetaCloudPhoneNumberId(input.msg.toNumber) && resolveMetaAccessToken()) {
+    await sendWhatsAppTextOrMenu(input.msg.toNumber, input.msg.from, body, labels, input.accountSid, input.authToken, {
+      footerHint: menuFooter,
+      language: contentLang,
+    }).catch((e) => console.error("[WA Webhook] Send schedule slot all-full menu failed:", e));
+    outboundLog = formatInteractiveConversationLog(body, labels, menuFooter);
+  } else {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, body, input.accountSid, input.authToken).catch((e) =>
+      console.error("[WA Webhook] Send schedule slot all-full (Twilio) failed:", e)
+    );
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: outboundLog,
+    model_used: SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    phase: "schedule_date",
+  });
+}
+
+async function reopenOpeningServicePickFromScheduleMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  salesFlowServices: SfServiceRow[];
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia?: boolean;
+}): Promise<void> {
+  const phoneVariants = contactPhoneLookupVariants(input.msg.from);
+  await input.supabase
+    .from("contacts")
+    .update(salesFlowOpeningResetPatch())
+    .eq("business_id", input.businessId)
+    .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
+  await sendOpeningServicePickMenu({
+    knowledge: input.knowledge,
+    salesFlowServices: input.salesFlowServices,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    blockMedia: input.blockMedia,
+    skipScheduleBoard: true,
+    prependOtherServiceAck: true,
   });
 }
 
@@ -3588,6 +3718,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   extraBodyLines?: string[];
   modelUsed: string;
   blockMedia?: boolean;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
 }): Promise<void> {
   const {
     knowledge,
@@ -3671,6 +3803,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
         businessId,
         business_slug,
         sessionId,
+        arboxApiKey: input.arboxApiKey,
+        arboxBoxId: input.arboxBoxId,
       });
       return;
     }
@@ -3987,6 +4121,8 @@ async function sendFlowContinuation(input: {
   /** תשובת Claude לפני resend — לדילוג כשמפנה לשירות לקוחות. */
   aiReplyCoreClean?: string;
   leadIsNotRelevant?: boolean;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
 }): Promise<void> {
   const {
     phase,
@@ -4005,6 +4141,8 @@ async function sendFlowContinuation(input: {
     blockTrialPickMedia = false,
     sfConsumedKinds,
     instagramFollowPromptSent,
+    arboxApiKey,
+    arboxBoxId,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -4073,6 +4211,8 @@ async function sendFlowContinuation(input: {
         sfConsumedKinds,
         modelUsed: "flow_continuation_skip_schedule_to_cta",
         blockMedia: blockTrialPickMedia,
+        arboxApiKey,
+        arboxBoxId,
       });
       return;
     }
@@ -4103,6 +4243,8 @@ async function sendFlowContinuation(input: {
         businessId,
         business_slug,
         sessionId,
+        arboxApiKey,
+        arboxBoxId,
       });
       return;
     }
@@ -4520,6 +4662,8 @@ type DeterministicFlowRecoveryInput = {
   instagramFollowPromptSent: boolean;
   scheduleRequestedDate: string;
   scheduleRequestedTime: string;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
 };
 
 async function isWarmupFlowCompleteForRecovery(input: {
@@ -4611,6 +4755,8 @@ async function resendUnansweredSalesFlowPrompt(
     allowTrialCta,
     sfConsumedKinds,
     flowStarted,
+    arboxApiKey,
+    arboxBoxId,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -4841,6 +4987,8 @@ async function resendUnansweredSalesFlowPrompt(
         businessId,
         business_slug,
         sessionId,
+        arboxApiKey,
+        arboxBoxId,
       });
       return;
     }
@@ -4908,6 +5056,8 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
     allowTrialCta: input.allowTrialCta,
     sfConsumedKinds: input.sfConsumedKinds,
     instagramFollowPromptSent: input.instagramFollowPromptSent,
+    arboxApiKey: input.arboxApiKey,
+    arboxBoxId: input.arboxBoxId,
   };
 
   try {
@@ -8748,6 +8898,8 @@ async function processIncoming(
         blockTrialPickMedia: starterBlocksMedia,
         sfConsumedKinds: sfClickedCtaKinds,
         instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        arboxApiKey: crmApiKey,
+        arboxBoxId: crmBoxId,
       });
       return;
     }
@@ -9148,12 +9300,13 @@ async function processIncoming(
       schedulePickChangeServiceLabel("he"),
       schedulePickChangeServiceLabel("en"),
       schedulePickChangeServiceLabel("ru"),
+      SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL,
     ];
     const incomingResolved =
       msg.metaInteractiveReplyId?.trim()
         ? resolveMetaInteractiveLabel(msg.metaInteractiveReplyId, msg.text, changeLabels)
         : msg.text.trim();
-    if (isSchedulePickChangeServiceLabel(incomingResolved)) {
+    if (isSchedulePickChangeServiceLabel(incomingResolved) || isScheduleSlotPickAllFullRepickLabel(incomingResolved)) {
       const phoneVariants = contactPhoneLookupVariants(msg.from);
       await supabase
         .from("contacts")
@@ -9602,8 +9755,75 @@ async function processIncoming(
           return;
         }
       } else {
-        const slotsForPick = (selectedService?.scheduleSlots ?? []).slice(0, SCHEDULE_SLOT_PICK_MAX);
-        if (slotsForPick.length > 0) {
+        const rawSlots = selectedService?.scheduleSlots ?? [];
+        const filteredSlots = await filterScheduleSlotsByOccurrenceState(
+          rawSlots,
+          selectedService?.arboxClassName ?? "",
+          {
+            businessId,
+            arboxApiKey: crmApiKey,
+            arboxBoxId: crmBoxId,
+            now: new Date(nowIso),
+          }
+        );
+        const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+        const inSchedulePickContext =
+          !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
+          (inSchedulePhase ||
+            lastAssistForSchedule === "sales_flow_schedule_slot_menu" ||
+            lastAssistForSchedule === SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
+
+        if (isScheduleSlotPickAllFullResult(rawSlots.length, filteredSlots.length)) {
+          const allFullLabels = [SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL];
+          const resolvedAllFull = resolveWaMenuChoice(
+            msg.text.trim(),
+            msg.metaInteractiveReplyId,
+            allFullLabels,
+            allFullLabels
+          );
+          if (
+            isScheduleSlotPickAllFullRepickLabel(resolvedAllFull) ||
+            isScheduleSlotPickAllFullRepickLabel(msg.text.trim()) ||
+            isSchedulePickChangeServiceLabel(resolvedAllFull)
+          ) {
+            await reopenOpeningServicePickFromScheduleMenu({
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              blockMedia: starterBlocksMedia,
+            });
+            contactScheduleRequestedDate = "";
+            contactScheduleRequestedTime = "";
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
+            return;
+          }
+          if (inSchedulePickContext && shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
+            await sendScheduleSlotPickMenu({
+              knowledge,
+              selectedService,
+              blockMedia: starterBlocksMedia,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              arboxApiKey: crmApiKey,
+              arboxBoxId: crmBoxId,
+              now: new Date(nowIso),
+            });
+            return;
+          }
+        } else if (filteredSlots.length > 0) {
+          const slotsForPick = filteredSlots.slice(0, SCHEDULE_SLOT_PICK_MAX);
           const labels = slotsForPick
             .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
             .map((s) =>
@@ -9611,36 +9831,29 @@ async function processIncoming(
             );
           labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge)));
           const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
-          const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
-          // רק כשבאמת בשלב מועד — לא לפי metaInteractiveReplyId (גם CTA/חימום/בחירת שירות הם interactive).
-          const inSchedulePickContext =
-            !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
-            (inSchedulePhase || lastAssistForSchedule === "sales_flow_schedule_slot_menu");
 
-          if (isSchedulePickChangeServiceLabel(resolved)) {
-          const phoneVariants = contactPhoneLookupVariants(msg.from);
-          await supabase
-            .from("contacts")
-            .update(salesFlowOpeningResetPatch())
-            .eq("business_id", businessId)
-            .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
-          contactScheduleRequestedDate = "";
-          contactScheduleRequestedTime = "";
-          contactSessionPhase = "opening";
-          contactFlowStep = 0;
-          await sendOpeningServicePickMenu({
-            knowledge,
-            salesFlowServices,
-            msg,
-            accountSid,
-            authToken,
-            business_slug,
-            sessionId,
-            blockMedia: starterBlocksMedia,
-            skipScheduleBoard: true,
-            prependOtherServiceAck: true,
-          });
-          return;
+          if (
+            isSchedulePickChangeServiceLabel(resolved) ||
+            isScheduleSlotPickAllFullRepickLabel(resolved) ||
+            isScheduleSlotPickAllFullRepickLabel(msg.text.trim())
+          ) {
+            await reopenOpeningServicePickFromScheduleMenu({
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              blockMedia: starterBlocksMedia,
+            });
+            contactScheduleRequestedDate = "";
+            contactScheduleRequestedTime = "";
+            contactSessionPhase = "opening";
+            contactFlowStep = 0;
+            return;
           }
           const idx = labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
           if (idx >= 0) {
@@ -9699,6 +9912,8 @@ async function processIncoming(
           allowTrialCta: allowTrialCtaThisSession,
           sfConsumedKinds: sfClickedCtaKinds,
           modelUsed: "sales_flow_cta",
+          arboxApiKey: crmApiKey,
+          arboxBoxId: crmBoxId,
         });
             return;
           }
@@ -9723,12 +9938,15 @@ async function processIncoming(
               businessId,
               business_slug,
               sessionId,
+              arboxApiKey: crmApiKey,
+              arboxBoxId: crmBoxId,
+              now: new Date(nowIso),
             });
             return;
           }
         }
 
-        if (inSchedulePhase && slotsForPick.length === 0) {
+        if (inSchedulePhase && rawSlots.length === 0) {
       if (contactSessionPhase === "schedule_date") {
         const parsedDate = parseScheduleDateInput(msg.text);
         if (!parsedDate) {
@@ -11366,6 +11584,8 @@ async function processIncoming(
         instagramFollowPromptSent: contactInstagramFollowPromptSent,
         scheduleRequestedDate: contactScheduleRequestedDate,
         scheduleRequestedTime: contactScheduleRequestedTime,
+        arboxApiKey: crmApiKey,
+        arboxBoxId: crmBoxId,
       });
       if (recovered) {
         console.info("[WA Webhook] Deterministic flow recovered (skipped Claude)", {
@@ -12381,6 +12601,8 @@ async function processIncoming(
           blockMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          arboxApiKey: crmApiKey,
+          arboxBoxId: crmBoxId,
         });
         contactFlowStep = 0;
         contactScheduleRequestedDate = "";
@@ -12552,6 +12774,8 @@ async function processIncoming(
             inboundText: incomingRaw,
             aiReplyCoreClean: replyCoreClean,
             flowStarted: salesFlowStarted || needsOpeningListPickBridge,
+            arboxApiKey: crmApiKey,
+            arboxBoxId: crmBoxId,
           });
         }
       } else {

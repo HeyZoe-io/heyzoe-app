@@ -116,6 +116,78 @@ function isSuppressedOccurrenceState(state: ArboxOccurrenceStateResult["state"] 
   return state === "full" || state === "cancelled";
 }
 
+/** Verbatim lead-facing copy when every upcoming stamped occurrence is full or cancelled. */
+export const SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE =
+  "אני לא רואה כרגע מועדים זמינים לשיעור. אפשר לכתוב ״נציג אנושי״ ואעביר לפנייה לצוות, או לבחור אימון אחר.";
+
+export const SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL = "בחירת אימון";
+
+export const SCHEDULE_SLOT_PICK_ALL_FULL_MODEL = "sales_flow_schedule_slot_all_full";
+
+export function isScheduleSlotPickAllFullRepickLabel(raw: string): boolean {
+  return String(raw ?? "").trim() === SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL;
+}
+
+/** All-full empty state never auto-fires a human handoff — lead types the phrase themselves. */
+export function scheduleSlotPickAllFullFiresHandoff(): false {
+  return false;
+}
+
+export function isScheduleSlotPickAllFullResult(rawCount: number, filteredCount: number): boolean {
+  return rawCount > 0 && filteredCount === 0;
+}
+
+export type FilterScheduleSlotsByOccurrenceStateInput = ArboxOfferContext & { now?: Date };
+
+/**
+ * Shared filter for the schedule-slot-pick menu AND its button-reply handler.
+ * Same inputs + same `now` → identical slot arrays (order-preserving), so menu button
+ * indices cannot drift from the handler's resolveWaMenuChoice mapping.
+ *
+ * No stamp / no creds → return slots unchanged, zero Arbox calls.
+ * Suppress only on positive full/cancelled evidence; unknown/error/timeout fail-open.
+ * Join key is arbox_class_name + start_time — display name never enters this function.
+ */
+export async function filterScheduleSlotsByOccurrenceState<T extends { day: string; time: string }>(
+  slots: readonly T[],
+  arboxClassName: string,
+  ctx: FilterScheduleSlotsByOccurrenceStateInput
+): Promise<T[]> {
+  const stamp = String(arboxClassName ?? "").trim();
+  const apiKey = String(ctx.arboxApiKey ?? "").trim();
+  const boxId = String(ctx.arboxBoxId ?? "").trim();
+  const businessId = ctx.businessId;
+  if (!stamp || businessId == null || String(businessId).trim() === "" || !apiKey || !boxId) {
+    return [...slots];
+  }
+
+  const now = ctx.now ?? new Date();
+  const candidates = slots.map((slot) => {
+    const time = String(slot.time ?? "").trim();
+    const dateYmd = resolveNextOccurrence(String(slot.day ?? "").trim() as IsraelDayLetter, time, now).ymd;
+    return { slot, dateYmd, time, arboxClassName: stamp };
+  });
+
+  try {
+    const stateMap = await resolveOccurrenceStatesForCandidates(
+      candidates.map((c) => ({ dateYmd: c.dateYmd, time: c.time, arboxClassName: c.arboxClassName })),
+      ctx
+    );
+    return candidates
+      .filter((c) => {
+        const state = stateMap.get(occurrenceStateKey(c.dateYmd, c.time, c.arboxClassName))?.state;
+        return !isSuppressedOccurrenceState(state);
+      })
+      .map((c) => c.slot);
+  } catch (e) {
+    console.error("[schedule-slot-occurrence-filter] occurrence resolve failed; fail-open", {
+      businessId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return [...slots];
+  }
+}
+
 function formatTimesPhrase(times: string[]): string {
   if (times.length === 1) return `ב-${times[0]}`;
   if (times.length === 2) return `ב-${times[0]} וב-${times[1]}`;
