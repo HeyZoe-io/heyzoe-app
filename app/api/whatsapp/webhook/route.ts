@@ -251,6 +251,7 @@ import {
   filterScheduleSlotsByOccurrenceState,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
+  isRelativeDayCatalogAllFullReply,
   previousUserTextFromHistory,
   SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
   SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
@@ -7945,6 +7946,21 @@ async function processIncoming(
         arboxBoxId: crmBoxId,
       });
       if (relativeDayReply) {
+        // Truthy LIST or catalog-wide all-full: send-and-return. Claude (~11778) and
+        // continueDeterministicFlowAfterFreeTextAi (sales-flow prompt resend) do not run.
+        if (isRelativeDayCatalogAllFullReply(relativeDayReply)) {
+          await sendScheduleSlotPickAllFullMenu({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+          });
+          return;
+        }
         try {
           await sendWhatsAppMessage(
             msg.toNumber,

@@ -137,6 +137,31 @@ export function isScheduleSlotPickAllFullResult(rawCount: number, filteredCount:
   return rawCount > 0 && filteredCount === 0;
 }
 
+export type RelativeDayClassSlotsListReply = {
+  kind: "list";
+  text: string;
+  modelUsed: string;
+};
+
+/** Catalog-wide: weekly slots existed but every upcoming occurrence was full/cancelled. */
+export type RelativeDayClassSlotsAllFullReply = {
+  kind: "all_full";
+  text: string;
+  modelUsed: string;
+};
+
+export type RelativeDayClassSlotsReply = RelativeDayClassSlotsListReply | RelativeDayClassSlotsAllFullReply;
+
+export function isRelativeDayCatalogAllFullReply(
+  reply: RelativeDayClassSlotsReply | null
+): reply is RelativeDayClassSlotsAllFullReply {
+  return reply?.kind === "all_full";
+}
+
+export type CatalogDaySlotsReply =
+  | { kind: "lines"; text: string }
+  | { kind: "all_full" };
+
 export type FilterScheduleSlotsByOccurrenceStateInput = ArboxOfferContext & { now?: Date };
 
 /**
@@ -315,7 +340,7 @@ export async function buildCatalogDaySlotsReply(
     services: SfServiceRow[];
     now: Date;
   } & ArboxOfferContext
-): Promise<string | null> {
+): Promise<CatalogDaySlotsReply | null> {
   const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
 
   type Item = { time: string; serviceName: string; arboxClassName: string; dateYmd: string };
@@ -333,9 +358,20 @@ export async function buildCatalogDaySlotsReply(
       });
     }
   }
+  // Genuinely no upcoming weekly slot that day (never on the template, or Stage 1 dropped
+  // every same-day time). Not the all-full gap — caller must keep the Claude fall-through.
   if (!items.length) return null;
 
-  const stateMap = await resolveOccurrenceStatesForCandidates(items, input);
+  let stateMap: Map<string, ArboxOccurrenceStateResult>;
+  try {
+    stateMap = await resolveOccurrenceStatesForCandidates(items, input);
+  } catch (e) {
+    console.error("[catalog-day-slots] occurrence resolve failed; fail-open", {
+      businessId: input.businessId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    stateMap = new Map();
+  }
 
   const lines: string[] = [];
   for (const item of items) {
@@ -343,8 +379,8 @@ export async function buildCatalogDaySlotsReply(
     if (isSuppressedOccurrenceState(state)) continue;
     lines.push(formatDayClassScheduleLine(phrase, item.time, item.serviceName));
   }
-  if (!lines.length) return null;
-  return `${lines.join("\n")} 💜`;
+  if (isScheduleSlotPickAllFullResult(items.length, lines.length)) return { kind: "all_full" };
+  return { kind: "lines", text: `${lines.join("\n")} 💜` };
 }
 
 /**
@@ -359,7 +395,7 @@ export async function tryBuildRelativeDayClassSlotsReply(
     sessionPhase?: string | null;
     now?: Date;
   } & ArboxOfferContext
-): Promise<{ text: string; modelUsed: string } | null> {
+): Promise<RelativeDayClassSlotsReply | null> {
   const phase = String(input.sessionPhase ?? "").trim();
   if (phase === "schedule_date" || phase === "schedule_time") return null;
 
@@ -379,6 +415,7 @@ export async function tryBuildRelativeDayClassSlotsReply(
 
   if (isCatalogWideClassDayAsk(current, input.services, now)) {
     const parts: string[] = [];
+    let anyDayAllFull = false;
     for (const day of daysCurrent.length ? daysCurrent : days) {
       const line = await buildCatalogDaySlotsReply({
         day: day as IsraelDayLetter,
@@ -390,10 +427,25 @@ export async function tryBuildRelativeDayClassSlotsReply(
         arboxBoxId: input.arboxBoxId,
         rawDataFetcherImpl: input.rawDataFetcherImpl,
       });
-      if (line) parts.push(line);
+      if (line?.kind === "lines") parts.push(line.text);
+      else if (line?.kind === "all_full") anyDayAllFull = true;
     }
-    if (!parts.length) return null;
-    return { text: parts.join("\n"), modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
+    // Open days still list normally. An all-full day next to an open day is omitted, not
+    // replaced by the all-full notice. The notice fires only when the entire catalog reply
+    // would otherwise be null AND at least one requested day was case-2 (all-full).
+    // Mixed-intent (catalog ask + price in the same message) stopping here is the accepted
+    // tradeoff — same as the named-class path.
+    if (parts.length) {
+      return { kind: "list", text: parts.join("\n"), modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
+    }
+    if (anyDayAllFull) {
+      return {
+        kind: "all_full",
+        text: SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
+        modelUsed: SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
+      };
+    }
+    return null;
   }
 
   const serviceName = resolveServiceName({
@@ -459,7 +511,7 @@ export async function tryBuildRelativeDayClassSlotsReply(
     .filter(Boolean)
     .join("\n");
   if (!text) return null;
-  return { text, modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
+  return { kind: "list", text, modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
 }
 
 export function previousUserTextFromHistory(input: {
