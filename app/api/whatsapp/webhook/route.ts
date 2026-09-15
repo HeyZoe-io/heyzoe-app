@@ -3222,6 +3222,7 @@ async function continueSalesFlowAfterCommittedServiceSwitch(input: {
   instagramFollowPromptSent?: boolean;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  now?: Date;
 }): Promise<void> {
   const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
     knowledge: input.knowledge,
@@ -3256,6 +3257,7 @@ async function continueSalesFlowAfterCommittedServiceSwitch(input: {
     instagramFollowPromptSent: input.instagramFollowPromptSent,
     arboxApiKey: input.arboxApiKey,
     arboxBoxId: input.arboxBoxId,
+    now: input.now,
   });
 }
 
@@ -3277,6 +3279,7 @@ async function applyAssistantRecommendedCatalogRedirect(input: {
   instagramFollowPromptSent?: boolean;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  now?: Date;
 }): Promise<HeyzoeSessionPhase> {
   if (input.redirect.mode === "ambiguous") {
     await sendSalesFlowServiceRepickAckAndMenu({
@@ -3324,6 +3327,7 @@ async function applyAssistantRecommendedCatalogRedirect(input: {
     instagramFollowPromptSent: input.instagramFollowPromptSent,
     arboxApiKey: input.arboxApiKey,
     arboxBoxId: input.arboxBoxId,
+    now: input.now,
   });
   return nextPhase;
 }
@@ -3341,7 +3345,8 @@ async function sendScheduleSlotPickMenu(input: {
   sessionId: string;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
-  now?: Date;
+  /** Explicit clock from processIncoming `nowIso`. Required so menu filter matches the reply path. */
+  now: Date;
 }): Promise<void> {
   const creds = await resolveArboxCredsForSlotPick(input);
   const rawSlots = input.selectedService?.scheduleSlots ?? [];
@@ -3721,6 +3726,8 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
   blockMedia?: boolean;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  /** From processIncoming `nowIso` when available — forwarded to schedule-slot menu filter. */
+  now?: Date;
 }): Promise<void> {
   const {
     knowledge,
@@ -3738,6 +3745,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     extraBodyLines,
     modelUsed,
     blockMedia = false,
+    now,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -3806,6 +3814,7 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
         sessionId,
         arboxApiKey: input.arboxApiKey,
         arboxBoxId: input.arboxBoxId,
+        now: now ?? new Date(),
       });
       return;
     }
@@ -4124,6 +4133,8 @@ async function sendFlowContinuation(input: {
   leadIsNotRelevant?: boolean;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  /** From processIncoming `nowIso` when available — forwarded to schedule-slot menu filter. */
+  now?: Date;
 }): Promise<void> {
   const {
     phase,
@@ -4144,6 +4155,7 @@ async function sendFlowContinuation(input: {
     instagramFollowPromptSent,
     arboxApiKey,
     arboxBoxId,
+    now,
   } = input;
   const cfg = knowledge.salesFlowConfig;
   if (!cfg || !businessId) return;
@@ -4214,6 +4226,7 @@ async function sendFlowContinuation(input: {
         blockMedia: blockTrialPickMedia,
         arboxApiKey,
         arboxBoxId,
+        now,
       });
       return;
     }
@@ -4246,6 +4259,7 @@ async function sendFlowContinuation(input: {
         sessionId,
         arboxApiKey,
         arboxBoxId,
+        now: now ?? new Date(),
       });
       return;
     }
@@ -4292,6 +4306,7 @@ async function sendFlowContinuation(input: {
         allowTrialCta,
         sfConsumedKinds,
         modelUsed: "flow_continuation_call_schedule_disabled",
+        now,
       });
       return;
     }
@@ -4356,6 +4371,7 @@ async function sendFlowContinuation(input: {
       allowTrialCta,
       sfConsumedKinds,
       modelUsed: "flow_continuation_cta",
+      now,
     });
     return;
   }
@@ -4665,6 +4681,7 @@ type DeterministicFlowRecoveryInput = {
   scheduleRequestedTime: string;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  now?: Date;
 };
 
 async function isWarmupFlowCompleteForRecovery(input: {
@@ -4780,6 +4797,7 @@ async function resendUnansweredSalesFlowPrompt(
     });
     return;
   }
+  const now = input.now;
   const menuFooter = salesFlowMenuFooter(knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
 
@@ -4956,6 +4974,7 @@ async function resendUnansweredSalesFlowPrompt(
         sfConsumedKinds,
         modelUsed: "sales_flow_resend_skip_schedule_to_cta",
         blockMedia: blockTrialPickMedia,
+        now,
       });
       return;
     }
@@ -4990,6 +5009,7 @@ async function resendUnansweredSalesFlowPrompt(
         sessionId,
         arboxApiKey,
         arboxBoxId,
+        now: now ?? new Date(),
       });
       return;
     }
@@ -5059,6 +5079,7 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
     instagramFollowPromptSent: input.instagramFollowPromptSent,
     arboxApiKey: input.arboxApiKey,
     arboxBoxId: input.arboxBoxId,
+    now: input.now,
   };
 
   try {
@@ -7561,6 +7582,7 @@ async function processIncoming(
               blockTrialPickMedia: starterBlocksMedia,
               sfConsumedKinds: sfClickedCtaKinds,
               instagramFollowPromptSent: contactInstagramFollowPromptSent,
+              now: new Date(nowIso),
             });
           }
         } catch (e) {
@@ -7944,6 +7966,7 @@ async function processIncoming(
         businessId,
         arboxApiKey: crmApiKey,
         arboxBoxId: crmBoxId,
+        now: new Date(nowIso),
       });
       if (relativeDayReply) {
         // Truthy LIST or catalog-wide all-full: send-and-return. Claude (~11778) and
@@ -8916,6 +8939,7 @@ async function processIncoming(
         instagramFollowPromptSent: contactInstagramFollowPromptSent,
         arboxApiKey: crmApiKey,
         arboxBoxId: crmBoxId,
+        now: new Date(nowIso),
       });
       return;
     }
@@ -9259,6 +9283,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          now: new Date(nowIso),
         });
         return;
       }
@@ -9420,6 +9445,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          now: new Date(nowIso),
         });
         return;
       } else if (implicitSwitch?.mode === "ambiguous") {
@@ -9722,6 +9748,7 @@ async function processIncoming(
               allowTrialCta: allowTrialCtaThisSession,
               sfConsumedKinds: sfClickedCtaKinds,
               modelUsed: "sales_flow_cta",
+              now: new Date(nowIso),
             });
             return;
           }
@@ -9767,6 +9794,7 @@ async function processIncoming(
             allowTrialCta: allowTrialCtaThisSession,
             sfConsumedKinds: sfClickedCtaKinds,
             modelUsed: "sales_flow_cta",
+            now: new Date(nowIso),
           });
           return;
         }
@@ -9930,6 +9958,7 @@ async function processIncoming(
           modelUsed: "sales_flow_cta",
           arboxApiKey: crmApiKey,
           arboxBoxId: crmBoxId,
+          now: new Date(nowIso),
         });
             return;
           }
@@ -10087,6 +10116,7 @@ async function processIncoming(
           allowTrialCta: allowTrialCtaThisSession,
           sfConsumedKinds: sfClickedCtaKinds,
           modelUsed: "sales_flow_cta",
+          now: new Date(nowIso),
         });
         return;
       }
@@ -11499,6 +11529,7 @@ async function processIncoming(
       allowTrialCta: allowTrialCtaThisSession,
       sfConsumedKinds: sfClickedCtaKinds,
       modelUsed: "sf_recover_to_cta",
+      now: new Date(nowIso),
     });
     contactSessionPhase = "cta";
     contactFlowStep = 0;
@@ -11602,6 +11633,7 @@ async function processIncoming(
         scheduleRequestedTime: contactScheduleRequestedTime,
         arboxApiKey: crmApiKey,
         arboxBoxId: crmBoxId,
+        now: new Date(nowIso),
       });
       if (recovered) {
         console.info("[WA Webhook] Deterministic flow recovered (skipped Claude)", {
@@ -11772,6 +11804,7 @@ async function processIncoming(
               blockTrialPickMedia: starterBlocksMedia,
               sfConsumedKinds: sfClickedCtaKinds,
               instagramFollowPromptSent: contactInstagramFollowPromptSent,
+              now: new Date(nowIso),
             });
             return;
           } catch (e) {
@@ -12619,6 +12652,7 @@ async function processIncoming(
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
           arboxApiKey: crmApiKey,
           arboxBoxId: crmBoxId,
+          now: new Date(nowIso),
         });
         contactFlowStep = 0;
         contactScheduleRequestedDate = "";
@@ -12715,6 +12749,7 @@ async function processIncoming(
             allowTrialCta: allowTrialCtaThisSession,
             sfConsumedKinds: sfClickedCtaKinds,
             modelUsed: "sales_flow_cta",
+            now: new Date(nowIso),
           });
         }
       } else if (shouldSplitFreeTextAnswerAndResendPrompt) {
@@ -12792,6 +12827,7 @@ async function processIncoming(
             flowStarted: salesFlowStarted || needsOpeningListPickBridge,
             arboxApiKey: crmApiKey,
             arboxBoxId: crmBoxId,
+            now: new Date(nowIso),
           });
         }
       } else {
@@ -12865,6 +12901,7 @@ async function processIncoming(
           sfConsumedKinds: sfClickedCtaKinds,
           instagramFollowPromptSent: contactInstagramFollowPromptSent,
           leadIsNotRelevant: Boolean(contactNotRelevantAt),
+          now: new Date(nowIso),
         });
       }
     }
