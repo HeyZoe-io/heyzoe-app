@@ -99,4 +99,13 @@ assert.equal(
   "תרצי לחזור - אנחנו כאן"
 );
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("אפשר להצטפן דרך הלינק הזה. שם תוכל להצטפן לשיעורים."),
+  "אפשר להצטרף דרך הלינק הזה. שם תוכל להצטרף לשיעורים."
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("רוצה להצטרף לשיעור ניסיון"),
+  "רוצה להצטרף לשיעור ניסיון"
+);
+
 console.log("zoe-text.test.ts: ok");

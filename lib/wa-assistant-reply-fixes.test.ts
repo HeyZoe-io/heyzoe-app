@@ -222,6 +222,7 @@ const spellingRule = buildWaSpellingAndPhrasingPromptRule(knowledge, {
 assert.match(spellingRule, /מילים שדומות באות אחת/);
 assert.match(spellingRule, /מתוקה/);
 assert.match(spellingRule, /מנוי/);
+assert.match(spellingRule, /להצטפן/);
 assert.match(spellingRule, /עיסוי זה לא ספא/);
 assert.match(spellingRule, /כשתהיי רוצה/);
 assert.match(spellingRule, /תרצי/);
