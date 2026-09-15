@@ -2,12 +2,20 @@ import assert from "node:assert/strict";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import { matchCatalogServiceFromFreeText, shouldHandoffUnknownClassSlot } from "@/lib/wa-unknown-class-slot";
 import type { ArboxOccurrenceStateResult } from "@/lib/arbox-occurrence-state";
+import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import {
   buildIsraelNowSchedulePromptBlock,
   formatDayClassScheduleLine,
   formatNamedClassScheduleLine,
+  isRelativeDayCatalogAllFullReply,
+  isScheduleSlotPickAllFullRepickLabel,
+  isScheduleSlotPickAllFullResult,
   previousUserTextFromHistory,
   RELATIVE_DAY_CLASS_SLOTS_MODEL,
+  scheduleSlotPickAllFullFiresHandoff,
+  SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
+  SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
+  SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL,
   tryBuildRelativeDayClassSlotsReply,
   type RawDataFetcher,
 } from "@/lib/wa-relative-day-class-slots";
@@ -62,11 +70,13 @@ const catalog = [chair, strength];
  * production code fetches once per date and resolves every candidate on it locally.
  */
 function fakeRawDataFetcher(
-  byKey: Record<string, ArboxOccurrenceStateResult["state"]>
+  byKey: Record<string, ArboxOccurrenceStateResult["state"]>,
+  opts?: { throwOnFetch?: boolean }
 ): { impl: RawDataFetcher; calls: { businessId: unknown; date: string }[] } {
   const calls: { businessId: unknown; date: string }[] = [];
   const impl: RawDataFetcher = async ({ businessId, date }) => {
     calls.push({ businessId, date });
+    if (opts?.throwOnFetch) throw new Error("arbox_unavailable");
     const scheduleRows: Record<string, unknown>[] = [];
     const summaryRows: Record<string, unknown>[] = [];
     for (const [key, state] of Object.entries(byKey)) {
@@ -490,6 +500,164 @@ async function main() {
     assert.ok(reply);
     assert.equal(calls.length, 2, "two distinct requested dates -> two fetches, not one per slot");
     assert.deepEqual(new Set(calls.map((c) => c.date)), new Set(["2026-09-01", "2026-09-02"]));
+  }
+
+  // ==========================================================================
+  // Catalog-wide all-full (Option 2) — two empties must not collapse
+  // ==========================================================================
+  const stampedTueWed = [
+    svc("פילאטיס מכשירים (כסא)", [{ day: "ג", time: "18:30" }, { day: "ג", time: "19:30" }], "Chair"),
+    svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }, { day: "ד", time: "18:30" }], "Strength"),
+  ];
+
+  // (a) all slots full -> all-full message + button contract (same empty-state as the menu path).
+  {
+    const { impl, calls } = fakeRawDataFetcher({
+      "2026-09-01|18:30|Chair": "full",
+      "2026-09-01|19:30|Chair": "full",
+      "2026-09-01|19:30|Strength": "full",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "מה יש ביום שלישי?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
+    assert.equal(reply!.kind, "all_full");
+    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
+    assert.equal(reply!.modelUsed, SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
+    assert.equal(isScheduleSlotPickAllFullResult(3, 0), true);
+    assert.equal(isScheduleSlotPickAllFullRepickLabel(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL), true);
+    assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
+    assert.equal(userRequestedHumanAgent("נציג אנושי"), true);
+    assert.equal(calls.length, 1, "one fetch-pair for the one requested date — already paid by LIST, not extra");
+  }
+
+  // (b) all slots cancelled -> same all-full empty state.
+  {
+    const { impl } = fakeRawDataFetcher({
+      "2026-09-01|18:30|Chair": "cancelled",
+      "2026-09-01|19:30|Chair": "cancelled",
+      "2026-09-01|19:30|Strength": "cancelled",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "מה יש ביום שלישי?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
+    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
+    assert.equal(reply!.modelUsed, SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
+  }
+
+  // (c) genuinely no class that day (items.length === 0) -> NOT all-full; current null fall-through.
+  {
+    const { impl, calls } = fakeRawDataFetcher({
+      "2026-09-01|19:30|Strength": "full",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "מה יש ביום ראשון?",
+      services: [svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }], "Strength")],
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(reply, null, "no Sunday weekly slots -> Claude fall-through, not the all-full notice");
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.equal(calls.length, 0, "genuinely-empty never fetches");
+  }
+
+  // (d) multi-day: one day all-full, another has open slots -> list the open day, omit the full day, NO all-full notice.
+  {
+    const { impl, calls } = fakeRawDataFetcher({
+      "2026-09-01|18:30|Chair": "full",
+      "2026-09-01|19:30|Chair": "full",
+      "2026-09-01|19:30|Strength": "full",
+      "2026-09-02|18:30|Strength": "open",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "איזה אימונים יש היום ומחר?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.ok(reply);
+    assert.equal(reply!.kind, "list");
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.match(reply!.text, /18:30/, "Wednesday's open slot is listed");
+    assert.match(reply!.text, /מחר/, "open day is tomorrow, not today");
+    assert.doesNotMatch(reply!.text, /היום/, "Tuesday's all-full day-line is omitted, not replaced by the notice");
+    assert.doesNotMatch(reply!.text, /19:30/, "Tuesday-only times must not leak into the reply");
+    assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
+    assert.equal(new Set(calls.map((c) => c.date)).size, 2);
+  }
+
+  // (e) multi-day where ALL requested days are all-full -> all-full message.
+  {
+    const { impl } = fakeRawDataFetcher({
+      "2026-09-01|18:30|Chair": "full",
+      "2026-09-01|19:30|Chair": "full",
+      "2026-09-01|19:30|Strength": "full",
+      "2026-09-02|18:30|Strength": "full",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "איזה אימונים יש היום ומחר?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
+    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
+  }
+
+  // (f) fetch throws -> slots kept as unknown -> list reply, not all-full (fail-open).
+  {
+    const { impl, calls } = fakeRawDataFetcher({}, { throwOnFetch: true });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "מה יש ביום שלישי?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.ok(reply, "fail-open still answers from the weekly template");
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.equal(reply!.kind, "list");
+    assert.match(reply!.text, /18:30/);
+    assert.match(reply!.text, /19:30/);
+    assert.ok(calls.length >= 1);
+  }
+
+  // (g) unstamped catalog-wide -> unchanged listing, zero fetches, never all-full.
+  {
+    const unstamped = [
+      svc("פילאטיס מכשירים (כסא)", [{ day: "ג", time: "18:30" }, { day: "ג", time: "19:30" }], ""),
+      svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }], ""),
+    ];
+    const { impl, calls } = fakeRawDataFetcher({
+      "2026-09-01|18:30|Chair": "full",
+      "2026-09-01|19:30|Chair": "full",
+      "2026-09-01|19:30|Strength": "full",
+    });
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "מה יש ביום שלישי?",
+      services: unstamped,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.ok(reply);
+    assert.equal(reply!.kind, "list");
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.match(reply!.text, /18:30/);
+    assert.match(reply!.text, /19:30/);
+    assert.equal(calls.length, 0, "unstamped catalog-wide never fetches");
   }
 
   console.log("wa-relative-day-class-slots.test.ts: ok");
