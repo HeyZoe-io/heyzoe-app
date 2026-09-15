@@ -7,6 +7,7 @@ import {
   META_PRICING_NOTICE_KEY,
   META_RATES_IL,
   metaMonthlyExampleIls,
+  metaMonthlyExampleMessages,
   usdRateToAgorot,
   usdRateToIls,
 } from "@/lib/meta-pricing-notice";
@@ -21,11 +22,16 @@ export type MetaPricingNoticeData = {
 };
 
 function MetaPricingFlowDiagram() {
+  const serviceAgorot = formatAgorot(usdRateToAgorot(META_RATES_IL.service));
+  const exampleMessages = metaMonthlyExampleMessages().toLocaleString("en-US");
+  const exampleIls = metaMonthlyExampleIls();
+
   return (
     <svg width="100%" viewBox="0 0 520 430" preserveAspectRatio="xMidYMid meet" role="img">
       <title>עדכון מחירי מטא החל מ-1.10.26</title>
       <desc>
-        ליד ממודעת Click to WhatsApp מקבל 72 שעות חינם, וליד מכל מקור אחר מחויב כ-1.6 אגורות לכל הודעה יוצאת
+        ליד ממודעת Click to WhatsApp מקבל 72 שעות חינם, וליד מכל מקור אחר מחויב כ-{serviceAgorot} אגורות לכל הודעה
+        יוצאת
       </desc>
       <defs>
         <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -80,7 +86,7 @@ function MetaPricingFlowDiagram() {
         24 שעות בתשלום
       </text>
       <text x="130" y="252" textAnchor="middle" dominantBaseline="central" direction="rtl" fill="#7A3FA3" fontSize="13">
-        כ-1.6 אגורות לכל הודעה
+        כ-{serviceAgorot} אגורות לכל הודעה
       </text>
 
       <line x1="390" y1="270" x2="390" y2="308" stroke="#bc74e9" strokeWidth="1.5" markerEnd="url(#arrow2)" />
@@ -91,7 +97,7 @@ function MetaPricingFlowDiagram() {
         אחרי 72 השעות
       </text>
       <text x="390" y="352" textAnchor="middle" dominantBaseline="central" direction="rtl" fill="#7A3FA3" fontSize="13">
-        כ-1.6 אגורות לכל הודעה
+        כ-{serviceAgorot} אגורות לכל הודעה
       </text>
 
       <rect x="15" y="308" width="230" height="62" rx="8" fill="#F4E9FC" stroke="#bc74e9" strokeWidth="0.5" />
@@ -99,7 +105,7 @@ function MetaPricingFlowDiagram() {
         200 שיחות × 8 הודעות
       </text>
       <text x="130" y="352" textAnchor="middle" dominantBaseline="central" direction="rtl" fill="#7A3FA3" fontSize="13">
-        1,600 הודעות = כ-26 ₪ בחודש
+        {exampleMessages} הודעות = כ-{exampleIls} ₪ בחודש
       </text>
 
       <text x="260" y="396" textAnchor="middle" direction="rtl" fill="#7A3FA3" fontSize="13">
