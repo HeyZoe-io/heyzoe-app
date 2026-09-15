@@ -123,6 +123,18 @@ assert.equal(
   true,
   "bare yes after Claude asked to try a trial class"
 );
+const apexMaorClaudeAsk =
+  'היי! 🙂 אנחנו בעצם מועדון כושר שיש בו הכל. יש לנו חדר כושר, אימונים פונקציונליים (שמשלבים כוח ואירובי), אימוני כוח, יוגה, פילאטיס - המון אפשרויות! בגלל שיש לנו מגוון כזה של אימונים ומסלולים, המנויים משתנים בהתאם. המחירים נעים בין 165 ש"ח ומגיעים עד ל-625 ש"ח. הצוות שלנו יחזור אלייך ויתאים לך את המסלול המדויק שיעזור לך להגיע למטרות שלך. ברצונך לנסות אימון ניסיון בחינם ולהכיר את המקום?';
+assert.equal(assistantAskedToTryAClass(apexMaorClaudeAsk), true, "Apex Maor: full Claude trial ask");
+assert.equal(
+  shouldStartProductPickAfterTryClassOffer({
+    inbound: "כן",
+    lastAssistantModel: "claude-haiku-4-5",
+    lastAssistantContent: apexMaorClaudeAsk,
+  }),
+  true,
+  "Apex Maor: bare כן after Claude trial ask → product pick"
+);
 assert.equal(
   shouldDeclineTryClassOffer({
     inbound: "לא תודה",

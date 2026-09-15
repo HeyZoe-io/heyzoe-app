@@ -129,11 +129,14 @@ export function assistantAskedToTryAClass(raw: string): boolean {
     .replace(/\r\n/g, "\n")
     .trim()
     .replace(/\s+/g, " ");
-  if (!t || t.length > 800) return false;
-  const asks = /[?؟]|ברצונך|בא לך/u.test(t);
+  if (!t) return false;
+  // Long Claude turns often explain prices first, then ask — match the closing window.
+  const window = t.length > 600 ? t.slice(-600) : t;
+  if (/ברצונך\s+לנסות\s+(?:אימון|שיעור)/u.test(window)) return true;
+  const asks = /[?؟]|ברצונך|בא לך/u.test(window);
   if (!asks) return false;
   return /(?:אימון|שיעור).{0,24}(?:ניסיון|נסיון|היכרות|הכרות)|לנסות\s+(?:אימון|שיעור)\s*(?:ניסיון|נסיון)?/u.test(
-    t
+    window
   );
 }
 

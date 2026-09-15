@@ -536,9 +536,12 @@ export function buildCtaServiceRepickPromptAddon(): string {
 export async function fetchLastAssistantMessageContent(input: {
   business_slug: string;
   session_id: string;
+  /** Skip internal `[heyzoe:…]` markers so Claude's last visible turn is used. */
+  skipInternal?: boolean;
 }): Promise<string> {
   try {
     const supabase = createSupabaseAdminClient();
+    const limit = input.skipInternal ? 8 : 1;
     const { data, error } = await supabase
       .from("messages")
       .select("content")
@@ -546,10 +549,16 @@ export async function fetchLastAssistantMessageContent(input: {
       .eq("session_id", input.session_id)
       .eq("role", "assistant")
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(limit);
     if (error || data == null) return "";
-    return String(data.content ?? "").trim();
+    const rows = Array.isArray(data) ? data : [data];
+    for (const row of rows) {
+      const c = String((row as { content?: unknown }).content ?? "").trim();
+      if (!c) continue;
+      if (input.skipInternal && c.startsWith("[heyzoe:")) continue;
+      return c;
+    }
+    return "";
   } catch {
     return "";
   }

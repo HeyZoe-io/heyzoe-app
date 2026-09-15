@@ -6802,6 +6802,7 @@ async function processIncoming(
 
   // Soft «אשמח לנסות / אפשר לנסות שיעור» out of flow: ask before dumping product pick.
   // Hard signup («להירשם») still enters immediately below.
+  // Bare «כן» after Claude's free-text trial ask («ברצונך לנסות אימון ניסיון…») also enters product pick.
   if (msg.type === "text" && businessId && knowledge?.salesFlowConfig) {
     const inboundTry = matchesTryClassIntent(msg.text);
     const inboundYes = isTryClassOfferAffirmative(msg.text);
@@ -6816,6 +6817,7 @@ async function processIncoming(
           ? await fetchLastAssistantMessageContent({
               business_slug,
               session_id: sessionId,
+              skipInternal: true,
             })
           : "";
       if (
