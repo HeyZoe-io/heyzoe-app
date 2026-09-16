@@ -9,7 +9,11 @@ import {
   instagramVisitInMeantimeLine,
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
-import { normalizeRequestedDateForTemplate } from "@/lib/product-schedule-slots";
+import {
+  buildCourseSchedulePhraseForCta,
+  normalizeRequestedDateForTemplate,
+  type CourseCycle,
+} from "@/lib/product-schedule-slots";
 import {
   fillProductDescriptionTemplate,
   type ProductDescriptionFillInput,
@@ -2871,6 +2875,38 @@ export function fillAfterServicePickTemplate(
   void _template;
   void _serviceName;
   return fillProductDescriptionTemplate(benefitLine, fill ?? {});
+}
+
+/** Same description the first catalog pick sends — also used after switching class mid-flow. */
+export function buildAfterServicePickReplyText(
+  template: string,
+  service: {
+    name: string;
+    benefit: string;
+    priceText: string;
+    durationText: string;
+    offerKind: OfferKind | string;
+    locationMode?: string;
+    locationText?: string;
+    courseSessionsText?: string;
+    courseDatesEnabled?: boolean;
+    courseCycles?: CourseCycle[];
+  },
+  businessAddress: string
+): string {
+  const isOnlineCourse = service.offerKind === "course" && service.locationMode === "online";
+  const afterPick = fillAfterServicePickTemplate(template, service.name, service.benefit, {
+    priceText: service.priceText,
+    durationText: service.durationText,
+    businessAddress: isOnlineCourse ? service.locationText?.trim() || "אונליין" : businessAddress,
+    sessionsText: service.courseSessionsText,
+    schedulePhrase:
+      service.offerKind === "course" && service.courseDatesEnabled === false
+        ? ""
+        : buildCourseSchedulePhraseForCta(service.courseCycles ?? []),
+    offerKind: service.offerKind,
+  });
+  return isOnlineCourse ? afterPick.replace(/מפגשים/g, "שיעורים") : afterPick;
 }
 
 export function fillCtaBodyTemplate(

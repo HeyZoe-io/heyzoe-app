@@ -48,7 +48,7 @@ import {
   appendTrialPromotionToCtaBody,
   fillAfterExperienceTemplate,
   fillWarmupScriptedReply,
-  fillAfterServicePickTemplate,
+  buildAfterServicePickReplyText,
   fillCtaBodyTemplate,
   fillOfferKindCtaBody,
   formatAfterTrialRegistrationForWhatsAppDelivery,
@@ -3204,6 +3204,56 @@ async function commitImplicitServiceSwitch(input: {
   return nextPhase;
 }
 
+async function sendAfterServicePickIntro(input: {
+  knowledge: BusinessKnowledgePack;
+  picked: SfServiceRow;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia?: boolean;
+}): Promise<void> {
+  const cfg = input.knowledge.salesFlowConfig;
+  if (!cfg) return;
+  const blockMedia = input.blockMedia ?? false;
+  if (!blockMedia && !input.picked.trialPickMediaUrl?.trim()) {
+    console.warn(
+      `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${input.picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`
+    );
+  }
+  await sendTrialPickMediaIfAllowed({
+    blockMedia,
+    mediaUrl: input.picked.trialPickMediaUrl,
+    mediaType: input.picked.trialPickMediaType,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+  });
+  const afterPickText = buildAfterServicePickReplyText(
+    cfg.after_service_pick,
+    input.picked,
+    input.knowledge.addressText ?? ""
+  );
+  if (!afterPickText.trim()) return;
+  await sendWhatsAppMessage(
+    input.msg.toNumber,
+    input.msg.from,
+    afterPickText.trim(),
+    input.accountSid,
+    input.authToken
+  ).catch((e) => console.error("[WA Webhook] Send sales-flow pick reply failed:", e));
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: afterPickText.trim(),
+    model_used: "sales_flow",
+    session_id: input.sessionId,
+  });
+}
+
 async function continueSalesFlowAfterCommittedServiceSwitch(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -3224,6 +3274,26 @@ async function continueSalesFlowAfterCommittedServiceSwitch(input: {
   arboxBoxId?: string | null;
   now?: Date;
 }): Promise<void> {
+  const selectedServiceName =
+    input.salesFlowServices.length === 1
+      ? input.salesFlowServices[0]!.name
+      : (await fetchLastSfServiceEventName({
+          business_slug: input.business_slug,
+          session_id: input.sessionId,
+        })) ?? "";
+  const picked = input.salesFlowServices.find((s) => s.name === selectedServiceName) ?? null;
+  if (picked) {
+    await sendAfterServicePickIntro({
+      knowledge: input.knowledge,
+      picked,
+      msg: input.msg,
+      accountSid: input.accountSid,
+      authToken: input.authToken,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+      blockMedia: input.blockTrialPickMedia,
+    });
+  }
   const scheduleAfterPick = await maybeSendScheduleBoardForPlacement({
     knowledge: input.knowledge,
     supabase: input.supabase,
@@ -9182,53 +9252,16 @@ async function processIncoming(
             named.find((s) => rawLower && rawLower.includes(s.name.toLowerCase()));
 
       if (picked) {
-        const cfg = knowledge.salesFlowConfig;
-        const afterPick = fillAfterServicePickTemplate(cfg.after_service_pick, picked.name, picked.benefit, {
-          priceText: picked.priceText,
-          durationText: picked.durationText,
-          businessAddress:
-            picked.offerKind === "course" && picked.locationMode === "online"
-              ? picked.locationText.trim() || "אונליין"
-              : knowledge.addressText ?? "",
-          sessionsText: picked.courseSessionsText,
-          schedulePhrase:
-            picked.offerKind === "course" && picked.courseDatesEnabled === false
-              ? ""
-              : buildCourseSchedulePhraseForCta(picked.courseCycles ?? []),
-          offerKind: picked.offerKind,
-        });
-        const afterPickText =
-          picked.offerKind === "course" && picked.locationMode === "online"
-            ? afterPick.replace(/מפגשים/g, "שיעורים")
-            : afterPick;
-        if (!starterBlocksMedia && !picked.trialPickMediaUrl?.trim()) {
-          console.warn(
-            `[WA Webhook] sf_service_pick: מדיה למסלול שיעור הניסיון חסרה ב-DB בשירות "${picked.name}" (בודקים ש-description כולל trial_pick_media_url בשמירת ההגדרות).`
-          );
-        }
-
-        await sendTrialPickMediaIfAllowed({
-          blockMedia: starterBlocksMedia,
-          mediaUrl: picked.trialPickMediaUrl,
-          mediaType: picked.trialPickMediaType,
+        await sendAfterServicePickIntro({
+          knowledge,
+          picked,
           msg,
           accountSid,
           authToken,
           business_slug,
           sessionId,
+          blockMedia: starterBlocksMedia,
         });
-        if (afterPickText.trim()) {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, afterPickText.trim(), accountSid, authToken).catch((e) =>
-            console.error("[WA Webhook] Send sales-flow pick reply failed:", e)
-          );
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: afterPickText.trim(),
-            model_used: "sales_flow",
-            session_id: sessionId,
-          });
-        }
         await logMessage({
           business_slug,
           role: "event",
@@ -11700,56 +11733,16 @@ async function processIncoming(
             service: lateMatch,
           });
           try {
-            const cfg = knowledge.salesFlowConfig;
-            const afterPick = fillAfterServicePickTemplate(
-              cfg.after_service_pick,
-              pickedLate.name,
-              pickedLate.benefit,
-              {
-                priceText: pickedLate.priceText,
-                durationText: pickedLate.durationText,
-                businessAddress:
-                  pickedLate.offerKind === "course" && pickedLate.locationMode === "online"
-                    ? pickedLate.locationText.trim() || "אונליין"
-                    : knowledge.addressText ?? "",
-                sessionsText: pickedLate.courseSessionsText,
-                schedulePhrase:
-                  pickedLate.offerKind === "course" && pickedLate.courseDatesEnabled === false
-                    ? ""
-                    : buildCourseSchedulePhraseForCta(pickedLate.courseCycles ?? []),
-                offerKind: pickedLate.offerKind,
-              }
-            );
-            const afterPickText =
-              pickedLate.offerKind === "course" && pickedLate.locationMode === "online"
-                ? afterPick.replace(/מפגשים/g, "שיעורים")
-                : afterPick;
-            await sendTrialPickMediaIfAllowed({
-              blockMedia: starterBlocksMedia,
-              mediaUrl: pickedLate.trialPickMediaUrl,
-              mediaType: pickedLate.trialPickMediaType,
+            await sendAfterServicePickIntro({
+              knowledge,
+              picked: pickedLate,
               msg,
               accountSid,
               authToken,
               business_slug,
               sessionId,
+              blockMedia: starterBlocksMedia,
             });
-            if (afterPickText.trim()) {
-              await sendWhatsAppMessage(
-                msg.toNumber,
-                msg.from,
-                afterPickText.trim(),
-                accountSid,
-                authToken
-              ).catch((e) => console.error("[WA Webhook] late pick reply failed:", e));
-              await logMessage({
-                business_slug,
-                role: "assistant",
-                content: afterPickText.trim(),
-                model_used: "sales_flow",
-                session_id: sessionId,
-              });
-            }
             await logMessage({
               business_slug,
               role: "event",
