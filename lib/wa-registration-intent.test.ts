@@ -113,6 +113,15 @@ assert.equal(
 );
 assert.equal(resolveBookedClassMoveBranch("יש לי כרטיסיה, אפשר להחליף שיעור?"), "app");
 
+const apexPostponeTrial =
+  "הי\n\nהיינו אמורים לעשות אימון נסיון היום ב 19:00\nזה לא מסתדר\nאפשרי בבקשה לדחות בשבוע - ליום ד הבא לשעה 19:30 ?\nתודה";
+assert.equal(matchesBookedClassMoveIntent(apexPostponeTrial), true, "postpone existing trial");
+assert.equal(
+  resolveBookedClassMoveBranch(apexPostponeTrial, { salesFlowStarted: true, sessionPhase: "opening" }),
+  "app",
+  "already-booked trial postpone → app, not product pick / warmup"
+);
+
 assert.equal(matchesBookedClassMoveIntent("אני רשומה לשיעור יוגה"), false);
 assert.equal(matchesBookedClassMoveIntent("לא מרגישה טוב"), false);
 assert.equal(matchesBookedClassMoveIntent("אשמח לתאם שיעור ניסיון בשישי בעשר"), false);

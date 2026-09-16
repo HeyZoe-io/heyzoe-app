@@ -32,6 +32,12 @@ assert.equal(matchesTrialTopicIntent("אני כבר רשומ/ה לשיעור נ�
 assert.equal(isExistingTrialEnrollmentMention("לא נרשמתי לשיעור ניסיון"), true);
 assert.equal(isExistingTrialEnrollmentMention("אני כבר רשומ/ה לשיעור ניסיון"), true);
 
+const apexPostponeTrial =
+  "הי\n\nהיינו אמורים לעשות אימון נסיון היום ב 19:00\nזה לא מסתדר\nאפשרי בבקשה לדחות בשבוע - ליום ד הבא לשעה 19:30 ?\nתודה";
+assert.equal(isExistingTrialEnrollmentMention(apexPostponeTrial), true, "scheduled trial today is existing enrollment");
+assert.equal(matchesTrialTopicIntent(apexPostponeTrial), false, "postpone must not restart trial topic");
+assert.equal(matchesTrialTopicAdvanceIntent(apexPostponeTrial), false);
+
 assert.equal(matchesTrialTopicAdvanceIntent("רוצה אימון הכרות"), true);
 assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), false);
 assert.equal(matchesTrialTopicAdvanceIntent("כמה עולה אימון היכרות"), false);

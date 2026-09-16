@@ -48,6 +48,13 @@ export function isExistingTrialEnrollmentMention(raw: string): boolean {
   ) {
     return true;
   }
+  if (
+    /(?:היינו|אני|אנחנו)\s+אמורים\s+(?:לעשות|להגיע).{0,48}(?:אימון|שיעור).{0,24}(?:ניסיון|נסיון|היכרות|הכרות)/u.test(
+      t
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 

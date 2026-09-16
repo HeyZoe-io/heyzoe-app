@@ -5156,6 +5156,14 @@ async function tryRecoverDeterministicSalesFlowOnRecognitionMiss(
 
   try {
     if (input.phase === "opening") {
+      const lastAssistForOpeningRecover = await fetchLastAssistantModelUsed({
+        business_slug: input.business_slug,
+        session_id: input.sessionId,
+      });
+      // דילוג חימום (trial_topic / בחירת מוצר) — לא לקפוץ לחימום כשממתינים לבחירת אימון.
+      if (isOpeningServicePickMenuModel(lastAssistForOpeningRecover)) {
+        return false;
+      }
       const cleanGreeting = (Array.isArray(cfg.greeting_extra_steps) ? cfg.greeting_extra_steps : [])
         .map((s) => ({
           question: String((s as { question?: unknown }).question ?? "").trim(),
@@ -11666,8 +11674,13 @@ async function processIncoming(
       console.warn("[WA Webhook] 24h AI rate-limit check failed (continuing):", e);
     }
 
-    // Fallback זיהוי (לא isFreeTextSalesFlowAi): ניסיון להמשיך פלואו דטרמיניסטי לפני Claude
-    if (!isFreeTextSalesFlowAi && knowledge?.salesFlowConfig && businessId) {
+    // Fallback זיהוי: רק כפתור/בחירת תפריט שלא הותאמה — לא טקסט חופשי ולא אחרי בקשת נציג.
+    if (
+      shouldResendDeterministicMenuOnUnrecognizedPick(msg) &&
+      !contactHumanRequestedAt &&
+      knowledge?.salesFlowConfig &&
+      businessId
+    ) {
       const recovered = await tryRecoverDeterministicSalesFlowOnRecognitionMiss({
         phase: contactSessionPhase,
         flowStep: contactFlowStep,
