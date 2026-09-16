@@ -1,4 +1,8 @@
-import { matchCatalogServiceFromFreeText } from "@/lib/wa-unknown-class-slot";
+import {
+  matchCatalogServiceFromFreeText,
+  matchCatalogServicesFromFreeText,
+  matchCatalogServicesSharingDistinctiveToken,
+} from "@/lib/wa-unknown-class-slot";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 import { matchesTrialTopicAdvanceIntent } from "@/lib/wa-trial-topic-intent";
 
@@ -70,6 +74,43 @@ export function shouldPromptAmbiguousCatalogTrialPick(input: {
   if (!input.awaitingOpeningServicePick) return false;
   if (input.matchCount < 2) return false;
   return inboundLooksLikeTrialClassRegistrationPick(input.inboundText);
+}
+
+/**
+ * תפריט משפחה רק כשאין התאמה יחידה לקטלוג.
+ * «שיעור יוגה נשים» לא ייפול למשפחת «יוגה» רק כי השם מכיל את הטוקן.
+ */
+export function resolveAmbiguousCatalogFamilyNames(input: {
+  inboundText: string;
+  services: { name: string }[];
+  awaitingOpeningServicePick: boolean;
+}): string[] {
+  const catalogMatches = matchCatalogServicesFromFreeText(input.inboundText, input.services);
+  if (catalogMatches.length === 1) return [];
+  const familyMatches = matchCatalogServicesSharingDistinctiveToken(input.inboundText, input.services);
+  const ambiguous =
+    catalogMatches.length >= 2 ? catalogMatches : familyMatches.length >= 2 ? familyMatches : [];
+  if (
+    ambiguous.length >= 2 &&
+    shouldPromptAmbiguousCatalogTrialPick({
+      inboundText: input.inboundText,
+      matchCount: ambiguous.length,
+      awaitingOpeningServicePick: input.awaitingOpeningServicePick,
+    })
+  ) {
+    return ambiguous;
+  }
+  return [];
+}
+
+/** «כן» אחרי «האם זה האימון שמעניין אותך?» — אישור המוצר שכבר נאמר. */
+const AFFIRMATIVE_CATALOG_FAMILY_CONFIRM =
+  /^(?:כן|בטח|יאללה|אוקיי?|ok|okay|yes|sure|да)(?:[.!,?؟\s]*)$/iu;
+
+export function isAffirmativeCatalogFamilyConfirm(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 40) return false;
+  return AFFIRMATIVE_CATALOG_FAMILY_CONFIRM.test(t);
 }
 
 function foldForMention(raw: string): string {

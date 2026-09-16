@@ -75,6 +75,10 @@ assert.equal(
   matchCatalogServiceFromFreeText("אני מתעניינת בשיעורי יוגה למתחילות", sangaLike),
   "שיעור יוגה מתחילים"
 );
+assert.equal(
+  matchCatalogServiceFromFreeText("שיעור יוגה נשים", sangaLike),
+  "שיעור יוגה נשים"
+);
 
 const strengthLike: SfServiceRow[] = [
   svc("אימוני כוח - Strength", [

@@ -8,12 +8,14 @@ import {
   looksLikeOutOfFlowCatalogClassPick,
   ensureOpeningServiceListPickBridge,
   inboundLooksLikeTrialClassRegistrationPick,
+  isAffirmativeCatalogFamilyConfirm,
+  resolveAmbiguousCatalogFamilyNames,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
 } from "@/lib/wa-opening-service-list-pick-bridge";
 import { isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
-import { matchCatalogServicesFromFreeText } from "@/lib/wa-unknown-class-slot";
+import { matchCatalogServicesFromFreeText, matchCatalogServiceFromFreeText } from "@/lib/wa-unknown-class-slot";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 
 const names = [
@@ -236,5 +238,38 @@ assert.equal(looksLikeOutOfFlowCatalogClassPick("כמה עולה פילאטיס 
 assert.equal(CATALOG_FAMILY_PICK_QUESTION_HE, "האם זה האימון שמעניין אותך?");
 assert.equal(CATALOG_FAMILY_PICK_MODEL, "sales_flow_catalog_family_pick");
 assert.equal(isOpeningServicePickMenuModel(CATALOG_FAMILY_PICK_MODEL), true);
+
+const sangaFamily = [
+  svc("שיעור יוגה מתחילים"),
+  svc("שיעור יוגה ממשיכים"),
+  svc("שיעור יוגה מתקדמים"),
+  svc("יוגה לכל הרמות"),
+  svc("שיעור יוגה נשים"),
+  svc("קורס מתחילים (8 מפגשים)"),
+];
+assert.equal(
+  matchCatalogServiceFromFreeText("שיעור יוגה נשים", sangaFamily),
+  "שיעור יוגה נשים"
+);
+assert.deepEqual(
+  resolveAmbiguousCatalogFamilyNames({
+    inboundText: "שיעור יוגה נשים",
+    services: sangaFamily,
+    awaitingOpeningServicePick: true,
+  }),
+  [],
+  "exact women's yoga must not fall through to the yoga family menu"
+);
+assert.ok(
+  resolveAmbiguousCatalogFamilyNames({
+    inboundText: "רוצה יוגה",
+    services: sangaFamily,
+    awaitingOpeningServicePick: true,
+  }).length >= 2,
+  "bare yoga family still prompts"
+);
+assert.equal(isAffirmativeCatalogFamilyConfirm("כן"), true);
+assert.equal(isAffirmativeCatalogFamilyConfirm("כן!"), true);
+assert.equal(isAffirmativeCatalogFamilyConfirm("שיעור יוגה נשים"), false);
 
 console.log("wa-opening-service-list-pick-bridge.test.ts: ok");

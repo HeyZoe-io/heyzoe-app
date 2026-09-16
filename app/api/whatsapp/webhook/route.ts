@@ -160,7 +160,9 @@ import {
   CATALOG_FAMILY_PICK_QUESTION_HE,
   buildAmbiguousCatalogTrialPickMessage,
   ensureOpeningServiceListPickBridge,
+  isAffirmativeCatalogFamilyConfirm,
   looksLikeOutOfFlowCatalogClassPick,
+  resolveAmbiguousCatalogFamilyNames,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
@@ -9097,8 +9099,9 @@ async function processIncoming(
     }
   }
 
-  // Out-of-flow: שם אימון / משפחה («פילאטיס מזרן») — לא לשלוח predefined_choice_guard.
-  // משפחה (≥2) → «האם זה האימון שמעניין אותך?» + כפתורי המשפחה. התאמה יחידה → סשן בחירת מוצר מלא.
+  // Out-of-flow: שם אימון / משפחה — לא לשלוח predefined_choice_guard.
+  // התאמה יחידה לקטלוג קודם למשפחה («שיעור יוגה נשים» לא ייפול לכל שיעורי היוגה).
+  // משפחה (≥2) בלי התאמה יחידה → «האם זה האימון שמעניין אותך?» + כפתורי המשפחה.
   if (
     isSalesFlowFreeTextInbound(msg) &&
     knowledge?.salesFlowConfig &&
@@ -9114,6 +9117,25 @@ async function processIncoming(
     const uniqueNames = matchCatalogServicesFromFreeText(msg.text, salesFlowServices);
     const familyRows = salesFlowServices.filter((s) => familyNames.includes(s.name));
     try {
+      // התאמה יחידה לקטלוג («שיעור יוגה נשים») לפני משפחת «יוגה».
+      if (uniqueNames.length === 1 || familyRows.length === 1) {
+        await beginSalesFlowAtProductPick({
+          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+          entryContent: "[heyzoe:signup_intent_flow_entry]",
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          allowTrialCta: true,
+        });
+        return;
+      }
       if (familyRows.length >= 2) {
         await updateContactSessionPhase({
           supabase,
@@ -9138,24 +9160,6 @@ async function processIncoming(
           modelUsed: CATALOG_FAMILY_PICK_MODEL,
         });
         if (sentFamily) return;
-      }
-      if (uniqueNames.length === 1 || familyRows.length === 1) {
-        await beginSalesFlowAtProductPick({
-          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-          entryContent: "[heyzoe:signup_intent_flow_entry]",
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          allowTrialCta: true,
-        });
-        return;
       }
     } catch (e) {
       console.error("[WA Webhook] out-of-flow catalog class pick failed:", e);
@@ -9182,18 +9186,37 @@ async function processIncoming(
       const rawLower = resolved.toLowerCase();
       const num = Number(rawLower);
       const catalogMatches = matchCatalogServicesFromFreeText(resolved, named);
-      const catalogTyped = catalogMatches.length === 1 ? catalogMatches[0]! : null;
-      const familyMatches = matchCatalogServicesSharingDistinctiveToken(resolved, named);
-      const ambiguousNames = catalogMatches.length >= 2 ? catalogMatches : familyMatches.length >= 2 ? familyMatches : [];
-
+      let catalogTyped = catalogMatches.length === 1 ? catalogMatches[0]! : null;
+      const exactLabelPick =
+        named.find((s) => waLabelMatches(resolved, s.name)) ??
+        named.find((s) => s.name.trim().toLowerCase() === rawLower);
       if (
-        ambiguousNames.length >= 2 &&
-        shouldPromptAmbiguousCatalogTrialPick({
-          inboundText: resolved,
-          matchCount: ambiguousNames.length,
-          awaitingOpeningServicePick: true,
-        })
+        !exactLabelPick &&
+        !catalogTyped &&
+        lastAssistForWarmupPriority === CATALOG_FAMILY_PICK_MODEL &&
+        isAffirmativeCatalogFamilyConfirm(resolved)
       ) {
+        const recentForFamilyYes = await fetchRecentSessionMessages({
+          business_slug,
+          session_id: sessionId,
+          limit: 12,
+        });
+        const prevUser = previousUserTextFromHistory({
+          currentText: resolved,
+          userMessagesOldestFirst: recentForFamilyYes
+            .filter((m) => m.role === "user")
+            .map((m) => m.content),
+        });
+        const prevUnique = matchCatalogServiceFromFreeText(prevUser, named);
+        if (prevUnique) catalogTyped = prevUnique;
+      }
+      const ambiguousNames = resolveAmbiguousCatalogFamilyNames({
+        inboundText: resolved,
+        services: named,
+        awaitingOpeningServicePick: true,
+      });
+
+      if (!exactLabelPick && !catalogTyped && ambiguousNames.length >= 2) {
         const familyRows = named.filter((s) => ambiguousNames.includes(s.name));
         const sentFamily = await sendOpeningServicePickMenu({
           knowledge,
