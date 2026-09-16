@@ -12,6 +12,7 @@ import {
   type BusinessCallSlotRow,
 } from "@/lib/call-schedule-slots";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { findWaMenuOptionIndex, resolveWaMenuChoice } from "@/lib/wa-menu-choice";
 import { withWarmupExtraAwaitingOff } from "@/lib/wa-warmup-awaiting-idx";
 
 export { CALL_SCHEDULE_CTA_LABEL };
@@ -110,17 +111,12 @@ export function resolveCallScheduleDayChoice(
   dayOptions: number[]
 ): number | null {
   const labels = dayOptions.map(callScheduleDayButtonLabel).filter(Boolean);
-  const incoming = String(metaInteractiveReplyId || text || "").trim();
+  const idx = findWaMenuOptionIndex(text, metaInteractiveReplyId, labels);
+  if (idx >= 0 && idx < dayOptions.length) return dayOptions[idx]!;
+  // Typed "רביעי" / "ד" / "יום רביעי" after Meta id is decoded to a label.
+  const incoming = resolveWaMenuChoice(text, metaInteractiveReplyId, labels, labels);
   const fromLabel = dayOfWeekFromCallScheduleDayButtonLabel(incoming);
   if (fromLabel != null && dayOptions.includes(fromLabel)) return fromLabel;
-  // numeric 1-based
-  if (/^[1-9]$/.test(incoming)) {
-    const idx = Number(incoming) - 1;
-    if (idx >= 0 && idx < dayOptions.length) return dayOptions[idx]!;
-  }
-  for (let i = 0; i < labels.length; i++) {
-    if (labels[i] && incoming === labels[i]) return dayOptions[i]!;
-  }
   return null;
 }
 
@@ -129,13 +125,8 @@ export function resolveCallScheduleTimeChoice(
   metaInteractiveReplyId: string | undefined,
   blocks: string[]
 ): string | null {
-  const incoming = String(metaInteractiveReplyId || text || "").trim();
-  if (blocks.includes(incoming)) return incoming;
-  if (/^[1-9]$/.test(incoming)) {
-    const idx = Number(incoming) - 1;
-    if (idx >= 0 && idx < blocks.length) return blocks[idx]!;
-  }
-  return null;
+  const idx = findWaMenuOptionIndex(text, metaInteractiveReplyId, blocks);
+  return idx >= 0 ? blocks[idx]! : null;
 }
 
 export function dayButtonLabelsForSlots(slots: BusinessCallSlotRow[]): string[] {
