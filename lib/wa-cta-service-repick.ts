@@ -302,6 +302,14 @@ export function isCatalogSpecificKnowledgeQuestion(text: string): boolean {
   if (isClassSizeKnowledgeQuestion(t)) return true;
   if (isDefinitionalCatalogQuestion(t)) return true;
   if (isClassFormatKnowledgeQuestion(t)) return true;
+  if (
+    /(?:עלות|מחיר|כמה\s+עולה|how\s+much|what(?:'s|\s+is)\s+the\s+price).{0,48}(?:מנוי|כרטיס|membership)/iu.test(
+      t
+    ) ||
+    /מנוי.{0,40}(?:עלות|מחיר|כמה\s+עולה)/u.test(t)
+  ) {
+    return true;
+  }
   if (/מה\s+ההבדל|למי\s+(?:זה\s+)?(?:מתאים|מיועד)|איך\s+(?:זה\s+)?עובד/u.test(t)) return true;
   if (CATALOG_KNOWLEDGE_SUITABILITY_RE.test(t) && CATALOG_KNOWLEDGE_AUDIENCE_RE.test(t)) return true;
   if (/(?:הריון|היריון|בהריון|בהיריון)/u.test(t) && /(?:אפשר|ניתן|מותר|אסור|מתאים)/u.test(t)) {
@@ -348,6 +356,13 @@ export function isAmbiguousPartialCatalogServiceSwitch(
   if (isPhaseAgnosticExplicitServiceSwitch(t, last, serviceNames)) return false;
   // Exact single catalog name is a direct switch, not an ambiguous family token (פילאטיס).
   if (exactTypedCatalogServiceName(t, serviceNames)) return false;
+  // «פילאטיס מכשירים» כבר נבחר — אזכור שלו לא נחשב למשפחת פילאטיס אחרת.
+  if (
+    serviceNameMatchesInUserText(last, t) &&
+    !textMentionsOtherServiceFromMenu(t, last, serviceNames)
+  ) {
+    return false;
+  }
   return mentionsOtherCatalogService(t, last, serviceNames);
 }
 

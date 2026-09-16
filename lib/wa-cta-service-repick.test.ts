@@ -118,6 +118,28 @@ assert.equal(
   isAmbiguousPartialCatalogServiceSwitch("מה זה פילאטיס", "אימון אישי", limitless),
   false
 );
+{
+  const apexPilates = [
+    "חדר כושר",
+    "אימון פונקציונלי",
+    "יוגה",
+    "פילאטיס מכשירים",
+    "פילאטיס מזרן",
+    "אימונים לילדים (ד'-ו')",
+  ];
+  const membershipPrice =
+    "מה העלות למנוי חודשי לפעמיים בשבוע פילאטיס מכשירים ?";
+  assert.equal(isCatalogSpecificKnowledgeQuestion(membershipPrice), true);
+  assert.equal(
+    isAmbiguousPartialCatalogServiceSwitch(membershipPrice, "פילאטיס מכשירים", apexPilates),
+    false,
+    "membership price for the current class must not open product pick"
+  );
+  assert.equal(
+    isPhaseAgnosticExplicitServiceSwitch(membershipPrice, "פילאטיס מכשירים", apexPilates),
+    false
+  );
+}
 assert.equal(
   isPhaseAgnosticExplicitServiceSwitch("רוצה לעבור לפילאטיס מכשירים", "אימון אישי", limitless),
   true
