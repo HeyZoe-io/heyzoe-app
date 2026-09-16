@@ -3,11 +3,13 @@ import type { SfServiceRow } from "@/lib/sf-service-rows";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
   assistantReplyIsUnknownClassSlotHandoff,
+  isCatalogWideClassDayAsk,
   matchCatalogServiceByDayAndTime,
   matchCatalogServiceFromFreeText,
   matchCatalogServicesSharingDistinctiveToken,
   looksLikeClassTimeQuestion,
   looksLikeHolidayClassScheduleAsk,
+  looksLikeMissedOrMakeupClassAsk,
   shouldHandoffUnknownClassSlot,
 } from "@/lib/wa-unknown-class-slot";
 
@@ -333,5 +335,35 @@ assert.deepEqual(
   "schedule-board request is not a pilates family pick"
 );
 assert.equal(matchCatalogServiceFromFreeText("פילאטיס מזרן", apexPilatesLike), "פילאטיס מזרן");
+
+const semyonMakeup = `שון שכח מהאימון ביום שישי
+האם יש אפשרות להחזיר את השיעור ?
+
+ורציתי לדעת האם יש אימון השבוע`;
+assert.equal(looksLikeMissedOrMakeupClassAsk(semyonMakeup), true);
+assert.equal(looksLikeMissedOrMakeupClassAsk("יהיה אימון ביום שישי?"), false);
+assert.equal(
+  isCatalogWideClassDayAsk(semyonMakeup, [
+    svc("חדר כושר", [{ day: "ו", time: "07:30" }]),
+    svc("אימון פונקציונלי", [{ day: "ו", time: "08:30" }]),
+  ]),
+  false,
+  "missed-class makeup is not a Friday catalog dump"
+);
+assert.equal(
+  isCatalogWideClassDayAsk("יהיה אימון ביום שישי?", [svc("איגרוף", [{ day: "ו", time: "19:00" }])]),
+  true
+);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: semyonMakeup,
+    services: [
+      svc("חדר כושר", [{ day: "ו", time: "07:30" }]),
+      svc("אימון פונקציונלי", [{ day: "ו", time: "08:30" }]),
+    ],
+  }),
+  false,
+  "unknown missed class asks which class — does not handoff before clarify"
+);
 
 console.log("wa-unknown-class-slot.test.ts: ok");

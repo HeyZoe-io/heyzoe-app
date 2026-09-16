@@ -14,6 +14,7 @@ import {
 import {
   isCatalogWideClassDayAsk,
   looksLikeClassTimeQuestion,
+  looksLikeMissedOrMakeupClassAsk,
   matchCatalogServiceFromFreeText,
   parseRequestedClassDays,
   asksWhichClassesOnDay,
@@ -28,6 +29,58 @@ import {
 } from "@/lib/arbox-occurrence-state";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
+export const EXISTING_CLASS_WHICH_CLASS_MODEL = "existing_class_which_class";
+
+const FORGOT_CLASS_NAME_STOP = new Set([
+  "הוא",
+  "היא",
+  "הם",
+  "הן",
+  "אני",
+  "אנחנו",
+  "את",
+  "אתה",
+  "אתם",
+  "אתן",
+  "מישהו",
+  "הילד",
+  "הילדה",
+  "הבן",
+  "הבת",
+]);
+
+/**
+ * שכח מהאימון / להחזיר שיעור בלי שם אימון — לשאול באיזה שיעור, לא לשלוח לוח.
+ */
+export function buildWhichExistingClassQuestion(input: {
+  text: string;
+  day: IsraelDayLetter | null;
+  now: Date;
+}): string {
+  const t = String(input.text ?? "").trim();
+  const m = t.match(
+    /(?:^|[^\p{L}])([א-ת]{2,12})\s+שכח(ה|ו|תי)?\s+(?:מה|את\s+ה?)(?:אימון|שיעור)/u
+  );
+  const name = m?.[1] && !FORGOT_CLASS_NAME_STOP.has(m[1]) ? m[1] : "";
+  const suffix = m?.[2] ?? "";
+  const dayPhrase =
+    input.day != null
+      ? dayAskPhrase({ text: t, day: input.day, now: input.now })
+      : "";
+  const dayBit = dayPhrase ? ` ${dayPhrase}` : "";
+  if (name && suffix !== "תי") {
+    if (suffix === "ה") {
+      return `כדי לעזור לך טוב יותר - ${name} הייתה אמורה להגיע לאיזה שיעור${dayBit}?`;
+    }
+    if (suffix === "ו") {
+      return `כדי לעזור לך טוב יותר - ${name} היו אמורים להגיע לאיזה שיעור${dayBit}?`;
+    }
+    return `כדי לעזור לך טוב יותר - ${name} היה אמור להגיע לאיזה שיעור${dayBit}?`;
+  }
+  return dayBit
+    ? `כדי לעזור לך טוב יותר - באיזה שיעור מדובר${dayBit}?`
+    : "כדי לעזור לך טוב יותר - באיזה שיעור מדובר?";
+}
 
 const DAY_NAME: Record<IsraelDayLetter, string> = {
   א: "ראשון",
@@ -412,6 +465,26 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) return null;
   if (!shouldAnswerFromClassTimetable(current, now)) return null;
+
+  if (looksLikeMissedOrMakeupClassAsk(current)) {
+    const named = resolveServiceName({
+      currentText: current,
+      previousUserText: prev,
+      services: input.services,
+    });
+    if (!named) {
+      const askDay = (daysCurrent.length ? daysCurrent : days)[0] as IsraelDayLetter | undefined;
+      return {
+        kind: "list",
+        text: buildWhichExistingClassQuestion({
+          text: current,
+          day: askDay ?? null,
+          now,
+        }),
+        modelUsed: EXISTING_CLASS_WHICH_CLASS_MODEL,
+      };
+    }
+  }
 
   if (isCatalogWideClassDayAsk(current, input.services, now)) {
     const parts: string[] = [];

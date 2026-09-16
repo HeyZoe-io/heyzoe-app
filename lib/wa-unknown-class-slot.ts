@@ -398,6 +398,29 @@ export function asksWhichClassesOnDay(text: string): boolean {
 }
 
 /**
+ * שיעור קיים שפספסו / מבקשים להחזיר — לא «מה יש ביום שישי» מהלוח.
+ * בלי שם אימון חד־משמעי צריך לשאול באיזה שיעור, לא לשלוח את כל המועדים.
+ */
+export function looksLikeMissedOrMakeupClassAsk(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t || t.length > 500) return false;
+  if (asksWhichClassesOnDay(t)) return false;
+  const forgot =
+    /שכח(?:תי|ה|נו|ו)?\s+(?:מה|את\s+ה?)(?:אימון|שיעור)/u.test(t) ||
+    /forgot.{0,40}(?:the\s+)?(?:class|session|lesson|training)/i.test(t);
+  const makeup =
+    /להחזיר\s+(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
+    /החזר(?:ת|ים)?\s+(?:של\s+)?(?:ה)?(?:שיעור|אימון)/u.test(t) ||
+    /(?:makeup|make[\s-]?up).{0,24}(?:class|session|lesson)/i.test(t) ||
+    /(?:get|give)\s+(?:the\s+)?(?:class|session|lesson)\s+back/i.test(t);
+  const missed =
+    /פיספס(?:תי|נו|ה)?\s+(?:את\s+)?ה?(?:אימון|שיעור)/u.test(t) ||
+    /לא\s+(?:הגיע|הגענו|הגעתי|הגיעה)\s+(?:ל)?(?:אימון|שיעור)/u.test(t) ||
+    /missed.{0,24}(?:the\s+)?(?:class|session|lesson)/i.test(t);
+  return forgot || makeup || missed;
+}
+
+/**
  * «מתי יש אימון ביום ראשון?» / «אני יכול רק ביום ראשון» — שאלת לוח כללית,
  * לא בדיקה מול האימון שנבחר קודם בשיחה.
  */
@@ -408,6 +431,7 @@ export function isCatalogWideClassDayAsk(
 ): boolean {
   const t = String(text ?? "").trim();
   if (!t) return false;
+  if (looksLikeMissedOrMakeupClassAsk(t)) return false;
   const whichClasses = asksWhichClassesOnDay(t);
   if (!whichClasses && matchCatalogServiceFromFreeText(t, services)) return false;
   if (!whichClasses && looksLikeNamedClass(t)) return false;
@@ -433,6 +457,7 @@ export function shouldHandoffUnknownClassSlot(input: {
   const days = parseRequestedClassDays(text, now);
   const times = parseRequestedTimes(text);
   const matchedName = matchCatalogServiceFromFreeText(text, input.services);
+  if (looksLikeMissedOrMakeupClassAsk(text) && !matchedName) return false;
   const committed = String(input.committedServiceName ?? "").trim();
   const catalogWide = isCatalogWideClassDayAsk(text, input.services, now);
   if (catalogWide) {

@@ -5,6 +5,8 @@ import type { ArboxOccurrenceStateResult } from "@/lib/arbox-occurrence-state";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import {
   buildIsraelNowSchedulePromptBlock,
+  buildWhichExistingClassQuestion,
+  EXISTING_CLASS_WHICH_CLASS_MODEL,
   formatDayClassScheduleLine,
   formatNamedClassScheduleLine,
   isRelativeDayCatalogAllFullReply,
@@ -659,6 +661,74 @@ async function main() {
     assert.match(reply!.text, /19:30/);
     assert.equal(calls.length, 0, "unstamped catalog-wide never fetches");
   }
+
+  const apexFriday = [
+    svc("חדר כושר", [
+      { day: "ו", time: "07:30" },
+      { day: "ו", time: "08:30" },
+      { day: "ו", time: "09:30" },
+    ]),
+    svc("אימון פונקציונלי", [
+      { day: "ו", time: "07:30" },
+      { day: "ו", time: "12:00" },
+    ]),
+    svc("אימונים לנוער (ז'-י')", [
+      { day: "ו", time: "13:00" },
+      { day: "א", time: "17:00" },
+    ]),
+  ];
+  const monMorning = new Date("2026-09-15T05:42:00.000Z");
+  const semyonMakeup = `שון שכח מהאימון ביום שישי
+האם יש אפשרות להחזיר את השיעור ?
+
+ורציתי לדעת האם יש אימון השבוע`;
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: semyonMakeup,
+      services: apexFriday,
+      now: monMorning,
+    });
+    assert.ok(reply, "missed Friday class without a name must still reply");
+    assert.equal(reply!.kind, "list");
+    assert.equal(reply!.modelUsed, EXISTING_CLASS_WHICH_CLASS_MODEL);
+    assert.match(reply!.text, /שון היה אמור להגיע לאיזה שיעור ביום שישי/);
+    assert.doesNotMatch(reply!.text, /חדר כושר/);
+    assert.doesNotMatch(reply!.text, /07:30/);
+    assert.doesNotMatch(reply!.text, /פונקציונלי/);
+  }
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "יהיה אימון ביום שישי?",
+      services: apexFriday,
+      now: monMorning,
+    });
+    assert.ok(reply, "plain Friday timetable ask still lists catalog");
+    assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(reply!.text, /חדר כושר/);
+  }
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "שון שכח מאימון נוער ביום שישי, אפשר להחזיר את השיעור?",
+      services: apexFriday,
+      now: monMorning,
+    });
+    assert.ok(reply);
+    assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(reply!.text, /נוער/);
+    assert.doesNotMatch(reply!.text, /חדר כושר/);
+  }
+
+  assert.match(
+    buildWhichExistingClassQuestion({
+      text: "מאיה שכחה מהאימון ביום שני",
+      day: "ב",
+      now: monMorning,
+    }),
+    /מאיה הייתה אמורה להגיע לאיזה שיעור ביום שני/
+  );
 
   console.log("wa-relative-day-class-slots.test.ts: ok");
 }
