@@ -7,7 +7,11 @@ import {
   sendMetaWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
-import { logMarketingWhatsAppMessage, sendMarketingWhatsApp } from "@/lib/marketing-whatsapp";
+import {
+  logMarketingWhatsAppMessage,
+  MARKETING_WA_PHONE_NUMBER_ID,
+  sendMarketingWhatsApp,
+} from "@/lib/marketing-whatsapp";
 import {
   answerOpenQuestionDuringMarketingFlow,
   deliverMarketingPostFlowAiResponse,
@@ -19,10 +23,9 @@ import {
   touchMarketingLeadDisplayName,
 } from "@/lib/marketing-followups";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { claimMessageForProcessing } from "@/lib/wa-processed-messages";
 
 export const runtime = "nodejs";
-
-const MARKETING_META_PHONE_NUMBER_ID = "1179786855208358";
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -68,6 +71,15 @@ export async function POST(req: NextRequest) {
   if (!msg || msg.type !== "text") {
     console.info("[marketing-webhook] ignored (no text message)");
     return NextResponse.json({ ok: true });
+  }
+  if (msg.toNumber !== MARKETING_WA_PHONE_NUMBER_ID) {
+    return NextResponse.json({ ok: true, ignored: "not_marketing_line" });
+  }
+
+  const claimed = await claimMessageForProcessing(msg.messageId);
+  if (!claimed) {
+    console.info("[marketing-webhook] skip duplicate", { messageId: msg.messageId, from: msg.from });
+    return NextResponse.json({ ok: true, duplicate: true });
   }
 
   const phone = normalizePhone(msg.from);
@@ -144,7 +156,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[marketing-webhook] error:", e);
     try {
-      await sendMetaWhatsAppMessage(MARKETING_META_PHONE_NUMBER_ID, phone, {
+      await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, {
         type: "text",
         text: "משהו השתבש אצלנו, ננסה שוב בקרוב 🙏",
       });

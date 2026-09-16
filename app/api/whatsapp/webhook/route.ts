@@ -587,6 +587,7 @@ import {
   acquireContactProcessingLock,
   releaseContactProcessingLock,
 } from "@/lib/wa-contact-processing-lock";
+import { claimMessageForProcessing } from "@/lib/wa-processed-messages";
 
 export const runtime = "nodejs";
 /** Below CONTACT_PROCESSING_LOCK_TTL_SECONDS (60s) so Vercel kills stuck handlers before lock expires. */
@@ -594,48 +595,6 @@ export const maxDuration = 55;
 
 // In-process dedup: fast path that prevents double-processing on the same instance.
 const processedMessageIds = new Set<string>();
-
-/**
- * Dedup עמיד בין אינסטנסים: Vercel לא חולק זיכרון, ו-retry של Meta/Twilio (כש-Claude
- * איטי וה-webhook לא חזר 200 בזמן) מגיע לאינסטנס אחר ומעבד את אותה הודעה שוב → שתי
- * תשובות. כאן עושים INSERT אטומי לפי message_id; conflict = כפילות → לא לעבד שוב.
- * מחזיר true אם ההודעה "נתפסה" לעיבוד (להמשיך), false אם כבר עובדה (לדלג).
- * fail-open: אם הטבלה חסרה / שגיאה לא צפויה — מעבדים (עדיף כפילות נדירה מאשר לאבד הודעה).
- */
-async function claimMessageForProcessing(messageId: string): Promise<boolean> {
-  if (!messageId) return true;
-  try {
-    const admin = createSupabaseAdminClient();
-    const { error } = await admin
-      .from("wa_processed_messages")
-      .insert({ message_id: messageId });
-    if (!error) {
-      // ניקוי best-effort של רשומות ישנות (לא בכל הודעה — אחת ל-~50, IO זניח)
-      if (Math.random() < 0.02) {
-        const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-        await admin
-          .from("wa_processed_messages")
-          .delete()
-          .lt("processed_at", cutoff)
-          .then(undefined, () => {});
-      }
-      return true;
-    }
-    if (error.code === "23505") {
-      console.info(`[WA Webhook] Skipping duplicate (durable) ${messageId}`);
-      return false;
-    }
-    if (/wa_processed_messages|relation|does not exist|schema cache/i.test(error.message)) {
-      console.warn("[WA Webhook] durable dedup unavailable, falling back to in-memory:", error.message);
-      return true;
-    }
-    console.error("[WA Webhook] durable dedup insert error:", error.message);
-    return true;
-  } catch (e) {
-    console.error("[WA Webhook] durable dedup exception:", e);
-    return true;
-  }
-}
 
 function waNormLabel(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
