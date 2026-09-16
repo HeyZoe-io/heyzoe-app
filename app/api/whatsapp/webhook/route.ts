@@ -261,6 +261,7 @@ import {
   tryBuildRelativeDayClassSlotsReply,
 } from "@/lib/wa-relative-day-class-slots";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
+import { looksLikeLinkOnlyMessage } from "@/lib/wa-inbound-link";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
   UNKNOWN_OFFER_POLICY_HANDOFF_REPLY,
@@ -6677,6 +6678,16 @@ async function processIncoming(
     } catch (e) {
       console.warn("[WA Webhook] human_requested handling failed:", e);
     }
+  }
+
+  // לינק בלבד — לא שאלה. לא לענות (גם לא באנגלית בגלל אותיות מה-URL).
+  if (msg.type === "text" && looksLikeLinkOnlyMessage(msg.text)) {
+    console.info("[WA Webhook] link-only inbound — skip auto-reply", {
+      business_slug,
+      sessionId,
+      from: msg.from,
+    });
+    return;
   }
 
   let knowledge = await getBusinessKnowledgePack(business_slug);

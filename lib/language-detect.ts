@@ -1,3 +1,5 @@
+import { stripInboundUrlTokens } from "@/lib/wa-inbound-link";
+
 export type DetectedMessageLanguage = "he" | "en" | "ru" | "unknown";
 
 function isHebrewLetter(code: number): boolean {
@@ -15,7 +17,7 @@ function isCyrillicLetter(code: number): boolean {
 
 /** Simple script detection for Hebrew vs English vs Russian (no extra LLM call). */
 export function detectMessageLanguage(text: string): DetectedMessageLanguage {
-  const s = String(text ?? "");
+  const s = stripInboundUrlTokens(String(text ?? ""));
   let he = 0;
   let en = 0;
   let ru = 0;

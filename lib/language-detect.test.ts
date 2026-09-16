@@ -10,6 +10,8 @@ assert.equal(detectMessageLanguage(""), "unknown");
 assert.equal(detectMessageLanguage("Yoga 18:00"), "en");
 assert.equal(detectMessageLanguage("יוגה 18:00"), "he");
 assert.equal(detectMessageLanguage("Хочу на йогу в 18:00"), "ru");
+assert.equal(detectMessageLanguage("https://maps.app.goo.gl/abc"), "unknown");
+assert.equal(detectMessageLanguage("תראי את זה https://example.com/x"), "he");
 assert.equal(
   detectMessageLanguage("Привет, есть у вас пилатес Reformer?"),
   "ru"
