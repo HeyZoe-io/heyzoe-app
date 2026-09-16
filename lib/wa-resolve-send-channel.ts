@@ -8,7 +8,10 @@ export type ActiveWaChannel = {
   createdAt: string;
 };
 
-export type ResolvedWaSendChannel = ActiveWaChannel;
+export type ResolvedWaSendChannel = ActiveWaChannel & {
+  /** Latest inbound `messages.created_at` across this business's active WA numbers, or null. */
+  latestUserAt?: string | null;
+};
 
 export type LatestUserMessageAcrossChannels = {
   createdAt: string;
@@ -154,6 +157,10 @@ export async function fetchLatestUserMessageAcrossChannels(input: {
  * 1) active channel of the contact's latest role=user message
  * 2) else Meta CONNECTED (if prefer set provided cheaply) / else newest active by created_at
  * 3) null if no active channel
+ *
+ * `latestUserAt` is that inbound's `created_at` across all active numbers (or null).
+ * When a latest inbound exists, the picked channel is that message's number, so the
+ * timestamp matches a session-scoped last-user query on the resolved channel.
  */
 export async function resolveSendChannelForContact(
   admin: AdminClient,
@@ -174,11 +181,16 @@ export async function resolveSendChannelForContact(
     phoneNumberIds: channels.map((c) => c.phoneNumberId),
   });
 
-  return pickSendChannelForContact(
+  const picked = pickSendChannelForContact(
     channels,
     latest?.phoneNumberId,
     opts?.preferConnectedPhoneNumberIds
   );
+  if (!picked) return null;
+  return {
+    ...picked,
+    latestUserAt: latest?.createdAt?.trim() || null,
+  };
 }
 
 /** Non-contact-scoped: newest active / CONNECTED prefer — never first-by-id. */

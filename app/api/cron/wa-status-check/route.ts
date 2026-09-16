@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
-import { waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import {
-  fetchLastUserMessageAt,
   isIdleAfterLastUserMessage,
   WA_NO_RESPONSE_AFTER_MS,
   waNoResponseEligible,
@@ -17,10 +15,66 @@ export const dynamic = "force-dynamic";
 
 const BATCH = 200;
 
+/** Drop registered rows in SQL so they are not re-selected every run (in-code gate already skipped them). */
+const SESSION_PHASE_NOT_REGISTERED = "session_phase.is.null,session_phase.neq.registered";
+
 type ChannelRow = {
   phone_number_id: string | null;
   business_slug: string | null;
+  latest_user_at: string | null;
 };
+
+type StatusContactRow = {
+  id?: string | number;
+  phone?: string | null;
+  business_id?: number | null;
+  session_phase?: string | null;
+  trial_registered?: boolean | null;
+  self_reported_registered_at?: string | null;
+  opted_out?: boolean | null;
+  last_contact_at?: string | null;
+  wa_followup_stage?: number | null;
+  source?: string | null;
+  full_name?: string | null;
+};
+
+type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+/** Businesses with at least one active WA number. `null` = query failed; skip the filter this run. */
+async function loadActiveWaBusinessIds(admin: AdminClient): Promise<number[] | null> {
+  const { data, error } = await admin
+    .from("whatsapp_channels")
+    .select("business_id")
+    .eq("is_active", true);
+  if (error) {
+    console.error("[cron/wa-status-check] active channels query:", error.message);
+    return null;
+  }
+  const ids = new Set<number>();
+  for (const row of data ?? []) {
+    const id = Number((row as { business_id?: unknown }).business_id);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  return [...ids];
+}
+
+function applyWaStatusDueGuards<T>(
+  query: T,
+  activeBusinessIds: number[] | null,
+  opts?: { excludeRegisteredPhase?: boolean }
+): T {
+  let q = query as T & {
+    or: (filter: string) => T;
+    in: (column: string, values: number[]) => T;
+  };
+  if (opts?.excludeRegisteredPhase !== false) {
+    q = q.or(SESSION_PHASE_NOT_REGISTERED) as typeof q;
+  }
+  if (activeBusinessIds && activeBusinessIds.length > 0) {
+    q = q.in("business_id", activeBusinessIds) as typeof q;
+  }
+  return q;
+}
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -48,26 +102,42 @@ export async function GET(req: NextRequest) {
   const nowIso = new Date(now).toISOString();
   const cutoffIso = new Date(now - WA_NO_RESPONSE_AFTER_MS).toISOString();
 
+  const activeBusinessIds = await loadActiveWaBusinessIds(admin);
+  if (activeBusinessIds && activeBusinessIds.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      examined: 0,
+      marked: 0,
+      template_examined: 0,
+      template_marked: 0,
+      skipped: 0,
+      skip_counts: {},
+      note: "no_active_whatsapp_channels",
+    });
+  }
+
   const statusSelect =
     "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, self_reported_registered_at, opted_out, last_contact_at, source, wa_followup_stage, full_name";
   const statusSelectNoSelfReported =
     "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at, source, wa_followup_stage, full_name";
 
-  let contacts: any[] | null = null;
-  const { data: contactsData, error } = await admin
-    .from("contacts")
-    .select(statusSelect)
-    .eq("source", "whatsapp")
-    .or("opted_out.eq.false,opted_out.is.null")
-    .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-    .or("trial_registered.eq.false,trial_registered.is.null")
-    .is("self_reported_registered_at", null)
-    .is("wa_no_response_at", null)
-    .not("wa_no_response_due_at", "is", null)
-    .lt("wa_no_response_due_at", nowIso)
-    .limit(BATCH);
-  contacts = (contactsData as any[] | null) ?? null;
+  let contacts: StatusContactRow[] | null = null;
+  const { data: contactsData, error } = await applyWaStatusDueGuards(
+    admin
+      .from("contacts")
+      .select(statusSelect)
+      .eq("source", "whatsapp")
+      .or("opted_out.eq.false,opted_out.is.null")
+      .is("not_relevant_at", null)
+      .is("human_requested_at", null)
+      .or("trial_registered.eq.false,trial_registered.is.null")
+      .is("self_reported_registered_at", null)
+      .is("wa_no_response_at", null)
+      .not("wa_no_response_due_at", "is", null)
+      .lt("wa_no_response_due_at", nowIso),
+    activeBusinessIds
+  ).limit(BATCH);
+  contacts = (contactsData as StatusContactRow[] | null) ?? null;
 
   if (error) {
     const msg = String(error.message ?? "");
@@ -75,18 +145,20 @@ export async function GET(req: NextRequest) {
       console.warn(
         "[cron/wa-status-check] self_reported_registered_at missing — run supabase/contacts_cta_frequency_and_self_reported.sql"
       );
-      const retry = await admin
-        .from("contacts")
-        .select(statusSelectNoSelfReported)
-        .eq("source", "whatsapp")
-        .or("opted_out.eq.false,opted_out.is.null")
-        .is("not_relevant_at", null)
-        .is("human_requested_at", null)
-        .or("trial_registered.eq.false,trial_registered.is.null")
-        .is("wa_no_response_at", null)
-        .not("wa_no_response_due_at", "is", null)
-        .lt("wa_no_response_due_at", nowIso)
-        .limit(BATCH);
+      const retry = await applyWaStatusDueGuards(
+        admin
+          .from("contacts")
+          .select(statusSelectNoSelfReported)
+          .eq("source", "whatsapp")
+          .or("opted_out.eq.false,opted_out.is.null")
+          .is("not_relevant_at", null)
+          .is("human_requested_at", null)
+          .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("wa_no_response_at", null)
+          .not("wa_no_response_due_at", "is", null)
+          .lt("wa_no_response_due_at", nowIso),
+        activeBusinessIds
+      ).limit(BATCH);
       if (retry.error) {
         if (/wa_no_response_at|column/i.test(String(retry.error.message ?? ""))) {
           return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
@@ -94,27 +166,29 @@ export async function GET(req: NextRequest) {
         console.error("[cron/wa-status-check] contacts query (no self_reported):", retry.error);
         return NextResponse.json({ error: "query_failed" }, { status: 500 });
       }
-      contacts = (retry.data as any[] | null) ?? null;
+      contacts = (retry.data as StatusContactRow[] | null) ?? null;
     } else if (/wa_no_response_at|column/i.test(msg)) {
       return NextResponse.json({ ok: true, skipped: true, reason: "columns_missing" });
     } else if (/wa_no_response_due_at/i.test(msg)) {
-      const { data: legacy, error: legacyErr } = await admin
-        .from("contacts")
-        .select("id, phone, business_id, session_phase, trial_registered, opted_out, last_contact_at")
-        .eq("source", "whatsapp")
-        .or("opted_out.eq.false,opted_out.is.null")
-        .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-        .or("trial_registered.eq.false,trial_registered.is.null")
-        .is("wa_no_response_at", null)
-        .not("last_contact_at", "is", null)
-        .lt("last_contact_at", cutoffIso)
-        .limit(BATCH);
+      const { data: legacy, error: legacyErr } = await applyWaStatusDueGuards(
+        admin
+          .from("contacts")
+          .select("id, phone, business_id, session_phase, trial_registered, opted_out, last_contact_at")
+          .eq("source", "whatsapp")
+          .or("opted_out.eq.false,opted_out.is.null")
+          .is("not_relevant_at", null)
+          .is("human_requested_at", null)
+          .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("wa_no_response_at", null)
+          .not("last_contact_at", "is", null)
+          .lt("last_contact_at", cutoffIso),
+        activeBusinessIds
+      ).limit(BATCH);
       if (legacyErr) {
         console.error("[cron/wa-status-check] contacts query (legacy):", legacyErr);
         return NextResponse.json({ error: "query_failed" }, { status: 500 });
       }
-      contacts = (legacy as any[] | null) ?? null;
+      contacts = (legacy as StatusContactRow[] | null) ?? null;
     } else {
       console.error("[cron/wa-status-check] contacts query:", error);
       return NextResponse.json({ error: "query_failed" }, { status: 500 });
@@ -123,20 +197,22 @@ export async function GET(req: NextRequest) {
     const seen = new Set((contacts ?? []).map((c) => String((c as { id?: unknown }).id ?? "")));
     const room = Math.max(0, BATCH - (contacts?.length ?? 0));
     if (room > 0) {
-      const { data: nullDueRows, error: nullDueErr } = await admin
-        .from("contacts")
-        .select(statusSelect)
-        .eq("source", "whatsapp")
-        .or("opted_out.eq.false,opted_out.is.null")
-        .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-        .or("trial_registered.eq.false,trial_registered.is.null")
-        .is("self_reported_registered_at", null)
-        .is("wa_no_response_at", null)
-        .is("wa_no_response_due_at", null)
-        .not("last_contact_at", "is", null)
-        .lt("last_contact_at", cutoffIso)
-        .limit(room);
+      const { data: nullDueRows, error: nullDueErr } = await applyWaStatusDueGuards(
+        admin
+          .from("contacts")
+          .select(statusSelect)
+          .eq("source", "whatsapp")
+          .or("opted_out.eq.false,opted_out.is.null")
+          .is("not_relevant_at", null)
+          .is("human_requested_at", null)
+          .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("self_reported_registered_at", null)
+          .is("wa_no_response_at", null)
+          .is("wa_no_response_due_at", null)
+          .not("last_contact_at", "is", null)
+          .lt("last_contact_at", cutoffIso),
+        activeBusinessIds
+      ).limit(room);
       if (nullDueErr) {
         console.warn("[cron/wa-status-check] null due-at supplement query:", nullDueErr.message);
       } else {
@@ -168,6 +244,7 @@ export async function GET(req: NextRequest) {
     return {
       phone_number_id: resolved.phoneNumberId,
       business_slug: resolved.businessSlug,
+      latest_user_at: resolved.latestUserAt?.trim() || null,
     };
   }
 
@@ -215,14 +292,8 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
-      const fromMessages = await fetchLastUserMessageAt({
-        admin,
-        business_slug: businessSlug,
-        session_ids: sessionIds,
-      });
       const lastUserAtIso =
-        fromMessages || String(contact.last_contact_at ?? "").trim() || null;
+        channel?.latest_user_at || String(contact.last_contact_at ?? "").trim() || null;
 
       if (!lastUserAtIso) {
         bumpSkip("no_user_message");
@@ -273,21 +344,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const { data: templateDueRows, error: templateErr } = await admin
-    .from("contacts")
-    .select(statusSelect)
-    .in("source", ["meta_lead_ad", "site_lead"])
-    .eq("session_phase", "opening")
-    .or("wa_followup_stage.eq.0,wa_followup_stage.is.null")
-    .or("opted_out.eq.false,opted_out.is.null")
-    .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-    .or("trial_registered.eq.false,trial_registered.is.null")
-    .is("self_reported_registered_at", null)
-    .is("wa_no_response_at", null)
-    .not("wa_no_response_due_at", "is", null)
-    .lt("wa_no_response_due_at", nowIso)
-    .limit(BATCH);
+  const { data: templateDueRows, error: templateErr } = await applyWaStatusDueGuards(
+    admin
+      .from("contacts")
+      .select(statusSelect)
+      .in("source", ["meta_lead_ad", "site_lead"])
+      .eq("session_phase", "opening")
+      .or("wa_followup_stage.eq.0,wa_followup_stage.is.null")
+      .or("opted_out.eq.false,opted_out.is.null")
+      .is("not_relevant_at", null)
+      .is("human_requested_at", null)
+      .or("trial_registered.eq.false,trial_registered.is.null")
+      .is("self_reported_registered_at", null)
+      .is("wa_no_response_at", null)
+      .not("wa_no_response_due_at", "is", null)
+      .lt("wa_no_response_due_at", nowIso),
+    activeBusinessIds,
+    { excludeRegisteredPhase: false }
+  ).limit(BATCH);
 
   if (templateErr) {
     console.error("[cron/wa-status-check] template contacts query:", templateErr);
@@ -332,13 +406,7 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
-        const lastUserAtIso = await fetchLastUserMessageAt({
-          admin,
-          business_slug: businessSlug,
-          session_ids: sessionIds,
-        });
-        if (lastUserAtIso) {
+        if (channel?.latest_user_at) {
           bumpSkip("template_user_replied");
           continue;
         }

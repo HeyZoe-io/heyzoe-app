@@ -196,6 +196,23 @@ function createMockAdmin(input: {
 
   const resolved = await resolveSendChannelForContact(multi as any, 1, phone);
   assert.equal(resolved?.phoneNumberId, liveHighId.phoneNumberId, "inbound on live channel wins");
+  assert.equal(resolved?.latestUserAt, "2026-07-30T10:00:00.000Z");
+
+  const noInbound = createMockAdmin({
+    channels: [
+      {
+        ...liveHighId,
+        phone_number_id: liveHighId.phoneNumberId,
+        business_slug: "acrobyjoe",
+        created_at: liveHighId.createdAt,
+        is_active: true,
+      },
+    ],
+    messages: [],
+  });
+  const fallback = await resolveSendChannelForContact(noInbound as any, 1, phone);
+  assert.equal(fallback?.phoneNumberId, liveHighId.phoneNumberId);
+  assert.equal(fallback?.latestUserAt, null);
 
   const onlyLiveActive = createMockAdmin({
     channels: [
