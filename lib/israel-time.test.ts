@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { hasWeeklySlotPassedToday, resolveNextOccurrence } from "@/lib/israel-time";
+import {
+  formatIsraelDayMonth,
+  hasWeeklySlotPassedToday,
+  listUpcomingIsraelWeekdays,
+  resolveNextOccurrence,
+} from "@/lib/israel-time";
 
 // 2026-09-01T07:02:00.000Z = Tuesday 10:02 Israel (see wa-relative-day-class-slots.test.ts).
 const tueMorning = new Date("2026-09-01T07:02:00.000Z");
@@ -45,5 +50,29 @@ assert.equal(hasWeeklySlotPassedToday("ה", "07:00", tueEvening), false);
 // hasWeeklySlotPassedToday: true only for today + already-passed time.
 assert.equal(hasWeeklySlotPassedToday("ג", "18:30", tueMorning), false, "still ahead this morning");
 assert.equal(hasWeeklySlotPassedToday("ג", "18:30", tueEvening), true, "18:30 is behind us by 19:45");
+
+assert.equal(formatIsraelDayMonth(9, 20), "20.9");
+
+{
+  // Wednesday 17:45 Israel — same instant as apex 972523685661 asking «ראשון הקרוב».
+  const wedAfternoon = new Date("2026-09-16T14:45:59.000Z");
+  const week = listUpcomingIsraelWeekdays(wedAfternoon, 7);
+  assert.equal(week.length, 7);
+  assert.equal(week[0]!.letter, "ד");
+  assert.equal(week[0]!.ymd, "2026-09-16");
+  assert.equal(week[4]!.letter, "א");
+  assert.equal(week[4]!.ymd, "2026-09-20");
+  assert.equal(formatIsraelDayMonth(week[4]!.month, week[4]!.day), "20.9");
+  assert.equal(week[5]!.letter, "ב");
+  assert.equal(week[5]!.ymd, "2026-09-21");
+}
+
+{
+  const week = listUpcomingIsraelWeekdays(tueMorning, 7);
+  assert.equal(week[0]!.letter, "ג");
+  assert.equal(week[0]!.ymd, "2026-09-01");
+  const sunday = week.find((d) => d.letter === "א");
+  assert.equal(sunday?.ymd, "2026-09-06");
+}
 
 console.log("israel-time.test.ts: ok");

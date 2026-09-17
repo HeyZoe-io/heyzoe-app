@@ -214,6 +214,24 @@ async function main() {
     assert.match(block, /שלישי/);
     assert.match(block, /18:30/);
     assert.match(block, /רביעי/);
+    assert.match(block, /ימים קרובים: שלישי 1\.9, רביעי 2\.9/);
+    assert.match(block, /ראשון 6\.9/);
+    assert.match(block, /ידע עם אותו תאריך/);
+  }
+
+  {
+    // Apex 972523685661: «עד איזו שעה אתם עובדים בראשון הקרוב?» on Wed 16.9 —
+    // the model must see Sunday = 20.9 before picking weekly hours over erev Yom Kippur.
+    const wedApexAsk = new Date("2026-09-16T14:45:59.000Z");
+    const block = buildIsraelNowSchedulePromptBlock(catalog, wedApexAsk);
+    assert.match(block, /רביעי 16\.9/);
+    assert.match(block, /ראשון 20\.9/);
+    assert.match(block, /שני 21\.9/);
+    assert.match(block, /ראשון הקרוב/);
+    assert.match(block, /חג\/סגירה/);
+    const empty = buildIsraelNowSchedulePromptBlock([], wedApexAsk);
+    assert.match(empty, /ראשון 20\.9/, "hours questions still need the date map with no catalog");
+    assert.doesNotMatch(empty, /מועדים להיום/);
   }
 
   {

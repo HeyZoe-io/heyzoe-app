@@ -121,6 +121,41 @@ export function addIsraelDayLetter(day: IsraelDayLetter, delta: number): IsraelD
   return ISRAEL_DAY_LETTERS[((idx + delta) % n + n) % n]!;
 }
 
+export type IsraelCalendarDay = {
+  letter: IsraelDayLetter;
+  year: number;
+  month: number;
+  day: number;
+  ymd: string;
+  daysAhead: number;
+};
+
+/** `20.9` — same shape holiday Q&A typically uses in knowledge. */
+export function formatIsraelDayMonth(month: number, day: number): string {
+  return `${Number(day)}.${Number(month)}`;
+}
+
+export function israelCalendarDatePlusDays(now: Date, daysAhead: number): IsraelCalendarDay {
+  const p = getLocalPartsInTz(now, IL_TZ);
+  const dayStartUtc = getIsraelDayStartUtc(p.year, p.month, p.day);
+  const targetUtc = new Date(dayStartUtc.getTime() + Math.max(0, daysAhead) * 24 * 60 * 60 * 1000);
+  const tp = getLocalPartsInTz(targetUtc, IL_TZ);
+  return {
+    letter: ISRAEL_DAY_LETTERS[tp.weekday]!,
+    year: tp.year,
+    month: tp.month,
+    day: tp.day,
+    ymd: `${tp.year}-${String(tp.month).padStart(2, "0")}-${String(tp.day).padStart(2, "0")}`,
+    daysAhead: Math.max(0, daysAhead),
+  };
+}
+
+/** Today through the next 6 days in Israel — includes today as «הקרוב» for that weekday. */
+export function listUpcomingIsraelWeekdays(now: Date = new Date(), count = 7): IsraelCalendarDay[] {
+  const n = Math.max(1, Math.min(14, Math.floor(count)));
+  return Array.from({ length: n }, (_, i) => israelCalendarDatePlusDays(now, i));
+}
+
 export type ResolvedOccurrence = {
   /** YYYY-MM-DD (Israel) of the next concrete calendar occurrence. */
   ymd: string;
