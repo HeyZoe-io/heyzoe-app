@@ -106,16 +106,16 @@ function fakeRawDataFetcher(
 
 async function main() {
   assert.equal(
-    formatNamedClassScheduleLine("פילאטיס מכשירים", "מחר (חמישי)", ["19:30"]),
-    "פילאטיס מכשירים | מחר (חמישי) ב-19:30"
+    formatNamedClassScheduleLine("פילאטיס מכשירים", "ה", ["19:30"]),
+    "פילאטיס מכשירים | חמישי 19:30"
   );
   assert.equal(
-    formatNamedClassScheduleLine("פילאטיס מכשירים", "הערב", ["18:30", "19:30"]),
-    "פילאטיס מכשירים | הערב ב-18:30 וב-19:30"
+    formatNamedClassScheduleLine("פילאטיס מכשירים", "ג", ["18:30", "19:30"]),
+    "פילאטיס מכשירים | שלישי 18:30, שלישי 19:30"
   );
   assert.equal(
-    formatDayClassScheduleLine("היום", "18:30", "פילאטיס מזרן"),
-    "היום ב-18:30, פילאטיס מזרן"
+    formatDayClassScheduleLine("ג", "18:30", "פילאטיס מזרן"),
+    "שלישי 18:30, פילאטיס מזרן"
   );
 
   assert.equal(matchCatalogServiceFromFreeText("כיסא", catalog), "פילאטיס מכשירים (כסא)");
@@ -129,7 +129,7 @@ async function main() {
     });
     assert.ok(reply);
     assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
-    assert.match(reply!.text, /פילאטיס מכשירים \(כסא\) \| הערב ב-18:30 וב-19:30/);
+    assert.match(reply!.text, /פילאטיס מכשירים \(כסא\) \| שלישי 18:30, שלישי 19:30/);
     assert.doesNotMatch(reply!.text, /הערב יש/);
     assert.doesNotMatch(reply!.text, /18:30.{0,12}מכשירים.{0,12}הערב/);
     assert.doesNotMatch(reply!.text, /18:00/);
@@ -249,7 +249,7 @@ async function main() {
     assert.ok(reply, "generic Sunday ask should list catalog classes");
     assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
     assert.match(reply!.text, /ראשון/);
-    assert.match(reply!.text, /ביום ראשון ב-18:00, עמידות ידיים/);
+    assert.match(reply!.text, /ראשון 18:00, עמידות ידיים/);
     assert.match(reply!.text, /18:00/);
     assert.doesNotMatch(reply!.text, /19:00/);
     assert.doesNotMatch(reply!.text, /אקרו יוגה/);
@@ -638,12 +638,10 @@ async function main() {
     assert.ok(reply);
     assert.equal(reply!.kind, "list");
     assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
-    assert.match(reply!.text, /מחר/, "open Wednesday is listed");
-    assert.match(reply!.text, /היום/, "full Tuesday is listed too, with suffixes");
-    assert.match(reply!.text, /18:30 \(מלא\)/);
-    assert.match(reply!.text, /19:30 \(מלא\)/);
-    assert.match(reply!.text, /מחר.{0,40}18:30/, "Wednesday's open 18:30 is listed without a false suffix");
-    assert.doesNotMatch(reply!.text, /מחר.{0,80}18:30 \(מלא\)/);
+    assert.match(reply!.text, /שלישי 18:30 \(מלא\)/, "full Tuesday is listed with suffix");
+    assert.match(reply!.text, /שלישי 19:30 \(מלא\)/);
+    assert.match(reply!.text, /רביעי 18:30/, "open Wednesday is listed");
+    assert.doesNotMatch(reply!.text, /רביעי 18:30 \(מלא\)/);
     assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
     assert.equal(new Set(calls.map((c) => c.date)).size, 2);
   }

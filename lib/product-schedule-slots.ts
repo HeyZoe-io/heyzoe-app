@@ -92,6 +92,13 @@ export function formatDayNameForScheduleDatePlaceholder(dayLetter: string): stri
   return opt ? opt.label.trim() : String(dayLetter ?? "").trim();
 }
 
+/** Slot token for LIST + slot-pick buttons: «שישי 18:30» — no «יום » prefix, no «ב» connector. */
+export function formatScheduleSlotDisplayLabel(slot: { day: string; time: string }): string {
+  const dayName = formatDayNameForScheduleDatePlaceholder(slot.day);
+  const time = String(slot.time ?? "").trim();
+  return `${dayName} ${time}`.trim();
+}
+
 /** מנרמל ערך ישן ב־DB («יום שני» → «שני») לפני מילוי תבנית. */
 export function normalizeRequestedDateForTemplate(stored: string): string {
   const t = String(stored ?? "").trim();
@@ -99,9 +106,9 @@ export function normalizeRequestedDateForTemplate(stored: string): string {
   return m ? m[1]!.trim() : t;
 }
 
-/** תווית כפתור: «יום ב׳ ב19:00» */
+/** תווית כפתור: «שישי 18:30» */
 export function formatSlotPickButtonLabel(slot: { day: string; time: string }): string {
-  return truncateWaButtonLabel(`${formatYomForContactSlotDate(slot.day)} ב${slot.time}`);
+  return truncateWaButtonLabel(formatScheduleSlotDisplayLabel(slot));
 }
 
 /** נרמול לזיהוי בחירת מועד מרשימת וואטסאפ (ב-18:45 מול ב18:45, רווחים). */

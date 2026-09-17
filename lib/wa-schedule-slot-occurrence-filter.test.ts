@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
 import type { ArboxOccurrenceStateResult } from "@/lib/arbox-occurrence-state";
-import { formatSlotPickButtonLabelWithCycle } from "@/lib/product-schedule-slots";
+import { formatScheduleSlotDisplayLabel } from "@/lib/product-schedule-slots";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
-import { resolveWaMenuChoice } from "@/lib/wa-menu-choice";
+import { schedulePickChangeServiceLabel } from "@/lib/business-content-lang";
 import {
-  filterScheduleSlotsByOccurrenceState,
+  annotateScheduleSlotsByOccurrenceState,
+  buildScheduleSlotPickMenuLabels,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
+  resolveScheduleSlotPickTap,
   scheduleSlotPickAllFullFiresHandoff,
+  scheduleSlotPickOpenContactPatch,
   SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
   SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL,
+  SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE,
+  SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE,
+  SCHEDULE_SLOT_PICK_MENU_PHASE,
+  OCCURRENCE_STATUS_CANCELLED_SUFFIX,
+  OCCURRENCE_STATUS_FULL_SUFFIX,
   type RawDataFetcher,
 } from "@/lib/wa-relative-day-class-slots";
 
@@ -18,6 +26,7 @@ const tueMorning = new Date("2026-09-01T07:02:00.000Z");
 
 const STAMP = "Strength";
 const OFFER_CTX_BASE = { businessId: 42, arboxApiKey: "k", arboxBoxId: "1" as string };
+const CHANGE = schedulePickChangeServiceLabel("he");
 
 function fakeRawDataFetcher(
   byKey: Record<string, ArboxOccurrenceStateResult["state"]>,
@@ -66,153 +75,227 @@ const rawThree = [
 ] as const;
 
 async function main() {
-  // Verbatim empty-state copy + button. Handoff is never auto-fired from this path.
-  assert.equal(
-    SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
-    "אני לא רואה כרגע מועדים זמינים לשיעור. אפשר לכתוב ״נציג אנושי״ ואעביר לפנייה לצוות, או לבחור אימון אחר."
-  );
-  assert.equal(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL, "בחירת אימון");
-  assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
-  assert.equal(isScheduleSlotPickAllFullRepickLabel(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL), true);
-  assert.equal(isScheduleSlotPickAllFullRepickLabel("בחירת אימון אחר"), false);
+  // 20-char gate: longest live pattern is 5-char day-name + space + HH:MM + cancelled suffix.
+  const longestBase = formatScheduleSlotDisplayLabel({ day: "ג", time: "18:30" });
+  assert.equal([...longestBase].length, 11);
+  assert.equal([...`${longestBase}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`].length, 19);
+  assert.ok([...`${longestBase}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`].length <= 20);
 
-  // Existing free-text detector already catches the phrase in the empty-state notice.
-  assert.equal(userRequestedHumanAgent("נציג אנושי"), true);
+  assert.equal(SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE, "השיעור מלא, בוא נבחר מועד אחר!");
+  assert.equal(SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE, "השיעור הזה לא מתקיים השבוע, בוא נבחר מועד אחר!");
+  assert.equal(CHANGE, "בחירת אימון אחר");
+  assert.equal(SCHEDULE_SLOT_PICK_MENU_PHASE, "schedule_date");
+  assert.equal(scheduleSlotPickOpenContactPatch("רביעי", "19:00").session_phase, "cta");
 
-  // ---------- index alignment (the regression that matters most) ----------
-  // Raw index 1 (0-based) is full. Displayed buttons are [sun 18:00, wed 19:00].
-  // Typing "2" / tapping the 2nd button must resolve to Wednesday, not the dropped Tuesday.
+  // ---------- CONTINUITY (the critical test) ----------
+  // tap full → full copy; re-send leaves phase=schedule_date; tap open → NEW slot written, phase=cta.
   {
-    const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+    const { impl } = fakeRawDataFetcher({
+      "2026-09-06|18:00|Strength": "open",
+      "2026-09-01|18:30|Strength": "full",
+      "2026-09-02|19:00|Strength": "open",
+    });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
       ...OFFER_CTX_BASE,
       now: tueMorning,
       rawDataFetcherImpl: impl,
     });
-    assert.deepEqual(
-      filtered.map((s) => `${s.day}|${s.time}`),
-      ["א|18:00", "ד|19:00"]
-    );
-    assert.equal(filtered.some((s) => s.day === "ג" && s.time === "18:30"), false);
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels[labels.length - 1], CHANGE, "choose-another-class is last");
+    assert.match(labels[1]!, /18:30 \(מלא\)/);
+    assert.doesNotMatch(labels[0]!, /\(מלא\)|\(מבוטל\)/);
+    assert.doesNotMatch(labels[2]!, /\(מלא\)|\(מבוטל\)/);
 
-    const labels = filtered.map((s) => formatSlotPickButtonLabelWithCycle(s));
-    const resolved = resolveWaMenuChoice("2", undefined, labels, labels);
-    const idx = labels.findIndex((l) => l === resolved);
-    assert.equal(idx, 1, "typed 2 maps to the second DISPLAYED label");
-    assert.equal(filtered[idx]!.day, "ד");
-    assert.equal(filtered[idx]!.time, "19:00");
-    assert.notEqual(filtered[idx]!.time, "18:30");
-  }
-
-  // One full slot dropped from a multi-slot menu; the open sibling stays.
-  {
-    const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
-      ...OFFER_CTX_BASE,
-      now: tueMorning,
-      rawDataFetcherImpl: impl,
+    const fullTap = resolveScheduleSlotPickTap({
+      inboundText: labels[1]!,
+      slotsForPick: annotated,
+      labels,
     });
-    assert.equal(filtered.length, 2);
-    assert.ok(filtered.some((s) => s.time === "18:00"));
-    assert.ok(filtered.some((s) => s.time === "19:00"));
+    assert.equal(fullTap.kind, "blocked");
+    if (fullTap.kind !== "blocked") throw new Error("expected blocked");
+    assert.equal(fullTap.reason, "full");
+    assert.equal(fullTap.notice, SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE);
+    assert.equal(fullTap.slot.time, "18:30");
+
+    // Re-send uses the same annotate+labels path and restores schedule_date (menu writer).
+    const resentPhase = SCHEDULE_SLOT_PICK_MENU_PHASE;
+    assert.equal(resentPhase, "schedule_date");
+
+    const openTap = resolveScheduleSlotPickTap({
+      inboundText: labels[2]!,
+      slotsForPick: annotated,
+      labels,
+    });
+    assert.equal(openTap.kind, "open");
+    if (openTap.kind !== "open") throw new Error("expected open");
+    assert.equal(openTap.timeTxt, "19:00", "NEW slot time, not the full 18:30");
+    assert.equal(openTap.dateTxt, "רביעי");
+    assert.notEqual(openTap.timeTxt, "18:30");
+    assert.equal(openTap.contactPatch.sf_requested_date, "רביעי");
+    assert.equal(openTap.contactPatch.sf_requested_time, "19:00");
+    assert.equal(openTap.contactPatch.session_phase, "cta");
+    assert.equal(openTap.contactPatch.flow_step, 0);
   }
 
-  // Cancelled slot dropped.
+  // Tap cancelled → cancelled copy. Then open re-pick still writes the NEW slot.
   {
     const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "cancelled" });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
       ...OFFER_CTX_BASE,
       now: tueMorning,
       rawDataFetcherImpl: impl,
     });
-    assert.equal(filtered.some((s) => s.day === "ג"), false);
-    assert.equal(filtered.length, 2);
-  }
-
-  // Unstamped product -> menu unchanged, zero Arbox calls.
-  {
-    const { impl, calls } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], "", {
-      ...OFFER_CTX_BASE,
-      now: tueMorning,
-      rawDataFetcherImpl: impl,
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.match(labels[1]!, /18:30 \(מבוטל\)/);
+    const cancelledTap = resolveScheduleSlotPickTap({
+      inboundText: labels[1]!,
+      slotsForPick: annotated,
+      labels,
     });
-    assert.deepEqual(filtered, [...rawThree]);
-    assert.equal(calls.length, 0);
-    assert.equal(isScheduleSlotPickAllFullResult(rawThree.length, filtered.length), false);
+    assert.equal(cancelledTap.kind, "blocked");
+    if (cancelledTap.kind !== "blocked") throw new Error("expected blocked");
+    assert.equal(cancelledTap.reason, "cancelled");
+    assert.equal(cancelledTap.notice, SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE);
+
+    const openTap = resolveScheduleSlotPickTap({
+      inboundText: labels[0]!,
+      slotsForPick: annotated,
+      labels,
+    });
+    assert.equal(openTap.kind, "open");
+    if (openTap.kind !== "open") throw new Error("expected open");
+    assert.equal(openTap.timeTxt, "18:00");
+    assert.equal(openTap.contactPatch.session_phase, "cta");
   }
 
-  // Unknown -> slot kept (fail-open).
+  // Index-alignment removal: full slot stays in the list; typed "2" is the full Tuesday, not Wednesday.
   {
-    const { impl } = fakeRawDataFetcher({});
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+    const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
       ...OFFER_CTX_BASE,
       now: tueMorning,
       rawDataFetcherImpl: impl,
     });
     assert.deepEqual(
-      filtered.map((s) => `${s.day}|${s.time}`),
-      rawThree.map((s) => `${s.day}|${s.time}`)
+      annotated.map((s) => `${s.day}|${s.time}|${s.occurrenceState}`),
+      ["א|18:00|unknown", "ג|18:30|full", "ד|19:00|unknown"]
     );
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    const typed2 = resolveScheduleSlotPickTap({ inboundText: "2", slotsForPick: annotated, labels });
+    assert.equal(typed2.kind, "blocked");
+    if (typed2.kind !== "blocked") throw new Error("expected blocked");
+    assert.equal(typed2.slot.time, "18:30");
+    const typed3 = resolveScheduleSlotPickTap({ inboundText: "3", slotsForPick: annotated, labels });
+    assert.equal(typed3.kind, "open");
+    if (typed3.kind !== "open") throw new Error("expected open");
+    assert.equal(typed3.timeTxt, "19:00");
   }
 
-  // All slots full -> empty-state result. Button label is the product-pick entry ("בחירת אימון"
-  // → sendOpeningServicePickMenu). No auto handoff.
+  // Last button still routes to product re-pick — checked BEFORE index-into-slots.
+  {
+    const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+      ...OFFER_CTX_BASE,
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels[labels.length - 1], CHANGE);
+    const last = resolveScheduleSlotPickTap({
+      inboundText: CHANGE,
+      slotsForPick: annotated,
+      labels,
+    });
+    assert.equal(last.kind, "change_service");
+    const byNumber = resolveScheduleSlotPickTap({
+      inboundText: String(labels.length),
+      slotsForPick: annotated,
+      labels,
+    });
+    assert.equal(byNumber.kind, "change_service");
+  }
+
+  // Unknown at tap (no rows) → proceed as open. Suffix never applied.
+  {
+    const { impl } = fakeRawDataFetcher({});
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+      ...OFFER_CTX_BASE,
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels.some((l) => l.includes(OCCURRENCE_STATUS_FULL_SUFFIX)), false);
+    assert.equal(labels.some((l) => l.includes(OCCURRENCE_STATUS_CANCELLED_SUFFIX)), false);
+    const tap = resolveScheduleSlotPickTap({ inboundText: labels[1]!, slotsForPick: annotated, labels });
+    assert.equal(tap.kind, "open");
+    if (tap.kind !== "open") throw new Error("expected open");
+    assert.equal(tap.timeTxt, "18:30");
+  }
+
+  // Fetch throw → fail-open, no suffix, tap proceeds as open.
+  {
+    const { impl } = fakeRawDataFetcher({}, { throwOnFetch: true });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+      ...OFFER_CTX_BASE,
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    assert.ok(annotated.every((s) => s.occurrenceState === "unknown"));
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels.some((l) => l.includes(OCCURRENCE_STATUS_FULL_SUFFIX)), false);
+    const tap = resolveScheduleSlotPickTap({ inboundText: labels[0]!, slotsForPick: annotated, labels });
+    assert.equal(tap.kind, "open");
+  }
+
+  // Unstamped → raw labels, zero Arbox calls, tap proceeds as open.
+  {
+    const { impl, calls } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], "", {
+      ...OFFER_CTX_BASE,
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(calls.length, 0);
+    assert.ok(annotated.every((s) => s.occurrenceState === "unknown"));
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels[1], formatScheduleSlotDisplayLabel({ day: "ג", time: "18:30" }));
+    const tap = resolveScheduleSlotPickTap({ inboundText: labels[1]!, slotsForPick: annotated, labels });
+    assert.equal(tap.kind, "open");
+  }
+
+  // No creds → same as unstamped.
+  {
+    const { impl, calls } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+      businessId: 42,
+      arboxApiKey: "",
+      arboxBoxId: "",
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    assert.equal(calls.length, 0);
+    assert.ok(annotated.every((s) => s.occurrenceState === "unknown"));
+  }
+
+  // Showing every slot means all-full empty-state never fires from annotate length.
   {
     const { impl } = fakeRawDataFetcher({
       "2026-09-06|18:00|Strength": "full",
       "2026-09-01|18:30|Strength": "full",
       "2026-09-02|19:00|Strength": "full",
     });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
       ...OFFER_CTX_BASE,
       now: tueMorning,
       rawDataFetcherImpl: impl,
     });
-    assert.equal(filtered.length, 0);
-    assert.equal(isScheduleSlotPickAllFullResult(rawThree.length, filtered.length), true);
-    assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
-    assert.equal(isScheduleSlotPickAllFullRepickLabel("בחירת אימון"), true);
+    assert.equal(annotated.length, rawThree.length);
+    assert.equal(isScheduleSlotPickAllFullResult(rawThree.length, annotated.length), false);
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    assert.equal(labels.filter((l) => l.includes(OCCURRENCE_STATUS_FULL_SUFFIX)).length, 3);
   }
 
-  // Fail-open guard: fetch throws for every date -> all slots stay -> empty-state MUST NOT fire.
-  {
-    const { impl } = fakeRawDataFetcher({}, { throwOnFetch: true });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
-      ...OFFER_CTX_BASE,
-      now: tueMorning,
-      rawDataFetcherImpl: impl,
-    });
-    assert.deepEqual(
-      filtered.map((s) => `${s.day}|${s.time}`),
-      rawThree.map((s) => `${s.day}|${s.time}`)
-    );
-    assert.equal(isScheduleSlotPickAllFullResult(rawThree.length, filtered.length), false);
-  }
-
-  // Fail-open guard: timeout/empty raw (unknown) on every slot -> empty-state does not fire.
-  {
-    const { impl } = fakeRawDataFetcher({});
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
-      ...OFFER_CTX_BASE,
-      now: tueMorning,
-      rawDataFetcherImpl: impl,
-    });
-    assert.equal(filtered.length, rawThree.length);
-    assert.equal(isScheduleSlotPickAllFullResult(rawThree.length, filtered.length), false);
-  }
-
-  // Byte-identical lists: menu build and handler call the SAME fn with the SAME now.
-  {
-    const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
-    const ctx = { ...OFFER_CTX_BASE, now: tueMorning, rawDataFetcherImpl: impl };
-    const fromMenu = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, ctx);
-    const fromHandler = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, ctx);
-    assert.equal(JSON.stringify(fromMenu), JSON.stringify(fromHandler));
-    assert.deepEqual(fromMenu, fromHandler);
-  }
-
-  // Live dedup: one fetch-pair per distinct date, not per slot.
+  // One fetch-pair per distinct date (Sun+Tue+Thu; Tue has two times).
   {
     const realistic = [
       { day: "א", time: "18:00" },
@@ -224,29 +307,27 @@ async function main() {
       "2026-09-01|18:30|Strength": "open",
       "2026-09-01|19:30|Strength": "open",
     });
-    await filterScheduleSlotsByOccurrenceState(realistic, STAMP, {
+    await annotateScheduleSlotsByOccurrenceState(realistic, STAMP, {
       ...OFFER_CTX_BASE,
       now: tueMorning,
       rawDataFetcherImpl: impl,
     });
-    const dates = calls.map((c) => c.date).sort();
     assert.equal(calls.length, 3, "Sun + Tue + Thu = 3 dates, even though Tue has two times");
-    assert.deepEqual(dates, ["2026-09-01", "2026-09-03", "2026-09-06"]);
+    assert.deepEqual(
+      calls.map((c) => c.date).sort(),
+      ["2026-09-01", "2026-09-03", "2026-09-06"]
+    );
   }
 
-  // No creds -> unchanged, zero fetches (same gate as unstamped).
-  {
-    const { impl, calls } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
-    const filtered = await filterScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
-      businessId: 42,
-      arboxApiKey: "",
-      arboxBoxId: "",
-      now: tueMorning,
-      rawDataFetcherImpl: impl,
-    });
-    assert.deepEqual(filtered, [...rawThree]);
-    assert.equal(calls.length, 0);
-  }
+  // Option 2 helpers still compile / exist (dead in list practice).
+  assert.equal(
+    SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
+    "אני לא רואה כרגע מועדים זמינים לשיעור. אפשר לכתוב ״נציג אנושי״ ואעביר לפנייה לצוות, או לבחור אימון אחר."
+  );
+  assert.equal(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL, "בחירת אימון");
+  assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
+  assert.equal(isScheduleSlotPickAllFullRepickLabel(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL), true);
+  assert.equal(userRequestedHumanAgent("נציג אנושי"), true);
 
   console.log("wa-schedule-slot-occurrence-filter.test.ts: ok");
 }

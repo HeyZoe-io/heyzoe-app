@@ -1,6 +1,9 @@
 import {
   HEBREW_DAY_OPTIONS,
   filterConfiguredProductScheduleSlots,
+  formatDayNameForScheduleDatePlaceholder,
+  formatScheduleSlotDisplayLabel,
+  scheduleSlotPickLabelsMatch,
   sortProductScheduleSlots,
 } from "@/lib/product-schedule-slots";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
@@ -25,8 +28,11 @@ import {
   getOccurrenceRawData,
   resolveOccurrenceState,
   type ArboxOccurrenceRaw,
+  type ArboxOccurrenceState,
   type ArboxOccurrenceStateResult,
 } from "@/lib/arbox-occurrence-state";
+import { isSchedulePickChangeServiceLabel } from "@/lib/business-content-lang";
+import { resolveWaMenuChoice } from "@/lib/wa-menu-choice";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 export const EXISTING_CLASS_WHICH_CLASS_MODEL = "existing_class_which_class";
@@ -164,27 +170,39 @@ async function resolveOccurrenceStatesForCandidates(
   return map;
 }
 
-/** Verbatim LIST-path suffixes. Menu-button path must not use these until labels fit Meta's 20-char title cap. */
+/** LIST + button-menu suffixes. full / cancelled only — open/unknown/error/timeout stay unlabeled. */
 export const OCCURRENCE_STATUS_FULL_SUFFIX = " (מלא)";
 export const OCCURRENCE_STATUS_CANCELLED_SUFFIX = " (מבוטל)";
 
-/**
- * Append a status label to a slot time for the free-text LIST path.
- * full / cancelled only — open, unknown, error, and timeout stay unlabeled (fail-open).
- */
-export function formatTimeWithOccurrenceStatus(
-  time: string,
-  state: ArboxOccurrenceStateResult["state"] | undefined
+export const SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE = "השיעור מלא, בוא נבחר מועד אחר!";
+export const SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE = "השיעור הזה לא מתקיים השבוע, בוא נבחר מועד אחר!";
+
+/** sendScheduleSlotPickMenu always restores this so the next tap hits the same writer. */
+export const SCHEDULE_SLOT_PICK_MENU_PHASE = "schedule_date";
+export const SCHEDULE_SLOT_PICK_MENU_MODEL = "sales_flow_schedule_slot_menu";
+
+export function appendOccurrenceStatusSuffix(
+  label: string,
+  state: ArboxOccurrenceState | undefined
 ): string {
-  const t = String(time ?? "").trim();
+  const t = String(label ?? "").trim();
   if (state === "full") return `${t}${OCCURRENCE_STATUS_FULL_SUFFIX}`;
   if (state === "cancelled") return `${t}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`;
   return t;
 }
 
-/** "full"/"cancelled" are the only states a caller should ever omit on — "unknown" behaves as "open". */
-function isSuppressedOccurrenceState(state: ArboxOccurrenceStateResult["state"] | undefined): boolean {
-  return state === "full" || state === "cancelled";
+export function formatTimeWithOccurrenceStatus(
+  time: string,
+  state: ArboxOccurrenceState | undefined
+): string {
+  return appendOccurrenceStatusSuffix(time, state);
+}
+
+export function formatSlotLabelWithOccurrenceStatus(
+  slot: { day: string; time: string },
+  state: ArboxOccurrenceState | undefined
+): string {
+  return appendOccurrenceStatusSuffix(formatScheduleSlotDisplayLabel(slot), state);
 }
 
 /** Verbatim lead-facing copy when every upcoming stamped occurrence is full or cancelled. */
@@ -235,26 +253,27 @@ export type CatalogDaySlotsReply =
 
 export type FilterScheduleSlotsByOccurrenceStateInput = ArboxOfferContext & { now?: Date };
 
+export type AnnotatedScheduleSlot<T extends { day: string; time: string }> = T & {
+  occurrenceState: ArboxOccurrenceState;
+};
+
 /**
- * Shared filter for the schedule-slot-pick menu AND its button-reply handler.
- * Same inputs + same `now` → identical slot arrays (order-preserving), so menu button
- * indices cannot drift from the handler's resolveWaMenuChoice mapping.
- *
- * No stamp / no creds → return slots unchanged, zero Arbox calls.
- * Suppress only on positive full/cancelled evidence; unknown/error/timeout fail-open.
- * Join key is arbox_class_name + start_time — display name never enters this function.
+ * Annotate every slot with occurrence state. Nothing is omitted — menu and handler share this
+ * list so button indices cannot drift. Unstamped / no creds / fetch error → "unknown" (fail-open),
+ * zero or failed Arbox calls never look full/cancelled.
  */
-export async function filterScheduleSlotsByOccurrenceState<T extends { day: string; time: string }>(
+export async function annotateScheduleSlotsByOccurrenceState<T extends { day: string; time: string }>(
   slots: readonly T[],
   arboxClassName: string,
   ctx: FilterScheduleSlotsByOccurrenceStateInput
-): Promise<T[]> {
+): Promise<Array<AnnotatedScheduleSlot<T>>> {
   const stamp = String(arboxClassName ?? "").trim();
   const apiKey = String(ctx.arboxApiKey ?? "").trim();
   const boxId = String(ctx.arboxBoxId ?? "").trim();
   const businessId = ctx.businessId;
+  const unknown = (slot: T): AnnotatedScheduleSlot<T> => ({ ...slot, occurrenceState: "unknown" });
   if (!stamp || businessId == null || String(businessId).trim() === "" || !apiKey || !boxId) {
-    return [...slots];
+    return slots.map(unknown);
   }
 
   const now = ctx.now ?? new Date();
@@ -269,35 +288,112 @@ export async function filterScheduleSlotsByOccurrenceState<T extends { day: stri
       candidates.map((c) => ({ dateYmd: c.dateYmd, time: c.time, arboxClassName: c.arboxClassName })),
       ctx
     );
-    return candidates
-      .filter((c) => {
-        const state = stateMap.get(occurrenceStateKey(c.dateYmd, c.time, c.arboxClassName))?.state;
-        return !isSuppressedOccurrenceState(state);
-      })
-      .map((c) => c.slot);
+    return candidates.map((c) => ({
+      ...c.slot,
+      occurrenceState:
+        stateMap.get(occurrenceStateKey(c.dateYmd, c.time, c.arboxClassName))?.state ?? "unknown",
+    }));
   } catch (e) {
-    console.error("[schedule-slot-occurrence-filter] occurrence resolve failed; fail-open", {
+    console.error("[schedule-slot-occurrence-annotate] occurrence resolve failed; fail-open", {
       businessId,
       error: e instanceof Error ? e.message : String(e),
     });
-    return [...slots];
+    return slots.map(unknown);
   }
 }
 
-function formatTimesPhrase(times: string[]): string {
-  if (times.length === 1) return `ב-${times[0]}`;
-  if (times.length === 2) return `ב-${times[0]} וב-${times[1]}`;
-  return `ב-${times.slice(0, -1).join(", ")} ו-${times[times.length - 1]}`;
+export function buildScheduleSlotPickMenuLabels(
+  slots: readonly { day: string; time: string; occurrenceState?: ArboxOccurrenceState }[],
+  changeServiceLabel: string
+): string[] {
+  const labels = slots.map((s) => formatSlotLabelWithOccurrenceStatus(s, s.occurrenceState));
+  return [...labels, changeServiceLabel];
 }
 
-/** לפי שם שיעור: שם | יום+שעות יחד (לא לפצל שעה לפני השם ויום אחרי). */
-export function formatNamedClassScheduleLine(serviceName: string, dayPhrase: string, times: string[]): string {
-  return `${serviceName} | ${dayPhrase} ${formatTimesPhrase(times)}`;
+export type ScheduleSlotPickOpenContactPatch = {
+  sf_requested_date: string;
+  sf_requested_time: string;
+  session_phase: "cta";
+  flow_step: 0;
+};
+
+export function scheduleSlotPickOpenContactPatch(dateTxt: string, timeTxt: string): ScheduleSlotPickOpenContactPatch {
+  return {
+    sf_requested_date: dateTxt,
+    sf_requested_time: timeTxt,
+    session_phase: "cta",
+    flow_step: 0,
+  };
 }
 
-/** אילו שיעורים ביום: יום+שעה יחד, ואז שם השיעור. */
-export function formatDayClassScheduleLine(dayPhrase: string, time: string, serviceName: string): string {
-  return `${dayPhrase} ב-${time}, ${serviceName}`;
+export type ScheduleSlotPickTapResult<T> =
+  | { kind: "change_service" }
+  | { kind: "blocked"; reason: "full" | "cancelled"; notice: string; slot: T }
+  | {
+      kind: "open";
+      slot: T;
+      dateTxt: string;
+      timeTxt: string;
+      contactPatch: ScheduleSlotPickOpenContactPatch;
+    }
+  | { kind: "unrecognized" };
+
+/**
+ * Resolve a slot-pick tap. Change-class is checked BEFORE any index-into-slots.
+ * full/cancelled → blocked notice; open/unknown/error/timeout → proceed as open (fail-open).
+ */
+export function resolveScheduleSlotPickTap<
+  T extends { day: string; time: string; occurrenceState: ArboxOccurrenceState },
+>(input: {
+  inboundText: string;
+  metaInteractiveReplyId?: string;
+  slotsForPick: readonly T[];
+  labels: string[];
+}): ScheduleSlotPickTapResult<T> {
+  const resolved = resolveWaMenuChoice(
+    input.inboundText,
+    input.metaInteractiveReplyId,
+    input.labels,
+    input.labels
+  );
+  // Last-button escape hatch — must run before findIndex into slotsForPick.
+  if (
+    isSchedulePickChangeServiceLabel(resolved) ||
+    isScheduleSlotPickAllFullRepickLabel(resolved) ||
+    isScheduleSlotPickAllFullRepickLabel(input.inboundText)
+  ) {
+    return { kind: "change_service" };
+  }
+  const idx = input.labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
+  if (idx < 0) return { kind: "unrecognized" };
+  if (idx >= input.slotsForPick.length) return { kind: "change_service" };
+  const slot = input.slotsForPick[idx]!;
+  if (slot.occurrenceState === "full") {
+    return { kind: "blocked", reason: "full", notice: SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE, slot };
+  }
+  if (slot.occurrenceState === "cancelled") {
+    return { kind: "blocked", reason: "cancelled", notice: SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE, slot };
+  }
+  const dateTxt = formatDayNameForScheduleDatePlaceholder(slot.day);
+  const timeTxt = String(slot.time ?? "").trim();
+  return {
+    kind: "open",
+    slot,
+    dateTxt,
+    timeTxt,
+    contactPatch: scheduleSlotPickOpenContactPatch(dateTxt, timeTxt),
+  };
+}
+
+/** לפי שם שיעור: שם | {day-name} {HH:MM}, {day-name} {HH:MM} */
+export function formatNamedClassScheduleLine(serviceName: string, dayLetter: string, times: string[]): string {
+  const labels = times.map((time) => formatScheduleSlotDisplayLabel({ day: dayLetter, time }));
+  return `${serviceName} | ${labels.join(", ")}`;
+}
+
+/** אילו שיעורים ביום: {day-name} {HH:MM}, ואז שם השיעור. */
+export function formatDayClassScheduleLine(dayLetter: string, time: string, serviceName: string): string {
+  return `${formatScheduleSlotDisplayLabel({ day: dayLetter, time })}, ${serviceName}`;
 }
 
 function dayAskPhrase(input: { text: string; day: IsraelDayLetter; now: Date }): string {
@@ -400,7 +496,7 @@ export function buildRelativeDayClassSlotsReply(input: {
     return `${phrase} אין ${input.serviceName}.`;
   }
   const times = [...new Set(slots.map((s) => s.time))];
-  return `${formatNamedClassScheduleLine(input.serviceName, phrase, times)} 💜`;
+  return `${formatNamedClassScheduleLine(input.serviceName, input.day, times)} 💜`;
 }
 
 /** כל האימונים שיש להם מועד ביום ששאלו — בלי להיתקע על אימון שנבחר קודם. */
@@ -412,8 +508,6 @@ export async function buildCatalogDaySlotsReply(
     now: Date;
   } & ArboxOfferContext
 ): Promise<CatalogDaySlotsReply | null> {
-  const phrase = dayAskPhrase({ text: input.sourceText, day: input.day, now: input.now });
-
   type Item = { time: string; serviceName: string; arboxClassName: string; dateYmd: string };
   const items: Item[] = [];
   for (const s of input.services) {
@@ -447,8 +541,8 @@ export async function buildCatalogDaySlotsReply(
   const lines: string[] = [];
   for (const item of items) {
     const state = stateMap.get(occurrenceStateKey(item.dateYmd, item.time, item.arboxClassName))?.state;
-    const displayTime = formatTimeWithOccurrenceStatus(item.time, state);
-    lines.push(formatDayClassScheduleLine(phrase, displayTime, item.serviceName));
+    const slotLabel = formatSlotLabelWithOccurrenceStatus({ day: input.day, time: item.time }, state);
+    lines.push(`${slotLabel}, ${item.serviceName}`);
   }
   // Kept: historically fired when every upcoming slot was omitted as full/cancelled.
   // LIST now SHOWS those slots with a suffix, so this is dead in practice (items always
@@ -555,8 +649,8 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const service = input.services.find((s) => s.name === serviceName);
   if (!service) return null;
 
-  // כמה ימים באותה הודעה («היום ומחר») — שם | יום+שעות | יום+שעות
-  type DayGroup = { phrase: string; slots: { time: string; dateYmd: string }[] };
+  // כמה ימים באותה הודעה («היום ומחר») — שם | יום שעה | יום שעה
+  type DayGroup = { day: IsraelDayLetter; phrase: string; slots: { time: string; dateYmd: string }[] };
   const dayGroups: DayGroup[] = [];
   const missing: string[] = [];
   for (const day of days) {
@@ -568,6 +662,7 @@ export async function tryBuildRelativeDayClassSlotsReply(
     }
     const times = [...new Set(slots.map((s) => s.time))];
     dayGroups.push({
+      day: day as IsraelDayLetter,
       phrase,
       slots: times.map((time) => ({ time, dateYmd: resolveNextOccurrence(day as IsraelDayLetter, time, now).ymd })),
     });
@@ -580,12 +675,12 @@ export async function tryBuildRelativeDayClassSlotsReply(
 
   const foundBits: string[] = [];
   for (const g of dayGroups) {
-    const labeledTimes = g.slots.map((s) => {
+    const labeled = g.slots.map((s) => {
       const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
-      return formatTimeWithOccurrenceStatus(s.time, state);
+      return formatSlotLabelWithOccurrenceStatus({ day: g.day, time: s.time }, state);
     });
-    if (!labeledTimes.length) continue;
-    foundBits.push(`${g.phrase} ${formatTimesPhrase(labeledTimes)}`);
+    if (!labeled.length) continue;
+    foundBits.push(labeled.join(", "));
   }
 
   if (!foundBits.length && !missing.length) return null;
