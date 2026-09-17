@@ -6,8 +6,10 @@ import {
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import {
   addIsraelDayLetter,
+  formatIsraelDayMonth,
   getIsraelDayLetter,
   hasWeeklySlotPassedToday,
+  listUpcomingIsraelWeekdays,
   resolveNextOccurrence,
   type IsraelDayLetter,
 } from "@/lib/israel-time";
@@ -316,6 +318,11 @@ function looksLikeDayOrClassAsk(text: string): boolean {
   return /מתי|יש\s+(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|להגיע|להצטרף|לבוא|מועד|[?؟]/u.test(t);
 }
 
+function formatUpcomingWeekdayDatesLine(now: Date): string {
+  const days = listUpcomingIsraelWeekdays(now, 7);
+  return days.map((d) => `${DAY_NAME[d.letter]} ${formatIsraelDayMonth(d.month, d.day)}`).join(", ");
+}
+
 function formatIsraelNowLine(now: Date): string {
   const letter = getIsraelDayLetter(now);
   const name = DAY_NAME[letter];
@@ -333,7 +340,11 @@ function formatIsraelNowLine(now: Date): string {
   const m = Number(get("month"));
   const hh = get("hour");
   const mm = get("minute");
-  return `עכשיו בישראל: יום ${name} ${d}.${m}, שעה ${hh}:${mm}. «היום»/«הערב» = ${name}. «מחר» = ${DAY_NAME[addIsraelDayLetter(letter, 1)]}.`;
+  return [
+    `עכשיו בישראל: יום ${name} ${d}.${m}, שעה ${hh}:${mm}. «היום»/«הערב» = ${name}. «מחר» = ${DAY_NAME[addIsraelDayLetter(letter, 1)]}.`,
+    `ימים קרובים: ${formatUpcomingWeekdayDatesLine(now)}.`,
+    "«ראשון הקרוב» וכל יום בשבוע = התאריך בטבלה. ידע עם אותו תאריך (חג/סגירה) גובר על שעות שבועיות רגילות.",
+  ].join(" ");
 }
 
 function formatDaySlotLines(services: SfServiceRow[], day: IsraelDayLetter, now: Date): string {
@@ -349,13 +360,13 @@ function formatDaySlotLines(services: SfServiceRow[], day: IsraelDayLetter, now:
   return lines.length ? lines.join("\n") : "- אין מועדים ליום הזה בלוח";
 }
 
-/** בלוק פרומפט: היום/מחר לפי שעון ישראל — גיבוי כשאין מענה דטרמיניסטי. */
+/** בלוק פרומפט: שעון ישראל + ימים קרובים לתאריך — גיבוי כשאין מענה דטרמיניסטי. */
 export function buildIsraelNowSchedulePromptBlock(services: SfServiceRow[], now: Date = new Date()): string {
-  if (!services.length) return "";
   const today = getIsraelDayLetter(now);
   const tomorrow = addIsraelDayLetter(today, 1);
-  return `
-${formatIsraelNowLine(now)}
+  const head = `\n${formatIsraelNowLine(now)}`;
+  if (!services.length) return head;
+  return `${head}
 מועדים להיום (${DAY_NAME[today]}) בלבד — אסור לערבב שעות מיום אחר:
 ${formatDaySlotLines(services, today, now)}
 מועדים למחר (${DAY_NAME[tomorrow]}) בלבד:
