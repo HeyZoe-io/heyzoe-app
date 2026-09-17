@@ -164,6 +164,24 @@ async function resolveOccurrenceStatesForCandidates(
   return map;
 }
 
+/** Verbatim LIST-path suffixes. Menu-button path must not use these until labels fit Meta's 20-char title cap. */
+export const OCCURRENCE_STATUS_FULL_SUFFIX = " (מלא)";
+export const OCCURRENCE_STATUS_CANCELLED_SUFFIX = " (מבוטל)";
+
+/**
+ * Append a status label to a slot time for the free-text LIST path.
+ * full / cancelled only — open, unknown, error, and timeout stay unlabeled (fail-open).
+ */
+export function formatTimeWithOccurrenceStatus(
+  time: string,
+  state: ArboxOccurrenceStateResult["state"] | undefined
+): string {
+  const t = String(time ?? "").trim();
+  if (state === "full") return `${t}${OCCURRENCE_STATUS_FULL_SUFFIX}`;
+  if (state === "cancelled") return `${t}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`;
+  return t;
+}
+
 /** "full"/"cancelled" are the only states a caller should ever omit on — "unknown" behaves as "open". */
 function isSuppressedOccurrenceState(state: ArboxOccurrenceStateResult["state"] | undefined): boolean {
   return state === "full" || state === "cancelled";
@@ -429,9 +447,12 @@ export async function buildCatalogDaySlotsReply(
   const lines: string[] = [];
   for (const item of items) {
     const state = stateMap.get(occurrenceStateKey(item.dateYmd, item.time, item.arboxClassName))?.state;
-    if (isSuppressedOccurrenceState(state)) continue;
-    lines.push(formatDayClassScheduleLine(phrase, item.time, item.serviceName));
+    const displayTime = formatTimeWithOccurrenceStatus(item.time, state);
+    lines.push(formatDayClassScheduleLine(phrase, displayTime, item.serviceName));
   }
+  // Kept: historically fired when every upcoming slot was omitted as full/cancelled.
+  // LIST now SHOWS those slots with a suffix, so this is dead in practice (items always
+  // become lines). Do not delete — Option 2 webhook still branches on kind: "all_full".
   if (isScheduleSlotPickAllFullResult(items.length, lines.length)) return { kind: "all_full" };
   return { kind: "lines", text: `${lines.join("\n")} 💜` };
 }
@@ -503,11 +524,10 @@ export async function tryBuildRelativeDayClassSlotsReply(
       if (line?.kind === "lines") parts.push(line.text);
       else if (line?.kind === "all_full") anyDayAllFull = true;
     }
-    // Open days still list normally. An all-full day next to an open day is omitted, not
-    // replaced by the all-full notice. The notice fires only when the entire catalog reply
-    // would otherwise be null AND at least one requested day was case-2 (all-full).
-    // Mixed-intent (catalog ask + price in the same message) stopping here is the accepted
-    // tradeoff — same as the named-class path.
+    // Full/cancelled catalog days now list with a suffix, so kind: "all_full" no longer
+    // comes back from buildCatalogDaySlotsReply in practice. The anyDayAllFull branch is
+    // kept for the Option 2 webhook (do not delete). Mixed-intent (catalog ask + price in
+    // the same message) stopping here is the accepted tradeoff — same as the named-class path.
     if (parts.length) {
       return { kind: "list", text: parts.join("\n"), modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
     }
@@ -560,20 +580,12 @@ export async function tryBuildRelativeDayClassSlotsReply(
 
   const foundBits: string[] = [];
   for (const g of dayGroups) {
-    const openTimes = g.slots
-      .filter((s) => {
-        const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
-        return !isSuppressedOccurrenceState(state);
-      })
-      .map((s) => s.time);
-    if (!openTimes.length) {
-      // All of this day's times were full/cancelled. If it's the only day the lead asked
-      // about, fall through to the existing "none today" message; otherwise the day-line
-      // simply disappears from a multi-day reply rather than falsely saying "none".
-      if (days.length === 1) missing.push(`${g.phrase} אין ${serviceName}.`);
-      continue;
-    }
-    foundBits.push(`${g.phrase} ${formatTimesPhrase(openTimes)}`);
+    const labeledTimes = g.slots.map((s) => {
+      const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
+      return formatTimeWithOccurrenceStatus(s.time, state);
+    });
+    if (!labeledTimes.length) continue;
+    foundBits.push(`${g.phrase} ${formatTimesPhrase(labeledTimes)}`);
   }
 
   if (!foundBits.length && !missing.length) return null;

@@ -4,14 +4,18 @@ import { matchCatalogServiceFromFreeText, shouldHandoffUnknownClassSlot } from "
 import type { ArboxOccurrenceStateResult } from "@/lib/arbox-occurrence-state";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
 import {
+  buildCatalogDaySlotsReply,
   buildIsraelNowSchedulePromptBlock,
   buildWhichExistingClassQuestion,
   EXISTING_CLASS_WHICH_CLASS_MODEL,
   formatDayClassScheduleLine,
   formatNamedClassScheduleLine,
+  formatTimeWithOccurrenceStatus,
   isRelativeDayCatalogAllFullReply,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
+  OCCURRENCE_STATUS_CANCELLED_SUFFIX,
+  OCCURRENCE_STATUS_FULL_SUFFIX,
   previousUserTextFromHistory,
   RELATIVE_DAY_CLASS_SLOTS_MODEL,
   scheduleSlotPickAllFullFiresHandoff,
@@ -361,11 +365,19 @@ async function main() {
   }
 
   // ==========================================================================
-  // Stage 2c Part 1 — fullness/cancellation omission in the list path
+  // Stage 2c Part 1 — LIST path shows full/cancelled with a status suffix
   // ==========================================================================
   const arboxCtx = { businessId: 42, arboxApiKey: "k", arboxBoxId: "1" };
 
-  // Stamped product, one of two times on the (only) requested day is full -> only that time drops.
+  assert.equal(formatTimeWithOccurrenceStatus("18:30", "full"), `18:30${OCCURRENCE_STATUS_FULL_SUFFIX}`);
+  assert.equal(formatTimeWithOccurrenceStatus("18:30", "cancelled"), `18:30${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`);
+  assert.equal(formatTimeWithOccurrenceStatus("18:30", "open"), "18:30");
+  assert.equal(formatTimeWithOccurrenceStatus("18:30", "unknown"), "18:30");
+  assert.equal(formatTimeWithOccurrenceStatus("18:30", undefined), "18:30");
+  assert.equal(OCCURRENCE_STATUS_FULL_SUFFIX, " (מלא)");
+  assert.equal(OCCURRENCE_STATUS_CANCELLED_SUFFIX, " (מבוטל)");
+
+  // Stamped product, one of two times on the (only) requested day is full -> SHOW it with suffix.
   {
     const stamped = svc("אימוני כוח - Strength", [{ day: "ג", time: "18:30" }, { day: "ג", time: "19:30" }], "Strength");
     const { impl } = fakeRawDataFetcher({ "2026-09-01|18:30|Strength": "full" });
@@ -377,13 +389,16 @@ async function main() {
       rawDataFetcherImpl: impl,
     });
     assert.ok(reply);
-    assert.doesNotMatch(reply!.text, /18:30/, "the full time is dropped");
+    assert.equal(reply!.kind, "list");
+    assert.match(reply!.text, /18:30 \(מלא\)/, "the full time is listed with the full suffix");
     assert.match(reply!.text, /19:30/, "the open time is kept");
-    assert.doesNotMatch(reply!.text, /אין/, "still one time left — not a 'none' reply");
+    assert.doesNotMatch(reply!.text, /19:30 \(מלא\)/, "open time must not get a full suffix");
+    assert.doesNotMatch(reply!.text, /19:30 \(מבוטל\)/);
+    assert.doesNotMatch(reply!.text, /אין/, "full slots are shown, not turned into a 'none' reply");
   }
 
   // All times on a day are cancelled, and that day is NOT the only day requested ->
-  // the whole day-line disappears (no "none" message for it either).
+  // SHOW the cancelled day-line with suffix (do not drop it, do not say "none").
   {
     const stamped = svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }, { day: "ד", time: "18:30" }], "Strength");
     const { impl } = fakeRawDataFetcher({
@@ -396,12 +411,14 @@ async function main() {
       ...arboxCtx,
       rawDataFetcherImpl: impl,
     });
-    assert.ok(reply, "Wednesday's slot still stands, so a reply is still built");
-    assert.doesNotMatch(reply!.text, /שלישי.{0,20}אין/, "Tuesday's day-line must not appear at all, not even as 'none'");
+    assert.ok(reply, "both days still produce a list reply");
+    assert.match(reply!.text, /19:30 \(מבוטל\)/, "cancelled Tuesday slot is shown with suffix");
     assert.match(reply!.text, /18:30/, "Wednesday's open slot is still offered");
+    assert.doesNotMatch(reply!.text, /18:30 \(מבוטל\)/);
+    assert.doesNotMatch(reply!.text, /אין/, "cancelled is shown, not replaced by 'none'");
   }
 
-  // Same, but it's the ONLY requested day -> falls through to the existing "none" message.
+  // Same, but it's the ONLY requested day -> still SHOW with suffix, not the 'none' fallback.
   {
     const stamped = svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }], "Strength");
     const { impl } = fakeRawDataFetcher({ "2026-09-01|19:30|Strength": "cancelled" });
@@ -413,8 +430,9 @@ async function main() {
       rawDataFetcherImpl: impl,
     });
     assert.ok(reply);
-    assert.match(reply!.text, /אין/, "the only requested day, fully suppressed, must fall back to 'none'");
-    assert.doesNotMatch(reply!.text, /19:30/);
+    assert.equal(reply!.kind, "list");
+    assert.match(reply!.text, /19:30 \(מבוטל\)/, "the only requested day's cancelled slot is shown");
+    assert.doesNotMatch(reply!.text, /אין/, "cancelled is not the 'none today' message");
   }
 
   // Unstamped product (no arbox_class_name) -> completely untouched, zero raw-data fetches.
@@ -430,11 +448,12 @@ async function main() {
     });
     assert.ok(reply);
     assert.match(reply!.text, /19:30/, "unstamped product is offered exactly as before, never checked");
+    assert.doesNotMatch(reply!.text, /\(מלא\)/, "unstamped never gets a status suffix");
+    assert.doesNotMatch(reply!.text, /\(מבוטל\)/);
     assert.equal(calls.length, 0, "zero Arbox fetches for an unstamped product");
   }
 
-  // "unknown" behaves identically to "open" — never suppressed. (No rows registered for this
-  // key at all -> resolveOccurrenceState naturally returns "unknown".)
+  // "unknown" behaves identically to "open" — shown, unlabeled (fail-open).
   {
     const stamped = svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }], "Strength");
     const { impl } = fakeRawDataFetcher({});
@@ -446,7 +465,9 @@ async function main() {
       rawDataFetcherImpl: impl,
     });
     assert.ok(reply);
-    assert.match(reply!.text, /19:30/, "unknown must behave exactly like open — never omitted");
+    assert.match(reply!.text, /19:30/, "unknown must be shown like open");
+    assert.doesNotMatch(reply!.text, /\(מלא\)/, "unknown must never render a false full label");
+    assert.doesNotMatch(reply!.text, /\(מבוטל\)/, "unknown must never render a false cancelled label");
   }
 
   // No Arbox context at all (businessId/apiKey/boxId missing) -> nothing filtered, no fetches.
@@ -505,14 +526,27 @@ async function main() {
   }
 
   // ==========================================================================
-  // Catalog-wide all-full (Option 2) — two empties must not collapse
+  // Catalog-wide all-full (Option 2) — LIST now shows full/cancelled; all_full is dead in practice
   // ==========================================================================
   const stampedTueWed = [
     svc("פילאטיס מכשירים (כסא)", [{ day: "ג", time: "18:30" }, { day: "ג", time: "19:30" }], "Chair"),
     svc("אימוני כוח - Strength", [{ day: "ג", time: "19:30" }, { day: "ד", time: "18:30" }], "Strength"),
   ];
 
-  // (a) all slots full -> all-full message + button contract (same empty-state as the menu path).
+  // Empty-state helpers still exist (menu path / Option 2 webhook). LIST no longer produces them.
+  assert.equal(
+    SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
+    "אני לא רואה כרגע מועדים זמינים לשיעור. אפשר לכתוב ״נציג אנושי״ ואעביר לפנייה לצוות, או לבחור אימון אחר."
+  );
+  assert.equal(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL, "בחירת אימון");
+  assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
+  assert.equal(isScheduleSlotPickAllFullRepickLabel(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL), true);
+  assert.equal(isScheduleSlotPickAllFullResult(3, 0), true);
+  assert.equal(isScheduleSlotPickAllFullResult(3, 3), false);
+  assert.equal(SCHEDULE_SLOT_PICK_ALL_FULL_MODEL, "sales_flow_schedule_slot_all_full");
+  assert.equal(userRequestedHumanAgent("נציג אנושי"), true);
+
+  // (a) all catalog slots full -> LIST with (מלא), not the all-full notice.
   {
     const { impl, calls } = fakeRawDataFetcher({
       "2026-09-01|18:30|Chair": "full",
@@ -526,18 +560,29 @@ async function main() {
       ...arboxCtx,
       rawDataFetcherImpl: impl,
     });
-    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
-    assert.equal(reply!.kind, "all_full");
-    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
-    assert.equal(reply!.modelUsed, SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
-    assert.equal(isScheduleSlotPickAllFullResult(3, 0), true);
-    assert.equal(isScheduleSlotPickAllFullRepickLabel(SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL), true);
-    assert.equal(scheduleSlotPickAllFullFiresHandoff(), false);
-    assert.equal(userRequestedHumanAgent("נציג אנושי"), true);
+    assert.ok(reply);
+    assert.equal(reply!.kind, "list");
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.match(reply!.text, /18:30 \(מלא\)/);
+    assert.match(reply!.text, /19:30 \(מלא\)/);
+    assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
     assert.equal(calls.length, 1, "one fetch-pair for the one requested date — already paid by LIST, not extra");
+
+    const direct = await buildCatalogDaySlotsReply({
+      day: "ג",
+      sourceText: "מה יש ביום שלישי?",
+      services: stampedTueWed,
+      now: tueMorning,
+      ...arboxCtx,
+      rawDataFetcherImpl: impl,
+    });
+    assert.ok(direct);
+    assert.equal(direct.kind, "lines", "all-full catalog day returns lines, not all_full / null");
+    if (direct.kind !== "lines") throw new Error("expected lines");
+    assert.match(direct.text, /18:30 \(מלא\)/);
   }
 
-  // (b) all slots cancelled -> same all-full empty state.
+  // (b) all slots cancelled -> LIST with (מבוטל), not the all-full empty state.
   {
     const { impl } = fakeRawDataFetcher({
       "2026-09-01|18:30|Chair": "cancelled",
@@ -551,9 +596,11 @@ async function main() {
       ...arboxCtx,
       rawDataFetcherImpl: impl,
     });
-    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
-    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
-    assert.equal(reply!.modelUsed, SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.equal(reply!.kind, "list");
+    assert.match(reply!.text, /18:30 \(מבוטל\)/);
+    assert.match(reply!.text, /19:30 \(מבוטל\)/);
+    assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
   }
 
   // (c) genuinely no class that day (items.length === 0) -> NOT all-full; current null fall-through.
@@ -573,7 +620,7 @@ async function main() {
     assert.equal(calls.length, 0, "genuinely-empty never fetches");
   }
 
-  // (d) multi-day: one day all-full, another has open slots -> list the open day, omit the full day, NO all-full notice.
+  // (d) multi-day: one day all-full, another has open slots -> LIST both days; full day has suffix.
   {
     const { impl, calls } = fakeRawDataFetcher({
       "2026-09-01|18:30|Chair": "full",
@@ -591,15 +638,17 @@ async function main() {
     assert.ok(reply);
     assert.equal(reply!.kind, "list");
     assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
-    assert.match(reply!.text, /18:30/, "Wednesday's open slot is listed");
-    assert.match(reply!.text, /מחר/, "open day is tomorrow, not today");
-    assert.doesNotMatch(reply!.text, /היום/, "Tuesday's all-full day-line is omitted, not replaced by the notice");
-    assert.doesNotMatch(reply!.text, /19:30/, "Tuesday-only times must not leak into the reply");
+    assert.match(reply!.text, /מחר/, "open Wednesday is listed");
+    assert.match(reply!.text, /היום/, "full Tuesday is listed too, with suffixes");
+    assert.match(reply!.text, /18:30 \(מלא\)/);
+    assert.match(reply!.text, /19:30 \(מלא\)/);
+    assert.match(reply!.text, /מחר.{0,40}18:30/, "Wednesday's open 18:30 is listed without a false suffix");
+    assert.doesNotMatch(reply!.text, /מחר.{0,80}18:30 \(מלא\)/);
     assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
     assert.equal(new Set(calls.map((c) => c.date)).size, 2);
   }
 
-  // (e) multi-day where ALL requested days are all-full -> all-full message.
+  // (e) multi-day where ALL requested days are full -> still a LIST with suffixes, not the notice.
   {
     const { impl } = fakeRawDataFetcher({
       "2026-09-01|18:30|Chair": "full",
@@ -614,8 +663,11 @@ async function main() {
       ...arboxCtx,
       rawDataFetcherImpl: impl,
     });
-    assert.equal(isRelativeDayCatalogAllFullReply(reply), true);
-    assert.equal(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
+    assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
+    assert.equal(reply!.kind, "list");
+    assert.match(reply!.text, /18:30 \(מלא\)/);
+    assert.match(reply!.text, /19:30 \(מלא\)/);
+    assert.notEqual(reply!.text, SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE);
   }
 
   // (f) fetch throws -> slots kept as unknown -> list reply, not all-full (fail-open).
@@ -633,6 +685,8 @@ async function main() {
     assert.equal(reply!.kind, "list");
     assert.match(reply!.text, /18:30/);
     assert.match(reply!.text, /19:30/);
+    assert.doesNotMatch(reply!.text, /\(מלא\)/, "outage must never render a false full label");
+    assert.doesNotMatch(reply!.text, /\(מבוטל\)/, "outage must never render a false cancelled label");
     assert.ok(calls.length >= 1);
   }
 
@@ -659,6 +713,8 @@ async function main() {
     assert.equal(isRelativeDayCatalogAllFullReply(reply), false);
     assert.match(reply!.text, /18:30/);
     assert.match(reply!.text, /19:30/);
+    assert.doesNotMatch(reply!.text, /\(מלא\)/);
+    assert.doesNotMatch(reply!.text, /\(מבוטל\)/);
     assert.equal(calls.length, 0, "unstamped catalog-wide never fetches");
   }
 
