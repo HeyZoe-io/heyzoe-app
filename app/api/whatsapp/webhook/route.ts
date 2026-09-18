@@ -249,15 +249,19 @@ import {
 import { getOccurrenceState } from "@/lib/arbox-occurrence-state";
 import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
+  annotateScheduleSlotsByOccurrenceState,
   buildIsraelNowSchedulePromptBlock,
-  filterScheduleSlotsByOccurrenceState,
+  buildScheduleSlotPickMenuLabels,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
   isRelativeDayCatalogAllFullReply,
   previousUserTextFromHistory,
+  resolveScheduleSlotPickTap,
   SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
   SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
   SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL,
+  SCHEDULE_SLOT_PICK_MENU_MODEL,
+  SCHEDULE_SLOT_PICK_MENU_PHASE,
   tryBuildRelativeDayClassSlotsReply,
 } from "@/lib/wa-relative-day-class-slots";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
@@ -533,12 +537,9 @@ import {
   courseHasCycleSchedulePickData,
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
-  formatSlotPickButtonLabelWithCycle,
-  formatDayNameForScheduleDatePlaceholder,
   formatYomForContactSlotDate,
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
-  scheduleSlotPickLabelsMatch,
   syncCourseLegacyDatesFromCycles,
   type CourseCycle,
   type WaSchedulePickSlot,
@@ -3382,19 +3383,21 @@ async function sendScheduleSlotPickMenu(input: {
 }): Promise<void> {
   const creds = await resolveArboxCredsForSlotPick(input);
   const rawSlots = input.selectedService?.scheduleSlots ?? [];
-  const filtered = await filterScheduleSlotsByOccurrenceState(rawSlots, input.selectedService?.arboxClassName ?? "", {
+  const annotated = await annotateScheduleSlotsByOccurrenceState(rawSlots, input.selectedService?.arboxClassName ?? "", {
     businessId: input.businessId,
     arboxApiKey: creds.arboxApiKey,
     arboxBoxId: creds.arboxBoxId,
     now: input.now,
   });
-  if (isScheduleSlotPickAllFullResult(rawSlots.length, filtered.length)) {
+  // All-full empty menu is dead in practice (full/cancelled are shown). Keep the helper
+  // for Option 2 catalog; do not send it when there are still slots to pick.
+  if (isScheduleSlotPickAllFullResult(rawSlots.length, annotated.length)) {
     await sendScheduleSlotPickAllFullMenu(input);
     return;
   }
 
-  const slots = filtered.slice(0, SCHEDULE_SLOT_PICK_MAX);
-  if (!slots.length) {
+  const slotsForPick = annotated.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1));
+  if (!slotsForPick.length) {
     await sendScheduleSelectionDateQuestion({
       knowledge: input.knowledge,
       selectedService: input.selectedService,
@@ -3409,10 +3412,10 @@ async function sendScheduleSlotPickMenu(input: {
     return;
   }
 
-  const labels = slots
-    .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
-    .map((s) => formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end }));
-  labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(input.knowledge)));
+  const labels = buildScheduleSlotPickMenuLabels(
+    slotsForPick,
+    schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(input.knowledge))
+  );
   const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const fallbackName = lang === "en" ? "the class" : lang === "ru" ? "тренировку" : "האימון";
   const serviceName = input.selectedService?.name?.trim() || fallbackName;
@@ -3440,14 +3443,14 @@ async function sendScheduleSlotPickMenu(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: outboundLog,
-    model_used: "sales_flow_schedule_slot_menu",
+    model_used: SCHEDULE_SLOT_PICK_MENU_MODEL,
     session_id: input.sessionId,
   });
   await updateContactSessionPhase({
     supabase: input.supabase,
     businessId: input.businessId,
     phone: input.msg.from,
-    phase: "schedule_date",
+    phase: SCHEDULE_SLOT_PICK_MENU_PHASE,
   });
 }
 
@@ -9834,7 +9837,7 @@ async function processIncoming(
         }
       } else {
         const rawSlots = selectedService?.scheduleSlots ?? [];
-        const filteredSlots = await filterScheduleSlotsByOccurrenceState(
+        const annotatedSlots = await annotateScheduleSlotsByOccurrenceState(
           rawSlots,
           selectedService?.arboxClassName ?? "",
           {
@@ -9848,10 +9851,10 @@ async function processIncoming(
         const inSchedulePickContext =
           !["opening", "warmup", "cta", "registered"].includes(contactSessionPhase) &&
           (inSchedulePhase ||
-            lastAssistForSchedule === "sales_flow_schedule_slot_menu" ||
+            lastAssistForSchedule === SCHEDULE_SLOT_PICK_MENU_MODEL ||
             lastAssistForSchedule === SCHEDULE_SLOT_PICK_ALL_FULL_MODEL);
 
-        if (isScheduleSlotPickAllFullResult(rawSlots.length, filteredSlots.length)) {
+        if (isScheduleSlotPickAllFullResult(rawSlots.length, annotatedSlots.length)) {
           const allFullLabels = [SCHEDULE_SLOT_PICK_ALL_FULL_REPICK_LABEL];
           const resolvedAllFull = resolveWaMenuChoice(
             msg.text.trim(),
@@ -9900,21 +9903,20 @@ async function processIncoming(
             });
             return;
           }
-        } else if (filteredSlots.length > 0) {
-          const slotsForPick = filteredSlots.slice(0, SCHEDULE_SLOT_PICK_MAX);
-          const labels = slotsForPick
-            .slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1))
-            .map((s) =>
-              formatSlotPickButtonLabelWithCycle(s, { start_date: s.cycle_start, end_date: s.cycle_end })
-            );
-          labels.push(schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge)));
-          const resolved = resolveWaMenuChoice(msg.text.trim(), msg.metaInteractiveReplyId, labels, labels);
+        } else if (annotatedSlots.length > 0) {
+          const slotsForPick = annotatedSlots.slice(0, Math.max(0, SCHEDULE_SLOT_PICK_MAX - 1));
+          const labels = buildScheduleSlotPickMenuLabels(
+            slotsForPick,
+            schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge))
+          );
+          const tap = resolveScheduleSlotPickTap({
+            inboundText: msg.text.trim(),
+            metaInteractiveReplyId: msg.metaInteractiveReplyId,
+            slotsForPick,
+            labels,
+          });
 
-          if (
-            isSchedulePickChangeServiceLabel(resolved) ||
-            isScheduleSlotPickAllFullRepickLabel(resolved) ||
-            isScheduleSlotPickAllFullRepickLabel(msg.text.trim())
-          ) {
+          if (tap.kind === "change_service") {
             await reopenOpeningServicePickFromScheduleMenu({
               knowledge,
               salesFlowServices,
@@ -9933,67 +9935,96 @@ async function processIncoming(
             contactFlowStep = 0;
             return;
           }
-          const idx = labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
-          if (idx >= 0) {
-            const slot = slotsForPick[idx]!;
-        const dateTxt = formatDayNameForScheduleDatePlaceholder(slot.day);
-        const timeTxt = slot.time;
-        const phoneVariants = contactPhoneLookupVariants(msg.from);
-        const nextPhase = phaseAfterSchedulePickComplete();
-        const { error } = await supabase
-          .from("contacts")
-          .update(
-            withWarmupExtraAwaitingOff({
-              sf_requested_date: dateTxt,
-              sf_requested_time: timeTxt,
-              session_phase: nextPhase,
-              flow_step: 0,
-            })
-          )
-          .eq("business_id", businessId)
-          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
-        if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
-        contactScheduleRequestedDate = dateTxt;
-        contactScheduleRequestedTime = timeTxt;
-        contactSessionPhase = nextPhase;
-        const schedOfferKind = selectedService?.offerKind ?? "trial";
-        const schedServiceFallback =
-          schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
-        const rawTpl = resolveAfterScheduleSelectionTemplate(knowledge.salesFlowConfig, schedOfferKind);
-        const afterScheduleText = fillAfterScheduleSelectionTemplate(
-          rawTpl,
-          selectedService?.name?.trim() || schedServiceFallback,
-          dateTxt,
-          timeTxt
-        );
-        await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send after schedule selection failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: afterScheduleText,
-          model_used: "sales_flow_after_schedule_selection",
-          session_id: sessionId,
-        });
-        await sendSalesFlowCtaMenuWithPhaseUpdate({
-          knowledge,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          salesFlowServices,
-          trialRegistered: contactTrialRegistered,
-          allowTrialCta: allowTrialCtaThisSession,
-          sfConsumedKinds: sfClickedCtaKinds,
-          modelUsed: "sales_flow_cta",
-          arboxApiKey: crmApiKey,
-          arboxBoxId: crmBoxId,
-          now: new Date(nowIso),
-        });
+          if (tap.kind === "blocked") {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, tap.notice, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send schedule slot blocked notice failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: tap.notice,
+              model_used:
+                tap.reason === "cancelled"
+                  ? "sales_flow_schedule_slot_cancelled_tap"
+                  : "sales_flow_schedule_slot_full_tap",
+              session_id: sessionId,
+            });
+            await sendScheduleSlotPickMenu({
+              knowledge,
+              selectedService,
+              blockMedia: starterBlocksMedia,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              arboxApiKey: crmApiKey,
+              arboxBoxId: crmBoxId,
+              now: new Date(nowIso),
+            });
+            contactSessionPhase = SCHEDULE_SLOT_PICK_MENU_PHASE;
+            return;
+          }
+          if (tap.kind === "open") {
+            const { dateTxt, timeTxt, contactPatch } = tap;
+            const phoneVariants = contactPhoneLookupVariants(msg.from);
+            const nextPhase = phaseAfterSchedulePickComplete();
+            const { error } = await supabase
+              .from("contacts")
+              .update(
+                withWarmupExtraAwaitingOff({
+                  sf_requested_date: contactPatch.sf_requested_date,
+                  sf_requested_time: contactPatch.sf_requested_time,
+                  session_phase: nextPhase,
+                  flow_step: contactPatch.flow_step,
+                })
+              )
+              .eq("business_id", businessId)
+              .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+            if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
+            contactScheduleRequestedDate = dateTxt;
+            contactScheduleRequestedTime = timeTxt;
+            contactSessionPhase = nextPhase;
+            const schedOfferKind = selectedService?.offerKind ?? "trial";
+            const schedServiceFallback =
+              schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
+            const rawTpl = resolveAfterScheduleSelectionTemplate(knowledge.salesFlowConfig, schedOfferKind);
+            const afterScheduleText = fillAfterScheduleSelectionTemplate(
+              rawTpl,
+              selectedService?.name?.trim() || schedServiceFallback,
+              dateTxt,
+              timeTxt
+            );
+            await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send after schedule selection failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: afterScheduleText,
+              model_used: "sales_flow_after_schedule_selection",
+              session_id: sessionId,
+            });
+            await sendSalesFlowCtaMenuWithPhaseUpdate({
+              knowledge,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              salesFlowServices,
+              trialRegistered: contactTrialRegistered,
+              allowTrialCta: allowTrialCtaThisSession,
+              sfConsumedKinds: sfClickedCtaKinds,
+              modelUsed: "sales_flow_cta",
+              arboxApiKey: crmApiKey,
+              arboxBoxId: crmBoxId,
+              now: new Date(nowIso),
+            });
             return;
           }
           if (inSchedulePickContext && shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
