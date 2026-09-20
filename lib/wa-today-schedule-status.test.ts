@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import {
+  buildTodayOpeningHoursFromScheduleTextReply,
   buildTodayScheduleFoundReply,
+  extractScheduleTextForToday,
   looksLikeBusinessOpenOrClosedTodayQuestion,
   resolveTodayScheduleClasses,
+  tryBuildTodayOpeningHoursFromScheduleText,
+  TODAY_OPENING_HOURS_FROM_SCHEDULE_TEXT_MODEL,
   TODAY_SCHEDULE_NOT_FOUND_REPLY,
 } from "@/lib/wa-today-schedule-status";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
@@ -55,5 +59,69 @@ assert.equal(
 
 assert.match(TODAY_SCHEDULE_NOT_FOUND_REPLY, /לא רואה שיעורים במערכת/);
 assert.match(TODAY_SCHEDULE_NOT_FOUND_REPLY, /מעבירה לצוות/);
+
+{
+  // Apex / erev Yom Kippur: Sunday 20.9 — schedule_text date must beat weekly Sunday classes.
+  const erevYomKippur = new Date("2026-09-20T10:00:00.000Z"); // ראשון 20.9 ישראל
+  const apexHours = [
+    "ראשון: 06:00-22:00",
+    "20.9 ערב כיפור - פתוחים עד 13:00",
+    "21.9 יום כיפור - סגור",
+  ].join("\n");
+
+  const snippet = extractScheduleTextForToday(apexHours, erevYomKippur);
+  assert.equal(snippet, "20.9 ערב כיפור - פתוחים עד 13:00");
+
+  const reply = tryBuildTodayOpeningHoursFromScheduleText({
+    text: "אתם פתוחים היום?",
+    scheduleText: apexHours,
+    now: erevYomKippur,
+  });
+  assert.ok(reply);
+  assert.equal(reply!.modelUsed, TODAY_OPENING_HOURS_FROM_SCHEDULE_TEXT_MODEL);
+  assert.match(reply!.text, /היום \(ראשון 20\.9\)/);
+  assert.match(reply!.text, /ערב כיפור/);
+  assert.match(reply!.text, /עד 13:00/);
+  assert.doesNotMatch(reply!.text, /06:00-22:00/, "must not fall back to weekly Sunday hours");
+
+  // Slash / zero-padded forms also match
+  assert.equal(
+    extractScheduleTextForToday("20/09 סגירה מוקדמת", erevYomKippur),
+    "20/09 סגירה מוקדמת"
+  );
+  assert.equal(
+    extractScheduleTextForToday("פתוחים ב-20.09.2026 עד הצהריים", erevYomKippur),
+    "פתוחים ב-20.09.2026 עד הצהריים"
+  );
+
+  // No date in knowledge → null (Claude / Arbox weekday path)
+  assert.equal(extractScheduleTextForToday("ראשון: 06:00-22:00", erevYomKippur), null);
+  assert.equal(
+    tryBuildTodayOpeningHoursFromScheduleText({
+      text: "אתם פתוחים היום?",
+      scheduleText: "ראשון: 06:00-22:00",
+      now: erevYomKippur,
+    }),
+    null
+  );
+
+  // Not an open-today question → null even with date lines
+  assert.equal(
+    tryBuildTodayOpeningHoursFromScheduleText({
+      text: "מתי יש פילאטיס?",
+      scheduleText: apexHours,
+      now: erevYomKippur,
+    }),
+    null
+  );
+
+  assert.equal(
+    buildTodayOpeningHoursFromScheduleTextReply("20.9 ערב כיפור - פתוחים עד 13:00", erevYomKippur),
+    "היום (ראשון 20.9):\n20.9 ערב כיפור - פתוחים עד 13:00"
+  );
+
+  // Do not match 120.9 as today 20.9
+  assert.equal(extractScheduleTextForToday("מבצע עד 120.9 ש״ח", erevYomKippur), null);
+}
 
 console.log("wa-today-schedule-status.test.ts OK");

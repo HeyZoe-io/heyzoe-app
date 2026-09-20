@@ -360,9 +360,11 @@ import {
   TODAY_SCHEDULE_FOUND_MODEL,
   TODAY_SCHEDULE_NOT_FOUND_MODEL,
   TODAY_SCHEDULE_NOT_FOUND_REPLY,
+  TODAY_OPENING_HOURS_FROM_SCHEDULE_TEXT_MODEL,
   buildTodayScheduleFoundReply,
   looksLikeBusinessOpenOrClosedTodayQuestion,
   resolveTodayScheduleClasses,
+  tryBuildTodayOpeningHoursFromScheduleText,
 } from "@/lib/wa-today-schedule-status";
 import {
   assistantReplySteersBackToStudioScope,
@@ -7949,6 +7951,34 @@ async function processIncoming(
 
   // מועד שיעור שאין בידע — בלי להמציא שעה; העברה לצוות
   if (isSalesFlowFreeTextInbound(msg) && !wantsRussianFlowRestart && businessId && knowledge) {
+    // «אתם פתוחים היום?» — הצלב תאריך היום מול שעות פעילות (חג/סגירה) לפני Claude / Arbox יום־שבוע.
+    const openTodayFromHours = tryBuildTodayOpeningHoursFromScheduleText({
+      text: msg.text.trim(),
+      scheduleText: knowledge.scheduleText,
+      now: new Date(nowIso),
+    });
+    if (openTodayFromHours) {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          openTodayFromHours.text,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send early today opening-hours from schedule_text failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: openTodayFromHours.text,
+        model_used: openTodayFromHours.modelUsed || TODAY_OPENING_HOURS_FROM_SCHEDULE_TEXT_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+
     const lastPickedForSlot =
       salesFlowServices.length === 1
         ? salesFlowServices[0]!.name
@@ -12419,8 +12449,36 @@ async function processIncoming(
     assistantReplyIsExplicitKnowledgeGap(replyCoreClean) &&
     businessId
   ) {
-    // "האם חדר הכושר פתוח או סגור היום" — לעסקי ארבוקס, לפני העברה גנרית: לבדוק שיעורי היום במערכת השעות.
+    // "האם חדר הכושר פתוח או סגור היום":
+    // 1) שעות פעילות עם תאריך היום (חג/סגירה) — לפני Arbox לפי יום־שבוע.
+    // 2) ארבוקס: שיעורי היום במערכת השעות, לפני העברה גנרית לצוות.
     if (looksLikeBusinessOpenOrClosedTodayQuestion(incomingRaw)) {
+      const fromScheduleText = tryBuildTodayOpeningHoursFromScheduleText({
+        text: incomingRaw,
+        scheduleText: knowledge?.scheduleText,
+        now: new Date(nowIso),
+      });
+      if (fromScheduleText) {
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            fromScheduleText.text,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] Send today opening-hours from schedule_text failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: fromScheduleText.text,
+          model_used: fromScheduleText.modelUsed || TODAY_OPENING_HOURS_FROM_SCHEDULE_TEXT_MODEL,
+          session_id: sessionId,
+        });
+        return;
+      }
       const arboxCreds = await loadArboxScheduleLookupConnection({
         supabase,
         businessId: Number(businessId),

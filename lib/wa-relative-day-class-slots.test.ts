@@ -229,6 +229,8 @@ async function main() {
     assert.match(block, /שני 21\.9/);
     assert.match(block, /ראשון הקרוב/);
     assert.match(block, /חג\/סגירה/);
+    assert.match(block, /פתוחים\/סגורים היום/);
+    assert.match(block, /שעות פעילות/);
     const empty = buildIsraelNowSchedulePromptBlock([], wedApexAsk);
     assert.match(empty, /ראשון 20\.9/, "hours questions still need the date map with no catalog");
     assert.doesNotMatch(empty, /מועדים להיום/);
