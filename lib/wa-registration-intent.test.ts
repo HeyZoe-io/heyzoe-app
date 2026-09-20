@@ -134,6 +134,12 @@ assert.equal(matchesExistingMembershipClaim("אני מנויה"), true);
 assert.equal(matchesExistingMembershipClaim("אני כבר מנוי"), true);
 assert.equal(matchesExistingMembershipClaim("i have a membership"), true);
 assert.equal(matchesExistingMembershipClaim("I'm already a member"), true);
+assert.equal(
+  matchesExistingMembershipClaim("זה נותן לי רק אופציה של אימון היכרות אבל כבר הייתי אצלכם"),
+  true,
+  "returning client rejected trial-only link"
+);
+assert.equal(matchesExistingMembershipClaim("כבר הייתי אצלכם"), true);
 
 assert.equal(matchesExistingMembershipClaim("אין לי מנוי"), false);
 assert.equal(matchesExistingMembershipClaim("רוצה מנוי"), false);

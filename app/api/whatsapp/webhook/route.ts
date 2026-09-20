@@ -219,6 +219,7 @@ import {
 import {
   matchesTrialTopicAdvanceIntent,
   matchesTrialTopicIntent,
+  matchesTrialTopicRejectionOrReturningClient,
   TRIAL_TOPIC_FLOW_ENTRY_MODEL,
   TRIAL_TOPIC_QA_REPLY_MODEL,
 } from "@/lib/wa-trial-topic-intent";
@@ -7182,12 +7183,14 @@ async function processIncoming(
   }
 
   // לינק הרשמה של השיעור שזוהה (מחר ב-8:00 → Power&HIIT) — לא לינק מערכת שעות.
+  // הרשמה מעורפלת בלי «ניסיון» — קודם שאלת מנוי מול ניסיון (0.3), לא לינק ניסיון.
   if (
     msg.type === "text" &&
     businessId &&
     knowledge?.salesFlowConfig &&
     salesFlowServices.length > 0 &&
-    shouldLookupRegistrationCta(msg.text)
+    shouldLookupRegistrationCta(msg.text) &&
+    !shouldAskMembershipVsTrialFirst(msg.text)
   ) {
     const recentForRegCta = await fetchRecentSessionMessages({
       business_slug,
@@ -8759,10 +8762,10 @@ async function processIncoming(
     // unclear — fall through to current behavior, no loop
   }
 
-  // 0.25) Existing membership in an active sales flow — exit funnel, ask how to help.
+  // 0.25) Existing membership / returning client — exit funnel, ask how to help.
+  // Also after a registration-CTA link with no sales-flow greeting marker.
   if (
     isSalesFlowFreeTextInbound(msg) &&
-    salesFlowStarted &&
     businessId &&
     contactSessionPhase !== "registered" &&
     contactTrialRegistered !== true &&
@@ -8779,11 +8782,17 @@ async function processIncoming(
     contactSessionPhase = "registered";
     allowTrialCtaThisSession = false;
     if (!looksLikeLeadQuestion(msg.text)) {
+      const membershipReply = matchesTrialTopicRejectionOrReturningClient(msg.text)
+        ? REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY
+        : EXISTING_MEMBERSHIP_HELP_REPLY;
+      const membershipModel = matchesTrialTopicRejectionOrReturningClient(msg.text)
+        ? REGISTRATION_INTENT_HAS_MEMBER_MODEL
+        : EXISTING_MEMBERSHIP_HELP_MODEL;
       try {
         await sendWhatsAppMessage(
           msg.toNumber,
           msg.from,
-          EXISTING_MEMBERSHIP_HELP_REPLY,
+          membershipReply,
           accountSid,
           authToken
         );
@@ -8793,8 +8802,8 @@ async function processIncoming(
       await logMessage({
         business_slug,
         role: "assistant",
-        content: EXISTING_MEMBERSHIP_HELP_REPLY,
-        model_used: EXISTING_MEMBERSHIP_HELP_MODEL,
+        content: membershipReply,
+        model_used: membershipModel,
         session_id: sessionId,
       });
       return;
