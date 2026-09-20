@@ -298,9 +298,9 @@ import {
   classifyRegistrationIntentMembershipReply,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
-  matchesRegistrationIntentPhrase,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
+  shouldSendRegistrationIntentClarify,
   EXISTING_MEMBERSHIP_HELP_MODEL,
   EXISTING_MEMBERSHIP_HELP_REPLY,
   REGISTRATION_INTENT_CLARIFY_MODEL,
@@ -8831,15 +8831,17 @@ async function processIncoming(
     return;
   }
 
-  // 0.3) Ambiguous registration-intent (pre-greeting) — before standalone-help.
+  // 0.3) Ambiguous registration-intent — before standalone-help / Claude.
+  // Also after sales flow already started (greeting / «אשמח לפרטים»): otherwise an
+  // existing member who entered the funnel never gets membership-vs-trial clarify.
   if (
     isSalesFlowFreeTextInbound(msg) &&
-    !salesFlowStarted &&
-    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
-    lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
-    contactSessionPhase !== "registered" &&
-    contactTrialRegistered !== true &&
-    matchesRegistrationIntentPhrase(msg.text)
+    shouldSendRegistrationIntentClarify({
+      inbound: msg.text,
+      lastAssistModel: lastAssistForWarmupPriority,
+      sessionPhase: contactSessionPhase,
+      trialRegistered: contactTrialRegistered,
+    })
   ) {
     try {
       await sendWhatsAppMessage(

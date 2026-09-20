@@ -8,6 +8,8 @@ import {
   matchesRegistrationIntentPhrase,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
+  shouldSendRegistrationIntentClarify,
+  REGISTRATION_INTENT_CLARIFY_MODEL,
 } from "@/lib/wa-registration-intent";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
@@ -40,6 +42,67 @@ assert.equal(matchesRegistrationIntentPhrase("can you register me"), true);
 assert.equal(shouldAskMembershipVsTrialFirst("אשמח להירשם לאימון כוח"), true);
 assert.equal(shouldAskMembershipVsTrialFirst("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
 assert.equal(shouldAskMembershipVsTrialFirst("אשמח להירשם לשיעור ניסיון"), false);
+
+// Mid-funnel: after greeting / «אשמח לפרטים» the clarify must still fire.
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "היי אשמח שתרשמי אותי לאימון כוח",
+    lastAssistModel: "sales_flow_greeting",
+    sessionPhase: "opening",
+    trialRegistered: false,
+  }),
+  true,
+  "mid-flow register-me still asks membership vs trial"
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם",
+    lastAssistModel: "flow_continuation_opening_service_pick",
+    sessionPhase: "opening",
+    trialRegistered: false,
+  }),
+  true,
+  "after product-pick menu still asks"
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם לשיעור ניסיון",
+    lastAssistModel: "sales_flow_greeting",
+    sessionPhase: "opening",
+  }),
+  false,
+  "explicit trial must not ask"
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם",
+    lastAssistModel: REGISTRATION_INTENT_CLARIFY_MODEL,
+  }),
+  false,
+  "do not re-ask while awaiting clarify reply"
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם",
+    lastAssistModel: "booking_lookup_clarify",
+  }),
+  false,
+  "do not stack on booking-lookup clarify"
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם",
+    sessionPhase: "registered",
+  }),
+  false
+);
+assert.equal(
+  shouldSendRegistrationIntentClarify({
+    inbound: "אשמח להירשם",
+    trialRegistered: true,
+  }),
+  false
+);
 
 assert.equal(matchesRegistrationIntentPhrase("כמה עולה השיעור?"), false);
 assert.equal(matchesRegistrationIntentPhrase("אפשר להירשם רק לשיעור ניסיון 1?"), false);

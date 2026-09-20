@@ -125,6 +125,26 @@ export function shouldAskMembershipVsTrialFirst(raw: string): boolean {
   return matchesRegistrationIntentPhrase(raw) && !matchesTrialTopicIntent(raw);
 }
 
+/**
+ * מתי לשלוח את שאלת «מנוי קיים / אימון ניסיון».
+ * חשוב: גם אחרי שהפלואו כבר התחיל (ברכה / אשמח לפרטים) — אחרת מנוי קיים
+ * שנכנס לפלואו ממשיך לניסיון בלי הבהרה.
+ * לא שואלים אם כבר נרשם / מנוי, אם כבר שאלנו, או אם דיבר במפורש על ניסיון.
+ */
+export function shouldSendRegistrationIntentClarify(input: {
+  inbound: string;
+  lastAssistModel?: string | null;
+  sessionPhase?: string | null;
+  trialRegistered?: boolean | null;
+}): boolean {
+  if (input.trialRegistered === true) return false;
+  if (String(input.sessionPhase ?? "").trim() === "registered") return false;
+  const last = String(input.lastAssistModel ?? "").trim();
+  if (last === REGISTRATION_INTENT_CLARIFY_MODEL) return false;
+  if (last === "booking_lookup_clarify") return false;
+  return shouldAskMembershipVsTrialFirst(input.inbound);
+}
+
 export const EXISTING_MEMBERSHIP_HELP_REPLY = "מעולה! איך אפשר לעזור לך?";
 export const EXISTING_MEMBERSHIP_HELP_MODEL = "existing_membership_help";
 
