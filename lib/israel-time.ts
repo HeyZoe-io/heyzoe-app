@@ -324,7 +324,49 @@ export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
   };
 }
 
+/**
+ * Fixed Jewish holiday send blocks (Israel wall time).
+ * dropFollowupQueue: cancel due WA/marketing followups instead of holding them for after.
+ */
+type IsraelHolidaySendBlock = {
+  id: string;
+  start: Date;
+  end: Date;
+  dropFollowupQueue: boolean;
+};
+
+const IL_HOLIDAY_SEND_BLOCKS: IsraelHolidaySendBlock[] = [
+  // יום כיפור תשפ״ז — ערב 20.9.2026 16:00 → מוצאי 21.9.2026 19:00 (כמו חלון שבת)
+  {
+    id: "yom_kippur_5787",
+    start: makeUtcDateFromLocalInTz({ year: 2026, month: 9, day: 20, hour: 16, minute: 0 }),
+    end: makeUtcDateFromLocalInTz({ year: 2026, month: 9, day: 21, hour: 19, minute: 0 }),
+    dropFollowupQueue: true,
+  },
+];
+
+/** Active fixed holiday block, if any ([start, end)). */
+export function activeHolidaySendBlockIsrael(
+  dateUtc: Date = new Date()
+): IsraelHolidaySendBlock | null {
+  const t = dateUtc.getTime();
+  for (const block of IL_HOLIDAY_SEND_BLOCKS) {
+    if (t >= block.start.getTime() && t < block.end.getTime()) return block;
+  }
+  return null;
+}
+
+/**
+ * During drop-queue holidays (e.g. Yom Kippur): do not hold followups for later —
+ * cancel due ones so they are not sent after the holiday.
+ */
+export function shouldDropFollowupQueueIsrael(dateUtc: Date = new Date()): boolean {
+  return activeHolidaySendBlockIsrael(dateUtc)?.dropFollowupQueue === true;
+}
+
 export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
+  if (activeHolidaySendBlockIsrael(dateUtc)) return false;
+
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
 
   // Quiet hours: 23:00–06:30 (inclusive start, exclusive end)
@@ -345,6 +387,12 @@ export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
 
 export function nextAllowedWhatsAppSendTimeIsrael(dateUtc: Date): Date {
   if (isAllowedWhatsAppSendTimeIsrael(dateUtc)) return dateUtc;
+
+  const holiday = activeHolidaySendBlockIsrael(dateUtc);
+  if (holiday) {
+    // Jump to holiday end, then re-resolve (quiet hours / Shabbat if needed).
+    return nextAllowedWhatsAppSendTimeIsrael(holiday.end);
+  }
 
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
   const minutes = p.hour * 60 + p.minute;
