@@ -1,8 +1,7 @@
 /**
- * ברכת חג / שיתוף אישי שנשלח לקו העסק — לא שאלה.
- * תשובה קבועה: תודה, העברה לצוות, וברכה שמתאימה לחג. בלי לפענח את הטקסט.
- * בלי קריאת Claude: ביום חג זה פרץ הודעות, וכל פענוח הוא קריאה מיותרת.
- * ההעברה לצוות היא התראת בעלים אחת לכל איש קשר (לא לכל הודעת חג חוזרת).
+ * ברכת חג בלי שאלה על העסק — תשובה קבועה, בלי Claude ובלי העברה לצוות.
+ * ברכה יחד עם שאלה (למשל «חג שמח, מתי אתם פתוחים?») — זואי עונה על השאלה,
+ * והתשובה נפתחת באותה שורת ברכה.
  */
 
 export const WA_PERSONAL_BLESSING_ACK_MODEL = "personal_blessing_ack";
@@ -17,12 +16,28 @@ export function inboundIsBusinessTopic(raw: string): boolean {
   return BUSINESS_TOPIC_RE.test(String(raw ?? ""));
 }
 
+/** שאלה תפעולית קצרה, לא שאלות רטוריות בתוך דבר תורה ארוך. */
+export function looksLikeOperationalQuestion(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t || t.length > 400) return false;
+  if (!/[?؟]/.test(t)) return false;
+  return /מתי|איפה|היכן|כמה|אפשר|ניתן|יש\s+ל(?:כם|ך)|האם|איך|פתוח|סגור|שעות|להגיע|להירשם|עובד|when|where|how much|open\b/iu.test(
+    t
+  );
+}
+
 /** ברכה או שיתוף חג, בלי שאלה על העסק. */
 export function inboundLooksLikePersonalBlessing(raw: string): boolean {
   const t = String(raw ?? "").trim();
   if (!t || t.length > 4000) return false;
-  if (inboundIsBusinessTopic(t)) return false;
+  if (inboundIsBusinessTopic(t) || looksLikeOperationalQuestion(t)) return false;
   return BLESSING_RE.test(t);
+}
+
+/** ברכת חג וגם שאלה שצריך לענות עליה. */
+export function inboundBlessingWithBusinessQuestion(raw: string): boolean {
+  if (!pickHolidayBlessing(raw)) return false;
+  return inboundIsBusinessTopic(raw) || looksLikeOperationalQuestion(raw);
 }
 
 /** הברכה עצמה, בלי מעטפת. null אם אין חג או ברכה מזוהים. */
@@ -44,10 +59,25 @@ export function pickHolidayBlessing(raw: string): string | null {
   return null;
 }
 
-export function pickPersonalBlessingReply(raw: string): string {
-  const blessing = pickHolidayBlessing(raw);
-  if (!blessing) return "תודה רבה! אעביר לצוות! ❤️";
-  return `תודה רבה! אעביר לצוות! ${blessing} ❤️`;
+export function pickPersonalBlessingReply(raw: string, studioName: string): string {
+  const blessing = pickHolidayBlessing(raw) ?? "חג שמח";
+  const name = String(studioName ?? "").trim() || "הסטודיו";
+  return `תודה רבה! ${blessing} מכל צוות ${name}! ❤️`;
+}
+
+/** מוסיפה את שורת הברכה לפני מענה על שאלה שנשלחה יחד איתה. */
+export function ensureHolidayBlessingPrefix(reply: string, raw: string, studioName: string): string {
+  const line = pickPersonalBlessingReply(raw, studioName);
+  const body = String(reply ?? "").trim();
+  if (!body) return line;
+  if (body.startsWith(line) || (body.startsWith("תודה רבה!") && body.includes("מכל צוות"))) return body;
+  return `${line}\n\n${body}`;
+}
+
+export function buildHolidayQuestionPromptRule(raw: string, studioName: string): string {
+  if (!inboundBlessingWithBusinessQuestion(raw)) return "";
+  const line = pickPersonalBlessingReply(raw, studioName);
+  return `- ההודעה כוללת ברכת חג וגם שאלה על העסק. אל תפענחי את הברכה ואל תעבירי לצוות בגללה. עני על השאלה מהידע. פתחי בדיוק: «${line}» ואז התשובה.`;
 }
 
 /**

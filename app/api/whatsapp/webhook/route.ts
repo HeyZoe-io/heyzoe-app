@@ -375,6 +375,8 @@ import {
 import {
   assistantReplyDecodesPersonalMessage,
   inboundIsBusinessTopic,
+  ensureHolidayBlessingPrefix,
+  inboundBlessingWithBusinessQuestion,
   inboundLooksLikePersonalBlessing,
   pickPersonalBlessingReply,
   WA_PERSONAL_BLESSING_ACK_MODEL,
@@ -7898,29 +7900,9 @@ async function processIncoming(
     }
   }
 
-  // ברכת חג / שיתוף אישי — תודה + העברה לצוות + ברכת החג. בלי קריאת Claude.
+  // ברכת חג בלי שאלה — שורה אחת עם שם הסטודיו. בלי Claude ובלי העברה לצוות.
   if (isSalesFlowFreeTextInbound(msg) && inboundLooksLikePersonalBlessing(msg.text)) {
-    const blessingTxt = pickPersonalBlessingReply(msg.text);
-    if (businessId) {
-      try {
-        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        const fullName =
-          typeof (msg as { profileName?: string }).profileName === "string"
-            ? (msg as { profileName?: string }).profileName!.trim()
-            : "";
-        await handleLeadHumanRequested({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          nowIso,
-          sessionId,
-          fullName: fullName || null,
-        });
-      } catch (e) {
-        console.error("[WA Webhook] personal-blessing human_requested failed:", e);
-      }
-    }
+    const blessingTxt = pickPersonalBlessingReply(msg.text, knowledge?.businessName ?? "");
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
     } catch (e) {
@@ -12447,27 +12429,7 @@ async function processIncoming(
     assistantReplyDecodesPersonalMessage(replyCoreClean) &&
     !inboundIsBusinessTopic(incomingRaw)
   ) {
-    const blessingTxt = pickPersonalBlessingReply(incomingRaw);
-    if (businessId) {
-      try {
-        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        const fullName =
-          typeof (msg as { profileName?: string }).profileName === "string"
-            ? (msg as { profileName?: string }).profileName!.trim()
-            : "";
-        await handleLeadHumanRequested({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          nowIso,
-          sessionId,
-          fullName: fullName || null,
-        });
-      } catch (e) {
-        console.error("[WA Webhook] decoded-personal-share human_requested failed:", e);
-      }
-    }
+    const blessingTxt = pickPersonalBlessingReply(incomingRaw, knowledge?.businessName ?? "");
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
     } catch (e) {
@@ -12485,6 +12447,18 @@ async function processIncoming(
       session_id: sessionId,
     });
     return;
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    inboundBlessingWithBusinessQuestion(incomingRaw)
+  ) {
+    replyCoreClean = ensureHolidayBlessingPrefix(
+      replyCoreClean,
+      incomingRaw,
+      knowledge?.businessName ?? ""
+    );
   }
 
   if (!isFallbackErrorReply && didCallClaude) {

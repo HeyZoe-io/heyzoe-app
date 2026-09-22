@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import {
   assistantReplyDecodesPersonalMessage,
+  ensureHolidayBlessingPrefix,
+  inboundBlessingWithBusinessQuestion,
   inboundLooksLikePersonalBlessing,
   pickPersonalBlessingReply,
 } from "@/lib/wa-personal-blessing";
@@ -18,19 +20,28 @@ const ZOE_DECODE = `זה הודעה אישית יפה ומעמיקה על יום
 - **ערך**: אני לא רק בן-אדם שקיים
 יש עוד משהו שאני יכולה לעזור לך איתו?`;
 
+const STUDIO = "יקמה";
+
 assert.equal(inboundLooksLikePersonalBlessing(YOM_KIPPUR_SHARE), true);
+assert.equal(inboundBlessingWithBusinessQuestion(YOM_KIPPUR_SHARE), false);
 assert.equal(
-  pickPersonalBlessingReply(YOM_KIPPUR_SHARE),
-  "תודה רבה! אעביר לצוות! גמר חתימה טובה ❤️"
+  pickPersonalBlessingReply(YOM_KIPPUR_SHARE, STUDIO),
+  "תודה רבה! גמר חתימה טובה מכל צוות יקמה! ❤️"
 );
 assert.equal(inboundLooksLikePersonalBlessing("גמר חתימה טובה"), true);
 assert.equal(inboundLooksLikePersonalBlessing("שנה טובה לכולם"), true);
-assert.equal(pickPersonalBlessingReply("שנה טובה לכולם"), "תודה רבה! אעביר לצוות! שנה טובה ❤️");
-assert.equal(pickPersonalBlessingReply("צום קל לכולם"), "תודה רבה! אעביר לצוות! צום קל ❤️");
-assert.equal(pickPersonalBlessingReply("חנוכה שמח"), "תודה רבה! אעביר לצוות! חנוכה שמח ❤️");
-assert.equal(pickPersonalBlessingReply("חג פסח שמח"), "תודה רבה! אעביר לצוות! חג כשר ושמח ❤️");
-assert.equal(pickPersonalBlessingReply("שבת שלום"), "תודה רבה! אעביר לצוות! שבת שלום ❤️");
+assert.equal(pickPersonalBlessingReply("שנה טובה לכולם", STUDIO), "תודה רבה! שנה טובה מכל צוות יקמה! ❤️");
+assert.equal(pickPersonalBlessingReply("צום קל לכולם", ""), "תודה רבה! צום קל מכל צוות הסטודיו! ❤️");
+assert.equal(pickPersonalBlessingReply("חנוכה שמח", STUDIO), "תודה רבה! חנוכה שמח מכל צוות יקמה! ❤️");
+assert.equal(pickPersonalBlessingReply("חג פסח שמח", STUDIO), "תודה רבה! חג כשר ושמח מכל צוות יקמה! ❤️");
+assert.equal(pickPersonalBlessingReply("שבת שלום", STUDIO), "תודה רבה! שבת שלום מכל צוות יקמה! ❤️");
 assert.equal(inboundLooksLikePersonalBlessing("מאחל יום כיפור משמעותי"), true);
+assert.equal(inboundLooksLikePersonalBlessing("חג שמח, מתי אתם פתוחים?"), false);
+assert.equal(inboundBlessingWithBusinessQuestion("חג שמח, מתי אתם פתוחים?"), true);
+assert.equal(
+  ensureHolidayBlessingPrefix("היום אנחנו פתוחים עד 21:00.", "חג שמח, מתי אתם פתוחים?", STUDIO),
+  "תודה רבה! חג שמח מכל צוות יקמה! ❤️\n\nהיום אנחנו פתוחים עד 21:00."
+);
 assert.equal(
   inboundLooksLikePersonalBlessing("גמר חתימה טובה, אפשר לבטל את השיעור של מחר?"),
   false
