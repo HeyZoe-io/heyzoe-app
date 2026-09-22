@@ -45,7 +45,8 @@ export default async function SlugLayout({ children, params }: Props) {
   }
 
   let metaPricingNotice: MetaPricingNoticeData | null = null;
-  // Ack bootstrap via the cookie-authenticated anon client (SELECT policy is user-scoped).
+  // Ack is per business, not per user. Service-role SELECT so we see any member's ack
+  // (authenticated SELECT used to be user-scoped and re-showed the modal to everyone else).
   // Failures degrade to "not acknowledged" / null — never re-enter the opt-in catch above.
   if (businessId != null) {
     try {
@@ -56,22 +57,21 @@ export default async function SlugLayout({ children, params }: Props) {
       if (user) {
         let acknowledged = false;
         try {
-          const { data: ackRow, error: ackErr } = await supabase
+          const admin = createSupabaseAdminClient();
+          const { data: ackRows, error: ackErr } = await admin
             .from("notice_acknowledgments")
             .select("id")
             .eq("notice_key", META_PRICING_NOTICE_KEY)
-            .eq("user_id", user.id)
             .eq("business_id", businessId)
-            .maybeSingle();
+            .limit(1);
           if (ackErr) {
             console.error("[SlugLayout] notice_ack_select_failed", {
-              user_id: user.id,
               business_id: businessId,
               error: ackErr.message,
             });
             acknowledged = false;
           } else {
-            acknowledged = Boolean(ackRow);
+            acknowledged = Boolean(ackRows?.[0]);
           }
         } catch (e) {
           console.error("[SlugLayout] notice_ack_select_threw", e);

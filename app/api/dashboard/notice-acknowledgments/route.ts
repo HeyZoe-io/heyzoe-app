@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "unknown_notice_key" }, { status: 400 });
   }
 
-  // Access check + business name via service role (avoids business_users RLS recursion).
-  // The compliance INSERT below uses the caller's session — RLS is the authority of record.
+  // Access check + write via service role (avoids business_users RLS recursion).
+  // Ack is unique per (notice_key, business_id); user_id is audit of who clicked first.
   const admin = createSupabaseAdminClient();
   const access = await assertBusinessAccess(admin, { id: user.id, email: user.email }, businessSlug);
   if (!access.ok) {
@@ -59,26 +59,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "business_select_failed" }, { status: 500 });
   }
 
+  const { data: existing, error: existingErr } = await admin
+    .from("notice_acknowledgments")
+    .select("id")
+    .eq("notice_key", noticeKey)
+    .eq("business_id", access.business.id)
+    .limit(1);
+  if (existingErr) {
+    console.error("[api/dashboard/notice-acknowledgments] existing_select_failed", {
+      business_id: access.business.id,
+      notice_key: noticeKey,
+      error: existingErr.message,
+    });
+    return NextResponse.json({ error: "existing_select_failed" }, { status: 500 });
+  }
+  if (existing?.[0]) return NextResponse.json({ ok: true });
+
   // Same source as UserMenu / account settings: auth user_metadata, then email.
-  // No profiles table; business_users has no name column.
+  // Stored as audit of who first acknowledged; uniqueness is (notice_key, business_id).
   const userName =
     (typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : "") ||
     (typeof user.user_metadata?.name === "string" ? user.user_metadata.name.trim() : "") ||
     String(user.email ?? "").trim();
   const businessName = String((biz as { name?: string } | null)?.name ?? "").trim() || businessSlug;
 
-  const { error: insertErr } = await supabase.from("notice_acknowledgments").upsert(
-    {
-      notice_key: noticeKey,
-      user_id: user.id,
-      user_name: userName,
-      business_id: access.business.id,
-      business_name: businessName,
-    },
-    { onConflict: "notice_key,user_id,business_id", ignoreDuplicates: true }
-  );
+  const { error: insertErr } = await admin.from("notice_acknowledgments").insert({
+    notice_key: noticeKey,
+    user_id: user.id,
+    user_name: userName,
+    business_id: access.business.id,
+    business_name: businessName,
+  });
 
   if (insertErr) {
+    if (insertErr.code === "23505") return NextResponse.json({ ok: true });
     console.error("[api/dashboard/notice-acknowledgments] insert_failed", {
       user_id: user.id,
       business_id: access.business.id,
