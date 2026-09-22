@@ -7898,9 +7898,29 @@ async function processIncoming(
     }
   }
 
-  // ברכת חג / שיתוף אישי — שורה אחת, בלי לפענח ובלי קריאת Claude
+  // ברכת חג / שיתוף אישי — תודה + העברה לצוות + ברכת החג. בלי קריאת Claude.
   if (isSalesFlowFreeTextInbound(msg) && inboundLooksLikePersonalBlessing(msg.text)) {
     const blessingTxt = pickPersonalBlessingReply(msg.text);
+    if (businessId) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        const fullName =
+          typeof (msg as { profileName?: string }).profileName === "string"
+            ? (msg as { profileName?: string }).profileName!.trim()
+            : "";
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+          fullName: fullName || null,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] personal-blessing human_requested failed:", e);
+      }
+    }
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
     } catch (e) {
@@ -12428,6 +12448,26 @@ async function processIncoming(
     !inboundIsBusinessTopic(incomingRaw)
   ) {
     const blessingTxt = pickPersonalBlessingReply(incomingRaw);
+    if (businessId) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        const fullName =
+          typeof (msg as { profileName?: string }).profileName === "string"
+            ? (msg as { profileName?: string }).profileName!.trim()
+            : "";
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+          fullName: fullName || null,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] decoded-personal-share human_requested failed:", e);
+      }
+    }
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
     } catch (e) {

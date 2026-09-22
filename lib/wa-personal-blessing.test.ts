@@ -19,10 +19,18 @@ const ZOE_DECODE = `זה הודעה אישית יפה ומעמיקה על יום
 יש עוד משהו שאני יכולה לעזור לך איתו?`;
 
 assert.equal(inboundLooksLikePersonalBlessing(YOM_KIPPUR_SHARE), true);
-assert.equal(pickPersonalBlessingReply(YOM_KIPPUR_SHARE), "גמר חתימה טובה 🙏");
+assert.equal(
+  pickPersonalBlessingReply(YOM_KIPPUR_SHARE),
+  "תודה רבה! אעביר לצוות! גמר חתימה טובה ❤️"
+);
 assert.equal(inboundLooksLikePersonalBlessing("גמר חתימה טובה"), true);
 assert.equal(inboundLooksLikePersonalBlessing("שנה טובה לכולם"), true);
-assert.equal(pickPersonalBlessingReply("שנה טובה לכולם"), "שנה טובה 🙏");
+assert.equal(pickPersonalBlessingReply("שנה טובה לכולם"), "תודה רבה! אעביר לצוות! שנה טובה ❤️");
+assert.equal(pickPersonalBlessingReply("צום קל לכולם"), "תודה רבה! אעביר לצוות! צום קל ❤️");
+assert.equal(pickPersonalBlessingReply("חנוכה שמח"), "תודה רבה! אעביר לצוות! חנוכה שמח ❤️");
+assert.equal(pickPersonalBlessingReply("חג פסח שמח"), "תודה רבה! אעביר לצוות! חג כשר ושמח ❤️");
+assert.equal(pickPersonalBlessingReply("שבת שלום"), "תודה רבה! אעביר לצוות! שבת שלום ❤️");
+assert.equal(inboundLooksLikePersonalBlessing("מאחל יום כיפור משמעותי"), true);
 assert.equal(
   inboundLooksLikePersonalBlessing("גמר חתימה טובה, אפשר לבטל את השיעור של מחר?"),
   false
