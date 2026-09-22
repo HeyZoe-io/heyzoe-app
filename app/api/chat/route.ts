@@ -5,6 +5,7 @@ import { extractErrorCode, logMessage } from '@/lib/analytics';
 import { getBusinessKnowledgePack, buildSystemPrompt } from '@/lib/business-context';
 import { loadZoePlatformGuidelines } from '@/lib/business-zoe-platform';
 import { CHAT_STREAM_META } from '@/lib/zoe-shared';
+import { looksLikeEmailOnlyMessage } from '@/lib/wa-inbound-email';
 import { sanitizeZoeDashes } from '@/lib/zoe-text';
 
 export const runtime = 'nodejs';
@@ -29,6 +30,11 @@ export async function POST(req: NextRequest) {
       content: String(message),
       session_id: typeof session_id === 'string' ? session_id : null,
     });
+
+    if (looksLikeEmailOnlyMessage(String(message))) {
+      console.info("[Chat API] email-only inbound — skip auto-reply", { slug });
+      return Response.json({ skipped: "email_only" });
+    }
 
     const [knowledge, platform] = await Promise.all([
       getBusinessKnowledgePack(String(slug)),

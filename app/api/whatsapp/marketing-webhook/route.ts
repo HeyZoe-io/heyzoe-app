@@ -23,6 +23,7 @@ import {
   touchMarketingLeadDisplayName,
 } from "@/lib/marketing-followups";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { looksLikeEmailOnlyMessage } from "@/lib/wa-inbound-email";
 import { claimMessageForProcessing } from "@/lib/wa-processed-messages";
 
 export const runtime = "nodejs";
@@ -105,6 +106,13 @@ export async function POST(req: NextRequest) {
 
     const profileName = typeof msg.profileName === "string" ? msg.profileName.trim() : "";
     await logMarketingWhatsAppMessage({ leadPhone: phone, role: "user", content: userText });
+
+    if (looksLikeEmailOnlyMessage(userText)) {
+      console.info("[marketing-webhook] email-only inbound — skip auto-reply", { phone });
+      await applyMarketingInboundFollowupSideEffects(phone, userText);
+      if (profileName) await touchMarketingLeadDisplayName(phone, profileName);
+      return NextResponse.json({ ok: true, email_only: true });
+    }
 
     const { isMarketingConversationPaused } = await import("@/lib/marketing-whatsapp");
     if (await isMarketingConversationPaused(phone)) {

@@ -1,3 +1,4 @@
+import { stripInboundEmailTokens } from "@/lib/wa-inbound-email";
 import { stripInboundUrlTokens } from "@/lib/wa-inbound-link";
 
 export type DetectedMessageLanguage = "he" | "en" | "ru" | "unknown";
@@ -17,7 +18,7 @@ function isCyrillicLetter(code: number): boolean {
 
 /** Simple script detection for Hebrew vs English vs Russian (no extra LLM call). */
 export function detectMessageLanguage(text: string): DetectedMessageLanguage {
-  const s = stripInboundUrlTokens(String(text ?? ""));
+  const s = stripInboundUrlTokens(stripInboundEmailTokens(String(text ?? "")));
   let he = 0;
   let en = 0;
   let ru = 0;

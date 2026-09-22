@@ -265,6 +265,7 @@ import {
   tryBuildRelativeDayClassSlotsReply,
 } from "@/lib/wa-relative-day-class-slots";
 import { classifyInboundSpeechAct, shouldAnswerFromClassTimetable } from "@/lib/wa-inbound-speech-act";
+import { looksLikeEmailOnlyMessage } from "@/lib/wa-inbound-email";
 import { looksLikeLinkOnlyMessage } from "@/lib/wa-inbound-link";
 import {
   UNKNOWN_OFFER_POLICY_HANDOFF_MODEL,
@@ -6656,6 +6657,17 @@ async function processIncoming(
   // לינק בלבד — לא שאלה. לא לענות (גם לא באנגלית בגלל אותיות מה-URL).
   if (msg.type === "text" && looksLikeLinkOnlyMessage(msg.text)) {
     console.info("[WA Webhook] link-only inbound — skip auto-reply", {
+      business_slug,
+      sessionId,
+      from: msg.from,
+    });
+    return;
+  }
+
+  // מייל בלבד — אין איסוף מיילים. לא לענות (גם לא באנגלית בגלל האותיות בכתובת).
+  // הודעה שכבר נשמרה למעלה. שאלה או משפט ליד הכתובת ממשיכים לטיפול רגיל.
+  if (msg.type === "text" && looksLikeEmailOnlyMessage(msg.text)) {
+    console.info("[WA Webhook] email-only inbound — skip auto-reply", {
       business_slug,
       sessionId,
       from: msg.from,

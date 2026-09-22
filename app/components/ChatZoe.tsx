@@ -418,6 +418,21 @@ export default function ChatZoe({ slug }: { slug: string }) {
           return;
         }
 
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          const payload = (await response.json().catch(() => ({}))) as { skipped?: string; error?: string };
+          if (payload.skipped === "email_only") {
+            setMessages((prev) => prev.filter((m) => m.id !== pendingId));
+            return;
+          }
+          failFriendly(
+            typeof payload.error === "string" && payload.error.trim()
+              ? payload.error
+              : friendlyHttpErrorMessage(502)
+          );
+          return;
+        }
+
         if (!response.body) {
           failFriendly(friendlyHttpErrorMessage(502));
           return;
