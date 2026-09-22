@@ -124,6 +124,63 @@ export async function listWabaTemplates(wabaId: string): Promise<MetaWabaTemplat
   return collected;
 }
 
+const TEMPLATE_DETAIL_FIELDS = "id,name,status,category,language,components";
+
+/**
+ * GET /{template-id}?fields=… — fetches one template including components.
+ * Used after Meta approval webhooks to sync the approved body/header/buttons locally.
+ */
+export async function getWabaTemplateById(templateId: string): Promise<MetaWabaTemplate | null> {
+  const id = String(templateId ?? "").trim();
+  if (!id) return null;
+  const token = resolveSystemToken();
+
+  const url =
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(id)}` +
+    `?fields=${encodeURIComponent(TEMPLATE_DETAIL_FIELDS)}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(
+      `[getWabaTemplateById] Meta Graph API ${res.status}: ${bodyText || res.statusText}`
+    );
+  }
+
+  let json: unknown = null;
+  try {
+    json = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    throw new Error(`[getWabaTemplateById] invalid JSON response: ${bodyText}`);
+  }
+
+  return parseTemplateRow(json);
+}
+
+/** DB patch fields when applying an approved Meta template snapshot. */
+export function approvedTemplateSyncPatch(
+  metaTpl: MetaWabaTemplate,
+  fallbackStatus: string,
+  nowIso: string
+): {
+  status: string;
+  components: unknown[];
+  category?: string;
+  waba_template_id: string;
+  updated_at: string;
+} {
+  return {
+    status: metaTpl.status || fallbackStatus,
+    components: metaTpl.components ?? [],
+    ...(metaTpl.category ? { category: metaTpl.category } : {}),
+    waba_template_id: metaTpl.id,
+    updated_at: nowIso,
+  };
+}
+
 /**
  * POST /{waba-id}/message_templates — creates a template (usually returns PENDING).
  */
@@ -235,7 +292,8 @@ export async function updateWabaTemplate(
 /**
  * Pull Meta templates for a WABA and upsert into `whatsapp_templates`.
  * Conflict key: (business_id, name, language). Does not delete missing rows.
- * This is the only writer that syncs from a Meta list (no cron/polling).
+ * Full-list sync also runs on manual dashboard refresh; single-template content
+ * sync runs on Meta `message_template_status_update` when status is APPROVED.
  *
  * Intentionally omits `disabled` from the upsert payload so owner soft-disable
  * is preserved across Meta refresh (our field, independent of Meta status).
