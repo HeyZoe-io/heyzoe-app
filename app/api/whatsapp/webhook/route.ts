@@ -373,6 +373,13 @@ import {
   WA_OUT_OF_SCOPE_HANDOFF_MODEL,
 } from "@/lib/wa-out-of-scope-handoff";
 import {
+  assistantReplyDecodesPersonalMessage,
+  inboundIsBusinessTopic,
+  inboundLooksLikePersonalBlessing,
+  pickPersonalBlessingReply,
+  WA_PERSONAL_BLESSING_ACK_MODEL,
+} from "@/lib/wa-personal-blessing";
+import {
   buildStudioScopeRedirectReply,
   matchesBotConfigMetaTalk,
   WA_BOT_CONFIG_META_MODEL,
@@ -7891,6 +7898,28 @@ async function processIncoming(
     }
   }
 
+  // ברכת חג / שיתוף אישי — שורה אחת, בלי לפענח ובלי קריאת Claude
+  if (isSalesFlowFreeTextInbound(msg) && inboundLooksLikePersonalBlessing(msg.text)) {
+    const blessingTxt = pickPersonalBlessingReply(msg.text);
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send personal-blessing ack failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: blessingTxt,
+      model_used: WA_PERSONAL_BLESSING_ACK_MODEL,
+      session_id: sessionId,
+    });
+    console.info("[WA Webhook] personal blessing ack — skipped Claude", {
+      business_slug,
+      session_id: sessionId,
+    });
+    return;
+  }
+
   // נושא מחוץ לסמכות זואי (קבלה / דרושים / מסמך) — לצוות, בלי חזרה לאימוני ניסיון
   if (
     msg.type === "text" &&
@@ -12387,6 +12416,32 @@ async function processIncoming(
       role: "assistant",
       content: scopeHandoffTxt,
       model_used: WA_OUT_OF_SCOPE_HANDOFF_MODEL,
+      session_id: sessionId,
+    });
+    return;
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    assistantReplyDecodesPersonalMessage(replyCoreClean) &&
+    !inboundIsBusinessTopic(incomingRaw)
+  ) {
+    const blessingTxt = pickPersonalBlessingReply(incomingRaw);
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send decoded-personal-share replacement failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: blessingTxt,
+      model_used: WA_PERSONAL_BLESSING_ACK_MODEL,
+      session_id: sessionId,
+    });
+    console.info("[WA Webhook] replaced personal-message decoding with short ack", {
+      business_slug,
       session_id: sessionId,
     });
     return;
