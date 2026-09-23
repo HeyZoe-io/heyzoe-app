@@ -39,12 +39,12 @@ import {
 import {
   ACTIVATION_LABELS_HE,
   AUDIENCE_LABELS_HE,
-  allowsDelayBefore,
   catalogEntriesFor,
   creatableCatalogEntriesForCell,
   defaultDelayDays,
   defaultDelayDirection,
   defaultLookbackDays,
+  delayDirectionOptionLabelsHe,
   formatDelayLabel,
   formatLookbackLabel,
   isArboxDependentTriggerType,
@@ -58,6 +58,7 @@ import {
   plannedCatalogEntriesForCell,
   PURCHASE_ITEM_TYPE_LABELS_HE,
   PURCHASE_ITEM_TYPE_VALUES,
+  showsDelayDirectionPicker,
   showsItemTypeFilter,
   showsLookbackDays,
   showsProductFilter,
@@ -434,7 +435,7 @@ export default function TemplatesClient({
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const showNewItemTypeFilter = showsItemTypeFilter(newTriggerType);
   const isNewImmediateDelay = isImmediateDelayTrigger(newTriggerType);
-  const hideNewDelayDirection = !allowsDelayBefore(newTriggerType) || isNewImmediateDelay;
+  const hideNewDelayDirection = !showsDelayDirectionPicker(newTriggerType);
   const newDelayDaysMin = minDelayDaysForTrigger(newTriggerType);
 
   useEffect(() => {
@@ -567,7 +568,9 @@ export default function TemplatesClient({
         delay_days: isNewImmediateDelay
           ? 0
           : Math.max(newDelayDaysMin, newDelayDays),
-        delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
+        delay_direction: hideNewDelayDirection
+          ? defaultDelayDirection(newTriggerType)
+          : newDelayDirection,
                         lookback_days: showsLookbackDays(input.trigger_type)
                           ? Math.min(
                               NTH_WORKOUT_LOOKBACK_MAX,
@@ -813,7 +816,7 @@ export default function TemplatesClient({
         delay_days: delayDays,
         template_name: editTemplateName.trim() || null,
       };
-      if (allowsDelayBefore(trigger.trigger_type) && !immediate) {
+      if (showsDelayDirectionPicker(trigger.trigger_type) && !immediate) {
         body.delay_direction = editDelayDirection;
       }
       if (showsLookbackDays(trigger.trigger_type)) {
@@ -1618,7 +1621,7 @@ export default function TemplatesClient({
                                   />
                                 </div>
                               ) : null}
-                              {allowsDelayBefore(trigger.trigger_type) ? (
+                              {showsDelayDirectionPicker(trigger.trigger_type) ? (
                                 <div className="space-y-1">
                                   <label className="text-xs font-medium text-zinc-700">כיוון</label>
                                   <select
@@ -1628,17 +1631,18 @@ export default function TemplatesClient({
                                     }
                                     className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
                                   >
-                                    {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
-                                      <>
-                                        <option value="before">לפני יום ההולדת</option>
-                                        <option value="after">אחרי יום ההולדת</option>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <option value="before">לפני פקיעת התוקף</option>
-                                        <option value="after">אחרי פקיעת התוקף</option>
-                                      </>
-                                    )}
+                                    <option value="before">
+                                      {
+                                        delayDirectionOptionLabelsHe(trigger.trigger_type)
+                                          .before
+                                      }
+                                    </option>
+                                    <option value="after">
+                                      {
+                                        delayDirectionOptionLabelsHe(trigger.trigger_type)
+                                          .after
+                                      }
+                                    </option>
                                   </select>
                                 </div>
                               ) : null}
@@ -1982,17 +1986,12 @@ export default function TemplatesClient({
                                   onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
                                   className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                                 >
-                                  {isBirthdayFamilyTriggerType(newTriggerType) ? (
-                                    <>
-                                      <option value="before">לפני יום ההולדת</option>
-                                      <option value="after">אחרי יום ההולדת</option>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <option value="before">לפני פקיעת התוקף</option>
-                                      <option value="after">אחרי פקיעת התוקף</option>
-                                    </>
-                                  )}
+                                  <option value="before">
+                                    {delayDirectionOptionLabelsHe(newTriggerType).before}
+                                  </option>
+                                  <option value="after">
+                                    {delayDirectionOptionLabelsHe(newTriggerType).after}
+                                  </option>
                                 </select>
                               </div>
                             ) : null}
