@@ -4,9 +4,17 @@
  *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts
  *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --execute
  *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --only-deferred
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --category-sync
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --only-new-version
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --watch-canary
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --only-held-edits
  *
  * Default is read-only. --execute submits the canary, then the rest.
  * --only-deferred resubmits templates that are editable now and still lack the button.
+ * --category-sync updates the 7 Apex DB categories and checks the send gate. No Meta write.
+ * --only-new-version creates _v2 rows only. Originals stay live.
+ * --watch-canary polls after_class every 15 min (up to 24h). On APPROVED it submits held edits.
+ * --only-held-edits submits the parked edit-in-place templates (not the canary).
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -26,12 +34,28 @@ import {
   type OptOutPlanItem,
 } from "@/lib/marketing-optout-resubmit-plan";
 import { applyOptOutVersionSwitchover } from "@/lib/marketing-optout-switchover";
-import { shouldSuppressLeadTemplate } from "@/lib/wa-marketing-opt-out";
+import { evaluateLeadTemplateSend, shouldSuppressLeadTemplate } from "@/lib/wa-marketing-opt-out";
 
 const EXECUTE = process.argv.includes("--execute");
 const ONLY_DEFERRED = process.argv.includes("--only-deferred");
+const CATEGORY_SYNC = process.argv.includes("--category-sync");
+const ONLY_NEW_VERSION = process.argv.includes("--only-new-version");
+const WATCH_CANARY = process.argv.includes("--watch-canary");
+let heldEdits = process.argv.includes("--only-held-edits");
 const CANARY_SLUG = "acrobyjoe";
 const CANARY_NAME = "after_class";
+const CANARY_TEMPLATE_ID = "1067538898946355";
+const WATCH_INTERVAL_MS = 15 * 60 * 1000;
+const WATCH_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const HELD_EDIT_NAMES = new Set([
+  "sanga_welcome2",
+  "sangha_lead_welcome",
+  "registered_after_trial",
+  "registered_after_trial1",
+  "pilates_survey",
+  "5_discount",
+  "new_feature",
+]);
 const APEX_CATEGORY_NAMES = [
   "trainer_trial_heads_up",
   "freeze_ending_unbooked",
@@ -183,6 +207,27 @@ function sleep(ms: number) {
 function isRateLimit(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return /429|80008|#4\b|"code"\s*:\s*4\b|"code"\s*:\s*613\b|rate limit|too many calls/i.test(text);
+}
+
+function parseMetaError(message: string): { code: string; meta_message: string } {
+  let code = "";
+  let metaMessage = message;
+  const jsonStart = message.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(message.slice(jsonStart)) as { error?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown };
+      const err = parsed.error ?? parsed;
+      if (err.code != null) code = String(err.code);
+      if (err.message) metaMessage = String(err.message);
+    } catch {
+      /* keep the raw message */
+    }
+  }
+  if (!code) {
+    const match = message.match(/"code"\s*:\s*(\d+)/) || message.match(/\(#(\d+)\)/);
+    if (match) code = match[1];
+  }
+  return { code, meta_message: metaMessage };
 }
 
 async function metaCall<T>(fn: () => Promise<T>): Promise<T> {
@@ -347,6 +392,8 @@ async function runExecute(
       return;
     }
     if (ONLY_DEFERRED && item.class !== "EDIT_IN_PLACE" && item.class !== "NEW_VERSION") return;
+    if (ONLY_NEW_VERSION && item.class !== "NEW_VERSION" && item.class !== "SKIP_HAS_VERSION") return;
+    if (heldEdits && (item.class !== "EDIT_IN_PLACE" || !HELD_EDIT_NAMES.has(template.name))) return;
 
     const components = componentsFor(template);
     if (!components) {
@@ -363,6 +410,17 @@ async function runExecute(
         const existing = unit.templates.find((row) => row.name === versionName && row.language === template.language);
         if (item.class === "SKIP_HAS_VERSION" && existing) {
           await rememberVersion(admin, unit.group, template, existing.name, existing.id, existing.status, existing.components ?? components);
+          log.calls.push({
+            at: new Date().toISOString(),
+            waba: groupLabel(unit.group),
+            name: template.name,
+            action: "already",
+            status: existing.status,
+            request: { name: existing.name },
+            response: { id: existing.id, status: existing.status },
+          });
+          flush();
+          console.log(`V2_ALREADY ${groupLabel(unit.group)} ${existing.name} ${existing.status}`);
         } else if (versionName) {
           const created = await metaCall(() =>
             createWabaTemplate(unit.group.wabaId, {
@@ -383,6 +441,7 @@ async function runExecute(
           flush();
           await sleep(OPTOUT_RESUBMIT_THROTTLE_MS);
           await rememberVersion(admin, unit.group, template, versionName, created.id, created.status, components);
+          console.log(`V2_SUBMITTED ${groupLabel(unit.group)} ${versionName} ${created.status || "PENDING"}`);
         }
       } else if (item.class === "EDIT_IN_PLACE") {
         const updated = await metaCall(() => updateWabaTemplate(template.id, { components }));
@@ -409,20 +468,23 @@ async function runExecute(
       skip.add(key);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAILED ${template.name}: ${message}`);
+      const parsed = parseMetaError(message);
+      console.error(`  FAILED ${template.name}: ${parsed.code} ${parsed.meta_message}`);
       log.calls.push({
         at: new Date().toISOString(),
         waba: groupLabel(unit.group),
         name: template.name,
         action: item.class,
         error: message,
+        error_code: parsed.code,
+        error_message: parsed.meta_message,
         request_components: components,
       });
       flush();
     }
   }
 
-  if (EXECUTE && !ONLY_DEFERRED) {
+  if (EXECUTE && !ONLY_DEFERRED && !ONLY_NEW_VERSION && !heldEdits) {
     const unit = work.find((row) => row.group.businesses.some((b) => b.slug === CANARY_SLUG));
     const template = unit?.templates.find((row) => row.name === CANARY_NAME && row.language.toLowerCase().startsWith("he"));
     const item = unit?.items.find((row) => row.name === CANARY_NAME);
@@ -486,6 +548,8 @@ async function runExecute(
     work.map(async (unit) => {
       for (const item of unit.items) {
         if (ONLY_DEFERRED && item.class !== "EDIT_IN_PLACE" && item.class !== "NEW_VERSION") continue;
+        if (ONLY_NEW_VERSION && item.class !== "NEW_VERSION" && item.class !== "SKIP_HAS_VERSION") continue;
+        if (heldEdits && (item.class !== "EDIT_IN_PLACE" || !HELD_EDIT_NAMES.has(item.name))) continue;
         const template = unit.templates.find((row) => row.name === item.name && row.language === item.language);
         if (!template) continue;
         await submitOne(unit, template, item);
@@ -576,16 +640,248 @@ async function runExecute(
     .like("template_name", "%_v2");
   log.verification.push({ triggers_pointing_at_version: switchedTriggers ?? [] });
   flush();
-  if (fallthrough.length) {
+  if (ONLY_NEW_VERSION) {
+    printNewVersionReport(log);
+  } else if (fallthrough.length) {
     console.log("FELL_THROUGH");
     for (const line of fallthrough) console.log(" ", line);
   } else {
     console.log("VERIFICATION_OK no marketing template left without a button or a _v2");
   }
+  if (heldEdits) console.log("HELD_EDIT_DONE");
+}
+
+function printNewVersionReport(log: ExecLog) {
+  const by = new Map<string, { submitted: string[]; failed: string[]; pending: string[] }>();
+  for (const call of log.calls) {
+    const waba = String(call.waba ?? "");
+    const bucket = by.get(waba) ?? { submitted: [], failed: [], pending: [] };
+    const request = call.request as { name?: string } | undefined;
+    const versionName = String(request?.name || call.name || "");
+    if (call.error) {
+      const code = String(call.error_code ?? "");
+      const message = String(call.error_message ?? call.error);
+      bucket.failed.push(`${versionName}: ${code} ${message}`.trim());
+    } else if (call.action === "already") {
+      const status = String(call.status ?? "").toUpperCase();
+      if (status === "PENDING") bucket.pending.push(versionName);
+      else bucket.submitted.push(`${versionName} (כבר ${status})`);
+    } else if (call.action === "create") {
+      const response = call.response as { status?: string } | undefined;
+      bucket.submitted.push(`${versionName} (${response?.status || "PENDING"})`);
+    }
+    by.set(waba, bucket);
+  }
+  console.log("NEW_VERSION_REPORT");
+  for (const [waba, bucket] of by) {
+    console.log(`  ${waba}`);
+    console.log(`    submitted ${bucket.submitted.length}: ${bucket.submitted.join(", ") || "-"}`);
+    console.log(`    failed ${bucket.failed.length}: ${bucket.failed.join(", ") || "-"}`);
+    console.log(`    already_pending ${bucket.pending.length}: ${bucket.pending.join(", ") || "-"}`);
+  }
+}
+
+async function runCategorySync(admin: ReturnType<typeof createSupabaseAdminClient>) {
+  const { data: biz, error: bizError } = await admin.from("businesses").select("id").eq("slug", "apex").maybeSingle();
+  if (bizError || !biz) throw new Error(bizError?.message || "apex business missing");
+  const apexId = Number((biz as { id: number }).id);
+  const { data, error } = await admin
+    .from("whatsapp_templates")
+    .select("name, language, category")
+    .eq("business_id", apexId)
+    .in("name", APEX_CATEGORY_NAMES);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { name: string; language: string; category: string }[];
+  const updates: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const from = String(row.category ?? "");
+    if (from.toUpperCase() === "MARKETING") {
+      updates.push({ name: row.name, language: row.language, from, to: "MARKETING", unchanged: true });
+      continue;
+    }
+    const { error: updateError } = await admin
+      .from("whatsapp_templates")
+      .update({ category: "MARKETING", updated_at: new Date().toISOString() })
+      .eq("business_id", apexId)
+      .eq("name", row.name)
+      .eq("language", row.language);
+    if (updateError) throw new Error(updateError.message);
+    updates.push({ name: row.name, language: row.language, from, to: "MARKETING" });
+  }
+  const found = new Set(rows.map((row) => row.name));
+  const missing = APEX_CATEGORY_NAMES.filter((name) => !found.has(name));
+
+  const probe = "pilates_survey";
+  let phone = "";
+  let createdId: number | null = null;
+  const existing = await admin
+    .from("contacts")
+    .select("id, phone, opted_out")
+    .eq("business_id", apexId)
+    .eq("marketing_opted_out", true)
+    .limit(20);
+  if (existing.error) throw new Error(existing.error.message);
+  const match = (existing.data ?? []).find((row) => (row as { opted_out?: boolean | null }).opted_out !== true) as
+    | { phone?: string }
+    | undefined;
+  if (match?.phone) {
+    phone = String(match.phone);
+  } else {
+    phone = "00000000991";
+    const inserted = await admin
+      .from("contacts")
+      .insert({
+        business_id: apexId,
+        phone,
+        source: "optout_gate_check",
+        marketing_opted_out: true,
+        opted_out: false,
+      })
+      .select("id")
+      .single();
+    if (inserted.error || !inserted.data) throw new Error(inserted.error?.message || "probe contact insert failed");
+    createdId = Number((inserted.data as { id: number }).id);
+  }
+
+  let gate: Awaited<ReturnType<typeof evaluateLeadTemplateSend>> | null = null;
+  try {
+    gate = await evaluateLeadTemplateSend({
+      admin,
+      businessId: apexId,
+      phone,
+      templateName: probe,
+    });
+  } finally {
+    if (createdId != null) {
+      await admin.from("contacts").delete().eq("id", createdId).eq("business_id", apexId);
+    }
+  }
+  const gateOk =
+    gate != null &&
+    gate.suppress === true &&
+    String(gate.category ?? "").toUpperCase() === "MARKETING" &&
+    gate.flags.marketingOptedOut === true &&
+    gate.flags.optedOut === false;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const logPath = path.join(process.cwd(), "scripts", "out", `marketing-optout-category-sync-${stamp}.json`);
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  writeFileSync(
+    logPath,
+    JSON.stringify({ at: new Date().toISOString(), apex_id: apexId, updates, missing, probe, gate, gate_ok: gateOk }, null, 2)
+  );
+  console.log("CATEGORY_SYNC");
+  for (const row of updates) console.log(`  ${row.name} ${row.language}: ${row.from} -> ${row.to}${row.unchanged ? " (כבר)" : ""}`);
+  if (missing.length) console.log(`  missing: ${missing.join(", ")}`);
+  console.log(gateOk ? "GATE_OK" : "GATE_FAILED", probe, JSON.stringify(gate ? { suppress: gate.suppress, category: gate.category, flags: gate.flags } : null));
+  console.log(`Category log: ${logPath}`);
+  if (!gateOk || missing.length) process.exit(1);
+}
+
+async function reportRejectedVersions(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  reason: string
+) {
+  const businessRows = await selectPages<{ waba_id: string; slug: string }>((from, to) =>
+    admin.from("businesses").select("waba_id, slug").not("waba_id", "is", null).range(from, to)
+  );
+  const marketingWabaId = await resolveMarketingWabaId();
+  const wabas = new Map<string, string>();
+  for (const row of businessRows) {
+    const id = norm(row.waba_id).replace(/\s+/g, "");
+    if (!id) continue;
+    wabas.set(id, wabas.get(id) ? `${wabas.get(id)}, ${norm(row.slug)}` : norm(row.slug));
+  }
+  if (marketingWabaId) {
+    wabas.set(marketingWabaId, wabas.get(marketingWabaId) ? `${wabas.get(marketingWabaId)}, zoe-admin` : "zoe-admin");
+  }
+  const same: string[] = [];
+  const wanted = reason.trim().toUpperCase();
+  for (const [wabaId, label] of wabas) {
+    const templates = await listWabaTemplates(wabaId, {
+      fields: "id,name,status,language,rejected_reason",
+      max: LIST_MAX,
+    });
+    for (const template of templates) {
+      if (!/_v\d+$/.test(template.name)) continue;
+      if (template.status.toUpperCase() !== "REJECTED") continue;
+      const current = await getWabaTemplate(template.id);
+      const theirReason = String(current.rejected_reason ?? "").trim();
+      if (wanted && theirReason.toUpperCase() === wanted) {
+        same.push(`${label} ${template.name} (${theirReason})`);
+      }
+    }
+  }
+  console.log("V2_REJECTED_SAME_REASON");
+  if (!same.length) console.log("  none");
+  for (const line of same) console.log(`  ${line}`);
+  return same;
+}
+
+async function pollCanary(admin: ReturnType<typeof createSupabaseAdminClient>): Promise<"approved" | "rejected" | "timeout"> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const logPath = path.join(process.cwd(), "scripts", "out", `marketing-optout-canary-watch-${stamp}.json`);
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  const started = Date.now();
+  const log: Record<string, unknown> = { started_at: new Date().toISOString(), template_id: CANARY_TEMPLATE_ID, polls: [] };
+  const flush = () => writeFileSync(logPath, JSON.stringify(log, null, 2));
+  flush();
+  console.log(`Canary watch log: ${logPath}`);
+  for (let attempt = 1; ; attempt += 1) {
+    const current = await metaCall(() => getWabaTemplate(CANARY_TEMPLATE_ID));
+    const entry = {
+      at: new Date().toISOString(),
+      attempt,
+      status: current.status,
+      rejected_reason: current.rejected_reason,
+      has_button: templateHasOptOutButton(current),
+    };
+    (log.polls as unknown[]).push(entry);
+    flush();
+    console.log(`CANARY_WATCH ${attempt} ${current.status}`);
+    const status = current.status.toUpperCase();
+    if (status === "APPROVED") {
+      if (!templateHasOptOutButton(current)) {
+        log.result = "approved_without_button";
+        flush();
+        console.error("CANARY_REJECTED approved without opt-out button");
+        return "rejected";
+      }
+      log.result = "approved";
+      flush();
+      console.log("CANARY_APPROVED");
+      return "approved";
+    }
+    if (status === "REJECTED") {
+      const reason = current.rejected_reason || "(no reason)";
+      log.result = "rejected";
+      log.rejected_reason = reason;
+      const same = await reportRejectedVersions(admin, reason === "(no reason)" ? "" : reason);
+      log.v2_same_reason = same;
+      flush();
+      console.error("CANARY_REJECTED", reason);
+      return "rejected";
+    }
+    if (Date.now() - started >= WATCH_DEADLINE_MS) {
+      log.result = "timeout";
+      flush();
+      console.error("CANARY_WATCH_TIMEOUT");
+      return "timeout";
+    }
+    await sleep(WATCH_INTERVAL_MS);
+  }
 }
 
 async function main() {
   const admin = createSupabaseAdminClient();
+  if (CATEGORY_SYNC) {
+    await runCategorySync(admin);
+    if (!ONLY_NEW_VERSION && !WATCH_CANARY && !EXECUTE && !ONLY_DEFERRED && !heldEdits) return;
+  }
+  if (WATCH_CANARY) {
+    const decision = await pollCanary(admin);
+    if (decision !== "approved") process.exit(decision === "timeout" ? 2 : 1);
+    heldEdits = true;
+  }
   const businessRows = await selectPages<BusinessRow>((from, to) =>
     admin
       .from("businesses")
@@ -826,11 +1122,13 @@ async function main() {
   console.log(`Meta list calls this run: ${totals.list_get_calls}`);
   console.log(`Planned Meta writes: ${totals.planned_write_calls}`);
   console.log(`Planned category DB updates: ${totals.planned_category_db_updates}`);
-  console.log(EXECUTE || ONLY_DEFERRED ? "Canary: acrobyjoe after_class" : "Canary (not run): acrobyjoe after_class");
+  console.log(
+    ONLY_NEW_VERSION ? "Mode: new versions only" : heldEdits ? "Mode: held edits" : EXECUTE || ONLY_DEFERRED ? "Canary: acrobyjoe after_class" : "Canary (not run): acrobyjoe after_class"
+  );
   console.log(`Estimated execute duration: ${Math.ceil(totals.estimated_duration_ms / 1000)}s`);
   console.log(`Report: ${OUT_PATH}`);
 
-  if (EXECUTE || ONLY_DEFERRED) {
+  if (EXECUTE || ONLY_DEFERRED || ONLY_NEW_VERSION || heldEdits) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const logPath = path.join(process.cwd(), "scripts", "out", `marketing-optout-execute-${stamp}.json`);
     const log: ExecLog = {
