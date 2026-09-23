@@ -317,6 +317,8 @@ function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefin
 
 /**
  * רישום לשיעור ניסיון ב-Arbox (salesReport trial membership) → contact בזואי + הודעה.
+ * טריגר רכישה נשלח על כל מכירה חדשה שתואמת את הכלל, גם אם האיש כבר רשום.
+ * אותה מכירה לא נשלחת פעמיים (arbox_trial_sync_log לפי sale_id).
  * Arbox הוא מקור האמת — לא שולח חזרה ל-CRM.
  * מכירה עם חוב פתוח לא נחשבת רישום (לינק תשלום / חשבונית) — לא מסמנים seen, כדי שתשלום מאוחר יישלח.
  */
@@ -463,6 +465,9 @@ export async function handleArboxTrialSaleRegistered(input: {
     existing?.trial_registered === true ||
     String(existing?.session_phase ?? "").trim() === "registered";
   if (alreadyRegistered && existing?.id) {
+    // Same person, new sale. Do not repeat the trial-registration side effects.
+    // The purchase template still sends when this sale matches a purchase rule.
+    // Dedup stays per sale_id (checked above).
     const nowIso = new Date().toISOString();
     const contactId = String(existing.id);
     const { error: seenUpsertErr } = await input.admin.from("arbox_trial_sync_log").upsert(
@@ -478,7 +483,42 @@ export async function handleArboxTrialSaleRegistered(input: {
       console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenUpsertErr.message);
       return { ok: false, error: "seen_upsert_failed" };
     }
-    return { ok: true, already: true };
+
+    const canonicalPhone = String(existing.phone ?? phoneNorm ?? "").trim();
+    const channel = canonicalPhone
+      ? await resolveSendChannelForContact(input.admin, businessId, canonicalPhone)
+      : null;
+    const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+    const sessionId =
+      phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
+    const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+      admin: input.admin,
+      businessId,
+      businessSlug,
+      phone: canonicalPhone,
+      saleId,
+      saleDate: input.row.date,
+      membershipTypeId,
+      itemType: itemTypeRaw,
+      phoneNumberId,
+      fullName,
+      sessionId,
+    });
+    if (templateResult.outcome === "no_matching_rule") {
+      return { ok: true, already: true };
+    }
+    console.info("[leads/arbox-trial-sale-registered] repeat purchase template", {
+      businessSlug,
+      phone: maskPhoneForLog(canonicalPhone),
+      sale_id: saleId,
+      outcome: templateResult.outcome,
+    });
+    return {
+      ok: true,
+      trial_registered_at: nowIso,
+      whatsapp: templateResult.outcome,
+      contact_created: false,
+    };
   }
 
   // 3) Mark trial_registered
@@ -578,21 +618,6 @@ export async function handleArboxTrialSaleRegistered(input: {
     session_id: sessionId,
   });
 
-  // 5) Per-lead 2-day throttle (seed never sets this column)
-  if (isWithinTwoDayNotifyThrottle(lastNotifiedAt)) {
-    console.info("[leads/arbox-trial-sale-registered] notify throttled (2d)", {
-      businessSlug,
-      phone: maskPhoneForLog(canonicalPhone),
-      sale_id: saleId,
-    });
-    return {
-      ok: true,
-      trial_registered_at: nowIso,
-      whatsapp: "throttled_2d",
-      contact_created: contactCreated,
-    };
-  }
-
   // 6) Notify: trial freeform only for trial memberships; else (and out-of-window) template path
   const { data: business } = await input.admin
     .from("businesses")
@@ -623,6 +648,20 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "opted_out";
 
   if (isTrialSale) {
+    // Trial welcome stays once per 2 days. Purchase templates are not throttled.
+    if (isWithinTwoDayNotifyThrottle(lastNotifiedAt)) {
+      console.info("[leads/arbox-trial-sale-registered] notify throttled (2d)", {
+        businessSlug,
+        phone: maskPhoneForLog(canonicalPhone),
+        sale_id: saleId,
+      });
+      return {
+        ok: true,
+        trial_registered_at: nowIso,
+        whatsapp: "throttled_2d",
+        contact_created: contactCreated,
+      };
+    }
     const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
       admin: input.admin,
       businessId,
