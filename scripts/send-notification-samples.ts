@@ -49,6 +49,8 @@ import {
   sendOwnerNotification,
   type OwnerTemplateComponent,
 } from "../lib/notifications/sendOwnerNotification";
+import { resolveStarterQuotaWaTemplate } from "../lib/quota-alert-template";
+import { createSupabaseAdminClient } from "../lib/supabase-admin";
 
 const TEST_EMAIL = (process.env.TEST_EMAIL ?? "liornativ@hotmail.com").trim();
 const DRY_RUN = process.env.DRY_RUN === "1";
@@ -241,6 +243,10 @@ async function main() {
     }
   }
 
+  const quotaAdmin = createSupabaseAdminClient();
+  const quota80Name = await resolveStarterQuotaWaTemplate(quotaAdmin, "quota_warning_80");
+  const quotaLimitName = await resolveStarterQuotaWaTemplate(quotaAdmin, "quota_limit_reached");
+
   const waTemplates: Array<[string, string, OwnerTemplateComponent[] | undefined]> = [
     [
       "new_lead",
@@ -301,9 +307,9 @@ async function main() {
         dashboardUrl: dailySummaryDashboardUrl(SAMPLE.businessSlug),
       }),
     ],
-    ["quota_warning_80", "quota_warning_80", undefined],
+    ["quota_warning_80", quota80Name, undefined],
     ["quota_warning_95", "quota_warning_95", undefined],
-    ["quota_limit_reached", "quota_limit_reached", undefined],
+    ["quota_limit_reached", quotaLimitName, undefined],
     [
       "marketing_human_agent",
       "marketing_human_agent_request",

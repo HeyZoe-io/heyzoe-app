@@ -545,6 +545,7 @@ import {
   parseTemplateCategoryUpdate,
   syncTemplateCategoryFromMeta,
 } from "@/lib/marketing-optout-switchover";
+import { isQuotaUtilTemplateName, recordQuotaUtilTemplateReview } from "@/lib/quota-alert-template";
 import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
@@ -5577,6 +5578,16 @@ async function handleMessageTemplateStatusUpdate(
       businessId: Number.isFinite(businessId) && businessId > 0 ? businessId : null,
       marketingLine: Boolean(marketing),
     }).catch((e) => console.error("[WA Webhook] opt-out version switchover failed:", versionName, e));
+  }
+
+  if (isQuotaUtilTemplateName(ev.message_template_name)) {
+    const reason = String(ev.value.reason ?? "").trim();
+    await recordQuotaUtilTemplateReview(admin, {
+      templateId: ev.message_template_id,
+      name: ev.message_template_name,
+      event: newStatus,
+      reason,
+    }).catch((e) => console.error("[WA Webhook] quota util review failed:", ev.message_template_name, e));
   }
 
   console.info(

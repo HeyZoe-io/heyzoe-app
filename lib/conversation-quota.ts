@@ -11,6 +11,7 @@ import {
 } from "@/lib/email";
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { resolveStarterQuotaWaTemplate } from "@/lib/quota-alert-template";
 
 export const STARTER_MONTHLY_CONTACT_LIMIT = 100;
 
@@ -64,7 +65,12 @@ type BizQuotaRow = {
   cancellation_effective_at?: unknown;
 };
 
-type StarterQuotaWaTemplate = "quota_warning_80" | "quota_warning_95" | "quota_limit_reached";
+type StarterQuotaWaTemplate =
+  | "quota_warning_80"
+  | "quota_warning_80_util"
+  | "quota_warning_95"
+  | "quota_limit_reached"
+  | "quota_limit_reached_util";
 
 function resolveOpsAlertEmail(): string {
   return (process.env.SUBSCRIPTION_OPS_ALERT_EMAIL?.trim() || "liornativ@hotmail.com").toLowerCase();
@@ -306,9 +312,14 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
             console.info("[conversation-quota] sent starter 80-email");
           }
         }
-        if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_warning_80")) sent = true;
+        const waTemplate = await resolveStarterQuotaWaTemplate(admin, "quota_warning_80");
+        if (await sendStarterQuotaOwnerWhatsApp(bizRow, waTemplate)) sent = true;
         if (
-          await notifyStarterQuotaOps({ ...opsBase, threshold: 80, waTemplate: "quota_warning_80" })
+          await notifyStarterQuotaOps({
+            ...opsBase,
+            threshold: 80,
+            waTemplate,
+          })
         ) {
           sent = true;
         }
@@ -342,12 +353,13 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
             console.info("[conversation-quota] sent starter limit-email");
           }
         }
-        if (await sendStarterQuotaOwnerWhatsApp(bizRow, "quota_limit_reached")) sent = true;
+        const waTemplate = await resolveStarterQuotaWaTemplate(admin, "quota_limit_reached");
+        if (await sendStarterQuotaOwnerWhatsApp(bizRow, waTemplate)) sent = true;
         if (
           await notifyStarterQuotaOps({
             ...opsBase,
             threshold: 100,
-            waTemplate: "quota_limit_reached",
+            waTemplate,
           })
         ) {
           sent = true;
