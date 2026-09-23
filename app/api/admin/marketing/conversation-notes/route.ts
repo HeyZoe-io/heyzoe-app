@@ -22,6 +22,8 @@ import {
   extractLeadPhoneFromMarketingSession,
 } from "@/lib/marketing-whatsapp";
 import { syncContactToMetaAudience } from "@/lib/ads/meta-audiences";
+import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
+import { onMarketingCallScheduled } from "@/lib/marketing-template-dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +102,76 @@ function serializeNote(
   };
 }
 
+async function loadScheduledCall(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string
+): Promise<{ date: string | null; time: string | null }> {
+  const { data, error } = await admin
+    .from("marketing_flow_sessions")
+    .select("next_call_at, next_call_time")
+    .eq("phone", phone)
+    .maybeSingle();
+  if (error && /next_call_time/i.test(error.message)) {
+    console.warn("[marketing/conversation-notes] next_call_time missing — run supabase/marketing_flow_sessions_next_call_time.sql");
+    const legacy = await admin
+      .from("marketing_flow_sessions")
+      .select("next_call_at")
+      .eq("phone", phone)
+      .maybeSingle();
+    if (legacy.error) {
+      console.error("[marketing/conversation-notes] scheduled call lookup failed:", legacy.error.message);
+      return { date: null, time: null };
+    }
+    return { date: toPipelineDateOnly(legacy.data?.next_call_at), time: null };
+  }
+  if (error) {
+    console.error("[marketing/conversation-notes] scheduled call lookup failed:", error.message);
+    return { date: null, time: null };
+  }
+  return {
+    date: toPipelineDateOnly(data?.next_call_at),
+    time: toPipelineTime(data?.next_call_time),
+  };
+}
+
+async function saveScheduledCall(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  phone: string,
+  dateRaw: string | null,
+  timeRaw: string | null
+): Promise<{ date: string | null; time: string | null }> {
+  const date = toPipelineDateOnly(dateRaw);
+  const time = date ? toPipelineTime(timeRaw) : null;
+  const previous = await loadScheduledCall(admin, phone);
+  if (previous.date === date && previous.time === time) return previous;
+
+  const nowIso = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    next_call_at: date,
+    next_call_time: time,
+    updated_at: nowIso,
+  };
+  let { error } = await admin.from("marketing_flow_sessions").update(patch).eq("phone", phone);
+  if (error && /next_call_time/i.test(error.message)) {
+    console.warn("[marketing/conversation-notes] next_call_time missing — date only");
+    delete patch.next_call_time;
+    const retry = await admin.from("marketing_flow_sessions").update(patch).eq("phone", phone);
+    error = retry.error;
+  }
+  if (error) {
+    console.error("[marketing/conversation-notes] scheduled call save failed:", error.message);
+    return previous;
+  }
+  if (date && (previous.date !== date || previous.time !== time)) {
+    try {
+      await onMarketingCallScheduled({ phone, dateYmd: date, timeHm: time });
+    } catch (e) {
+      console.error("[marketing/conversation-notes] call_day dispatch failed:", e);
+    }
+  }
+  return { date, time };
+}
+
 function isMissingRelevanceColumn(message: string): boolean {
   return /relevance|schema cache|column/i.test(message);
 }
@@ -140,6 +212,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "load_failed", detail: error.message }, { status: 500 });
     }
 
+    const call = await loadScheduledCall(admin, phone);
     if (!data) {
       return NextResponse.json({
         phone,
@@ -151,16 +224,22 @@ export async function GET(req: NextRequest) {
           notes: "",
           status: DEFAULT_MARKETING_NOTE_STATUS,
           relevance: "relevant" as const,
-          conversation_at: null,
+          conversation_at: call.date,
+          next_call_time: call.time,
           updated_at: null,
         },
         exists: false,
       });
     }
 
+    const note = serializeNote(data, phone);
     return NextResponse.json({
       phone,
-      note: serializeNote(data, phone),
+      note: {
+        ...note,
+        conversation_at: call.date ?? note.conversation_at,
+        next_call_time: call.time,
+      },
       exists: true,
     });
   } catch (e) {
@@ -186,6 +265,7 @@ export async function PUT(req: NextRequest) {
     status?: string;
     relevance?: string;
     conversation_at?: string | null;
+    next_call_time?: string | null;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -368,9 +448,15 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    const call = await saveScheduledCall(admin, phone, conversationAt, body.next_call_time ?? null);
+    const note = serializeNote(data, phone, status, relevance);
     return NextResponse.json({
       ok: true,
-      note: serializeNote(data, phone, status, relevance),
+      note: {
+        ...note,
+        conversation_at: call.date ?? note.conversation_at,
+        next_call_time: call.time,
+      },
     });
   } catch (e) {
     console.error("[marketing/conversation-notes] PUT exception:", e);

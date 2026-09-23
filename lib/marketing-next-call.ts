@@ -60,14 +60,22 @@ export function isHumanCallOverdue(
   return time < nowHm;
 }
 
+export function formatScheduledCallParts(
+  dateRaw: string | null | undefined,
+  timeRaw: string | null | undefined
+): { date: string; time: string } | null {
+  const date = toPipelineDateOnly(dateRaw);
+  if (!date) return null;
+  const [, month, day] = date.split("-");
+  const time = toPipelineTime(timeRaw) ?? "";
+  return { date: `${day}.${month}.${date.slice(0, 4)}`, time };
+}
+
 export function formatNextCallLabel(
   dateRaw: string | null | undefined,
   timeRaw: string | null | undefined
 ): string {
-  const date = toPipelineDateOnly(dateRaw);
-  if (!date) return "";
-  const [, month, day] = date.split("-");
-  const dateHe = `${day}.${month}.${date.slice(0, 4)}`;
-  const time = toPipelineTime(timeRaw);
-  return time ? `${dateHe} · ${time}` : dateHe;
+  const parts = formatScheduledCallParts(dateRaw, timeRaw);
+  if (!parts) return "";
+  return parts.time ? `${parts.date} · ${parts.time}` : parts.date;
 }

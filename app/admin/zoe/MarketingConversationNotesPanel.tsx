@@ -23,6 +23,7 @@ type NotePayload = {
   status: MarketingNoteStatus;
   relevance?: MarketingRelevance;
   conversation_at: string | null;
+  next_call_time?: string | null;
   updated_at: string | null;
 };
 
@@ -33,6 +34,7 @@ type DraftPayload = {
   status: MarketingNoteStatus;
   relevance?: MarketingRelevance;
   conversation_at: string;
+  next_call_time?: string;
   savedAt: number;
 };
 
@@ -89,14 +91,17 @@ export default function MarketingConversationNotesPanel({
   phone,
   sessionId,
   onStatusSaved,
+  onCallSaved,
 }: {
   phone: string;
   sessionId: string;
   onStatusSaved?: (status: MarketingStage, relevance: MarketingRelevance) => void;
+  onCallSaved?: (date: string | null, time: string | null) => void;
 }) {
   const [businessName, setBusinessName] = useState("");
   const [link, setLink] = useState("");
   const [conversationAt, setConversationAt] = useState("");
+  const [callTime, setCallTime] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<MarketingStage>("in_process");
   const [relevance, setRelevance] = useState<MarketingRelevance>("relevant");
@@ -115,8 +120,9 @@ export default function MarketingConversationNotesPanel({
     status: "in_process" as MarketingStage,
     relevance: "relevant" as MarketingRelevance,
     conversationAt: "",
+    callTime: "",
   });
-  formRef.current = { businessName, link, notes, status, relevance, conversationAt };
+  formRef.current = { businessName, link, notes, status, relevance, conversationAt, callTime };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -134,6 +140,7 @@ export default function MarketingConversationNotesPanel({
     setStatus("in_process");
     setRelevance("relevant");
     setConversationAt("");
+    setCallTime("");
 
     if (!p && !sid) {
       setLoading(false);
@@ -165,6 +172,7 @@ export default function MarketingConversationNotesPanel({
         let nextStatus: MarketingStage = isMarketingStage(note?.status) ? note.status : "in_process";
         let nextRelevance: MarketingRelevance = note?.relevance === "not_relevant" ? "not_relevant" : "relevant";
         let nextDate = toDateInputValue(note?.conversation_at);
+        let nextTime = String(note?.next_call_time ?? "").trim();
 
         // אם יש טיוטה מקומית ארוכה יותר מהשרת — משחזרים אותה
         const draft = readDraft(p, sid);
@@ -175,6 +183,7 @@ export default function MarketingConversationNotesPanel({
           nextStatus = isMarketingStage(draft.status) ? draft.status : nextStatus;
           nextRelevance = draft.relevance === "not_relevant" ? "not_relevant" : nextRelevance;
           nextDate = draft.conversation_at || nextDate;
+          nextTime = draft.next_call_time || nextTime;
           setDraftHint("שוחזרה טיוטה מקומית שלא נשמרה לשרת — לחצו «שמירת הערות».");
           setDirty(true);
         }
@@ -185,6 +194,7 @@ export default function MarketingConversationNotesPanel({
         setStatus(nextStatus);
         setRelevance(nextRelevance);
         setConversationAt(nextDate);
+        setCallTime(nextTime);
       } catch (e) {
         if (ac.signal.aborted || (e as { name?: string })?.name === "AbortError") return;
         if (gen !== loadGenRef.current) return;
@@ -207,6 +217,7 @@ export default function MarketingConversationNotesPanel({
       status,
       relevance,
       conversation_at: conversationAt,
+      next_call_time: callTime,
     });
 
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
@@ -218,7 +229,7 @@ export default function MarketingConversationNotesPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessName, link, notes, status, relevance, conversationAt, dirty, loading, phone, sessionId]);
+  }, [businessName, link, notes, status, relevance, conversationAt, callTime, dirty, loading, phone, sessionId]);
 
   async function save(opts?: { silent?: boolean }) {
     if (loading || saving) return;
@@ -241,6 +252,7 @@ export default function MarketingConversationNotesPanel({
           status: snapshot.status,
           relevance: snapshot.relevance,
           conversation_at: snapshot.conversationAt || null,
+          next_call_time: snapshot.callTime || null,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
@@ -261,7 +273,12 @@ export default function MarketingConversationNotesPanel({
         cur.notes === snapshot.notes &&
         cur.status === snapshot.status &&
         cur.relevance === snapshot.relevance &&
-        cur.conversationAt === snapshot.conversationAt;
+        cur.conversationAt === snapshot.conversationAt &&
+        cur.callTime === snapshot.callTime;
+      onCallSaved?.(
+        toDateInputValue(j.note?.conversation_at) || snapshot.conversationAt || null,
+        String(j.note?.next_call_time ?? snapshot.callTime ?? "").trim() || null
+      );
       if (unchanged) {
         const savedStatus: MarketingStage = isMarketingStage(j.note?.status) ? j.note.status : snapshot.status;
         const savedRelevance = j.note?.relevance === "not_relevant" ? "not_relevant" : snapshot.relevance;
@@ -272,6 +289,7 @@ export default function MarketingConversationNotesPanel({
           setStatus(savedStatus);
           setRelevance(savedRelevance);
           setConversationAt(toDateInputValue(j.note.conversation_at));
+          setCallTime(String(j.note.next_call_time ?? "").trim());
         }
         setDirty(false);
         setDraftHint("");
@@ -365,6 +383,21 @@ export default function MarketingConversationNotesPanel({
                   setConversationAt(e.target.value);
                   markDirty();
                 }}
+                aria-label="תאריך פגישה"
+                style={{ ...fieldStyle, direction: "ltr", textAlign: "right" }}
+              />
+            </label>
+
+            <label>
+              <span style={labelStyle}>שעת פגישה</span>
+              <input
+                type="time"
+                value={callTime}
+                onChange={(e) => {
+                  setCallTime(e.target.value);
+                  markDirty();
+                }}
+                aria-label="שעת פגישה"
                 style={{ ...fieldStyle, direction: "ltr", textAlign: "right" }}
               />
             </label>

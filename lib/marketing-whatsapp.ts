@@ -16,6 +16,7 @@ import {
   type MarketingRelevance,
 } from "@/lib/marketing-admin-status";
 import { marketingLeadConversationAt } from "@/lib/lead-activity";
+import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import type { LeadRow } from "@/lib/leads-types";
 import {
   isSalesFlowStartTrigger,
@@ -252,6 +253,9 @@ export type MarketingSessionSummary = {
   noteRelevance?: MarketingRelevance;
   /** אותה עמודה כמו בדף הלידים */
   adminColumn?: MarketingAdminColumn;
+  /** פגישה שנקבעה בדף הלידים — null אם אין, חסר בשדות של עסק שאינו שיווק */
+  nextCallAt?: string | null;
+  nextCallTime?: string | null;
 };
 
 type MarketingMessageRow = {
@@ -338,7 +342,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     admin
       .from("marketing_flow_sessions")
       .select(
-        "phone, updated_at, created_at, full_name, pipeline_status, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, last_user_message_at, human_followup_at"
+        "phone, updated_at, created_at, full_name, pipeline_status, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, last_user_message_at, human_followup_at, next_call_at, next_call_time"
       )
       .order("updated_at", { ascending: false })
       .limit(5000),
@@ -398,6 +402,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       updated_at?: string | null;
       created_at?: string | null;
       human_followup_at?: string | null;
+      next_call_at?: string | null;
+      next_call_time?: string | null;
     }
   >();
   for (const s of resolvedFlowSessions ?? []) {
@@ -411,6 +417,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       updated_at?: string | null;
       created_at?: string | null;
       human_followup_at?: string | null;
+      next_call_at?: string | null;
+      next_call_time?: string | null;
     };
     const digits = marketingPhoneDigits(String(row.phone ?? "")) || String(row.phone ?? "").replace(/\D/g, "");
     if (!digits) continue;
@@ -540,6 +548,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       noteStatus,
       noteRelevance,
       adminColumn: column,
+      nextCallAt: toPipelineDateOnly(flow?.next_call_at),
+      nextCallTime: toPipelineTime(flow?.next_call_time),
     };
   });
 

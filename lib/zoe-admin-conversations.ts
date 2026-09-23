@@ -6,6 +6,7 @@ import {
   type SessionSummary,
 } from "@/lib/conversations-sessions";
 import { marketingLeadConversationAt } from "@/lib/lead-activity";
+import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import {
   extractLeadPhoneFromMarketingSession,
   MARKETING_CONVERSATIONS_SLUG,
@@ -18,6 +19,9 @@ export const ZOE_ADMIN_ALL_CONVERSATIONS_SLUG = "__all__";
 export type ZoeAdminSessionSummary = SessionSummary & {
   source_slug: string;
   source_name: string;
+  /** פגישה מדף הלידים. קיים רק בשיחות שיווק; null = לא נקבעה. */
+  nextCallAt?: string | null;
+  nextCallTime?: string | null;
 };
 
 export function isZoeAdminAllConversationsSlug(slug: string): boolean {
@@ -73,7 +77,7 @@ export async function loadAllZoeAdminConversationSessions(
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at, full_name, last_user_message_at")
+      .select("phone, updated_at, created_at, full_name, last_user_message_at, next_call_at, next_call_time")
       .order("updated_at", { ascending: false })
       .limit(5000),
   ]);
@@ -110,6 +114,7 @@ export async function loadAllZoeAdminConversationSessions(
 
   const marketingNameByPhoneKey = new Map<string, string>();
   const marketingActivityByPhoneKey = new Map<string, string>();
+  const marketingCallByPhoneKey = new Map<string, { date: string | null; time: string | null }>();
   for (const s of flowSessions ?? []) {
     const row = s as {
       phone?: string;
@@ -117,6 +122,8 @@ export async function loadAllZoeAdminConversationSessions(
       last_user_message_at?: string | null;
       updated_at?: string | null;
       created_at?: string | null;
+      next_call_at?: string | null;
+      next_call_time?: string | null;
     };
     const phone = String(row.phone ?? "").trim();
     if (!phone) continue;
@@ -129,6 +136,14 @@ export async function loadAllZoeAdminConversationSessions(
       if (!prev || new Date(activity).getTime() > new Date(prev).getTime()) {
         marketingActivityByPhoneKey.set(key, activity);
       }
+    }
+    if (key) {
+      const next = {
+        date: toPipelineDateOnly(row.next_call_at),
+        time: toPipelineTime(row.next_call_time),
+      };
+      const prev = marketingCallByPhoneKey.get(key);
+      if (!prev || (!prev.date && next.date)) marketingCallByPhoneKey.set(key, next);
     }
   }
 
@@ -177,11 +192,15 @@ export async function loadAllZoeAdminConversationSessions(
           ? marketingNameByPhoneKey.get(phoneKey) ?? s.fullName ?? null
           : s.fullName ?? null;
       const leadAt = bs === MARKETING_CONVERSATIONS_SLUG ? marketingActivityByPhoneKey.get(phoneKey) : undefined;
+      const call = bs === MARKETING_CONVERSATIONS_SLUG ? marketingCallByPhoneKey.get(phoneKey) : undefined;
       out.push({
         ...s,
         phone,
         fullName,
         lastAt: leadAt || s.lastAt,
+        ...(bs === MARKETING_CONVERSATIONS_SLUG
+          ? { nextCallAt: call?.date ?? null, nextCallTime: call?.time ?? null }
+          : {}),
         source_slug: bs,
         source_name: label,
       });

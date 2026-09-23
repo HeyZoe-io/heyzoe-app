@@ -17,10 +17,7 @@ import {
 } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
-import {
-  formatLeadConversationDateTime,
-  formatLeadConversationDateTimeParts,
-} from "@/lib/lead-activity";
+import { formatScheduledCallParts } from "@/lib/marketing-next-call";
 import {
   getMarketingNoteStatusMeta,
   sortMarketingSessionsByStatusPriority,
@@ -150,6 +147,9 @@ type SessionSummary = {
   noteStatus?: MarketingNoteStatus | null;
   noteRelevance?: MarketingRelevance | null;
   adminColumn?: MarketingAdminColumn | null;
+  /** פגישה מדף הלידים. השדה קיים בשיחות שיווק גם כשאין פגישה (null). */
+  nextCallAt?: string | null;
+  nextCallTime?: string | null;
 };
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -211,14 +211,23 @@ function truncatePreview(text: string, max = 52): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-function AdminConversationStamp({ iso, emphasize }: { iso: string; emphasize: boolean }) {
-  const parts = formatLeadConversationDateTimeParts(iso);
+function ScheduledCallStamp({
+  dateRaw,
+  timeRaw,
+  emphasize,
+}: {
+  dateRaw?: string | null;
+  timeRaw?: string | null;
+  emphasize: boolean;
+}) {
+  const parts = formatScheduledCallParts(dateRaw, timeRaw);
   const color = emphasize ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]";
-  if (!parts) return <span className={`text-[12px] ${color}`}>—</span>;
+  if (!parts) return null;
+  const label = parts.time ? `${parts.date} ${parts.time}` : parts.date;
   return (
-    <span className={`flex flex-col items-end leading-tight ${color}`} title={`${parts.date}, ${parts.time}`}>
+    <span className={`flex flex-col items-end leading-tight ${color}`} title={label}>
       <span className="whitespace-nowrap text-[12px]">{parts.date}</span>
-      <span className="whitespace-nowrap text-[12px]">{parts.time}</span>
+      {parts.time ? <span className="whitespace-nowrap text-[12px]">{parts.time}</span> : null}
     </span>
   );
 }
@@ -953,8 +962,12 @@ export default function ConversationsClient({
                       ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
-                      {apiScope === "admin" ? (
-                        <AdminConversationStamp iso={s.lastAt} emphasize={awaitingReply} />
+                      {apiScope === "admin" && "nextCallAt" in s ? (
+                        <ScheduledCallStamp
+                          dateRaw={s.nextCallAt}
+                          timeRaw={s.nextCallTime}
+                          emphasize={awaitingReply}
+                        />
                       ) : (
                         <span
                           className={`whitespace-nowrap text-[12px] ${
@@ -1018,19 +1031,9 @@ export default function ConversationsClient({
                             {sessionPhoneDisplay(selected, t.unavailable)}
                           </span>
                         ) : (
-                          t.messagesMeta(
-                            selected.count,
-                            apiScope === "admin"
-                              ? formatLeadConversationDateTime(selected.lastAt)
-                              : formatDmy(selected.lastAt)
-                          )
+                          t.messagesMeta(selected.count, formatDmy(selected.lastAt))
                         )}
                       </p>
-                      {apiScope === "admin" && sessionLeadName(selected) ? (
-                        <p className="truncate text-[12px] text-[#8696a0]">
-                          {formatLeadConversationDateTime(selected.lastAt)}
-                        </p>
-                      ) : null}
                       {selected.isPaused ? (
                         <SessionPauseBadge
                           isPaused={selected.isPaused}
@@ -1220,6 +1223,15 @@ export default function ConversationsClient({
             onStatusSaved={(noteStatus, noteRelevance) =>
               onMarketingNoteStatusSaved(selected.session_id, noteStatus, noteRelevance)
             }
+            onCallSaved={(date, time) => {
+              setSessions((prev) =>
+                prev.map((s) =>
+                  s.session_id === selected.session_id
+                    ? { ...s, nextCallAt: date, nextCallTime: time }
+                    : s
+                )
+              );
+            }}
           />
         ) : null}
       </div>
