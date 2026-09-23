@@ -11,7 +11,6 @@ import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
 } from "@/lib/arbox-membership-types";
-import { firstNameFromFullName } from "@/lib/lead-template";
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
@@ -98,14 +97,13 @@ function staffPhoneFromBooking(row: ArboxBookingReportRow): string | null {
   return normalizePhone(raw) ?? (String(raw ?? "").replace(/\D/g, "").trim() || null);
 }
 
-export function clientFirstNameFromBookingRow(row: ArboxBookingReportRow): string {
-  const first = String(row.first_name ?? "").trim();
-  if (first) return firstNameFromFullName(first);
+/** Full client name for trainer_trial_heads_up {{3}}. */
+export function clientFullNameFromBookingRow(row: ArboxBookingReportRow): string {
   const full = String(row.full_name ?? "").trim();
-  if (full) return firstNameFromFullName(full);
+  if (full) return full;
+  const first = String(row.first_name ?? "").trim();
   const last = String(row.last_name ?? "").trim();
-  const combined = [first, last].filter(Boolean).join(" ").trim();
-  return combined ? firstNameFromFullName(combined) : "";
+  return [first, last].filter(Boolean).join(" ").trim();
 }
 
 async function fetchMembershipTypeNameById(apiKey: string): Promise<Map<number, string>> {
@@ -154,7 +152,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   phone: string;
-  clientFirstName: string;
+  clientFullName: string;
   className: string;
   classTime: string;
   userId: number;
@@ -173,7 +171,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
     userId: input.userId,
     classDateYmd: input.classDateYmd,
     classTime: input.classTime,
-    clientFirstName: input.clientFirstName,
+    clientFirstName: input.clientFullName,
     className: input.className,
   });
 
@@ -199,7 +197,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
     phone: input.phone,
     templateName,
     triggerType: "trainer_trial_heads_up",
-    firstName: input.clientFirstName,
+    clientFullName: input.clientFullName,
     className: input.className,
     classTime: input.classTime,
   });
@@ -382,12 +380,12 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
         continue;
       }
 
-      const clientFirstName = clientFirstNameFromBookingRow(row);
+      const clientFullName = clientFullNameFromBookingRow(row);
       const send = await dispatchTrainerTrialHeadsUp({
         admin: input.admin,
         businessId,
         phone: trainerPhone,
-        clientFirstName,
+        clientFullName,
         className,
         classTime,
         userId,

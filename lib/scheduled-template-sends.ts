@@ -208,7 +208,7 @@ export function buildTrialReminderScheduledDedupKey(
   return `trial_reminder:${businessId}:${String(triggerId).trim()}:${userId}:${String(classDateYmd).trim()}:${timeEnc}#${nameEnc}`;
 }
 
-/** B2 staff: once per trainer+client booking. Hash: clientFirst#className. */
+/** B2 staff: once per trainer+client booking. Hash: clientFullName#className. */
 export function buildTrainerTrialHeadsUpScheduledDedupKey(input: {
   businessId: number;
   triggerId: string;

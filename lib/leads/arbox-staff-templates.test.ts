@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { clientFirstNameFromBookingRow } from "@/lib/leads/arbox-trainer-trial-heads-up";
+import { clientFullNameFromBookingRow } from "@/lib/leads/arbox-trainer-trial-heads-up";
 import {
   classCancelledStaffLookbackWindow,
   isCancelledSessionStatus,
@@ -21,22 +21,23 @@ import { isStaffRecipientTriggerType } from "@/lib/trigger-catalog";
 
 {
   assert.equal(
-    clientFirstNameFromBookingRow({
+    clientFullNameFromBookingRow({
       user_id: 1,
       first_name: "דנה",
       last_name: "כהן",
       full_name: "דנה כהן",
     }),
-    "דנה"
+    "דנה כהן"
   );
   assert.equal(
-    clientFirstNameFromBookingRow({
+    clientFullNameFromBookingRow({
       user_id: 1,
-      full_name: "יוסי לוי",
+      first_name: "יוסי",
+      last_name: "לוי",
     }),
-    "יוסי"
+    "יוסי לוי"
   );
-  assert.equal(clientFirstNameFromBookingRow({ user_id: 1 }), "");
+  assert.equal(clientFullNameFromBookingRow({ user_id: 1 }), "");
 }
 
 {

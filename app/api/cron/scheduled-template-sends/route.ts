@@ -220,6 +220,7 @@ async function dispatchOneScheduledSend(
     triggerType,
     storedComponents,
     firstName,
+    clientFullName: staffClientFirst,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     expiryDateYmd:
       classDateYmdFromStaffDedupKey(row.dedup_key) ?? expiryYmdFromScheduledDedupKey(row.dedup_key),

@@ -181,7 +181,7 @@ import {
     trial_reminder: ["דנה", "יוגה", "18:00"],
     milestones: ["דנה"],
     nth_workout: ["דנה", "3"],
-    trainer_trial_heads_up: ["דנה", "יוגה", "18:00"],
+    trainer_trial_heads_up: ["יוגה", "18:00", "דנה כהן"],
     class_cancelled_staff: ["יוגה", "15.09.2026", "18:00"],
   };
 
@@ -239,8 +239,12 @@ import {
       assert.deepEqual(slots, ["first_name", "workout_n"]);
       continue;
     }
-    if (type === "trial_reminder" || type === "trainer_trial_heads_up") {
+    if (type === "trial_reminder") {
       assert.deepEqual(slots, ["first_name", "class_name", "class_time"]);
+      continue;
+    }
+    if (type === "trainer_trial_heads_up") {
+      assert.deepEqual(slots, ["class_name", "class_time", "client_full_name"]);
       continue;
     }
     if (type === "class_cancelled_staff") {

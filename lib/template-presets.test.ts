@@ -118,12 +118,12 @@ assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.trainer_trial_heads_up.body,
-  "היי, מחר מגיע אליך {{1}} לאימון ניסיון {{2}} בשעה {{3}}. כדאי להציג את עצמך ולתת חוויה טובה 🙏"
+  "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}} {{3}} לאימון ניסיון אז בבקשה לשים לב לדגשים הבאים:"
 );
 assert.deepEqual(paramSlotsForTriggerType("trainer_trial_heads_up"), [
-  "first_name",
   "class_name",
   "class_time",
+  "client_full_name",
 ]);
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.button_text, undefined);

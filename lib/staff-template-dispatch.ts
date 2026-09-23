@@ -16,6 +16,7 @@ export async function dispatchStaffTemplateImmediate(input: {
   templateName: string;
   triggerType: string;
   firstName?: string | null;
+  clientFullName?: string | null;
   className?: string | null;
   classTime?: string | null;
   expiryDateYmd?: string | null;
@@ -56,6 +57,7 @@ export async function dispatchStaffTemplateImmediate(input: {
     triggerType: input.triggerType,
     storedComponents,
     firstName: input.firstName,
+    clientFullName: input.clientFullName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     className: input.className,
     classTime: input.classTime,

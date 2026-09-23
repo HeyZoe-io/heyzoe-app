@@ -23,6 +23,8 @@ export type TemplateSendParamContext = {
   membershipTypeName?: string | null;
   className?: string | null;
   classTime?: string | null;
+  /** Trainer heads-up {{3}}: full client name, not a first-name slice. */
+  clientFullName?: string | null;
   workoutN?: number | string | null;
 };
 
@@ -107,7 +109,7 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
   }
 }
 
-/** Staff B2: client first name is the first hash segment. */
+/** Staff B2: client name (full name on new keys) is the first hash segment. */
 export function clientFirstNameFromStaffDedupKey(dedupKey: string): string | null {
   const raw = String(dedupKey ?? "");
   if (!raw.startsWith("trainer_trial_heads_up:")) return null;
@@ -189,6 +191,12 @@ export function resolveTemplateSlotValue(
   if (slot === "class_time") {
     const time = String(ctx.classTime ?? "").trim();
     return time || TEMPLATE_CLASS_TIME_FALLBACK;
+  }
+  if (slot === "client_full_name") {
+    const explicit = String(ctx.clientFullName ?? "").trim();
+    if (explicit) return explicit;
+    const raw = String(ctx.firstName ?? "").trim();
+    return raw || TEMPLATE_NAME_FALLBACK;
   }
   if (slot === "class_date") {
     const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
