@@ -30,7 +30,11 @@ const IL_TZ = "Asia/Jerusalem";
 function formatTime(iso: string, lang: DashboardLang): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat(dashboardDateLocale(lang), { hour: "2-digit", minute: "2-digit" }).format(d);
+  return new Intl.DateTimeFormat(dashboardDateLocale(lang), {
+    timeZone: IL_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
 }
 
 /** YYYY-MM-DD לפי לוח ישראל — לקיבוץ הודעות לפי יום */

@@ -15,6 +15,7 @@ import {
   type MarketingAdminColumn,
   type MarketingRelevance,
 } from "@/lib/marketing-admin-status";
+import { marketingLeadConversationAt } from "@/lib/lead-activity";
 import type { LeadRow } from "@/lib/leads-types";
 import {
   isSalesFlowStartTrigger,
@@ -394,6 +395,8 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       followup_2_sent_at?: string | null;
       followup_3_sent_at?: string | null;
       last_user_message_at?: string | null;
+      updated_at?: string | null;
+      created_at?: string | null;
       human_followup_at?: string | null;
     }
   >();
@@ -405,10 +408,18 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       followup_2_sent_at?: string | null;
       followup_3_sent_at?: string | null;
       last_user_message_at?: string | null;
+      updated_at?: string | null;
+      created_at?: string | null;
       human_followup_at?: string | null;
     };
     const digits = marketingPhoneDigits(String(row.phone ?? "")) || String(row.phone ?? "").replace(/\D/g, "");
-    if (!digits || flowByPhoneKey.has(digits)) continue;
+    if (!digits) continue;
+    const prev = flowByPhoneKey.get(digits);
+    if (prev) {
+      const prevAt = new Date(marketingLeadConversationAt(prev) ?? 0).getTime();
+      const nextAt = new Date(marketingLeadConversationAt(row) ?? 0).getTime();
+      if (nextAt <= prevAt) continue;
+    }
     flowByPhoneKey.set(digits, row);
     if (digits.length >= 9) flowByPhoneKey.set(digits.slice(-9), row);
   }
@@ -436,21 +447,27 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
 
   const nameBySid = new Map<string, string>();
   for (const s of resolvedFlowSessions ?? []) {
-    const row = s as { phone?: string; updated_at?: string; created_at?: string; full_name?: string | null };
+    const row = s as {
+      phone?: string;
+      updated_at?: string;
+      created_at?: string;
+      full_name?: string | null;
+      last_user_message_at?: string | null;
+    };
     const phoneRaw = String(row.phone ?? "").trim();
     if (!phoneRaw) continue;
     const sid = canonicalMarketingSessionId(phoneRaw);
     const fullName = String(row.full_name ?? "").trim();
     if (fullName && !nameBySid.has(sid)) nameBySid.set(sid, fullName);
-    const at = new Date(String(row.updated_at ?? row.created_at ?? ""));
+    const activityRaw = marketingLeadConversationAt(row);
+    const at = activityRaw ? new Date(activityRaw) : new Date(NaN);
     if (Number.isNaN(at.getTime())) continue;
     const phone = formatMarketingPhoneDisplay(marketingPhoneDigits(phoneRaw) || phoneRaw);
     const existing = bySession.get(sid);
     if (!existing) {
       bySession.set(sid, { lastAt: at, count: 0, lastFromUser: false, phone });
-    } else {
-      if (at > existing.lastAt) existing.lastAt = at;
-      if (!existing.phone && phone) existing.phone = phone;
+    } else if (!existing.phone && phone) {
+      existing.phone = phone;
     }
   }
 
@@ -478,6 +495,10 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       hasNote: Boolean(note),
     });
     const followupStage = flow?.followup_3_sent_at ? 3 : flow?.followup_2_sent_at ? 2 : flow?.followup_1_sent_at ? 1 : 0;
+    const messageAt = data.lastAt;
+    const leadAtRaw = marketingLeadConversationAt(flow);
+    const leadAt = leadAtRaw ? new Date(leadAtRaw) : null;
+    const displayAt = leadAt && !Number.isNaN(leadAt.getTime()) ? leadAt : messageAt;
     const column = resolveMarketingAdminColumn({
       phone: data.phone,
       full_name: null,
@@ -494,7 +515,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       wa_no_response_at: null,
       no_response_notified_at: null,
       wa_followup_stage: followupStage,
-      last_contact_at: flow?.last_user_message_at ?? data.lastAt.toISOString(),
+      last_contact_at: leadAtRaw ?? messageAt.toISOString(),
       cta_clicked_at: null,
       pipeline_status: flow?.pipeline_status ?? null,
       marketing_relevance: crm?.relevance ?? null,
@@ -508,9 +529,9 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
         : DEFAULT_MARKETING_NOTE_STATUS;
     return {
       session_id: sid,
-      lastAt: data.lastAt.toISOString(),
+      lastAt: displayAt.toISOString(),
       count: data.count,
-      isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
+      isOpen: data.lastFromUser && Date.now() - messageAt.getTime() < 24 * 60 * 60 * 1000,
       lastFromUser: data.lastFromUser,
       isPaused: pausedUntilByCanonical.has(sid),
       pausedUntil: pausedUntilByCanonical.get(sid) ?? null,

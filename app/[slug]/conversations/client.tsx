@@ -17,6 +17,7 @@ import {
 } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
+import { formatLeadConversationDateTime } from "@/lib/lead-activity";
 import {
   getMarketingNoteStatusMeta,
   sortMarketingSessionsByStatusPriority,
@@ -938,11 +939,11 @@ export default function ConversationsClient({
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
                       <span
-                        className={`text-[12px] ${
+                        className={`whitespace-nowrap text-[12px] ${
                           awaitingReply ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]"
                         }`}
                       >
-                        {formatListTime(s.lastAt)}
+                        {apiScope === "admin" ? formatLeadConversationDateTime(s.lastAt) : formatListTime(s.lastAt)}
                       </span>
                       <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
                       {s.isPaused ? (
@@ -998,9 +999,19 @@ export default function ConversationsClient({
                             {sessionPhoneDisplay(selected, t.unavailable)}
                           </span>
                         ) : (
-                          t.messagesMeta(selected.count, formatDmy(selected.lastAt))
+                          t.messagesMeta(
+                            selected.count,
+                            apiScope === "admin"
+                              ? formatLeadConversationDateTime(selected.lastAt)
+                              : formatDmy(selected.lastAt)
+                          )
                         )}
                       </p>
+                      {apiScope === "admin" && sessionLeadName(selected) ? (
+                        <p className="truncate text-[12px] text-[#8696a0]">
+                          {formatLeadConversationDateTime(selected.lastAt)}
+                        </p>
+                      ) : null}
                       {selected.isPaused ? (
                         <SessionPauseBadge
                           isPaused={selected.isPaused}

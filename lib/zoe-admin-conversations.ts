@@ -5,6 +5,7 @@ import {
   sortSessionsByRecentActivity,
   type SessionSummary,
 } from "@/lib/conversations-sessions";
+import { marketingLeadConversationAt } from "@/lib/lead-activity";
 import {
   extractLeadPhoneFromMarketingSession,
   MARKETING_CONVERSATIONS_SLUG,
@@ -72,7 +73,7 @@ export async function loadAllZoeAdminConversationSessions(
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at, full_name")
+      .select("phone, updated_at, created_at, full_name, last_user_message_at")
       .order("updated_at", { ascending: false })
       .limit(5000),
   ]);
@@ -108,12 +109,27 @@ export async function loadAllZoeAdminConversationSessions(
   }
 
   const marketingNameByPhoneKey = new Map<string, string>();
+  const marketingActivityByPhoneKey = new Map<string, string>();
   for (const s of flowSessions ?? []) {
-    const phone = String((s as { phone?: string }).phone ?? "").trim();
+    const row = s as {
+      phone?: string;
+      full_name?: string | null;
+      last_user_message_at?: string | null;
+      updated_at?: string | null;
+      created_at?: string | null;
+    };
+    const phone = String(row.phone ?? "").trim();
     if (!phone) continue;
-    const fullName = String((s as { full_name?: string | null }).full_name ?? "").trim();
+    const fullName = String(row.full_name ?? "").trim();
     const key = leadPhoneKey(phone);
     if (fullName && key && !marketingNameByPhoneKey.has(key)) marketingNameByPhoneKey.set(key, fullName);
+    const activity = marketingLeadConversationAt(row);
+    if (activity && key) {
+      const prev = marketingActivityByPhoneKey.get(key);
+      if (!prev || new Date(activity).getTime() > new Date(prev).getTime()) {
+        marketingActivityByPhoneKey.set(key, activity);
+      }
+    }
   }
 
   const marketingSid = new Set((bySlugSession.get(MARKETING_CONVERSATIONS_SLUG) ?? []).map((s) => s.session_id));
@@ -122,7 +138,16 @@ export async function loadAllZoeAdminConversationSessions(
     if (!phone) continue;
     const sid = marketingWaSessionId(phone);
     if (marketingSid.has(sid)) continue;
-    const at = new Date(String((s as { updated_at?: string }).updated_at ?? (s as { created_at?: string }).created_at ?? ""));
+    const at = new Date(
+      marketingLeadConversationAt(
+        s as {
+          last_user_message_at?: string | null;
+          updated_at?: string | null;
+          created_at?: string | null;
+        }
+      ) ?? ""
+    );
+    if (Number.isNaN(at.getTime())) continue;
     const pausedUntil = (pausedUntilBySlug.get(MARKETING_CONVERSATIONS_SLUG) ?? new Map()).get(sid) ?? null;
     const list = bySlugSession.get(MARKETING_CONVERSATIONS_SLUG) ?? [];
     list.push({
@@ -146,16 +171,17 @@ export async function loadAllZoeAdminConversationSessions(
         bs === MARKETING_CONVERSATIONS_SLUG
           ? formatPhoneDisplay(extractLeadPhoneFromMarketingSession(s.session_id) || s.phone) || s.phone
           : formatPhoneDisplay(extractPhoneFromSessionId(s.session_id) || s.phone) || s.phone;
+      const phoneKey = leadPhoneKey(extractLeadPhoneFromMarketingSession(s.session_id) || phone);
       const fullName =
         bs === MARKETING_CONVERSATIONS_SLUG
-          ? marketingNameByPhoneKey.get(leadPhoneKey(extractLeadPhoneFromMarketingSession(s.session_id) || s.phone)) ??
-            s.fullName ??
-            null
+          ? marketingNameByPhoneKey.get(phoneKey) ?? s.fullName ?? null
           : s.fullName ?? null;
+      const leadAt = bs === MARKETING_CONVERSATIONS_SLUG ? marketingActivityByPhoneKey.get(phoneKey) : undefined;
       out.push({
         ...s,
         phone,
         fullName,
+        lastAt: leadAt || s.lastAt,
         source_slug: bs,
         source_name: label,
       });

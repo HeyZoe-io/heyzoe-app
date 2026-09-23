@@ -4,7 +4,11 @@ import {
   extractLeadPhoneFromMarketingSession,
   MARKETING_CONVERSATIONS_SLUG,
 } from "@/lib/marketing-whatsapp";
-import { leadConversationAt, sortLeadsByRecentActivity } from "@/lib/lead-activity";
+import {
+  leadConversationAt,
+  marketingLeadConversationAt,
+  sortLeadsByRecentActivity,
+} from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 import { splitStoredMarketingStatus } from "@/lib/marketing-admin-status";
@@ -225,10 +229,11 @@ export function mapMarketingFlowSessionToLeadRow(
     followup_2_sent_at: s.followup_2_sent_at as string | null,
     followup_3_sent_at: s.followup_3_sent_at as string | null,
   });
-  const lastContact =
-    (s.last_user_message_at as string | null) ??
-    (s.updated_at as string | null) ??
-    (s.created_at as string | null);
+  const lastContact = marketingLeadConversationAt({
+    last_user_message_at: s.last_user_message_at as string | null,
+    updated_at: s.updated_at as string | null,
+    created_at: s.created_at as string | null,
+  });
 
   const row: LeadRow = {
     phone: phone || null,

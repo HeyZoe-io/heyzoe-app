@@ -16,7 +16,7 @@ import {
   resolveMarketingAdminColumn,
   type MarketingAdminColumn,
 } from "@/lib/marketing-admin-status";
-import { leadConversationAt } from "@/lib/lead-activity";
+import { formatLeadConversationDateTime, leadConversationAt } from "@/lib/lead-activity";
 import type { LeadRow } from "@/lib/leads-types";
 import {
   applyManualPipelineStatus,
@@ -37,16 +37,7 @@ import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersMod
 type PipelineStatus = MarketingAdminColumn;
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("he-IL", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatLeadConversationDateTime(iso);
 }
 
 function toDateInputValue(d: Date): string {

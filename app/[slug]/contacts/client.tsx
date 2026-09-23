@@ -18,7 +18,7 @@ import {
   type ContactStatusFilterValue,
   type ContactStatusKey,
 } from "@/lib/contact-status";
-import { leadConversationAt } from "@/lib/lead-activity";
+import { formatLeadConversationDateTime, leadConversationAt } from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
 import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
@@ -37,16 +37,7 @@ type Props = {
 };
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("he-IL", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatLeadConversationDateTime(iso);
 }
 
 function startOfDayIso(dateInput: string): string | null {
