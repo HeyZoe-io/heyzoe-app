@@ -206,6 +206,21 @@ async function main() {
   }
   const marketingInUse = namesFromRows(marketingTriggerRows, "enabled");
   for (const name of namesFromRows(marketingScheduledRows, "pending")) marketingInUse.add(name);
+  // Quota alerts are sent by name from the Zoe admin WABA, not via a trigger row.
+  for (const name of ["quota_warning_80", "quota_warning_95", "quota_limit_reached"]) {
+    marketingInUse.add(name);
+  }
+
+  const leadTemplateRows = await selectPages<{ id: number; lead_template_name: string | null }>((from, to) =>
+    admin.from("businesses").select("id, lead_template_name").range(from, to)
+  );
+  for (const row of leadTemplateRows) {
+    const name = norm(row.lead_template_name);
+    if (!name) continue;
+    const set = inUseByBusiness.get(Number(row.id)) ?? new Set<string>();
+    set.add(name);
+    inUseByBusiness.set(Number(row.id), set);
+  }
 
   const dbByBusiness = new Map<number, DbTemplate[]>();
   const dbTemplates = await selectPages<DbTemplate & { business_id: number }>((from, to) =>
