@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
     .from("contacts")
     .select("phone")
     .eq("business_id", businessId)
-    .eq("opted_out", false);
+    .or("opted_out.is.null,opted_out.eq.false");
 
   if (contactsErr) {
     console.error("[api/contacts/send] contacts fetch failed:", contactsErr);

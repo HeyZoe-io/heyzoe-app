@@ -92,6 +92,22 @@ const body = [{ type: "BODY", text: "היי" }];
   assert.equal(item.planned_name, "hello_v2");
 }
 
+{
+  const item = classifyMarketingOptOutTemplate({
+    template: {
+      name: "quota_warning_80",
+      language: "he",
+      status: "APPROVED",
+      category: "MARKETING",
+      components: body,
+    },
+    inUse: true,
+    takenNames: new Set(),
+    allOnWaba: [],
+  });
+  assert.equal(item.class, "EXCLUDED_ACCOUNT_ALERT");
+}
+
 assert.equal(nextVersionTemplateName("a", new Set()), "a_v2");
 assert.equal(plannedWriteCalls([{ class: "EDIT_IN_PLACE" }, { class: "DEFERRED" }, { class: "NEW_VERSION" }] as never), 2);
 assert.equal(estimatedDurationMs([1, 4]), 4 * OPTOUT_RESUBMIT_THROTTLE_MS);

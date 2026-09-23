@@ -64,19 +64,23 @@ function namesFromRows(rows: { template_name?: unknown; enabled?: unknown; statu
   return names;
 }
 
-function mismatchesFor(meta: { name: string; language: string; status: string; category: string }[], db: DbTemplate[]) {
+function mismatchesFor(
+  meta: { name: string; language: string; status: string; category: string }[],
+  db: DbTemplate[],
+  dbTable: string
+) {
   const dbByKey = new Map<string, DbTemplate>();
   for (const row of db) {
     dbByKey.set(`${row.name}\n${row.language.toLowerCase()}`, row);
   }
   const seen = new Set<string>();
-  const out: { name: string; language: string; kind: string; meta?: string; db?: string }[] = [];
+  const out: { name: string; language: string; kind: string; db_table: string; meta?: string; db?: string }[] = [];
   for (const row of meta) {
     const key = `${row.name}\n${row.language.toLowerCase()}`;
     seen.add(key);
     const local = dbByKey.get(key);
     if (!local) {
-      out.push({ name: row.name, language: row.language, kind: "missing_in_db" });
+      out.push({ name: row.name, language: row.language, kind: "missing_in_db", db_table: dbTable });
       continue;
     }
     if (local.status.toUpperCase() !== row.status.toUpperCase()) {
@@ -84,6 +88,7 @@ function mismatchesFor(meta: { name: string; language: string; status: string; c
         name: row.name,
         language: row.language,
         kind: "status",
+        db_table: dbTable,
         meta: row.status,
         db: local.status,
       });
@@ -93,6 +98,7 @@ function mismatchesFor(meta: { name: string; language: string; status: string; c
         name: row.name,
         language: row.language,
         kind: "category",
+        db_table: dbTable,
         meta: row.category,
         db: local.category,
       });
@@ -101,7 +107,13 @@ function mismatchesFor(meta: { name: string; language: string; status: string; c
   for (const row of db) {
     const key = `${row.name}\n${row.language.toLowerCase()}`;
     if (!seen.has(key)) {
-      out.push({ name: row.name, language: row.language, kind: "missing_on_meta", db: row.status });
+      out.push({
+        name: row.name,
+        language: row.language,
+        kind: "missing_on_meta",
+        db_table: dbTable,
+        db: row.status,
+      });
     }
   }
   return out;
@@ -206,10 +218,6 @@ async function main() {
   }
   const marketingInUse = namesFromRows(marketingTriggerRows, "enabled");
   for (const name of namesFromRows(marketingScheduledRows, "pending")) marketingInUse.add(name);
-  // Quota alerts are sent by name from the Zoe admin WABA, not via a trigger row.
-  for (const name of ["quota_warning_80", "quota_warning_95", "quota_limit_reached"]) {
-    marketingInUse.add(name);
-  }
 
   const leadTemplateRows = await selectPages<{ id: number; lead_template_name: string | null }>((from, to) =>
     admin.from("businesses").select("id, lead_template_name").range(from, to)
@@ -296,23 +304,34 @@ async function main() {
     writeCallsPerWaba.push(writes);
 
     const dbRows = group.businesses.flatMap((b) => dbByBusiness.get(b.id) ?? []);
-    const comparedDb = group.includesZoeAdmin ? [...dbRows, ...marketingDb] : dbRows;
-    const mismatches = mismatchesFor(templates, comparedDb);
+    const mismatches = [
+      ...(dbRows.length ? mismatchesFor(templates, dbRows, "whatsapp_templates") : []),
+      ...(group.includesZoeAdmin
+        ? mismatchesFor(templates, marketingDb, "marketing_whatsapp_templates")
+        : []),
+    ];
+    const categoryWrites = mismatches.filter((row) => row.kind === "category");
 
     console.log(
       `  MARKETING ${marketing.length} / ${templates.length} on Meta` +
         (templates.length >= LIST_MAX ? "  TRUNCATED" : "")
     );
     console.log(
-      `  EDIT_IN_PLACE ${counts.EDIT_IN_PLACE}  NEW_VERSION ${counts.NEW_VERSION}  DEFERRED ${counts.DEFERRED}  MANUAL ${counts.MANUAL}  already ${counts.SKIP_HAS_BUTTON}  versioned ${counts.SKIP_HAS_VERSION}`
+      `  EDIT_IN_PLACE ${counts.EDIT_IN_PLACE}  NEW_VERSION ${counts.NEW_VERSION}  DEFERRED ${counts.DEFERRED}  MANUAL ${counts.MANUAL}  EXCLUDED_ACCOUNT_ALERT ${counts.EXCLUDED_ACCOUNT_ALERT}  already ${counts.SKIP_HAS_BUTTON}  versioned ${counts.SKIP_HAS_VERSION}`
     );
-    console.log(`  planned write calls: ${writes}`);
+    console.log(`  planned Meta writes: ${writes}   planned category DB updates: ${categoryWrites.length}`);
     const by = (name: OptOutPlanClass) => items.filter((item) => item.class === name);
     printClass("EDIT_IN_PLACE", by("EDIT_IN_PLACE"));
     printClass("NEW_VERSION", by("NEW_VERSION"));
     printClass("DEFERRED", by("DEFERRED"));
     printClass("MANUAL", by("MANUAL"));
-    if (mismatches.length) console.log(`  db mismatches: ${mismatches.length}`);
+    printClass("EXCLUDED_ACCOUNT_ALERT", by("EXCLUDED_ACCOUNT_ALERT"));
+    if (categoryWrites.length) {
+      console.log(`  category DB updates (${categoryWrites.length})`);
+      for (const row of categoryWrites) {
+        console.log(`    ${row.db_table} ${row.name} (${row.language}) ${row.db} -> ${row.meta}`);
+      }
+    }
 
     reports.push({
       waba_id: group.wabaId,
@@ -324,6 +343,7 @@ async function main() {
       marketing: marketing.length,
       counts,
       planned_write_calls: writes,
+      planned_category_db_updates: categoryWrites,
       items,
       mismatches,
     });
@@ -333,6 +353,10 @@ async function main() {
     wabas: reports.length,
     list_get_calls: listCalls,
     planned_write_calls: writeCallsPerWaba.reduce((sum, n) => sum + n, 0),
+    planned_category_db_updates: reports.reduce(
+      (sum, report) => sum + ((report as { planned_category_db_updates?: unknown[] }).planned_category_db_updates?.length ?? 0),
+      0
+    ),
     throttle_ms: OPTOUT_RESUBMIT_THROTTLE_MS,
     estimated_duration_ms: estimatedDurationMs(writeCallsPerWaba),
     estimated_duration_note: "Parallel across WABAs, 1 write / 2s inside a WABA. Duration is the slowest WABA.",
@@ -344,7 +368,9 @@ async function main() {
   console.log("\n---");
   console.log(`WABAs: ${totals.wabas}`);
   console.log(`Meta list calls this run: ${totals.list_get_calls}`);
-  console.log(`Planned write calls: ${totals.planned_write_calls}`);
+  console.log(`Planned Meta writes: ${totals.planned_write_calls}`);
+  console.log(`Planned category DB updates: ${totals.planned_category_db_updates}`);
+  console.log("Canary (not run): acrobyjoe after_class");
   console.log(`Estimated execute duration: ${Math.ceil(totals.estimated_duration_ms / 1000)}s`);
   console.log(`Report: ${OUT_PATH}`);
 }

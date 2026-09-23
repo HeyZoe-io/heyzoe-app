@@ -9,11 +9,15 @@ import {
 
 export const OPTOUT_RESUBMIT_THROTTLE_MS = 2000;
 
+/** Owner account alerts. Never edited and never copied to _v2. */
+export const ACCOUNT_ALERT_TEMPLATE_NAMES = new Set(["quota_warning_80", "quota_limit_reached"]);
+
 export type OptOutPlanClass =
   | "EDIT_IN_PLACE"
   | "NEW_VERSION"
   | "DEFERRED"
   | "MANUAL"
+  | "EXCLUDED_ACCOUNT_ALERT"
   | "SKIP_HAS_BUTTON"
   | "SKIP_HAS_VERSION";
 
@@ -94,6 +98,10 @@ export function classifyMarketingOptOutTemplate(input: {
     in_use: input.inUse,
   };
 
+  if (ACCOUNT_ALERT_TEMPLATE_NAMES.has(input.template.name)) {
+    return { ...base, class: "EXCLUDED_ACCOUNT_ALERT", reason: "owner_account_alert" };
+  }
+
   if (templateHasOptOutButton(input.template)) {
     return { ...base, class: "SKIP_HAS_BUTTON" };
   }
@@ -135,6 +143,7 @@ export function countPlan(items: OptOutPlanItem[]): Record<OptOutPlanClass, numb
     NEW_VERSION: 0,
     DEFERRED: 0,
     MANUAL: 0,
+    EXCLUDED_ACCOUNT_ALERT: 0,
     SKIP_HAS_BUTTON: 0,
     SKIP_HAS_VERSION: 0,
   };
