@@ -97,14 +97,14 @@ function buildMetaComponents(input: {
   if (footer) components.push({ type: "FOOTER", text: footer });
   const buttons = input.buttons
     .map((b) => ({ ...b, text: b.text.trim(), url: b.url.trim() }))
-    .filter((b) => b.text);
+    .filter((b) => b.text && (b.kind !== "URL" || b.url.startsWith("https://")));
   if (buttons.length > 0) {
     components.push({
       type: "BUTTONS",
       buttons: buttons.map((b) =>
         b.kind === "URL"
-          ? { type: "URL", text: b.text, url: b.url || "https://example.com" }
-          : { type: "QUICK_REPLY", text: b.text }
+          ? { type: "URL", text: b.text.slice(0, 25), url: b.url }
+          : { type: "QUICK_REPLY", text: b.text.slice(0, 25) }
       ),
     });
   }
@@ -156,7 +156,7 @@ export default function AdminTemplatesClient({
   const [body, setBody] = useState("");
   const [header, setHeader] = useState("");
   const [footer, setFooter] = useState("");
-  const [buttons, setButtons] = useState<ButtonDraft[]>([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+  const [buttons, setButtons] = useState<ButtonDraft[]>([]);
 
   const [trigType, setTrigType] = useState<MarketingTriggerType>("call_day");
   const [trigNode, setTrigNode] = useState(flowNodes.find((n) => n.type === "question")?.id ?? "");
@@ -193,7 +193,7 @@ export default function AdminTemplatesClient({
     setBody("");
     setHeader("");
     setFooter("");
-    setButtons([{ kind: "QUICK_REPLY", text: "", url: "" }]);
+    setButtons([]);
   }
 
   function applyPurpose(next: MarketingTriggerType | "") {
@@ -221,7 +221,7 @@ export default function AdminTemplatesClient({
     setBody(draft.body);
     setHeader(draft.header);
     setFooter(draft.footer);
-    setButtons(draft.buttons.length ? draft.buttons : [{ kind: "QUICK_REPLY", text: "", url: "" }]);
+    setButtons(draft.buttons);
     setShowCreate(true);
   }
 
@@ -256,6 +256,19 @@ export default function AdminTemplatesClient({
     setError(null);
     setCreating(true);
     try {
+      const namedButtons = buttons.filter((b) => b.text.trim());
+      const badButton = namedButtons.find(
+        (b) => b.text.trim().length > 25 || (b.kind === "URL" && !b.url.trim().startsWith("https://"))
+      );
+      if (badButton) {
+        setError(
+          badButton.text.trim().length > 25
+            ? "טקסט כפתור עד 25 תווים"
+            : "כפתור קישור צריך כתובת שמתחילה ב-https://"
+        );
+        setCreating(false);
+        return;
+      }
       const slots = purpose ? MARKETING_TEMPLATE_PARAM_SLOTS[purpose] : [];
       const components = buildMetaComponents({
         body,
@@ -730,6 +743,64 @@ export default function AdminTemplatesClient({
             </p>
             <input className={FIELD} placeholder="כותרת (אופציונלי)" value={header} onChange={(e) => setHeader(e.target.value)} />
             <input className={FIELD} placeholder="פוטר (אופציונלי)" value={footer} onChange={(e) => setFooter(e.target.value)} />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-zinc-600">כפתורים (אופציונלי)</span>
+                {buttons.length < 3 ? (
+                  <button
+                    type="button"
+                    className="text-xs text-[#7133da]"
+                    onClick={() => setButtons((prev) => [...prev, { kind: "QUICK_REPLY", text: "", url: "" }])}
+                  >
+                    + כפתור
+                  </button>
+                ) : null}
+              </div>
+              {buttons.map((b, idx) => (
+                <div key={idx} className="space-y-2 rounded-xl border border-zinc-100 p-3">
+                  <div className="flex gap-2">
+                    <select
+                      className="rounded-lg border border-zinc-200 px-2 py-1.5 text-xs"
+                      value={b.kind}
+                      onChange={(e) => {
+                        const kind = e.target.value as ButtonDraft["kind"];
+                        setButtons((prev) => prev.map((row, i) => (i === idx ? { ...row, kind } : row)));
+                      }}
+                    >
+                      <option value="QUICK_REPLY">תשובה מהירה</option>
+                      <option value="URL">קישור</option>
+                    </select>
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={b.text}
+                      maxLength={25}
+                      placeholder="טקסט כפתור"
+                      onChange={(e) =>
+                        setButtons((prev) => prev.map((row, i) => (i === idx ? { ...row, text: e.target.value } : row)))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="px-2 text-xs text-zinc-500"
+                      onClick={() => setButtons((prev) => prev.filter((_, i) => i !== idx))}
+                    >
+                      הסר
+                    </button>
+                  </div>
+                  {b.kind === "URL" ? (
+                    <input
+                      className={`${FIELD} text-left`}
+                      dir="ltr"
+                      value={b.url}
+                      placeholder="https://"
+                      onChange={(e) =>
+                        setButtons((prev) => prev.map((row, i) => (i === idx ? { ...row, url: e.target.value } : row)))
+                      }
+                    />
+                  ) : null}
+                </div>
+              ))}
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
