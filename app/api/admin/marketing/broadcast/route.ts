@@ -8,7 +8,10 @@ import {
 } from "@/lib/marketing-template-dispatch";
 import { toPipelineDateOnly } from "@/lib/marketing-next-call";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
-import { phonesForMarketingNoResponse } from "@/lib/marketing-broadcast-audience";
+import {
+  isMarketingBroadcastStage,
+  phonesForMarketingStage,
+} from "@/lib/marketing-broadcast-audience";
 import { loadMarketingAdminLeads } from "@/lib/leads-data";
 import type { ScheduledMarketingTemplateSendRow } from "@/lib/scheduled-marketing-template-sends";
 
@@ -17,8 +20,8 @@ export const dynamic = "force-dynamic";
 
 const INLINE_FLUSH_LIMIT = 20;
 const AUDIENCE_LIMIT = 5000;
-const AUDIENCES = ["all", "completed", "upcoming_call", "no_response"] as const;
-type Audience = (typeof AUDIENCES)[number];
+const FLOW_AUDIENCES = ["all", "completed", "upcoming_call"] as const;
+type FlowAudience = (typeof FLOW_AUDIENCES)[number];
 
 async function requireAdmin() {
   const supabase = await createSupabaseServerClient();
@@ -30,14 +33,14 @@ async function requireAdmin() {
   return { ok: true as const, admin: createSupabaseAdminClient() };
 }
 
-function isAudience(v: string): v is Audience {
-  return (AUDIENCES as readonly string[]).includes(v);
+function isFlowAudience(v: string): v is FlowAudience {
+  return (FLOW_AUDIENCES as readonly string[]).includes(v);
 }
 
 /**
  * POST /api/admin/marketing/broadcast
- * Body: { audience: all | completed | upcoming_call | no_response, template_name, send: "now" | "schedule", schedule_at?: ISO }
- * no_response matches the admin pipeline column (manual mark or idle after follow-ups).
+ * Body: { audience: all | completed | upcoming_call | <stage>, template_name, send: "now" | "schedule", schedule_at?: ISO }
+ * A stage audience matches that leads-page column. «לא רלוונטי» is not an audience.
  *
  * Immediate: enqueue due_at=now + flush up to 20 in this request.
  * Rest wait for cron-job.org → /api/cron/scheduled-template-sends.
@@ -56,7 +59,8 @@ export async function POST(req: NextRequest) {
   }
 
   const audience = String(body.audience ?? "").trim();
-  if (!isAudience(audience)) {
+  const stageAudience = isMarketingBroadcastStage(audience) ? audience : null;
+  if (!stageAudience && !isFlowAudience(audience)) {
     return NextResponse.json({ error: "invalid_audience" }, { status: 400 });
   }
   const templateName = String(body.template_name ?? "").trim();
@@ -101,11 +105,12 @@ export async function POST(req: NextRequest) {
   }
 
   let phones: string[];
-  if (audience === "no_response") {
+  if (stageAudience) {
     const leads = await loadMarketingAdminLeads(admin);
-    phones = phonesForMarketingNoResponse(leads).slice(0, AUDIENCE_LIMIT);
+    phones = phonesForMarketingStage(leads, stageAudience).slice(0, AUDIENCE_LIMIT);
     if (phones.length === AUDIENCE_LIMIT) {
-      console.warn("[admin/marketing/broadcast] no_response audience truncated", {
+      console.warn("[admin/marketing/broadcast] stage audience truncated", {
+        audience: stageAudience,
         limit: AUDIENCE_LIMIT,
       });
     }

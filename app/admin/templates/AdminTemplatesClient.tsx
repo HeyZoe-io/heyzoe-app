@@ -21,6 +21,12 @@ import {
   marketingSystemTemplateLabel,
   type MarketingTriggerType,
 } from "@/lib/marketing-template-trigger-types";
+import {
+  isMarketingStage,
+  MARKETING_STAGE_STATUSES,
+  marketingStageLabel,
+  type MarketingStage,
+} from "@/lib/marketing-admin-status";
 
 export type AdminTemplateRow = {
   id?: string;
@@ -165,7 +171,7 @@ export default function AdminTemplatesClient({
   const [trigTemplate, setTrigTemplate] = useState("");
   const [savingTrig, setSavingTrig] = useState(false);
 
-  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call" | "no_response">("all");
+  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call" | MarketingStage>("all");
   const [broadcastTpl, setBroadcastTpl] = useState("");
   const [broadcastMode, setBroadcastMode] = useState<"now" | "schedule">("now");
   const [scheduleDate, setScheduleDate] = useState("");
@@ -386,8 +392,10 @@ export default function AdminTemplatesClient({
   async function sendBroadcast(e: React.FormEvent) {
     e.preventDefault();
     if (
-      audience === "no_response" &&
-      !window.confirm("לשלוח את הטמפלייט לכל מי שבעמודת «ללא מענה»? כל נמען = הודעת וואטסאפ.")
+      isMarketingStage(audience) &&
+      !window.confirm(
+        `לשלוח את הטמפלייט לכל מי שבעמודת «${marketingStageLabel(audience)}»? כל נמען = הודעת וואטסאפ.`
+      )
     ) {
       return;
     }
@@ -657,11 +665,15 @@ export default function AdminTemplatesClient({
             <option value="all">כל מי שדיבר עם זואי</option>
             <option value="completed">סיימו את הפלואו</option>
             <option value="upcoming_call">יש שיחה קבועה מעכשיו והלאה</option>
-            <option value="no_response">ללא מענה — כל מי שמסומן</option>
+            {MARKETING_STAGE_STATUSES.map((stage) => (
+              <option key={stage} value={stage}>
+                {marketingStageLabel(stage)} — כל מי שמסומן
+              </option>
+            ))}
           </select>
-          {audience === "no_response" ? (
+          {isMarketingStage(audience) ? (
             <p className="text-xs text-zinc-500">
-              אותו קהל כמו עמודת «ללא מענה» בפייפליין: סימון ידני, או אחרי פולואפים בלי תשובה. מי שסומן אחרת או ביקש הסרה לא נכלל.
+              אותו קהל כמו עמודת «{marketingStageLabel(audience)}» בלידים. «לא רלוונטי» ומי שביקש הסרה לא נכללים.
             </p>
           ) : null}
           <select className={FIELD} value={broadcastTpl} onChange={(e) => setBroadcastTpl(e.target.value)} required>

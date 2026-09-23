@@ -3,6 +3,7 @@ import type { LeadRow } from "@/lib/leads-types";
 import {
   isMarketingNoResponseLead,
   phonesForMarketingNoResponse,
+  phonesForMarketingStage,
 } from "@/lib/marketing-broadcast-audience";
 
 const base: LeadRow = {
@@ -56,5 +57,15 @@ const phones = phonesForMarketingNoResponse([
   { ...base, phone: "  " },
 ]);
 assert.deepEqual(phones, ["972501111111"]);
+
+const byStage = phonesForMarketingStage(
+  [
+    { ...base, phone: "972503333333", pipeline_status: "followup", marketing_relevance: "relevant", marketing_stage: "followup" },
+    { ...base, phone: "972504444444", marketing_relevance: "not_relevant", marketing_stage: "followup" },
+    { ...base, phone: "972505555555", pipeline_status: "registered", trial_registered: true },
+  ],
+  "followup"
+);
+assert.deepEqual(byStage, ["972503333333"]);
 
 console.log("marketing-broadcast-audience.test.ts: ok");
