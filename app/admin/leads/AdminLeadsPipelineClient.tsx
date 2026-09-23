@@ -31,7 +31,7 @@ import {
   nextCallSortMs,
   toPipelineTime,
 } from "@/lib/marketing-next-call";
-import { MARKETING_CONVERSATIONS_SLUG, marketingWaSessionId } from "@/lib/marketing-whatsapp";
+import { marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import MarketingLeadAnswersModal from "@/app/admin/leads/MarketingLeadAnswersModal";
 
 type PipelineStatus = MarketingAdminColumn;
@@ -472,11 +472,11 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
 
   function viewConversations(phone: string) {
     const sp = new URLSearchParams({
-      tab: "conversations",
-      conv_slug: MARKETING_CONVERSATIONS_SLUG,
+      tab: "marketing",
+      sub: "conversations",
       phone,
     });
-    router.push(`/admin/zoe?${sp.toString()}`);
+    router.push(`/admin/dashboard?${sp.toString()}`);
   }
 
   const sendMarketingManual = useCallback(async (phone: string, message: string) => {
