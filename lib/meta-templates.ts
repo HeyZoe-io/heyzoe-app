@@ -79,18 +79,25 @@ function parseTemplateRow(row: unknown): MetaWabaTemplate | null {
 
 /**
  * GET /{waba-id}/message_templates — lists templates on a WABA.
- * Follows `paging.next` until exhausted, capped at {@link LIST_MAX_TEMPLATES}.
+ * Follows `paging.next` until exhausted, capped at `max` (default {@link LIST_MAX_TEMPLATES}).
+ * `fields` is optional; the default Graph field set is unchanged for existing callers.
  */
-export async function listWabaTemplates(wabaId: string): Promise<MetaWabaTemplate[]> {
+export async function listWabaTemplates(
+  wabaId: string,
+  options?: { fields?: string; max?: number }
+): Promise<MetaWabaTemplate[]> {
   const waba = normalizeWabaId(wabaId);
   const token = resolveSystemToken();
+  const max = Math.max(1, Math.trunc(options?.max ?? LIST_MAX_TEMPLATES));
+  const fields = String(options?.fields ?? "").trim();
 
   const collected: MetaWabaTemplate[] = [];
   let url: string | null =
     `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(waba)}/message_templates` +
-    `?limit=${LIST_PAGE_LIMIT}`;
+    `?limit=${LIST_PAGE_LIMIT}` +
+    (fields ? `&fields=${encodeURIComponent(fields)}` : "");
 
-  while (url && collected.length < LIST_MAX_TEMPLATES) {
+  while (url && collected.length < max) {
     const res = await fetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
@@ -114,11 +121,11 @@ export async function listWabaTemplates(wabaId: string): Promise<MetaWabaTemplat
     for (const row of rows) {
       const parsed = parseTemplateRow(row);
       if (parsed) collected.push(parsed);
-      if (collected.length >= LIST_MAX_TEMPLATES) break;
+      if (collected.length >= max) break;
     }
 
     const next = String(page?.paging?.next ?? "").trim();
-    url = next && collected.length < LIST_MAX_TEMPLATES ? next : null;
+    url = next && collected.length < max ? next : null;
   }
 
   return collected;

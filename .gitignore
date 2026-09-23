@@ -20,6 +20,7 @@
 # local artifacts
 /.tmp_images/
 /remotion/
+/scripts/out/
 
 # production
 /build
