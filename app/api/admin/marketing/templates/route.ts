@@ -9,6 +9,7 @@ import {
 } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
+import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,14 +111,16 @@ export async function POST(req: NextRequest) {
   const name = String(body.name ?? "").trim();
   const category = String(body.category ?? "MARKETING").trim().toUpperCase() || "MARKETING";
   const language = String(body.language ?? "he").trim().toLowerCase() || "he";
-  const components = body.components;
+  const rawComponents = body.components;
 
   if (!TEMPLATE_NAME_RE.test(name)) {
     return NextResponse.json({ error: "invalid_template_name" }, { status: 400 });
   }
-  if (!Array.isArray(components) || components.length === 0) {
+  if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
+  const components =
+    category === "MARKETING" ? withMarketingOptOutButton(rawComponents, language) : rawComponents;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -199,9 +202,9 @@ export async function PUT(req: NextRequest) {
   const name = String(body.name ?? "").trim();
   const language = String(body.language ?? "").trim();
   const category = String(body.category ?? "").trim().toUpperCase();
-  const components = body.components;
+  const rawComponents = body.components;
 
-  if (!Array.isArray(components) || components.length === 0) {
+  if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
   if (category && category !== "MARKETING" && category !== "UTILITY") {
@@ -244,6 +247,12 @@ export async function PUT(req: NextRequest) {
   if (statusUpper === "APPROVED" && nextCategory && existingCategory && nextCategory !== existingCategory.toUpperCase()) {
     return NextResponse.json({ error: "category_locked" }, { status: 400 });
   }
+
+  const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
+  const components =
+    nextCategory === "MARKETING"
+      ? withMarketingOptOutButton(rawComponents, language || existingLanguage || "he")
+      : rawComponents;
 
   let updatedMeta: { category?: string; status?: string };
   try {

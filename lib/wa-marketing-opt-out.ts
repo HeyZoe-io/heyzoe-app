@@ -10,7 +10,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export const MARKETING_OPT_OUT_ERROR_CODE = 131050;
 
-export type MarketingOptOutSource = "user_preferences" | "error_131050";
+export type MarketingOptOutSource = "user_preferences" | "error_131050" | "template_button";
 
 export type UserPreferenceEvent = {
   phoneNumberId: string;

@@ -533,10 +533,12 @@ import {
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import {
+  applyMarketingOptOutForPhoneNumber,
   handleMarketingOptOutWebhookSignals,
   parseMarketingOptOutStatuses,
   parseUserPreferencesWebhook,
 } from "@/lib/wa-marketing-opt-out";
+import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
 import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
@@ -6451,6 +6453,42 @@ async function processIncoming(
       return "error";
     }
     return markedOut?.length ? "claimed" : "already";
+  }
+
+  // Meta marketing opt-out button («הפסקת הודעות הקידום» / «Stop promotions»).
+  // Stops marketing templates only. «הסר» below still stops every message.
+  if (msg.type === "text" && isMarketingOptOutButtonText(incomingTextRaw)) {
+    if (!processOpts?.skipUserLog) {
+      await logMessage({
+        business_slug,
+        role: "user",
+        content: msg.text,
+        session_id: earlySessionId,
+      });
+    }
+    const marked = await applyMarketingOptOutForPhoneNumber({
+      phoneNumberId: msg.toNumber,
+      phone: msg.from,
+      optedOut: true,
+      source: "template_button",
+    });
+    if (marked === "error") return;
+    if (marked === "updated" || marked === "inserted") {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הפסקנו לשלוח לך הודעות קידום. אפשר עדיין לכתוב לנו כאן.",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] marketing opt-out button reply failed:", e));
+    } else {
+      console.info("[WA Webhook] marketing opt-out button already applied", {
+        business_slug,
+        phone: msg.from,
+        result: marked,
+      });
+    }
+    return;
   }
 
   // Opt-out: only the three explicit phrases. Everything else continues to Zoe.

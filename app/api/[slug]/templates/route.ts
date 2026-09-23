@@ -5,6 +5,7 @@ import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@/lib/meta-templates";
 import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
+import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 
 export const runtime = "nodejs";
 
@@ -139,9 +140,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
-  const components = applyStudioPurpleHeartPolicyDeep(rawComponents, {
+  const styled = applyStudioPurpleHeartPolicyDeep(rawComponents, {
     slug: String(slug ?? "").trim().toLowerCase(),
   });
+  const components =
+    category === "MARKETING" ? withMarketingOptOutButton(styled, language) : styled;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -256,7 +259,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
-  const components = applyStudioPurpleHeartPolicyDeep(rawComponents, {
+  const styled = applyStudioPurpleHeartPolicyDeep(rawComponents, {
     slug: String(slug ?? "").trim().toLowerCase(),
   });
   if (category && category !== "MARKETING" && category !== "UTILITY") {
@@ -301,6 +304,12 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   if (statusUpper === "APPROVED" && nextCategory && existingCategory && nextCategory !== existingCategory.toUpperCase()) {
     return NextResponse.json({ error: "category_locked" }, { status: 400 });
   }
+
+  const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
+  const components =
+    nextCategory === "MARKETING"
+      ? withMarketingOptOutButton(styled, language || existingLanguage || "he")
+      : styled;
 
   let updatedMeta: { category?: string; status?: string };
   try {
