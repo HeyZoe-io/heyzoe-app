@@ -111,16 +111,16 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
     case "requires_call":
       return {
         label: "דורש שיחה",
-        badgeClass: "bg-orange-50 text-orange-800",
-        activeBg: "#fff7ed",
-        activeFg: "#c2410c",
+        badgeClass: "bg-green-50 text-green-800",
+        activeBg: "#f0fdf4",
+        activeFg: "#166534",
       };
     case "followup":
       return {
         label: "פולואפ",
-        badgeClass: "bg-green-50 text-green-800",
-        activeBg: "#f0fdf4",
-        activeFg: "#166534",
+        badgeClass: "bg-orange-50 text-orange-800",
+        activeBg: "#fff7ed",
+        activeFg: "#c2410c",
       };
     case "in_process":
     default:
