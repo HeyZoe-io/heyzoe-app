@@ -83,23 +83,23 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
     case "not_relevant":
       return {
         label: "לא רלוונטי",
-        badgeClass: "bg-gray-100 text-gray-600",
-        activeBg: "#f3f4f6",
-        activeFg: "#4b5563",
+        badgeClass: "bg-zinc-100 text-zinc-600",
+        activeBg: "#f4f4f5",
+        activeFg: "#52525b",
       };
     case "registered":
       return {
         label: "נרשם",
-        badgeClass: "bg-emerald-50 text-emerald-700",
-        activeBg: "#ecfdf5",
-        activeFg: "#047857",
+        badgeClass: "bg-purple-50 text-purple-800",
+        activeBg: "#faf5ff",
+        activeFg: "#6b21a8",
       };
     case "no_response":
       return {
         label: "ללא מענה",
-        badgeClass: "bg-orange-50 text-orange-700",
-        activeBg: "#fff7ed",
-        activeFg: "#c2410c",
+        badgeClass: "bg-red-50 text-red-700",
+        activeBg: "#fef2f2",
+        activeFg: "#b91c1c",
       };
     case "not_interested":
       return {
@@ -111,24 +111,24 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
     case "requires_call":
       return {
         label: "דורש שיחה",
-        badgeClass: "bg-amber-50 text-amber-900",
-        activeBg: "#fffbeb",
-        activeFg: "#92400e",
+        badgeClass: "bg-orange-50 text-orange-800",
+        activeBg: "#fff7ed",
+        activeFg: "#c2410c",
       };
     case "followup":
       return {
         label: "פולואפ",
-        badgeClass: "bg-amber-50 text-amber-900",
-        activeBg: "#fffbeb",
-        activeFg: "#92400e",
+        badgeClass: "bg-green-50 text-green-800",
+        activeBg: "#f0fdf4",
+        activeFg: "#166534",
       };
     case "in_process":
     default:
       return {
         label: "ליד חדש",
-        badgeClass: "bg-indigo-50 text-indigo-800",
-        activeBg: "#eef2ff",
-        activeFg: "#3730a3",
+        badgeClass: "bg-blue-50 text-blue-800",
+        activeBg: "#eff6ff",
+        activeFg: "#1d4ed8",
       };
   }
 }

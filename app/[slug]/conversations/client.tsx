@@ -18,6 +18,7 @@ import {
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
 import {
+  getMarketingNoteStatusMeta,
   sortMarketingSessionsByStatusPriority,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
@@ -246,14 +247,26 @@ function MarketingNoteStatusBadge({
   relevance?: MarketingRelevance | null;
   column?: MarketingAdminColumn | null;
 }) {
+  const notRelevant = column === "not_relevant" || relevance === "not_relevant" || status === "not_relevant";
+  const stage: MarketingNoteStatus = notRelevant
+    ? "not_relevant"
+    : isMarketingStage(column)
+      ? column
+      : isMarketingStage(status)
+        ? status
+        : "in_process";
   const label = column
     ? formatMarketingAdminStatusLabel({ column })
     : formatMarketingAdminStatusLabel({
-        relevance: relevance === "not_relevant" || status === "not_relevant" ? "not_relevant" : "relevant",
-        stage: isMarketingStage(status) ? status : "in_process",
+        relevance: notRelevant ? "not_relevant" : "relevant",
+        stage: isMarketingStage(stage) ? stage : "in_process",
       });
+  const badgeClass =
+    column === "opted_out" ? "bg-zinc-100 text-zinc-600" : getMarketingNoteStatusMeta(stage).badgeClass;
   return (
-    <span className="inline-flex max-w-full truncate rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-indigo-800">
+    <span
+      className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${badgeClass}`}
+    >
       {label}
     </span>
   );
