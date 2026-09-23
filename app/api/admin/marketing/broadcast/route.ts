@@ -8,13 +8,16 @@ import {
 } from "@/lib/marketing-template-dispatch";
 import { toPipelineDateOnly } from "@/lib/marketing-next-call";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
+import { phonesForMarketingNoResponse } from "@/lib/marketing-broadcast-audience";
+import { loadMarketingAdminLeads } from "@/lib/leads-data";
 import type { ScheduledMarketingTemplateSendRow } from "@/lib/scheduled-marketing-template-sends";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const INLINE_FLUSH_LIMIT = 20;
-const AUDIENCES = ["all", "completed", "upcoming_call"] as const;
+const AUDIENCE_LIMIT = 5000;
+const AUDIENCES = ["all", "completed", "upcoming_call", "no_response"] as const;
 type Audience = (typeof AUDIENCES)[number];
 
 async function requireAdmin() {
@@ -33,7 +36,8 @@ function isAudience(v: string): v is Audience {
 
 /**
  * POST /api/admin/marketing/broadcast
- * Body: { audience, template_name, send: "now" | "schedule", schedule_at?: ISO }
+ * Body: { audience: all | completed | upcoming_call | no_response, template_name, send: "now" | "schedule", schedule_at?: ISO }
+ * no_response matches the admin pipeline column (manual mark or idle after follow-ups).
  *
  * Immediate: enqueue due_at=now + flush up to 20 in this request.
  * Rest wait for cron-job.org → /api/cron/scheduled-template-sends.
@@ -96,25 +100,40 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let query = admin.from("marketing_flow_sessions").select("phone, flow_completed, next_call_at");
-  if (audience === "completed") query = query.eq("flow_completed", true);
-  if (audience === "upcoming_call") {
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Jerusalem",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-    query = query.gte("next_call_at", today);
-  }
+  let phones: string[];
+  if (audience === "no_response") {
+    const leads = await loadMarketingAdminLeads(admin);
+    phones = phonesForMarketingNoResponse(leads).slice(0, AUDIENCE_LIMIT);
+    if (phones.length === AUDIENCE_LIMIT) {
+      console.warn("[admin/marketing/broadcast] no_response audience truncated", {
+        limit: AUDIENCE_LIMIT,
+      });
+    }
+  } else {
+    let query = admin.from("marketing_flow_sessions").select("phone, flow_completed, next_call_at");
+    if (audience === "completed") query = query.eq("flow_completed", true);
+    if (audience === "upcoming_call") {
+      const today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jerusalem",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+      query = query.gte("next_call_at", today);
+    }
 
-  const { data: sessions, error: sessErr } = await query.limit(5000);
-  if (sessErr) {
-    console.error("[admin/marketing/broadcast] sessions lookup failed:", sessErr.message);
-    return NextResponse.json({ error: "audience_lookup_failed" }, { status: 500 });
-  }
+    const { data: sessions, error: sessErr } = await query.limit(AUDIENCE_LIMIT);
+    if (sessErr) {
+      console.error("[admin/marketing/broadcast] sessions lookup failed:", sessErr.message);
+      return NextResponse.json({ error: "audience_lookup_failed" }, { status: 500 });
+    }
 
-  const phones = [...new Set((sessions ?? []).map((r) => String((r as { phone?: unknown }).phone ?? "").trim()).filter(Boolean))];
+    phones = [
+      ...new Set(
+        (sessions ?? []).map((r) => String((r as { phone?: unknown }).phone ?? "").trim()).filter(Boolean)
+      ),
+    ];
+  }
   if (phones.length === 0) {
     return NextResponse.json({ ok: true, recipients: 0, queued: 0, flushed: 0 });
   }

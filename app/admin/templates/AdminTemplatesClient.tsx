@@ -165,7 +165,7 @@ export default function AdminTemplatesClient({
   const [trigTemplate, setTrigTemplate] = useState("");
   const [savingTrig, setSavingTrig] = useState(false);
 
-  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call">("all");
+  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call" | "no_response">("all");
   const [broadcastTpl, setBroadcastTpl] = useState("");
   const [broadcastMode, setBroadcastMode] = useState<"now" | "schedule">("now");
   const [scheduleDate, setScheduleDate] = useState("");
@@ -372,6 +372,12 @@ export default function AdminTemplatesClient({
 
   async function sendBroadcast(e: React.FormEvent) {
     e.preventDefault();
+    if (
+      audience === "no_response" &&
+      !window.confirm("לשלוח את הטמפלייט לכל מי שבעמודת «ללא מענה»? כל נמען = הודעת וואטסאפ.")
+    ) {
+      return;
+    }
     setBroadcasting(true);
     setError(null);
     try {
@@ -638,7 +644,13 @@ export default function AdminTemplatesClient({
             <option value="all">כל מי שדיבר עם זואי</option>
             <option value="completed">סיימו את הפלואו</option>
             <option value="upcoming_call">יש שיחה קבועה מעכשיו והלאה</option>
+            <option value="no_response">ללא מענה — כל מי שמסומן</option>
           </select>
+          {audience === "no_response" ? (
+            <p className="text-xs text-zinc-500">
+              אותו קהל כמו עמודת «ללא מענה» בפייפליין: סימון ידני, או אחרי פולואפים בלי תשובה. מי שסומן אחרת או ביקש הסרה לא נכלל.
+            </p>
+          ) : null}
           <select className={FIELD} value={broadcastTpl} onChange={(e) => setBroadcastTpl(e.target.value)} required>
             <option value="">טמפלייט מאושר</option>
             {templates
