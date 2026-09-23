@@ -568,6 +568,14 @@ async function runExecute(
       fallthrough.push(`${groupLabel(unit.group)} LIST FAILED ${message}`);
       continue;
     }
+    const versionStatuses: string[] = [];
+    for (const template of fresh) {
+      if (!/_v\d+$/.test(template.name)) continue;
+      const line = `${template.name} ${template.status}`;
+      versionStatuses.push(line);
+      console.log(`V2_STATUS ${groupLabel(unit.group)} ${line}`);
+    }
+    log.verification.push({ waba: groupLabel(unit.group), versions: versionStatuses });
     const marketing = fresh.filter((row) => norm(row.category).toUpperCase() === "MARKETING");
     for (const template of marketing) {
       if (template.name === "quota_warning_80" || template.name === "quota_limit_reached") continue;
