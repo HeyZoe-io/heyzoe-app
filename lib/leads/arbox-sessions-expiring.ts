@@ -1,3 +1,4 @@
+import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
 import {
@@ -24,7 +25,8 @@ import {
 import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
-  resolveSessionsExpiringTemplateTrigger,
+  loadEnabledSessionsExpiringTemplateTriggers,
+  pickRuleForMembershipTypeName,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -70,6 +72,7 @@ export type SessionsExpiringDispatch =
   | "skipped_expired_end"
   | "skipped_no_end_date"
   | "skipped_outside_horizon"
+  | "skipped_filter"
   | "no_rule"
   | "no_phone"
   | "send_failed";
@@ -90,6 +93,7 @@ export type SessionsExpiringSyncSummary = {
   skipped_expired_end: number;
   skipped_no_end_date: number;
   skipped_outside_horizon: number;
+  skipped_filter: number;
   no_phone: number;
   errors: number;
   fetch_error?: string;
@@ -406,6 +410,11 @@ async function dispatchSessionsExpiringTemplate(input: {
  * Daily sessions_expiring step for one Arbox business (punch-card / session pack).
  * Report requires fromDate/toDate (max 31 days) but does NOT filter by end_date —
  * client filters end_date into [today, today+30], skips null end_date / renewed / cancelled.
+ *
+ * Card include-list (product_filter): empty = every punch card. A non-empty list matches
+ * expiringSessionsReport.membership_type_name via GET /v3/membershipTypes (usually 1 page,
+ * only when at least one rule has a list). 200 studios ≈ 200–400 extra Arbox GETs/day.
+ * Unlisted cards (for example an intro pack) are skipped and not marked seen.
  */
 export async function syncArboxSessionsExpiringForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -429,6 +438,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     skipped_expired_end: 0,
     skipped_no_end_date: 0,
     skipped_outside_horizon: 0,
+    skipped_filter: 0,
     no_phone: 0,
     errors: 0,
   };
@@ -445,8 +455,9 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     return summary;
   }
 
-  const rule = await resolveSessionsExpiringTemplateTrigger({ admin: input.admin, businessId });
-  if (!rule?.template_name?.trim()) {
+  const rules = await loadEnabledSessionsExpiringTemplateTriggers(input.admin, businessId);
+  const rulesWithTemplate = rules.filter((rule) => Boolean(rule.template_name?.trim()));
+  if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     console.info("[leads/arbox-sessions-expiring] skip — no enabled sessions_expiring rule", {
@@ -455,6 +466,28 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
       dispatch: "no_rule",
     });
     return summary;
+  }
+
+  const needsTypeMap = rulesWithTemplate.some((rule) => (rule.product_filter?.length ?? 0) > 0);
+  let nameById = new Map<number, string>();
+  if (needsTypeMap) {
+    const typesResult = await fetchAllArboxMembershipTypes({
+      apiKey,
+      logLabel: "leads/arbox-sessions-expiring",
+    });
+    if (!typesResult.ok) {
+      console.error(
+        "[leads/arbox-sessions-expiring] membershipTypes fetch failed — card filter cannot match",
+        { businessId, businessSlug, status: typesResult.status }
+      );
+      summary.errors += 1;
+      summary.fetch_error = "membership_types_fetch_failed";
+      if (rulesWithTemplate.every((rule) => (rule.product_filter?.length ?? 0) > 0)) {
+        return summary;
+      }
+    } else {
+      nameById = membershipTypeNameById(typesResult.types);
+    }
   }
 
   const window = expiringSessionsReportFetchWindow(now);
@@ -502,6 +535,18 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     }
     if (!startDateYmd) {
       summary.errors += 1;
+      continue;
+    }
+
+    const membershipTypeName = String(row.membership_type_name ?? "").trim();
+    const rule = pickRuleForMembershipTypeName(rulesWithTemplate, membershipTypeName, nameById);
+    if (!rule) {
+      summary.skipped_filter += 1;
+      console.info("[leads/arbox-sessions-expiring] dispatch", {
+        ...logBase,
+        membership_type_name: membershipTypeName || null,
+        dispatch: "skipped_filter",
+      });
       continue;
     }
 

@@ -26,6 +26,7 @@ import {
   isUniquePerBusinessTriggerType,
   minDelayDaysForTrigger,
   plannedCatalogEntriesForCell,
+  productFilterScope,
   showsProductFilter,
   showsItemTypeFilter,
   isImmediateDelayTrigger,
@@ -423,9 +424,14 @@ function triggerCatalogAudience(type: string) {
         type === "registered_after_trial" ||
         type === "not_registered_after_trial" ||
         type === "membership_cancelled" ||
+        type === "sessions_expiring" ||
         type === "missed_trial" ||
         type === "trial_reminder" ||
         type === "trainer_trial_heads_up"
+    );
+    assert.equal(
+      productFilterScope(type),
+      type === "sessions_expiring" ? "session" : "all"
     );
   }
 }
@@ -505,6 +511,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesAfterNoProductFilter("purchase"), false);
   assert.equal(forcesAfterNoProductFilter("birthday"), false);
   assert.equal(forcesAfterNoProductFilter("membership_cancelled"), false);
+  assert.equal(forcesAfterNoProductFilter("sessions_expiring"), false);
   assert.equal(forcesAfterNoProductFilter("milestones"), true);
   assert.equal(forcesAfterNoProductFilter("nth_workout"), true);
   assert.equal(forcesAfterNoProductFilter("class_cancelled_staff"), true);

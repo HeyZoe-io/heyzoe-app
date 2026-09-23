@@ -152,7 +152,7 @@ export const TRIGGER_CATALOG = [
     implemented: true,
     arboxOnly: true,
     delay: "either",
-    showProductFilter: false,
+    showProductFilter: true,
     uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
@@ -819,6 +819,11 @@ export function delayDirectionForTrigger(
 
 export function showsProductFilter(triggerType: string): boolean {
   return triggerCatalogEntry(triggerType)?.showProductFilter === true;
+}
+
+/** Punch-card expiry lists session packs. Other filters list every Arbox membership type. */
+export function productFilterScope(triggerType: string): "all" | "session" {
+  return triggerCatalogEntry(triggerType)?.type === "sessions_expiring" ? "session" : "all";
 }
 
 export function minDelayDaysForTrigger(triggerType: string): number {

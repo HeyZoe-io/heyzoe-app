@@ -175,3 +175,16 @@ export function filterArboxPlanAndPunchCardTypes<T extends { type?: string | nul
 ): T[] {
   return types.filter((row) => isArboxPlanOrPunchCardType(row.type));
 }
+
+/** Punch-card expiry picker: session packs only. A missing type stays visible. */
+export function isArboxPunchCardType(type: string | undefined | null): boolean {
+  const normalized = String(type ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === "session";
+}
+
+export function filterArboxPunchCardTypes<T extends { type?: string | null }>(
+  types: readonly T[]
+): T[] {
+  return types.filter((row) => isArboxPunchCardType(row.type));
+}
