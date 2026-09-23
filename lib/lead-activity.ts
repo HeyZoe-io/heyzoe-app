@@ -36,19 +36,39 @@ export function marketingLeadConversationAt(
   return null;
 }
 
-/** תאריך ושעה כמו בכרטיס הליד — שעון ישראל, כדי שדף השיחות ודף הלידים יראו אותו דבר. */
-export function formatLeadConversationDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+export type LeadConversationDateTimeParts = { date: string; time: string };
+
+/** תאריך ושעה בנפרד — שעון ישראל, אותו פירוק כמו בכרטיס הליד. */
+export function formatLeadConversationDateTimeParts(
+  iso: string | null | undefined
+): LeadConversationDateTimeParts | null {
+  if (!iso) return null;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("he-IL", {
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: IL_TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  const day = pick("day");
+  const month = pick("month");
+  const year = pick("year");
+  const hour = pick("hour");
+  const minute = pick("minute");
+  if (!day || !month || !year || hour.length !== 2 || minute.length !== 2) return null;
+  return { date: `${day}.${month}.${year}`, time: `${hour}:${minute}` };
+}
+
+/** תאריך ושעה כמו בכרטיס הליד — שעון ישראל, כדי שדף השיחות ודף הלידים יראו אותו דבר. */
+export function formatLeadConversationDateTime(iso: string | null | undefined): string {
+  const parts = formatLeadConversationDateTimeParts(iso);
+  if (!parts) return "—";
+  return `${parts.date}, ${parts.time}`;
 }
 
 export function leadConversationAtMs(row: Parameters<typeof leadConversationAt>[0]): number {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   formatLeadConversationDateTime,
+  formatLeadConversationDateTimeParts,
   marketingLeadConversationAt,
 } from "@/lib/lead-activity";
 
@@ -39,7 +40,12 @@ assert.equal(marketingLeadConversationAt(null), null);
 assert.equal(marketingLeadConversationAt({}), null);
 
 // 11:46 UTC = 14:46 ישראל (קיץ). אותו מחרוזת בדף לידים ובדף שיחות.
+assert.deepEqual(formatLeadConversationDateTimeParts(userAt), { date: "20.08.2026", time: "14:46" });
 assert.equal(formatLeadConversationDateTime(userAt), "20.08.2026, 14:46");
+assert.deepEqual(formatLeadConversationDateTimeParts("2026-08-20T21:05:00.000Z"), {
+  date: "21.08.2026",
+  time: "00:05",
+});
 assert.equal(formatLeadConversationDateTime(null), "—");
 assert.equal(formatLeadConversationDateTime("nope"), "—");
 

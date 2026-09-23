@@ -17,7 +17,10 @@ import {
 } from "@/components/conversations/WaConversationMessage";
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
-import { formatLeadConversationDateTime } from "@/lib/lead-activity";
+import {
+  formatLeadConversationDateTime,
+  formatLeadConversationDateTimeParts,
+} from "@/lib/lead-activity";
 import {
   getMarketingNoteStatusMeta,
   sortMarketingSessionsByStatusPriority,
@@ -206,6 +209,18 @@ function truncatePreview(text: string, max = 52): string {
   const t = text.replace(/\s+/g, " ").trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
+}
+
+function AdminConversationStamp({ iso, emphasize }: { iso: string; emphasize: boolean }) {
+  const parts = formatLeadConversationDateTimeParts(iso);
+  const color = emphasize ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]";
+  if (!parts) return <span className={`text-[12px] ${color}`}>—</span>;
+  return (
+    <span className={`flex flex-col items-end leading-tight ${color}`} title={`${parts.date}, ${parts.time}`}>
+      <span className="whitespace-nowrap text-[12px]">{parts.date}</span>
+      <span className="whitespace-nowrap text-[12px]">{parts.time}</span>
+    </span>
+  );
 }
 
 function SessionAvatar({ session }: { session: { fullName?: string | null; phone?: string; session_id: string } }) {
@@ -938,13 +953,17 @@ export default function ConversationsClient({
                       ) : null}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
-                      <span
-                        className={`whitespace-nowrap text-[12px] ${
-                          awaitingReply ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]"
-                        }`}
-                      >
-                        {apiScope === "admin" ? formatLeadConversationDateTime(s.lastAt) : formatListTime(s.lastAt)}
-                      </span>
+                      {apiScope === "admin" ? (
+                        <AdminConversationStamp iso={s.lastAt} emphasize={awaitingReply} />
+                      ) : (
+                        <span
+                          className={`whitespace-nowrap text-[12px] ${
+                            awaitingReply ? "font-bold text-[#1fa855]" : "font-normal text-[#667781]"
+                          }`}
+                        >
+                          {formatListTime(s.lastAt)}
+                        </span>
+                      )}
                       <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
                       {s.isPaused ? (
                         <SessionPauseBadge
