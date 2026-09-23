@@ -7,6 +7,7 @@ import {
 import { leadConversationAt, sortLeadsByRecentActivity } from "@/lib/lead-activity";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { LeadRow } from "@/lib/leads-types";
+import { splitStoredMarketingStatus } from "@/lib/marketing-admin-status";
 import { applyMarketingLeadStatusHints } from "@/lib/marketing-pipeline-status";
 import { toPipelineTime } from "@/lib/marketing-next-call";
 
@@ -207,6 +208,8 @@ export function mapMarketingFlowSessionToLeadRow(
   registeredOrHints: boolean | {
     registeredFromMessage?: boolean;
     noteStatus?: string | null;
+    noteRelevance?: string | null;
+    hasMarketingNote?: boolean;
     noteUpdatedAt?: string | null;
     pipelineStatus?: string | null;
   } = false
@@ -256,12 +259,23 @@ export function mapMarketingFlowSessionToLeadRow(
     business_name: "זואי אדמין",
     pipeline_status: typeof s.pipeline_status === "string" ? s.pipeline_status : null,
   };
-  return applyMarketingLeadStatusHints(row, {
+  const hinted = applyMarketingLeadStatusHints(row, {
     registeredFromMessage: registered,
     noteStatus: hints.noteStatus,
     noteUpdatedAt: hints.noteUpdatedAt,
     pipelineStatus: hints.pipelineStatus ?? (typeof s.pipeline_status === "string" ? s.pipeline_status : null),
   });
+  const crm = splitStoredMarketingStatus({
+    status: hints.noteStatus,
+    relevance: hints.noteRelevance,
+    hasNote: hints.hasMarketingNote === true,
+  });
+  if (!crm) return hinted;
+  return {
+    ...hinted,
+    marketing_relevance: crm.relevance,
+    marketing_stage: crm.stage,
+  };
 }
 
 async function loadMarketingRegisteredPhoneKeys(
@@ -293,22 +307,32 @@ async function loadMarketingRegisteredPhoneKeys(
 
 async function loadMarketingNoteStatusByPhone(
   admin: ReturnType<typeof createSupabaseAdminClient>
-): Promise<Map<string, { status: string; updatedAt: string | null }>> {
-  const { data, error } = await admin
+): Promise<Map<string, { status: string; relevance: string | null; updatedAt: string | null }>> {
+  const map = new Map<string, { status: string; relevance: string | null; updatedAt: string | null }>();
+  let { data, error } = await admin
     .from("marketing_conversation_notes")
-    .select("phone, status, updated_at")
+    .select("phone, status, relevance, updated_at")
     .limit(ADMIN_LEADS_LIMIT);
-  const map = new Map<string, { status: string; updatedAt: string | null }>();
+  if (error && /relevance|column|schema cache/i.test(error.message)) {
+    console.warn("[leads-data] marketing relevance missing — run supabase/marketing_admin_status_layers.sql");
+    const legacy = await admin
+      .from("marketing_conversation_notes")
+      .select("phone, status, updated_at")
+      .limit(ADMIN_LEADS_LIMIT);
+    data = legacy.data as typeof data;
+    error = legacy.error;
+  }
   if (error) {
     console.warn("[leads-data] marketing_conversation_notes load:", error.message);
     return map;
   }
   for (const row of data ?? []) {
-    const raw = row as { phone?: string; status?: string; updated_at?: string | null };
+    const raw = row as { phone?: string; status?: string; relevance?: string | null; updated_at?: string | null };
     const key = phoneKey(String(raw.phone ?? "").trim());
     if (!key) continue;
     map.set(key, {
       status: String(raw.status ?? ""),
+      relevance: raw.relevance ?? null,
       updatedAt: raw.updated_at ?? null,
     });
   }
@@ -440,6 +464,8 @@ export async function loadMarketingAdminLeads(
     return mapMarketingFlowSessionToLeadRow(s, {
       registeredFromMessage: key ? registeredKeys.has(key) : false,
       noteStatus: note?.status ?? null,
+      noteRelevance: note?.relevance ?? null,
+      hasMarketingNote: Boolean(note),
       noteUpdatedAt: note?.updatedAt ?? null,
       pipelineStatus: typeof s.pipeline_status === "string" ? s.pipeline_status : null,
     });

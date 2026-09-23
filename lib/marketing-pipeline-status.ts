@@ -2,14 +2,16 @@ import type { ContactStatusKey } from "@/lib/contact-status";
 import type { LeadRow } from "@/lib/leads-types";
 import type { MarketingNoteStatus } from "@/lib/marketing-conversation-notes";
 
-export type MarketingPipelineDropStatus = ContactStatusKey | "none";
+export type MarketingPipelineDropStatus = ContactStatusKey | "none" | "in_process" | "requires_call";
 
 /** כל עמודות הפייפליין שאפשר לגרור אליהן בלי לשלוח הודעה לליד */
 export const MARKETING_PIPELINE_DROP_STATUSES: readonly MarketingPipelineDropStatus[] = [
   "template",
   "active",
+  "in_process",
   "followup",
   "human_followup",
+  "requires_call",
   "no_response",
   "human_requested",
   "registered_human_requested",
@@ -42,6 +44,7 @@ const STOP_FOLLOWUPS = new Set<string>([
   "not_relevant",
   "no_response",
   "human_requested",
+  "requires_call",
   "opted_out",
   "registered_human_requested",
 ]);
@@ -71,7 +74,13 @@ export function pipelineStatusToNoteStatus(
   if (status === "not_interested") return "not_interested";
   if (status === "not_relevant") return "not_relevant";
   if (status === "no_response") return "no_response";
-  if (status === "human_followup") return "requires_call";
+  if (status === "human_followup" || status === "requires_call" || status === "human_requested") {
+    return "requires_call";
+  }
+  if (status === "followup") return "followup";
+  if (status === "in_process" || status === "active" || status === "template" || status === "none") {
+    return "in_process";
+  }
   return null;
 }
 
@@ -167,6 +176,7 @@ export function applyManualPipelineStatus(
         next_call_time: null,
       };
     case "human_followup":
+    case "requires_call":
       return {
         ...cleared,
         human_followup_at: row.human_followup_at || at,
@@ -177,6 +187,7 @@ export function applyManualPipelineStatus(
     case "followup":
     case "template":
     case "none":
+    case "in_process":
       return {
         ...cleared,
         human_followup_at: null,

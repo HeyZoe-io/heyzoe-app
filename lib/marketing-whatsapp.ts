@@ -9,6 +9,14 @@ import {
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 import {
+  isMarketingStage,
+  resolveMarketingAdminColumn,
+  splitStoredMarketingStatus,
+  type MarketingAdminColumn,
+  type MarketingRelevance,
+} from "@/lib/marketing-admin-status";
+import type { LeadRow } from "@/lib/leads-types";
+import {
   isSalesFlowStartTrigger,
   normalizeSalesFlowGreetingToken,
 } from "@/lib/sales-flow-start-triggers";
@@ -238,8 +246,11 @@ export type MarketingSessionSummary = {
   phone: string;
   /** שם הליד מ-marketing_flow_sessions.full_name (WhatsApp ProfileName) */
   fullName?: string | null;
-  /** סטטוס CRM ידני מ-marketing_conversation_notes (ברירת מחדל: בתהליך) */
+  /** סטטוס CRM ידני מ-marketing_conversation_notes (ברירת מחדל: ליד חדש) */
   noteStatus?: MarketingNoteStatus;
+  noteRelevance?: MarketingRelevance;
+  /** אותה עמודה כמו בדף הלידים */
+  adminColumn?: MarketingAdminColumn;
 };
 
 type MarketingMessageRow = {
@@ -325,27 +336,81 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       .gt("paused_until", new Date().toISOString()),
     admin
       .from("marketing_flow_sessions")
-      .select("phone, updated_at, created_at, full_name")
+      .select(
+        "phone, updated_at, created_at, full_name, pipeline_status, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, last_user_message_at, human_followup_at"
+      )
       .order("updated_at", { ascending: false })
       .limit(5000),
-    admin.from("marketing_conversation_notes").select("phone, status").limit(10_000),
+    admin.from("marketing_conversation_notes").select("phone, status, relevance").limit(10_000),
   ]);
 
   if (slugErr) console.error("[marketing-whatsapp] slug messages:", slugErr.message);
   if (lineErr) console.error("[marketing-whatsapp] line messages:", lineErr.message);
-  if (flowErr) console.error("[marketing-whatsapp] flow_sessions:", flowErr.message);
-  if (notesErr) console.error("[marketing-whatsapp] conversation_notes:", notesErr.message);
+  let resolvedFlowSessions = flowSessions;
+  if (flowErr) {
+    console.error("[marketing-whatsapp] flow_sessions:", flowErr.message);
+    const legacyFlow = await admin
+      .from("marketing_flow_sessions")
+      .select("phone, updated_at, created_at, full_name")
+      .order("updated_at", { ascending: false })
+      .limit(5000);
+    if (legacyFlow.error) {
+      console.error("[marketing-whatsapp] flow_sessions fallback:", legacyFlow.error.message);
+    } else {
+      resolvedFlowSessions = legacyFlow.data as unknown as typeof flowSessions;
+    }
+  }
+  let resolvedNoteRows = noteRows;
+  if (notesErr && /relevance|column|schema cache/i.test(notesErr.message)) {
+    console.warn("[marketing-whatsapp] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+    const legacyNotes = await admin.from("marketing_conversation_notes").select("phone, status").limit(10_000);
+    if (legacyNotes.error) {
+      console.error("[marketing-whatsapp] conversation_notes:", legacyNotes.error.message);
+    } else {
+      resolvedNoteRows = legacyNotes.data as unknown as typeof noteRows;
+    }
+  } else if (notesErr) {
+    console.error("[marketing-whatsapp] conversation_notes:", notesErr.message);
+  }
 
-  const noteStatusByPhoneKey = new Map<string, MarketingNoteStatus>();
-  for (const row of noteRows ?? []) {
+  const noteByPhoneKey = new Map<string, { status: MarketingNoteStatus; relevance: string | null }>();
+  for (const row of resolvedNoteRows ?? []) {
     const phoneRaw = String((row as { phone?: string }).phone ?? "").trim();
     if (!phoneRaw) continue;
     const status = coerceMarketingNoteStatus((row as { status?: string }).status);
+    const relevance = String((row as { relevance?: string | null }).relevance ?? "").trim() || null;
     const digits = marketingPhoneDigits(phoneRaw) || phoneRaw.replace(/\D/g, "");
     if (digits) {
-      noteStatusByPhoneKey.set(digits, status);
-      if (digits.length >= 9) noteStatusByPhoneKey.set(digits.slice(-9), status);
+      noteByPhoneKey.set(digits, { status, relevance });
+      if (digits.length >= 9) noteByPhoneKey.set(digits.slice(-9), { status, relevance });
     }
+  }
+
+  const flowByPhoneKey = new Map<
+    string,
+    {
+      pipeline_status?: string | null;
+      followup_1_sent_at?: string | null;
+      followup_2_sent_at?: string | null;
+      followup_3_sent_at?: string | null;
+      last_user_message_at?: string | null;
+      human_followup_at?: string | null;
+    }
+  >();
+  for (const s of resolvedFlowSessions ?? []) {
+    const row = s as {
+      phone?: string;
+      pipeline_status?: string | null;
+      followup_1_sent_at?: string | null;
+      followup_2_sent_at?: string | null;
+      followup_3_sent_at?: string | null;
+      last_user_message_at?: string | null;
+      human_followup_at?: string | null;
+    };
+    const digits = marketingPhoneDigits(String(row.phone ?? "")) || String(row.phone ?? "").replace(/\D/g, "");
+    if (!digits || flowByPhoneKey.has(digits)) continue;
+    flowByPhoneKey.set(digits, row);
+    if (digits.length >= 9) flowByPhoneKey.set(digits.slice(-9), row);
   }
 
   const seenMsgKeys = new Set<string>();
@@ -370,7 +435,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
   }
 
   const nameBySid = new Map<string, string>();
-  for (const s of flowSessions ?? []) {
+  for (const s of resolvedFlowSessions ?? []) {
     const row = s as { phone?: string; updated_at?: string; created_at?: string; full_name?: string | null };
     const phoneRaw = String(row.phone ?? "").trim();
     if (!phoneRaw) continue;
@@ -389,7 +454,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     }
   }
 
-  function resolveNoteStatus(phoneDisplay: string, sessionId: string): MarketingNoteStatus {
+  function lookupPhone<T>(map: Map<string, T>, phoneDisplay: string, sessionId: string): T | undefined {
     const fromSid = extractLeadPhoneFromMarketingSession(sessionId);
     const candidates = [
       marketingPhoneDigits(phoneDisplay),
@@ -398,24 +463,64 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       String(fromSid ?? "").replace(/\D/g, ""),
     ].filter(Boolean);
     for (const c of candidates) {
-      const hit = noteStatusByPhoneKey.get(c) ?? (c.length >= 9 ? noteStatusByPhoneKey.get(c.slice(-9)) : undefined);
+      const hit = map.get(c) ?? (c.length >= 9 ? map.get(c.slice(-9)) : undefined);
       if (hit) return hit;
     }
-    return DEFAULT_MARKETING_NOTE_STATUS;
+    return undefined;
   }
 
-  const sessions: MarketingSessionSummary[] = [...bySession.entries()].map(([sid, data]) => ({
-    session_id: sid,
-    lastAt: data.lastAt.toISOString(),
-    count: data.count,
-    isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
-    lastFromUser: data.lastFromUser,
-    isPaused: pausedUntilByCanonical.has(sid),
-    pausedUntil: pausedUntilByCanonical.get(sid) ?? null,
-    phone: data.phone,
-    fullName: nameBySid.get(sid) ?? null,
-    noteStatus: resolveNoteStatus(data.phone, sid),
-  }));
+  const sessions: MarketingSessionSummary[] = [...bySession.entries()].map(([sid, data]) => {
+    const note = lookupPhone(noteByPhoneKey, data.phone, sid);
+    const flow = lookupPhone(flowByPhoneKey, data.phone, sid);
+    const crm = splitStoredMarketingStatus({
+      status: note?.status,
+      relevance: note?.relevance,
+      hasNote: Boolean(note),
+    });
+    const followupStage = flow?.followup_3_sent_at ? 3 : flow?.followup_2_sent_at ? 2 : flow?.followup_1_sent_at ? 1 : 0;
+    const column = resolveMarketingAdminColumn({
+      phone: data.phone,
+      full_name: null,
+      source: null,
+      created_at: null,
+      opted_out: flow?.pipeline_status === "opted_out",
+      not_relevant_at: null,
+      not_relevant_reason: null,
+      human_requested_at: null,
+      human_followup_at: flow?.human_followup_at ?? null,
+      next_call_at: null,
+      session_phase: null,
+      trial_registered: false,
+      wa_no_response_at: null,
+      no_response_notified_at: null,
+      wa_followup_stage: followupStage,
+      last_contact_at: flow?.last_user_message_at ?? data.lastAt.toISOString(),
+      cta_clicked_at: null,
+      pipeline_status: flow?.pipeline_status ?? null,
+      marketing_relevance: crm?.relevance ?? null,
+      marketing_stage: crm?.stage ?? null,
+    } satisfies LeadRow);
+    const noteRelevance: MarketingRelevance = column === "not_relevant" ? "not_relevant" : "relevant";
+    const noteStatus: MarketingNoteStatus = isMarketingStage(column)
+      ? column
+      : column === "not_relevant"
+        ? "not_relevant"
+        : DEFAULT_MARKETING_NOTE_STATUS;
+    return {
+      session_id: sid,
+      lastAt: data.lastAt.toISOString(),
+      count: data.count,
+      isOpen: data.lastFromUser && Date.now() - data.lastAt.getTime() < 24 * 60 * 60 * 1000,
+      lastFromUser: data.lastFromUser,
+      isPaused: pausedUntilByCanonical.has(sid),
+      pausedUntil: pausedUntilByCanonical.get(sid) ?? null,
+      phone: data.phone,
+      fullName: nameBySid.get(sid) ?? null,
+      noteStatus,
+      noteRelevance,
+      adminColumn: column,
+    };
+  });
 
   return sortMarketingSessionsByStatusPriority(sessions);
 }

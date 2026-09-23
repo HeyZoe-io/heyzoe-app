@@ -1,11 +1,9 @@
-import { computeContactStatus } from "@/lib/contact-status";
 import type { LeadRow } from "@/lib/leads-types";
-import { isMarketingPipelineDropStatus } from "@/lib/marketing-pipeline-status";
+import { resolveMarketingAdminColumn } from "@/lib/marketing-admin-status";
 
-/** Same column as /admin/leads: a manual pipeline mark wins over the computed status. */
+/** Same column as /admin/leads. */
 export function marketingLeadColumnStatus(row: LeadRow): string {
-  if (isMarketingPipelineDropStatus(row.pipeline_status)) return row.pipeline_status;
-  return computeContactStatus(row) ?? "none";
+  return resolveMarketingAdminColumn(row);
 }
 
 export function isMarketingNoResponseLead(row: LeadRow): boolean {

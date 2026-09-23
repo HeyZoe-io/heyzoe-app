@@ -1,7 +1,7 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { syncContactToMetaAudience } from "@/lib/ads/meta-audiences";
 import type { LeadRow } from "@/lib/leads-types";
-import { coerceMarketingNoteStatus } from "@/lib/marketing-conversation-notes";
+import { splitStoredMarketingStatus } from "@/lib/marketing-admin-status";
 import { markMarketingFollowupOptedOut } from "@/lib/marketing-followups";
 import {
   applyManualPipelineStatus,
@@ -64,38 +64,67 @@ async function syncNoteStatusForPipeline(
 ): Promise<void> {
   const noteStatus = pipelineStatusToNoteStatus(status);
   if (!noteStatus) return;
+  const relevance = noteStatus === "not_relevant" ? "not_relevant" : "relevant";
+  const stage = noteStatus === "not_relevant" ? "in_process" : noteStatus;
 
-  const { data: existing, error: existingErr } = await admin
+  let existingResult = await admin
     .from("marketing_conversation_notes")
-    .select("phone, session_id, business_name, link, notes, status, conversation_at")
+    .select("phone, session_id, business_name, link, notes, status, relevance, conversation_at")
     .eq("phone", phone)
     .maybeSingle();
-  if (existingErr) {
-    console.error("[marketing-lead-pipeline] notes lookup failed:", existingErr.message);
+  if (existingResult.error && /relevance|column|schema cache/i.test(existingResult.error.message)) {
+    console.warn("[marketing-lead-pipeline] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+    existingResult = await admin
+      .from("marketing_conversation_notes")
+      .select("phone, session_id, business_name, link, notes, status, conversation_at")
+      .eq("phone", phone)
+      .maybeSingle();
+  }
+  if (existingResult.error) {
+    console.error("[marketing-lead-pipeline] notes lookup failed:", existingResult.error.message);
     return;
   }
+  const existing = existingResult.data;
 
-  const prevStatus = existing ? coerceMarketingNoteStatus(existing.status) : null;
+  const prev = existing
+    ? splitStoredMarketingStatus({
+        status: existing.status,
+        relevance: (existing as { relevance?: string | null }).relevance,
+        hasNote: true,
+      })
+    : null;
   const sessionId = String(existing?.session_id ?? "").trim() || canonicalMarketingSessionId(phone);
-  const payload = {
+  const keptStage =
+    relevance === "not_relevant" && prev && prev.stage !== "in_process" ? prev.stage : stage;
+  const payload: Record<string, unknown> = {
     phone,
     session_id: sessionId,
     business_name: String(existing?.business_name ?? ""),
     link: String(existing?.link ?? ""),
     notes: String(existing?.notes ?? ""),
-    status: noteStatus,
+    status: keptStage,
+    relevance,
     conversation_at: existing?.conversation_at ?? null,
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await admin.from("marketing_conversation_notes").upsert(payload, { onConflict: "phone" });
+  let { error } = await admin.from("marketing_conversation_notes").upsert(payload, { onConflict: "phone" });
+  if (error && /relevance|column|schema cache/i.test(error.message)) {
+    console.warn("[marketing-lead-pipeline] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+    delete payload.relevance;
+    payload.status = noteStatus;
+    const retry = await admin.from("marketing_conversation_notes").upsert(payload, { onConflict: "phone" });
+    error = retry.error;
+  }
   if (error) {
     console.error("[marketing-lead-pipeline] notes status sync failed:", error.message);
     return;
   }
 
-  if (prevStatus !== noteStatus) {
-    void syncContactToMetaAudience({ phone, status: noteStatus }).catch((e) => {
+  const prevRelevance = prev?.relevance ?? null;
+  const prevStage = prev?.stage ?? null;
+  if (!existing || prevRelevance !== relevance || prevStage !== keptStage) {
+    void syncContactToMetaAudience({ phone, relevance }).catch((e) => {
       console.error("[marketing-lead-pipeline] meta audience sync failed:", e);
     });
   }
@@ -276,7 +305,7 @@ async function applyPipelineUpdate(
     console.error("[marketing-lead-pipeline] pipeline_status column required for", status);
     throw new Error("migration_required");
   }
-  const isHuman = status === "human_followup";
+  const isHuman = status === "human_followup" || status === "requires_call";
   const nextCallAt = isHuman
     ? toPipelineDateOnly(patch.next_call_at) ?? toPipelineDateOnly(existing?.next_call_at)
     : null;

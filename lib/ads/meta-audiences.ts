@@ -8,7 +8,10 @@ export type MetaAudienceBucket = "relevant" | "excluded";
 
 type SyncContactToMetaAudienceInput = {
   phone: string;
-  status: string;
+  /** סטטוס-על. זה מה שמחליט לאיזה קהל במטא נכנסים. */
+  relevance?: string | null;
+  /** תאימות לאחור: not_relevant → excluded, כל סטטוס משני → relevant. */
+  status?: string;
 };
 
 type SyncContactToMetaAudienceResult = {
@@ -49,12 +52,32 @@ function isMetaAudienceBucket(v: unknown): v is MetaAudienceBucket {
 }
 
 /**
- * Maps CRM status → Meta audience bucket.
- * in_process / no_response / requires_call (and anything else) → null (no Meta action).
+ * Meta Custom Audience follows relevance only.
+ * relevant → RELEVANT, not_relevant → EXCLUDED, anything else → no call.
+ */
+export function metaAudienceBucketForRelevance(relevance: string | null | undefined): MetaAudienceBucket | null {
+  if (relevance === "relevant") return "relevant";
+  if (relevance === "not_relevant") return "excluded";
+  return null;
+}
+
+/**
+ * Legacy status string. A secondary stage implies the lead is still relevant.
+ * `not_relevant` is the only status that excludes.
  */
 export function metaAudienceBucketForStatus(status: string): MetaAudienceBucket | null {
-  if (status === "registered" || status === "not_interested") return "relevant";
   if (status === "not_relevant") return "excluded";
+  if (
+    status === "relevant" ||
+    status === "in_process" ||
+    status === "requires_call" ||
+    status === "followup" ||
+    status === "no_response" ||
+    status === "not_interested" ||
+    status === "registered"
+  ) {
+    return "relevant";
+  }
   return null;
 }
 
@@ -201,10 +224,9 @@ async function writeSyncedAs(phone: string, bucket: MetaAudienceBucket): Promise
 
 /**
  * Sync a marketing lead phone into the correct Meta Custom Audience bucket.
- * - registered / not_interested → add RELEVANT, remove EXCLUDED
- * - not_relevant → add EXCLUDED, remove RELEVANT
- * - other statuses → no Meta calls; leave meta_audience_synced_as unchanged
- * - Idempotent via marketing_conversation_notes.meta_audience_synced_as
+ * Bucket is relevance only: relevant → RELEVANT, not_relevant → EXCLUDED.
+ * Secondary statuses do not change the audience.
+ * Idempotent via marketing_conversation_notes.meta_audience_synced_as.
  *
  * Bucket column is updated only when ADD succeeds. A failed REMOVE is logged
  * only — stale other-audience membership is low-harm and is NOT guaranteed to
@@ -214,10 +236,10 @@ async function writeSyncedAs(phone: string, bucket: MetaAudienceBucket): Promise
 export async function syncContactToMetaAudience(
   input: SyncContactToMetaAudienceInput
 ): Promise<SyncContactToMetaAudienceResult> {
-  const bucket = metaAudienceBucketForStatus(input.status);
+  const bucket =
+    metaAudienceBucketForRelevance(input.relevance) ??
+    metaAudienceBucketForStatus(String(input.status ?? ""));
   if (!bucket) {
-    // No Meta action for in_process / no_response / requires_call / etc.
-    // Do not clear meta_audience_synced_as — leave prior audience membership as-is.
     return { ok: true, bucket: null };
   }
 

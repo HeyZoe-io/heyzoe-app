@@ -8,6 +8,7 @@ import {
 assert.deepEqual([...MARKETING_NOTE_STATUSES], [
   "in_process",
   "requires_call",
+  "followup",
   "no_response",
   "not_interested",
   "registered",
@@ -16,10 +17,11 @@ assert.deepEqual([...MARKETING_NOTE_STATUSES], [
 
 assert.equal(marketingNoteStatusRank("in_process"), 0);
 assert.equal(marketingNoteStatusRank("requires_call"), 1);
-assert.equal(marketingNoteStatusRank("no_response"), 2);
-assert.equal(marketingNoteStatusRank("not_interested"), 3);
-assert.equal(marketingNoteStatusRank("registered"), 4);
-assert.equal(marketingNoteStatusRank("not_relevant"), 5);
+assert.equal(marketingNoteStatusRank("followup"), 2);
+assert.equal(marketingNoteStatusRank("no_response"), 3);
+assert.equal(marketingNoteStatusRank("not_interested"), 4);
+assert.equal(marketingNoteStatusRank("registered"), 5);
+assert.equal(marketingNoteStatusRank("not_relevant"), 6);
 assert.equal(marketingNoteStatusRank(null), 0);
 assert.equal(marketingNoteStatusRank(undefined), 0);
 

@@ -18,11 +18,15 @@ import {
 import MarketingConversationNotesPanel from "@/app/admin/zoe/MarketingConversationNotesPanel";
 import { sortSessionsByRecentActivity, sessionAwaitingReply } from "@/lib/conversations-sessions";
 import {
-  DEFAULT_MARKETING_NOTE_STATUS,
-  getMarketingNoteStatusMeta,
   sortMarketingSessionsByStatusPriority,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
+import {
+  formatMarketingAdminStatusLabel,
+  isMarketingStage,
+  type MarketingAdminColumn,
+  type MarketingRelevance,
+} from "@/lib/marketing-admin-status";
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 import { isAppEchoAutoPause, formatAppEchoPauseRemaining } from "@/lib/wa-app-echo-pause";
@@ -139,6 +143,8 @@ type SessionSummary = {
   source_name?: string;
   /** פלואו שיווקי — סטטוס הערות CRM */
   noteStatus?: MarketingNoteStatus | null;
+  noteRelevance?: MarketingRelevance | null;
+  adminColumn?: MarketingAdminColumn | null;
 };
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -231,13 +237,24 @@ function SessionContactStatusDot({
   );
 }
 
-function MarketingNoteStatusBadge({ status }: { status?: MarketingNoteStatus | null }) {
-  const meta = getMarketingNoteStatusMeta(status ?? DEFAULT_MARKETING_NOTE_STATUS);
+function MarketingNoteStatusBadge({
+  status,
+  relevance,
+  column,
+}: {
+  status?: MarketingNoteStatus | null;
+  relevance?: MarketingRelevance | null;
+  column?: MarketingAdminColumn | null;
+}) {
+  const label = column
+    ? formatMarketingAdminStatusLabel({ column })
+    : formatMarketingAdminStatusLabel({
+        relevance: relevance === "not_relevant" || status === "not_relevant" ? "not_relevant" : "relevant",
+        stage: isMarketingStage(status) ? status : "in_process",
+      });
   return (
-    <span
-      className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${meta.badgeClass}`}
-    >
-      {meta.label}
+    <span className="inline-flex max-w-full truncate rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-indigo-800">
+      {label}
     </span>
   );
 }
@@ -779,9 +796,16 @@ export default function ConversationsClient({
   const showMarketingNoteStatus =
     apiScope === "admin" && isMarketingConversationsSlug(slug);
 
-  function onMarketingNoteStatusSaved(sessionId: string, noteStatus: MarketingNoteStatus) {
+  function onMarketingNoteStatusSaved(
+    sessionId: string,
+    noteStatus: MarketingNoteStatus,
+    noteRelevance: MarketingRelevance
+  ) {
+    const adminColumn: MarketingAdminColumn = noteRelevance === "not_relevant" ? "not_relevant" : noteStatus;
     setSessions((prev) => {
-      const next = prev.map((s) => (s.session_id === sessionId ? { ...s, noteStatus } : s));
+      const next = prev.map((s) =>
+        s.session_id === sessionId ? { ...s, noteStatus, noteRelevance, adminColumn } : s
+      );
       return apiScope === "admin" && isMarketingConversationsSlug(slug)
         ? sortMarketingSessionsByStatusPriority(next)
         : next;
@@ -876,7 +900,11 @@ export default function ConversationsClient({
                           {title}
                         </p>
                         {showMarketingNoteStatus ? (
-                          <MarketingNoteStatusBadge status={s.noteStatus} />
+                          <MarketingNoteStatusBadge
+                            status={s.noteStatus}
+                            relevance={s.noteRelevance}
+                            column={s.adminColumn}
+                          />
                         ) : null}
                       </div>
                       <p className="mt-0.5 truncate text-[14px] text-[#667781]">
@@ -1146,7 +1174,9 @@ export default function ConversationsClient({
             key={selected.session_id}
             phone={selected.phone}
             sessionId={selected.session_id}
-            onStatusSaved={(noteStatus) => onMarketingNoteStatusSaved(selected.session_id, noteStatus)}
+            onStatusSaved={(noteStatus, noteRelevance) =>
+              onMarketingNoteStatusSaved(selected.session_id, noteStatus, noteRelevance)
+            }
           />
         ) : null}
       </div>

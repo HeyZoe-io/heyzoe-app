@@ -1,7 +1,12 @@
-/** סדר חשיבות באדמין זואי — 0 = הכי למעלה ברשימה */
+/**
+ * סטטוס משני שנשמר ב-status.
+ * `not_relevant` נשאר לקריאה של שורות ישנות; סטטוס-העל החדש הוא העמודה relevance.
+ * סדר: 0 = הכי למעלה ברשימת השיחות.
+ */
 export const MARKETING_NOTE_STATUSES = [
   "in_process",
   "requires_call",
+  "followup",
   "no_response",
   "not_interested",
   "registered",
@@ -15,10 +20,11 @@ export const DEFAULT_MARKETING_NOTE_STATUS: MarketingNoteStatus = "in_process";
 const MARKETING_NOTE_STATUS_RANK: Record<MarketingNoteStatus, number> = {
   in_process: 0,
   requires_call: 1,
-  no_response: 2,
-  not_interested: 3,
-  registered: 4,
-  not_relevant: 5,
+  followup: 2,
+  no_response: 3,
+  not_interested: 4,
+  registered: 5,
+  not_relevant: 6,
 };
 
 export function isMarketingNoteStatus(v: unknown): v is MarketingNoteStatus {
@@ -41,17 +47,29 @@ function sessionActivityMs(lastAt?: string | null): number {
 }
 
 /**
- * לידים לפי חשיבות סטטוס (בתהליך → דורש שיחה → ללא מענה → לא מעוניין → נרשם → לא רלוונטי),
- * ובאותו סטטוס לפי פעילות אחרונה.
+ * לידים לפי חשיבות: ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → נרשם,
+ * ולא רלוונטי בסוף. באותו סטטוס — לפי פעילות אחרונה.
  */
 export function sortMarketingSessionsByStatusPriority<
-  T extends { lastAt?: string | null; noteStatus?: MarketingNoteStatus | null },
+  T extends {
+    lastAt?: string | null;
+    noteStatus?: MarketingNoteStatus | null;
+    noteRelevance?: "relevant" | "not_relevant" | null;
+  },
 >(sessions: T[]): T[] {
   return [...sessions].sort((a, b) => {
-    const rankDiff = marketingNoteStatusRank(a.noteStatus) - marketingNoteStatusRank(b.noteStatus);
+    const rankDiff = sessionStatusRank(a) - sessionStatusRank(b);
     if (rankDiff !== 0) return rankDiff;
     return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
   });
+}
+
+function sessionStatusRank(row: {
+  noteStatus?: MarketingNoteStatus | null;
+  noteRelevance?: "relevant" | "not_relevant" | null;
+}): number {
+  if (row.noteRelevance === "not_relevant" || row.noteStatus === "not_relevant") return 6;
+  return marketingNoteStatusRank(row.noteStatus);
 }
 
 /** תווית + צבעי badge לרשימת שיחות / פאנל הערות */
@@ -97,10 +115,17 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
         activeBg: "#fffbeb",
         activeFg: "#92400e",
       };
+    case "followup":
+      return {
+        label: "פולואפ",
+        badgeClass: "bg-amber-50 text-amber-900",
+        activeBg: "#fffbeb",
+        activeFg: "#92400e",
+      };
     case "in_process":
     default:
       return {
-        label: "בתהליך",
+        label: "ליד חדש",
         badgeClass: "bg-indigo-50 text-indigo-800",
         activeBg: "#eef2ff",
         activeFg: "#3730a3",
@@ -108,7 +133,10 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
   }
 }
 
-export const MARKETING_NOTE_STATUS_OPTIONS = MARKETING_NOTE_STATUSES.map((value) => {
+/** כפתורי הסטטוס המשני. «לא רלוונטי» הוא סטטוס-על, לא אופציה כאן. */
+export const MARKETING_NOTE_STATUS_OPTIONS = (
+  ["in_process", "requires_call", "followup", "no_response", "not_interested", "registered"] as const
+).map((value) => {
   const meta = getMarketingNoteStatusMeta(value);
   return {
     value,

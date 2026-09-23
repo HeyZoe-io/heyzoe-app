@@ -6,9 +6,16 @@ import { normalizePhone } from "@/lib/phone-normalize";
 import {
   coerceMarketingNoteStatus,
   DEFAULT_MARKETING_NOTE_STATUS,
-  isMarketingNoteStatus,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
+import {
+  isMarketingRelevance,
+  isMarketingStage,
+  marketingAdminColumnStopsFollowups,
+  splitStoredMarketingStatus,
+  type MarketingRelevance,
+  type MarketingStage,
+} from "@/lib/marketing-admin-status";
 import { markMarketingFollowupOptedOut } from "@/lib/marketing-followups";
 import {
   canonicalMarketingSessionId,
@@ -22,6 +29,8 @@ export const dynamic = "force-dynamic";
 type NoteStatus = MarketingNoteStatus;
 
 const NOTE_SELECT =
+  "phone, session_id, business_name, link, notes, status, relevance, conversation_at, updated_at";
+const NOTE_SELECT_LEGACY =
   "phone, session_id, business_name, link, notes, status, conversation_at, updated_at";
 
 async function requireAdmin(): Promise<boolean> {
@@ -62,22 +71,37 @@ function serializeNote(
     link?: string | null;
     notes?: string | null;
     status?: string | null;
+    relevance?: string | null;
     conversation_at?: string | null;
     updated_at?: string | null;
   },
   fallbackPhone: string,
-  fallbackStatus?: NoteStatus
+  fallbackStatus?: NoteStatus,
+  fallbackRelevance?: MarketingRelevance
 ) {
+  const split = splitStoredMarketingStatus({
+    status: data.status,
+    relevance: data.relevance ?? fallbackRelevance,
+    hasNote: true,
+  });
+  const stage = isMarketingStage(data.status)
+    ? data.status
+    : (fallbackStatus && isMarketingStage(fallbackStatus) ? fallbackStatus : split?.stage ?? DEFAULT_MARKETING_NOTE_STATUS);
   return {
     phone: String(data.phone ?? fallbackPhone),
     session_id: String(data.session_id ?? ""),
     business_name: String(data.business_name ?? ""),
     link: String(data.link ?? ""),
     notes: String(data.notes ?? ""),
-    status: isMarketingNoteStatus(data.status) ? data.status : (fallbackStatus ?? DEFAULT_MARKETING_NOTE_STATUS),
+    status: stage,
+    relevance: split?.relevance ?? fallbackRelevance ?? "relevant",
     conversation_at: toDateOnly(data.conversation_at),
     updated_at: data.updated_at ? String(data.updated_at) : null,
   };
+}
+
+function isMissingRelevanceColumn(message: string): boolean {
+  return /relevance|schema cache|column/i.test(message);
 }
 
 export async function GET(req: NextRequest) {
@@ -94,11 +118,22 @@ export async function GET(req: NextRequest) {
 
   try {
     const admin = createSupabaseAdminClient();
-    const { data, error } = await admin
+    let { data, error } = await admin
       .from("marketing_conversation_notes")
       .select(NOTE_SELECT)
       .eq("phone", phone)
       .maybeSingle();
+
+    if (error && isMissingRelevanceColumn(error.message)) {
+      console.warn("[marketing/conversation-notes] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+      const legacy = await admin
+        .from("marketing_conversation_notes")
+        .select(NOTE_SELECT_LEGACY)
+        .eq("phone", phone)
+        .maybeSingle();
+      data = legacy.data as typeof data;
+      error = legacy.error;
+    }
 
     if (error) {
       console.error("[marketing/conversation-notes] GET failed:", error.message);
@@ -115,6 +150,7 @@ export async function GET(req: NextRequest) {
           link: "",
           notes: "",
           status: DEFAULT_MARKETING_NOTE_STATUS,
+          relevance: "relevant" as const,
           conversation_at: null,
           updated_at: null,
         },
@@ -148,6 +184,7 @@ export async function PUT(req: NextRequest) {
     link?: string;
     notes?: string;
     status?: string;
+    relevance?: string;
     conversation_at?: string | null;
   };
   try {
@@ -162,7 +199,6 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "missing_phone" }, { status: 400 });
   }
 
-  const status: NoteStatus = coerceMarketingNoteStatus(body.status);
   let businessName = String(body.business_name ?? "").trim().slice(0, 200);
   let link = normalizeLink(body.link);
   let notes = String(body.notes ?? "").slice(0, 10000);
@@ -174,11 +210,41 @@ export async function PUT(req: NextRequest) {
 
     // מגן מפני דריסה בטעות: שמירה עם שדות תוכן ריקים לא מוחקת תוכן קיים
     // (למשל race בטעינת הפאנל + לחיצה על סטטוס בלבד).
-    const { data: existing } = await admin
+    let relevanceColumn = true;
+    let existingResult = await admin
       .from("marketing_conversation_notes")
       .select(NOTE_SELECT)
       .eq("phone", phone)
       .maybeSingle();
+    if (existingResult.error && isMissingRelevanceColumn(existingResult.error.message)) {
+      relevanceColumn = false;
+      console.warn("[marketing/conversation-notes] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+      existingResult = await admin
+        .from("marketing_conversation_notes")
+        .select(NOTE_SELECT_LEGACY)
+        .eq("phone", phone)
+        .maybeSingle();
+    }
+    if (existingResult.error) {
+      console.error("[marketing/conversation-notes] existing lookup failed:", existingResult.error.message);
+      return NextResponse.json({ error: "save_failed", detail: existingResult.error.message }, { status: 500 });
+    }
+    const existing = existingResult.data;
+
+    const stored = splitStoredMarketingStatus({
+      status: existing?.status,
+      relevance: (existing as { relevance?: string | null } | null)?.relevance,
+      hasNote: Boolean(existing),
+    });
+    const relevance: MarketingRelevance = isMarketingRelevance(body.relevance)
+      ? body.relevance
+      : body.status === "not_relevant"
+        ? "not_relevant"
+        : (stored?.relevance ?? "relevant");
+    const status: MarketingStage = isMarketingStage(body.status)
+      ? body.status
+      : (stored?.stage ?? "in_process");
+
     if (existing) {
       const hadContent = Boolean(
         String(existing.business_name ?? "").trim() ||
@@ -220,31 +286,44 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    const { data, error } = await admin
+    const payload: Record<string, unknown> = {
+      phone,
+      session_id: canonicalSession,
+      business_name: businessName,
+      link,
+      notes,
+      status,
+      conversation_at: conversationAt,
+      updated_at: new Date().toISOString(),
+    };
+    if (relevanceColumn) payload.relevance = relevance;
+
+    let { data, error } = await admin
       .from("marketing_conversation_notes")
-      .upsert(
-        {
-          phone,
-          session_id: canonicalSession,
-          business_name: businessName,
-          link,
-          notes,
-          status,
-          conversation_at: conversationAt,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "phone" }
-      )
+      .upsert(payload, { onConflict: "phone" })
       .select(NOTE_SELECT)
       .single();
 
-    if (error) {
-      console.error("[marketing/conversation-notes] PUT failed:", error.message);
-      return NextResponse.json({ error: "save_failed", detail: error.message }, { status: 500 });
+    if (error && relevanceColumn && isMissingRelevanceColumn(error.message)) {
+      console.warn("[marketing/conversation-notes] relevance column missing — run supabase/marketing_admin_status_layers.sql");
+      delete payload.relevance;
+      const retry = await admin
+        .from("marketing_conversation_notes")
+        .upsert(payload, { onConflict: "phone" })
+        .select(NOTE_SELECT_LEGACY)
+        .single();
+      data = retry.data as typeof data;
+      error = retry.error;
+      relevanceColumn = false;
     }
 
-    // סימון «לא רלוונטי» / «לא מעוניין» — עוצר פולואפים אוטומטיים של קו השיווק
-    if (status === "not_relevant" || status === "not_interested") {
+    if (error || !data) {
+      console.error("[marketing/conversation-notes] PUT failed:", error?.message ?? "empty_row");
+      return NextResponse.json({ error: "save_failed", detail: error?.message ?? "empty_row" }, { status: 500 });
+    }
+
+    const column = relevance === "not_relevant" ? "not_relevant" : status;
+    if (marketingAdminColumnStopsFollowups(column)) {
       try {
         await markMarketingFollowupOptedOut(phone);
       } catch (e) {
@@ -252,14 +331,20 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Meta Custom Audiences — רק כשהסטטוס באמת השתנה; fire-and-forget (לא חוסם את תשובת ה-PUT)
-    const prevStatus = existing
-      ? coerceMarketingNoteStatus(existing.status)
-      : null;
-    if (prevStatus !== status) {
+    const { error: pipelineErr } = await admin
+      .from("marketing_flow_sessions")
+      .update({ pipeline_status: column, updated_at: new Date().toISOString() })
+      .eq("phone", phone);
+    if (pipelineErr) {
+      console.error("[marketing/conversation-notes] pipeline mirror failed:", pipelineErr.message);
+    }
+
+    const prevRelevance = stored?.relevance ?? null;
+    const prevStage = stored?.stage ?? null;
+    if (!existing || prevRelevance !== relevance || prevStage !== status) {
       after(async () => {
         try {
-          await syncContactToMetaAudience({ phone, status });
+          await syncContactToMetaAudience({ phone, relevance });
         } catch (e) {
           console.error("[marketing/conversation-notes] meta audience sync failed:", e);
         }
@@ -285,7 +370,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      note: serializeNote(data, phone, status),
+      note: serializeNote(data, phone, status, relevance),
     });
   } catch (e) {
     console.error("[marketing/conversation-notes] PUT exception:", e);

@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
-  DEFAULT_MARKETING_NOTE_STATUS,
   MARKETING_NOTE_STATUS_OPTIONS,
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
+import { isMarketingStage, type MarketingRelevance, type MarketingStage } from "@/lib/marketing-admin-status";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
@@ -21,6 +21,7 @@ type NotePayload = {
   link: string;
   notes: string;
   status: MarketingNoteStatus;
+  relevance?: MarketingRelevance;
   conversation_at: string | null;
   updated_at: string | null;
 };
@@ -30,6 +31,7 @@ type DraftPayload = {
   link: string;
   notes: string;
   status: MarketingNoteStatus;
+  relevance?: MarketingRelevance;
   conversation_at: string;
   savedAt: number;
 };
@@ -90,13 +92,14 @@ export default function MarketingConversationNotesPanel({
 }: {
   phone: string;
   sessionId: string;
-  onStatusSaved?: (status: MarketingNoteStatus) => void;
+  onStatusSaved?: (status: MarketingStage, relevance: MarketingRelevance) => void;
 }) {
   const [businessName, setBusinessName] = useState("");
   const [link, setLink] = useState("");
   const [conversationAt, setConversationAt] = useState("");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<MarketingNoteStatus>(DEFAULT_MARKETING_NOTE_STATUS);
+  const [status, setStatus] = useState<MarketingStage>("in_process");
+  const [relevance, setRelevance] = useState<MarketingRelevance>("relevant");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -109,10 +112,11 @@ export default function MarketingConversationNotesPanel({
     businessName: "",
     link: "",
     notes: "",
-    status: "in_process" as MarketingNoteStatus,
+    status: "in_process" as MarketingStage,
+    relevance: "relevant" as MarketingRelevance,
     conversationAt: "",
   });
-  formRef.current = { businessName, link, notes, status, conversationAt };
+  formRef.current = { businessName, link, notes, status, relevance, conversationAt };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -127,7 +131,8 @@ export default function MarketingConversationNotesPanel({
     setBusinessName("");
     setLink("");
     setNotes("");
-    setStatus(DEFAULT_MARKETING_NOTE_STATUS);
+    setStatus("in_process");
+    setRelevance("relevant");
     setConversationAt("");
 
     if (!p && !sid) {
@@ -157,7 +162,8 @@ export default function MarketingConversationNotesPanel({
         let nextBusiness = note?.business_name ?? "";
         let nextLink = note?.link ?? "";
         let nextNotes = note?.notes ?? "";
-        let nextStatus: MarketingNoteStatus = note?.status ?? DEFAULT_MARKETING_NOTE_STATUS;
+        let nextStatus: MarketingStage = isMarketingStage(note?.status) ? note.status : "in_process";
+        let nextRelevance: MarketingRelevance = note?.relevance === "not_relevant" ? "not_relevant" : "relevant";
         let nextDate = toDateInputValue(note?.conversation_at);
 
         // אם יש טיוטה מקומית ארוכה יותר מהשרת — משחזרים אותה
@@ -166,7 +172,8 @@ export default function MarketingConversationNotesPanel({
           nextBusiness = draft.business_name || nextBusiness;
           nextLink = draft.link || nextLink;
           nextNotes = draft.notes;
-          nextStatus = draft.status || nextStatus;
+          nextStatus = isMarketingStage(draft.status) ? draft.status : nextStatus;
+          nextRelevance = draft.relevance === "not_relevant" ? "not_relevant" : nextRelevance;
           nextDate = draft.conversation_at || nextDate;
           setDraftHint("שוחזרה טיוטה מקומית שלא נשמרה לשרת — לחצו «שמירת הערות».");
           setDirty(true);
@@ -176,6 +183,7 @@ export default function MarketingConversationNotesPanel({
         setLink(nextLink);
         setNotes(nextNotes);
         setStatus(nextStatus);
+        setRelevance(nextRelevance);
         setConversationAt(nextDate);
       } catch (e) {
         if (ac.signal.aborted || (e as { name?: string })?.name === "AbortError") return;
@@ -197,6 +205,7 @@ export default function MarketingConversationNotesPanel({
       link,
       notes,
       status,
+      relevance,
       conversation_at: conversationAt,
     });
 
@@ -209,7 +218,7 @@ export default function MarketingConversationNotesPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [businessName, link, notes, status, conversationAt, dirty, loading, phone, sessionId]);
+  }, [businessName, link, notes, status, relevance, conversationAt, dirty, loading, phone, sessionId]);
 
   async function save(opts?: { silent?: boolean }) {
     if (loading || saving) return;
@@ -230,6 +239,7 @@ export default function MarketingConversationNotesPanel({
           link: snapshot.link,
           notes: snapshot.notes,
           status: snapshot.status,
+          relevance: snapshot.relevance,
           conversation_at: snapshot.conversationAt || null,
         }),
       });
@@ -250,20 +260,23 @@ export default function MarketingConversationNotesPanel({
         cur.link === snapshot.link &&
         cur.notes === snapshot.notes &&
         cur.status === snapshot.status &&
+        cur.relevance === snapshot.relevance &&
         cur.conversationAt === snapshot.conversationAt;
       if (unchanged) {
-        const savedStatus = j.note?.status ?? snapshot.status;
+        const savedStatus: MarketingStage = isMarketingStage(j.note?.status) ? j.note.status : snapshot.status;
+        const savedRelevance = j.note?.relevance === "not_relevant" ? "not_relevant" : snapshot.relevance;
         if (!opts?.silent && j.note) {
           setBusinessName(j.note.business_name ?? "");
           setLink(j.note.link ?? "");
           setNotes(j.note.notes ?? "");
-          setStatus(j.note.status ?? DEFAULT_MARKETING_NOTE_STATUS);
+          setStatus(savedStatus);
+          setRelevance(savedRelevance);
           setConversationAt(toDateInputValue(j.note.conversation_at));
         }
         setDirty(false);
         setDraftHint("");
         clearDraft(phone, sessionId);
-        onStatusSaved?.(savedStatus);
+        onStatusSaved?.(savedStatus, savedRelevance);
       }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
@@ -357,25 +370,28 @@ export default function MarketingConversationNotesPanel({
             </label>
 
             <div>
-              <span style={labelStyle}>סטטוס</span>
+              <span style={labelStyle}>רלוונטיות</span>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {STATUS_OPTIONS.map((opt) => {
-                  const active = status === opt.value;
+                {(
+                  [
+                    { value: "relevant" as const, label: "רלוונטי" },
+                    { value: "not_relevant" as const, label: "לא רלוונטי" },
+                  ]
+                ).map((opt) => {
+                  const active = relevance === opt.value;
                   return (
                     <button
                       key={opt.value}
                       type="button"
                       onClick={() => {
-                        setStatus(opt.value);
+                        setRelevance(opt.value);
                         markDirty();
                       }}
                       style={{
                         borderRadius: 999,
-                        border: active
-                          ? `1px solid ${opt.activeFg}`
-                          : "1px solid rgba(113,51,218,0.18)",
-                        background: active ? opt.activeBg : "#fff",
-                        color: active ? opt.activeFg : "#1a0a3c",
+                        border: active ? "1px solid #3730a3" : "1px solid rgba(113,51,218,0.18)",
+                        background: active ? (opt.value === "relevant" ? "#eef2ff" : "#f3f4f6") : "#fff",
+                        color: active ? (opt.value === "relevant" ? "#3730a3" : "#4b5563") : "#1a0a3c",
                         fontSize: 12,
                         fontWeight: active ? 600 : 500,
                         padding: "6px 10px",
@@ -389,6 +405,44 @@ export default function MarketingConversationNotesPanel({
                 })}
               </div>
             </div>
+
+            {relevance === "relevant" ? (
+              <div>
+                <span style={labelStyle}>סטטוס</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {STATUS_OPTIONS.map((opt) => {
+                    const active = status === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setStatus(opt.value);
+                          markDirty();
+                        }}
+                        style={{
+                          borderRadius: 999,
+                          border: active ? `1px solid ${opt.activeFg}` : "1px solid rgba(113,51,218,0.18)",
+                          background: active ? opt.activeBg : "#fff",
+                          color: active ? opt.activeFg : "#1a0a3c",
+                          fontSize: 12,
+                          fontWeight: active ? 600 : 500,
+                          padding: "6px 10px",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p style={{ margin: 0, fontSize: 12, color: MUTED, textAlign: "right" }}>
+                לא רלוונטי עומד לבד — בלי סטטוס נוסף.
+              </p>
+            )}
 
             <label>
               <span style={labelStyle}>הערות</span>

@@ -21,4 +21,8 @@ export type LeadRow = {
   business_name?: string | null;
   /** סטטוס ידני בפייפליין אדמין — גובר על החישוב האוטומטי בתצוגה */
   pipeline_status?: string | null;
+  /** סטטוס-על מזואי אדמין. null = אין הערת CRM, והעמודה מחושבת. */
+  marketing_relevance?: "relevant" | "not_relevant" | null;
+  /** סטטוס משני מזואי אדמין. תקף רק כש-marketing_relevance הוא relevant. */
+  marketing_stage?: string | null;
 };
