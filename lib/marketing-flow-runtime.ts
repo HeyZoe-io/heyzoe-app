@@ -32,6 +32,10 @@ import {
 } from "@/lib/whatsapp";
 import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 import { inferMarketingFlowButtonFromFreeText } from "@/lib/marketing-flow-answer-infer";
+import {
+  findMarketingScheduleDayNode,
+  isMarketingScheduleCallButton,
+} from "@/lib/marketing-schedule-entry";
 import { CASUAL_HOW_ARE_YOU_REPLY_HE, isCasualHowAreYouGreeting } from "@/lib/sales-flow-start-triggers";
 
 import {
@@ -928,7 +932,24 @@ export async function handleMarketingFlowInbound(
     });
   }
 
-  if (startFlowMessage) {
+  let scheduleEntry: FlowNode | null = null;
+  if (
+    isMarketingScheduleCallButton(userText) &&
+    !(
+      earlyCurrent?.type === "question" &&
+      matchesMarketingFlowQuestionAnswer(earlyCurrent, edges, userText, metaInteractiveReplyId)
+    )
+  ) {
+    scheduleEntry = findMarketingScheduleDayNode(nodes);
+    if (!scheduleEntry) {
+      console.error("[marketing-flow] schedule button clicked but no day-question node", {
+        phone,
+        text: userText.slice(0, 80),
+      });
+    }
+  }
+
+  if (startFlowMessage || scheduleEntry) {
     const { data: existingCtwaRow } = await admin
       .from("marketing_flow_sessions")
       .select("ctwa_clid")
@@ -940,9 +961,13 @@ export async function handleMarketingFlowInbound(
       null;
 
     await admin.from("marketing_flow_sessions").delete().eq("phone", phone);
-    console.info("[marketing-flow] flow start/restart for:", phone, { hadSession: Boolean(session) });
+    console.info("[marketing-flow] flow start/restart for:", phone, {
+      hadSession: Boolean(session),
+      scheduleCall: Boolean(scheduleEntry),
+      entryNodeId: scheduleEntry?.id ?? null,
+    });
 
-    const startNode = findStartNode(nodes, edges);
+    const startNode = scheduleEntry ?? findStartNode(nodes, edges);
     if (!startNode) return { handled: false };
 
     const { waitingForAnswer, nextNodeId } = await sendNodeChain(startNode, phone, edges, nodes);
