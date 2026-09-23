@@ -1,25 +1,46 @@
 /**
- * Dry run: classify MARKETING templates that still need Meta's opt-out button.
+ * Classify MARKETING templates that still need Meta's opt-out button.
  *
  *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --execute
+ *   npx tsx --env-file=.env.local scripts/resubmit-marketing-optout.ts --only-deferred
  *
- * Read-only. GET message_templates + Supabase selects. No Meta writes, no DB writes.
- * Writes scripts/out/marketing-optout-dry-run.json
+ * Default is read-only. --execute submits the canary, then the rest.
+ * --only-deferred resubmits templates that are editable now and still lack the button.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { listWabaTemplates } from "@/lib/meta-templates";
+import { createWabaTemplate, getWabaTemplate, listWabaTemplates, updateWabaTemplate, type MetaWabaTemplate } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
+import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 import {
   classifyMarketingOptOutTemplate,
   countPlan,
   estimatedDurationMs,
   OPTOUT_RESUBMIT_THROTTLE_MS,
+  originalTemplateName,
   plannedWriteCalls,
+  templateHasOptOutButton,
   type OptOutPlanClass,
   type OptOutPlanItem,
 } from "@/lib/marketing-optout-resubmit-plan";
+import { applyOptOutVersionSwitchover } from "@/lib/marketing-optout-switchover";
+import { shouldSuppressLeadTemplate } from "@/lib/wa-marketing-opt-out";
+
+const EXECUTE = process.argv.includes("--execute");
+const ONLY_DEFERRED = process.argv.includes("--only-deferred");
+const CANARY_SLUG = "acrobyjoe";
+const CANARY_NAME = "after_class";
+const APEX_CATEGORY_NAMES = [
+  "trainer_trial_heads_up",
+  "freeze_ending_unbooked",
+  "freeze_created",
+  "membership_cancelled",
+  "registered_after_trial",
+  "registered_after_trial1",
+  "pilates_survey",
+];
 
 const LIST_FIELDS = "id,name,status,category,language,components";
 const LIST_MAX = 5000;
@@ -127,6 +148,439 @@ function printClass(title: string, items: OptOutPlanItem[]) {
     const reason = item.reason ? ` [${item.reason}]` : "";
     const used = item.in_use ? " in-use" : "";
     console.log(`    ${item.name} (${item.language}, ${item.status}${used})${extra}${reason}`);
+  }
+}
+
+type CategoryWrite = { name: string; language: string; db_table: string; meta?: string; db?: string };
+
+type WorkUnit = {
+  group: WabaGroup;
+  templates: MetaWabaTemplate[];
+  items: OptOutPlanItem[];
+  categoryWrites: CategoryWrite[];
+};
+
+type ExecLog = {
+  started_at: string;
+  canary: Record<string, unknown> | null;
+  calls: Record<string, unknown>[];
+  category_updates: Record<string, unknown>[];
+  switchovers: Record<string, unknown>[];
+  verification: Record<string, unknown>[];
+};
+
+function groupLabel(group: WabaGroup): string {
+  return [
+    ...group.businesses.map((b) => b.slug || b.name || String(b.id)),
+    ...(group.includesZoeAdmin ? ["zoe-admin"] : []),
+  ].join(", ");
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRateLimit(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return /429|80008|#4\b|"code"\s*:\s*4\b|"code"\s*:\s*613\b|rate limit|too many calls/i.test(text);
+}
+
+async function metaCall<T>(fn: () => Promise<T>): Promise<T> {
+  let delay = OPTOUT_RESUBMIT_THROTTLE_MS;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!isRateLimit(error)) throw error;
+      console.warn(`  rate limit, backing off ${delay}ms`);
+      await sleep(delay);
+      delay = Math.min(delay * 2, 60_000);
+    }
+  }
+}
+
+function componentsFor(template: MetaWabaTemplate): unknown[] | null {
+  if (!Array.isArray(template.components)) return null;
+  const next = withMarketingOptOutButton(template.components, template.language);
+  if (!templateHasOptOutButton({ ...template, components: next })) return null;
+  return next;
+}
+
+async function syncCategory(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  group: WabaGroup,
+  write: CategoryWrite
+) {
+  const nowIso = new Date().toISOString();
+  if (write.db_table === "marketing_whatsapp_templates") {
+    const { error } = await admin
+      .from("marketing_whatsapp_templates")
+      .update({ category: "MARKETING", updated_at: nowIso })
+      .eq("name", write.name)
+      .eq("language", write.language);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  for (const business of group.businesses) {
+    const { error } = await admin
+      .from("whatsapp_templates")
+      .update({ category: "MARKETING", updated_at: nowIso })
+      .eq("business_id", business.id)
+      .eq("name", write.name)
+      .eq("language", write.language);
+    if (error) throw new Error(error.message);
+  }
+}
+
+async function rememberVersion(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  group: WabaGroup,
+  source: MetaWabaTemplate,
+  versionName: string,
+  versionId: string,
+  status: string,
+  components: unknown[]
+) {
+  const nowIso = new Date().toISOString();
+  const shared = {
+    waba_template_id: versionId,
+    name: versionName,
+    category: "MARKETING",
+    language: source.language,
+    status: status || "PENDING",
+    components,
+    updated_at: nowIso,
+  };
+  if (group.includesZoeAdmin) {
+    const existing = await admin
+      .from("marketing_whatsapp_templates")
+      .select("id")
+      .eq("name", source.name)
+      .eq("language", source.language)
+      .maybeSingle();
+    if (existing.error) throw new Error(existing.error.message);
+    if (existing.data || group.businesses.length === 0) {
+      const { error } = await admin
+        .from("marketing_whatsapp_templates")
+        .upsert(shared, { onConflict: "name,language" });
+      if (error) throw new Error(error.message);
+    }
+  }
+  for (const business of group.businesses) {
+    const existing = await admin
+      .from("whatsapp_templates")
+      .select("id")
+      .eq("business_id", business.id)
+      .eq("name", source.name)
+      .eq("language", source.language)
+      .maybeSingle();
+    if (existing.error) throw new Error(existing.error.message);
+    if (!existing.data && group.businesses.length > 1) continue;
+    const { error } = await admin.from("whatsapp_templates").upsert(
+      { ...shared, business_id: business.id },
+      { onConflict: "business_id,name,language" }
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
+async function markEdited(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  group: WabaGroup,
+  template: MetaWabaTemplate,
+  components: unknown[],
+  alsoCategory: boolean
+) {
+  const nowIso = new Date().toISOString();
+  const patch = {
+    components,
+    status: "PENDING",
+    updated_at: nowIso,
+    ...(alsoCategory ? { category: "MARKETING" } : {}),
+  };
+  for (const business of group.businesses) {
+    const { error } = await admin
+      .from("whatsapp_templates")
+      .update(patch)
+      .eq("business_id", business.id)
+      .eq("name", template.name)
+      .eq("language", template.language);
+    if (error) throw new Error(error.message);
+  }
+  if (group.includesZoeAdmin) {
+    const { error } = await admin
+      .from("marketing_whatsapp_templates")
+      .update(patch)
+      .eq("name", template.name)
+      .eq("language", template.language);
+    if (error && !/0 rows|does not exist/i.test(error.message)) {
+      const check = await admin
+        .from("marketing_whatsapp_templates")
+        .select("id")
+        .eq("name", template.name)
+        .eq("language", template.language)
+        .maybeSingle();
+      if (check.data) throw new Error(error.message);
+    }
+  }
+}
+
+async function runExecute(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  work: WorkUnit[],
+  log: ExecLog,
+  flush: () => void
+) {
+  const skip = new Set<string>();
+
+  async function submitOne(unit: WorkUnit, template: MetaWabaTemplate, item: OptOutPlanItem) {
+    const key = `${unit.group.wabaId}:${template.name}:${template.language}`;
+    if (skip.has(key)) return;
+    if (item.class === "EXCLUDED_ACCOUNT_ALERT" || item.class === "DEFERRED" || item.class === "MANUAL") return;
+    if (item.class === "SKIP_HAS_BUTTON") {
+      const write = unit.categoryWrites.find((row) => row.name === template.name && row.language === template.language);
+      if (write && String(write.meta ?? "").toUpperCase() === "MARKETING") {
+        await syncCategory(admin, unit.group, write);
+        log.category_updates.push({ name: write.name, language: write.language, table: write.db_table, from: write.db, to: "MARKETING" });
+        flush();
+      }
+      return;
+    }
+    if (ONLY_DEFERRED && item.class !== "EDIT_IN_PLACE" && item.class !== "NEW_VERSION") return;
+
+    const components = componentsFor(template);
+    if (!components) {
+      log.calls.push({ waba: groupLabel(unit.group), name: template.name, action: "manual", error: "button_not_added" });
+      flush();
+      return;
+    }
+    const categoryWrite = unit.categoryWrites.find(
+      (row) => row.name === template.name && row.language === template.language && String(row.meta ?? "").toUpperCase() === "MARKETING"
+    );
+    try {
+      if (item.class === "NEW_VERSION" || item.class === "SKIP_HAS_VERSION") {
+        const versionName = item.planned_name || "";
+        const existing = unit.templates.find((row) => row.name === versionName && row.language === template.language);
+        if (item.class === "SKIP_HAS_VERSION" && existing) {
+          await rememberVersion(admin, unit.group, template, existing.name, existing.id, existing.status, existing.components ?? components);
+        } else if (versionName) {
+          const created = await metaCall(() =>
+            createWabaTemplate(unit.group.wabaId, {
+              name: versionName,
+              category: "MARKETING",
+              language: template.language,
+              components,
+            })
+          );
+          log.calls.push({
+            at: new Date().toISOString(),
+            waba: groupLabel(unit.group),
+            name: template.name,
+            action: "create",
+            request: { name: versionName, category: "MARKETING", language: template.language, components },
+            response: created,
+          });
+          flush();
+          await sleep(OPTOUT_RESUBMIT_THROTTLE_MS);
+          await rememberVersion(admin, unit.group, template, versionName, created.id, created.status, components);
+        }
+      } else if (item.class === "EDIT_IN_PLACE") {
+        const updated = await metaCall(() => updateWabaTemplate(template.id, { components }));
+        log.calls.push({
+          at: new Date().toISOString(),
+          waba: groupLabel(unit.group),
+          name: template.name,
+          action: "edit",
+          request: { id: template.id, components },
+          response: updated,
+        });
+        flush();
+        await sleep(OPTOUT_RESUBMIT_THROTTLE_MS);
+        await markEdited(admin, unit.group, template, components, Boolean(categoryWrite));
+      }
+      if (categoryWrite && item.class !== "EDIT_IN_PLACE") {
+        await syncCategory(admin, unit.group, categoryWrite);
+        log.category_updates.push({ name: categoryWrite.name, language: categoryWrite.language, table: categoryWrite.db_table, from: categoryWrite.db, to: "MARKETING" });
+        flush();
+      } else if (categoryWrite && item.class === "EDIT_IN_PLACE") {
+        log.category_updates.push({ name: categoryWrite.name, language: categoryWrite.language, table: categoryWrite.db_table, from: categoryWrite.db, to: "MARKETING", with: "edit" });
+        flush();
+      }
+      skip.add(key);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`  FAILED ${template.name}: ${message}`);
+      log.calls.push({
+        at: new Date().toISOString(),
+        waba: groupLabel(unit.group),
+        name: template.name,
+        action: item.class,
+        error: message,
+        request_components: components,
+      });
+      flush();
+    }
+  }
+
+  if (EXECUTE && !ONLY_DEFERRED) {
+    const unit = work.find((row) => row.group.businesses.some((b) => b.slug === CANARY_SLUG));
+    const template = unit?.templates.find((row) => row.name === CANARY_NAME && row.language.toLowerCase().startsWith("he"));
+    const item = unit?.items.find((row) => row.name === CANARY_NAME);
+    if (!unit || !template || !item) {
+      throw new Error("canary template acrobyjoe/after_class not found");
+    }
+    if (item.class !== "EDIT_IN_PLACE" && item.class !== "SKIP_HAS_BUTTON") {
+      throw new Error(`canary class is ${item.class}, expected EDIT_IN_PLACE`);
+    }
+    const sent = componentsFor(template);
+    if (item.class === "EDIT_IN_PLACE") {
+      if (!sent) throw new Error("canary button could not be added");
+      const updated = await metaCall(() => updateWabaTemplate(template.id, { components: sent }));
+      log.canary = { submitted: true, template_id: template.id, response: updated, components_sent: sent };
+      flush();
+      console.log("CANARY_SUBMITTED", template.id);
+      let decision = "PENDING";
+      for (let attempt = 1; attempt <= 30; attempt += 1) {
+        await sleep(60_000);
+        const current = await metaCall(() => getWabaTemplate(template.id));
+        console.log(`CANARY_POLL ${attempt} ${current.status}`);
+        log.canary = { ...log.canary, poll: attempt, status: current.status, rejected_reason: current.rejected_reason };
+        flush();
+        if (current.status.toUpperCase() === "APPROVED") {
+          if (!templateHasOptOutButton(current)) {
+            log.canary = { ...log.canary, result: "approved_without_button", components: current.components };
+            flush();
+            console.error("CANARY_REJECTED approved without opt-out button");
+            console.error(JSON.stringify(sent, null, 2));
+            process.exit(1);
+          }
+          decision = "APPROVED";
+          break;
+        }
+        if (current.status.toUpperCase() === "REJECTED") {
+          log.canary = { ...log.canary, result: "rejected", rejected_reason: current.rejected_reason, components_sent: sent };
+          flush();
+          console.error("CANARY_REJECTED", current.rejected_reason || "(no reason)");
+          console.error(JSON.stringify(sent, null, 2));
+          process.exit(1);
+        }
+      }
+      if (decision !== "APPROVED") {
+        log.canary = { ...log.canary, result: "still_pending" };
+        flush();
+        console.error("CANARY_PENDING after 30 min");
+        process.exit(1);
+      }
+      await markEdited(admin, unit.group, template, sent, false);
+      console.log("CANARY_APPROVED");
+    } else {
+      log.canary = { result: "already_had_button" };
+      console.log("CANARY_APPROVED already had the button");
+    }
+    skip.add(`${unit.group.wabaId}:${template.name}:${template.language}`);
+    log.canary = { ...(log.canary ?? {}), result: "approved" };
+    flush();
+  }
+
+  await Promise.all(
+    work.map(async (unit) => {
+      for (const item of unit.items) {
+        if (ONLY_DEFERRED && item.class !== "EDIT_IN_PLACE" && item.class !== "NEW_VERSION") continue;
+        const template = unit.templates.find((row) => row.name === item.name && row.language === item.language);
+        if (!template) continue;
+        await submitOne(unit, template, item);
+      }
+    })
+  );
+
+  console.log("EXECUTE_DONE");
+  const fallthrough: string[] = [];
+  for (const unit of work) {
+    let fresh: MetaWabaTemplate[] = [];
+    try {
+      fresh = await listWabaTemplates(unit.group.wabaId, { fields: LIST_FIELDS, max: LIST_MAX });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      fallthrough.push(`${groupLabel(unit.group)} LIST FAILED ${message}`);
+      continue;
+    }
+    const marketing = fresh.filter((row) => norm(row.category).toUpperCase() === "MARKETING");
+    for (const template of marketing) {
+      if (template.name === "quota_warning_80" || template.name === "quota_limit_reached") continue;
+      if (templateHasOptOutButton(template)) continue;
+      const version = fresh.find(
+        (row) =>
+          originalTemplateName(row.name) === template.name &&
+          row.language === template.language &&
+          templateHasOptOutButton(row)
+      );
+      if (version) continue;
+      fallthrough.push(`${groupLabel(unit.group)} ${template.name} (${template.language}, ${template.status})`);
+    }
+    for (const template of fresh) {
+      if (!originalTemplateName(template.name) || template.status.toUpperCase() !== "APPROVED") continue;
+      if (!templateHasOptOutButton(template)) continue;
+      const businessId = unit.group.businesses.length === 1 ? unit.group.businesses[0].id : null;
+      for (const business of unit.group.businesses) {
+        const result = await applyOptOutVersionSwitchover(admin, {
+          name: template.name,
+          status: template.status,
+          category: template.category,
+          components: template.components,
+          businessId: business.id,
+          marketingLine: false,
+        });
+        log.switchovers.push({ name: template.name, business_id: business.id, result });
+      }
+      if (unit.group.includesZoeAdmin) {
+        const result = await applyOptOutVersionSwitchover(admin, {
+          name: template.name,
+          status: template.status,
+          category: template.category,
+          components: template.components,
+          businessId: businessId,
+          marketingLine: true,
+        });
+        log.switchovers.push({ name: template.name, marketing_line: true, result });
+      }
+    }
+  }
+  log.verification.push({ fallthrough });
+
+  const apex = work.find((row) => row.group.businesses.some((b) => b.slug === "apex"));
+  const apexId = apex?.group.businesses.find((b) => b.slug === "apex")?.id;
+  if (apexId) {
+    const { data, error } = await admin
+      .from("whatsapp_templates")
+      .select("name, category")
+      .eq("business_id", apexId)
+      .in("name", APEX_CATEGORY_NAMES);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const category = String((row as { category?: string }).category ?? "");
+      log.verification.push({
+        name: (row as { name?: string }).name,
+        category,
+        would_block_marketing_opt_out: shouldSuppressLeadTemplate({
+          category,
+          optedOut: false,
+          marketingOptedOut: true,
+        }),
+      });
+    }
+  }
+  const { data: switchedTriggers } = await admin
+    .from("template_triggers")
+    .select("id, business_id, template_name")
+    .eq("enabled", true)
+    .like("template_name", "%_v2");
+  log.verification.push({ triggers_pointing_at_version: switchedTriggers ?? [] });
+  flush();
+  if (fallthrough.length) {
+    console.log("FELL_THROUGH");
+    for (const line of fallthrough) console.log(" ", line);
+  } else {
+    console.log("VERIFICATION_OK no marketing template left without a button or a _v2");
   }
 }
 
@@ -262,6 +716,7 @@ async function main() {
   }));
 
   const reports = [];
+  const work: WorkUnit[] = [];
   const writeCallsPerWaba: number[] = [];
   let listCalls = 0;
 
@@ -347,6 +802,7 @@ async function main() {
       items,
       mismatches,
     });
+    work.push({ group, templates, items, categoryWrites });
   }
 
   const totals = {
@@ -370,9 +826,27 @@ async function main() {
   console.log(`Meta list calls this run: ${totals.list_get_calls}`);
   console.log(`Planned Meta writes: ${totals.planned_write_calls}`);
   console.log(`Planned category DB updates: ${totals.planned_category_db_updates}`);
-  console.log("Canary (not run): acrobyjoe after_class");
+  console.log(EXECUTE || ONLY_DEFERRED ? "Canary: acrobyjoe after_class" : "Canary (not run): acrobyjoe after_class");
   console.log(`Estimated execute duration: ${Math.ceil(totals.estimated_duration_ms / 1000)}s`);
   console.log(`Report: ${OUT_PATH}`);
+
+  if (EXECUTE || ONLY_DEFERRED) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const logPath = path.join(process.cwd(), "scripts", "out", `marketing-optout-execute-${stamp}.json`);
+    const log: ExecLog = {
+      started_at: new Date().toISOString(),
+      canary: null,
+      calls: [],
+      category_updates: [],
+      switchovers: [],
+      verification: [],
+    };
+    const flush = () => writeFileSync(logPath, JSON.stringify(log, null, 2));
+    flush();
+    console.log(`Execute log: ${logPath}`);
+    await runExecute(admin, work, log, flush);
+    console.log(`Execute log: ${logPath}`);
+  }
 }
 
 main().catch((e) => {

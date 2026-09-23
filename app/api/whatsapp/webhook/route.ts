@@ -539,6 +539,12 @@ import {
   parseUserPreferencesWebhook,
 } from "@/lib/wa-marketing-opt-out";
 import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
+import { originalTemplateName } from "@/lib/marketing-optout-resubmit-plan";
+import {
+  applyOptOutVersionSwitchover,
+  parseTemplateCategoryUpdate,
+  syncTemplateCategoryFromMeta,
+} from "@/lib/marketing-optout-switchover";
 import {
   buildCourseScheduleInfoMessage,
   buildCourseSchedulePhraseForCtaFromPick,
@@ -5539,6 +5545,40 @@ async function handleMessageTemplateStatusUpdate(
     businessSlug = String((biz as { slug?: string } | null)?.slug ?? "").trim() || null;
   }
 
+  if (originalTemplateName(ev.message_template_name)) {
+    const versionName = ev.message_template_name;
+    const language = ev.message_template_language;
+    const businessRow = ev.message_template_id
+      ? await admin
+          .from("whatsapp_templates")
+          .select("business_id, category, components")
+          .eq("waba_template_id", ev.message_template_id)
+          .limit(1)
+          .maybeSingle()
+      : { data: null, error: null };
+    const marketingRow = ev.message_template_id
+      ? await admin
+          .from("marketing_whatsapp_templates")
+          .select("category, components")
+          .eq("waba_template_id", ev.message_template_id)
+          .limit(1)
+          .maybeSingle()
+      : { data: null, error: null };
+    const business = businessRow.data as { business_id?: number; category?: string; components?: unknown[] } | null;
+    const marketing = marketingRow.data as { category?: string; components?: unknown[] } | null;
+    const category = String(business?.category ?? marketing?.category ?? "").trim();
+    const components = (business?.components ?? marketing?.components ?? null) as unknown[] | null;
+    const businessId = Number(business?.business_id);
+    await applyOptOutVersionSwitchover(admin, {
+      name: versionName,
+      status: newStatus,
+      category,
+      components,
+      businessId: Number.isFinite(businessId) && businessId > 0 ? businessId : null,
+      marketingLine: Boolean(marketing),
+    }).catch((e) => console.error("[WA Webhook] opt-out version switchover failed:", versionName, e));
+  }
+
   console.info(
     `[WA Webhook] message_template_status_update: event=${newStatus} match=${matchPath} rows=${matched}`,
     {
@@ -5904,6 +5944,25 @@ export async function POST(req: NextRequest) {
         handleMessageTemplateStatusUpdate(templateStatus).catch((e) =>
           console.error("[WA Webhook] handleMessageTemplateStatusUpdate error:", e)
         )
+      );
+    }
+    const templateCategory = parseTemplateCategoryUpdate(metaPayload);
+    if (templateCategory) {
+      after(() =>
+        syncTemplateCategoryFromMeta(createSupabaseAdminClient(), {
+          messageTemplateId: templateCategory.message_template_id,
+          name: templateCategory.message_template_name,
+          language: templateCategory.message_template_language,
+          category: templateCategory.new_category,
+        })
+          .then((rows) =>
+            console.info("[WA Webhook] template_category_update", {
+              name: templateCategory.message_template_name,
+              category: templateCategory.new_category,
+              rows,
+            })
+          )
+          .catch((e) => console.error("[WA Webhook] template_category_update failed:", e))
       );
     }
   } else {

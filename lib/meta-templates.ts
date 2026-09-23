@@ -131,6 +131,36 @@ export async function listWabaTemplates(
   return collected;
 }
 
+/** GET /{template-id} — one template, including components and rejection reason. */
+export async function getWabaTemplate(
+  templateId: string
+): Promise<MetaWabaTemplate & { rejected_reason: string }> {
+  const id = String(templateId ?? "").trim();
+  if (!id) throw new Error("[getWabaTemplate] missing templateId");
+  const token = resolveSystemToken();
+  const url =
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(id)}` +
+    `?fields=id,name,status,category,language,components,rejected_reason`;
+  const res = await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${token}` } });
+  const bodyText = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(`[getWabaTemplate] Meta Graph API ${res.status}: ${bodyText || res.statusText}`);
+  }
+  let json: unknown = null;
+  try {
+    json = bodyText ? JSON.parse(bodyText) : null;
+  } catch {
+    throw new Error(`[getWabaTemplate] invalid JSON: ${bodyText}`);
+  }
+  const parsed = parseTemplateRow(json);
+  if (!parsed) throw new Error(`[getWabaTemplate] response missing id: ${bodyText}`);
+  const raw = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+  const reason = raw.rejected_reason;
+  const rejected_reason =
+    typeof reason === "string" ? reason : reason != null ? JSON.stringify(reason) : "";
+  return { ...parsed, rejected_reason };
+}
+
 /**
  * POST /{waba-id}/message_templates — creates a template (usually returns PENDING).
  */

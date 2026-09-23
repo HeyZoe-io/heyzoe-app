@@ -62,6 +62,13 @@ export function templateHasOptOutButton(template: OptOutPlanTemplate): boolean {
   return buttonTexts(template.components).some((text) => isMarketingOptOutButtonText(text));
 }
 
+/** `hello_v2` → `hello`. Names without that suffix are not opt-out versions. */
+export function originalTemplateName(versionName: string): string | null {
+  const match = /^(.*)_v(\d+)$/.exec(String(versionName ?? "").trim());
+  if (!match?.[1] || !/^\d+$/.test(match[2] ?? "")) return null;
+  return match[1];
+}
+
 export function nextVersionTemplateName(name: string, taken: Set<string>): string {
   let n = 2;
   while (taken.has(`${name}_v${n}`)) n += 1;
