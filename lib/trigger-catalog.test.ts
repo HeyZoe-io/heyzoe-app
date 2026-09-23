@@ -11,6 +11,7 @@ import {
   defaultDelayDays,
   defaultDelayDirection,
   delayDirectionForTrigger,
+  delayDirectionOptionLabelsHe,
   forcesAfterNoProductFilter,
   forcesDelayAfter,
   formatDelayLabel,
@@ -23,6 +24,7 @@ import {
   isUniquePerBusinessTriggerType,
   minDelayDaysForTrigger,
   plannedCatalogEntriesForCell,
+  showsDelayDirectionPicker,
   showsProductFilter,
   showsItemTypeFilter,
   isImmediateDelayTrigger,
@@ -483,6 +485,31 @@ function triggerCatalogAudience(type: string) {
   assert.equal(allowsDelayBefore("freeze_ending_unbooked"), true);
   assert.equal(allowsDelayBeforeFacade("membership_expiring"), true);
   assert.equal(allowsDelayBeforeFacade("birthday"), true);
+  assert.equal(showsDelayDirectionPicker("membership_expiring"), true);
+  assert.equal(showsDelayDirectionPicker("sessions_expiring"), true);
+  assert.equal(showsDelayDirectionPicker("birthday"), true);
+  assert.equal(showsDelayDirectionPicker("birthday_former"), true);
+  assert.equal(showsDelayDirectionPicker("trial_reminder"), false);
+  assert.equal(showsDelayDirectionPicker("trainer_trial_heads_up"), false);
+  assert.equal(showsDelayDirectionPicker("freeze_ending_unbooked"), false);
+  assert.equal(showsDelayDirectionPicker("freeze_ending_booked"), false);
+  assert.equal(showsDelayDirectionPicker("purchase"), false);
+  assert.deepEqual(delayDirectionOptionLabelsHe("birthday"), {
+    before: "לפני יום ההולדת",
+    after: "אחרי יום ההולדת",
+  });
+  assert.deepEqual(delayDirectionOptionLabelsHe("membership_expiring"), {
+    before: "לפני פקיעת התוקף",
+    after: "אחרי פקיעת התוקף",
+  });
+  assert.deepEqual(delayDirectionOptionLabelsHe("trial_reminder"), {
+    before: "לפני האימון",
+    after: "אחרי האימון",
+  });
+  assert.deepEqual(delayDirectionOptionLabelsHe("freeze_ending_booked"), {
+    before: "לפני סיום ההקפאה",
+    after: "אחרי סיום ההקפאה",
+  });
   assert.equal(defaultDelayDirection("membership_expiring"), "before");
   assert.equal(defaultDelayDirection("freeze_ending_booked"), "before");
   assert.equal(defaultDelayDirection("trial_reminder"), "before");

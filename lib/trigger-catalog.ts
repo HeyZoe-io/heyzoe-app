@@ -730,6 +730,36 @@ export function allowsDelayBefore(triggerType: string): boolean {
   return isBirthdayFamilyTriggerType(e.type);
 }
 
+/**
+ * Show before/after direction select only when both directions are meaningful.
+ * Fixed `before` types (trial reminder, freeze ending, …) ignore delay_direction
+ * in matchers — hiding avoids the misleading "פקיעת תוקף" copy.
+ */
+export function showsDelayDirectionPicker(triggerType: string): boolean {
+  return triggerCatalogEntry(triggerType)?.delay === "either";
+}
+
+/** Hebrew labels for the before/after direction select. */
+export function delayDirectionOptionLabelsHe(triggerType: string): {
+  before: string;
+  after: string;
+} {
+  if (isBirthdayFamilyTriggerType(triggerType)) {
+    return { before: "לפני יום ההולדת", after: "אחרי יום ההולדת" };
+  }
+  if (isFreezeEndingTriggerType(triggerType)) {
+    return { before: "לפני סיום ההקפאה", after: "אחרי סיום ההקפאה" };
+  }
+  if (
+    triggerType === "trial_reminder" ||
+    triggerType === "trainer_trial_heads_up" ||
+    triggerType === "class_reminder_regular"
+  ) {
+    return { before: "לפני האימון", after: "אחרי האימון" };
+  }
+  return { before: "לפני פקיעת התוקף", after: "אחרי פקיעת התוקף" };
+}
+
 /** salesReport item_type values used by purchase item_type_filter. */
 export const PURCHASE_ITEM_TYPE_VALUES = ["plan", "session", "service", "trial"] as const;
 export type PurchaseItemType = (typeof PURCHASE_ITEM_TYPE_VALUES)[number];
