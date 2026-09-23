@@ -22,7 +22,6 @@ import {
   type MarketingTriggerType,
 } from "@/lib/marketing-template-trigger-types";
 import {
-  isMarketingStage,
   MARKETING_STAGE_STATUSES,
   marketingStageLabel,
   type MarketingStage,
@@ -171,7 +170,8 @@ export default function AdminTemplatesClient({
   const [trigTemplate, setTrigTemplate] = useState("");
   const [savingTrig, setSavingTrig] = useState(false);
 
-  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call" | MarketingStage>("all");
+  const [audience, setAudience] = useState<"all" | "completed" | "upcoming_call" | "stages">("all");
+  const [selectedStages, setSelectedStages] = useState<MarketingStage[]>([]);
   const [broadcastTpl, setBroadcastTpl] = useState("");
   const [broadcastMode, setBroadcastMode] = useState<"now" | "schedule">("now");
   const [scheduleDate, setScheduleDate] = useState("");
@@ -391,13 +391,15 @@ export default function AdminTemplatesClient({
 
   async function sendBroadcast(e: React.FormEvent) {
     e.preventDefault();
-    if (
-      isMarketingStage(audience) &&
-      !window.confirm(
-        `לשלוח את הטמפלייט לכל מי שבעמודת «${marketingStageLabel(audience)}»? כל נמען = הודעת וואטסאפ.`
-      )
-    ) {
-      return;
+    if (audience === "stages") {
+      if (selectedStages.length === 0) {
+        setError("בחרי לפחות סטטוס אחד");
+        return;
+      }
+      const labels = selectedStages.map((stage) => marketingStageLabel(stage)).join(" · ");
+      if (!window.confirm(`לשלוח את הטמפלייט לכל מי שמסומן: ${labels}? כל מספר פעם אחת. כל נמען = הודעת וואטסאפ.`)) {
+        return;
+      }
     }
     setBroadcasting(true);
     setError(null);
@@ -406,7 +408,7 @@ export default function AdminTemplatesClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          audience,
+          ...(audience === "stages" ? { stages: selectedStages } : { audience }),
           template_name: broadcastTpl,
           send: broadcastMode,
           schedule_date: scheduleDate,
@@ -665,16 +667,38 @@ export default function AdminTemplatesClient({
             <option value="all">כל מי שדיבר עם זואי</option>
             <option value="completed">סיימו את הפלואו</option>
             <option value="upcoming_call">יש שיחה קבועה מעכשיו והלאה</option>
-            {MARKETING_STAGE_STATUSES.map((stage) => (
-              <option key={stage} value={stage}>
-                {marketingStageLabel(stage)} — כל מי שמסומן
-              </option>
-            ))}
+            <option value="stages">לפי סטטוס — אפשר כמה</option>
           </select>
-          {isMarketingStage(audience) ? (
-            <p className="text-xs text-zinc-500">
-              אותו קהל כמו עמודת «{marketingStageLabel(audience)}» בלידים. «לא רלוונטי» ומי שביקש הסרה לא נכללים.
-            </p>
+          {audience === "stages" ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {MARKETING_STAGE_STATUSES.map((stage) => {
+                  const checked = selectedStages.includes(stage);
+                  return (
+                    <label
+                      key={stage}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs ${
+                        checked ? "border-[#7133da] bg-violet-50 text-[#7133da]" : "border-zinc-200 text-zinc-700"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setSelectedStages((prev) =>
+                            prev.includes(stage) ? prev.filter((item) => item !== stage) : [...prev, stage]
+                          )
+                        }
+                      />
+                      {marketingStageLabel(stage)}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-zinc-500">
+                אפשר לסמן כמה סטטוסים. השליחה היא האיחוד של העמודות בלידים, וכל מספר מקבל הודעה אחת. «לא רלוונטי» ומי שביקש הסרה לא נכללים.
+              </p>
+            </div>
           ) : null}
           <select className={FIELD} value={broadcastTpl} onChange={(e) => setBroadcastTpl(e.target.value)} required>
             <option value="">טמפלייט מאושר</option>

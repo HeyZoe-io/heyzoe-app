@@ -4,6 +4,7 @@ import {
   isMarketingNoResponseLead,
   phonesForMarketingNoResponse,
   phonesForMarketingStage,
+  phonesForMarketingStages,
 } from "@/lib/marketing-broadcast-audience";
 
 const base: LeadRow = {
@@ -67,5 +68,16 @@ const byStage = phonesForMarketingStage(
   "followup"
 );
 assert.deepEqual(byStage, ["972503333333"]);
+
+const combined = phonesForMarketingStages(
+  [
+    { ...base, phone: "972503333333", pipeline_status: "followup", marketing_relevance: "relevant", marketing_stage: "followup" },
+    { ...base, phone: "972503333333", pipeline_status: "no_response" },
+    { ...base, phone: "972506666666", pipeline_status: "requires_call" },
+    { ...base, phone: "972507777777", marketing_relevance: "not_relevant" },
+  ],
+  ["followup", "requires_call"]
+);
+assert.deepEqual(combined, ["972503333333", "972506666666"]);
 
 console.log("marketing-broadcast-audience.test.ts: ok");

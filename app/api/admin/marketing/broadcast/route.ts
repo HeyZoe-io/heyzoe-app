@@ -10,8 +10,9 @@ import { toPipelineDateOnly } from "@/lib/marketing-next-call";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import {
   isMarketingBroadcastStage,
-  phonesForMarketingStage,
+  phonesForMarketingStages,
 } from "@/lib/marketing-broadcast-audience";
+import type { MarketingStage } from "@/lib/marketing-admin-status";
 import { loadMarketingAdminLeads } from "@/lib/leads-data";
 import type { ScheduledMarketingTemplateSendRow } from "@/lib/scheduled-marketing-template-sends";
 
@@ -37,10 +38,25 @@ function isFlowAudience(v: string): v is FlowAudience {
   return (FLOW_AUDIENCES as readonly string[]).includes(v);
 }
 
+function parseStages(raw: unknown): MarketingStage[] | "invalid" | null {
+  if (raw == null) return null;
+  if (!Array.isArray(raw)) return "invalid";
+  const stages: MarketingStage[] = [];
+  for (const item of raw) {
+    const value = String(item ?? "").trim();
+    if (!isMarketingBroadcastStage(value) || stages.includes(value)) {
+      if (!isMarketingBroadcastStage(value)) return "invalid";
+      continue;
+    }
+    stages.push(value);
+  }
+  return stages;
+}
+
 /**
  * POST /api/admin/marketing/broadcast
- * Body: { audience: all | completed | upcoming_call | <stage>, template_name, send: "now" | "schedule", schedule_at?: ISO }
- * A stage audience matches that leads-page column. «לא רלוונטי» is not an audience.
+ * Body: { audience?: all | completed | upcoming_call | <stage>, stages?: MarketingStage[], template_name, send: "now" | "schedule", schedule_at?: ISO }
+ * `stages` is a union of lead columns (one Meta call per unique phone). «לא רלוונטי» is not an audience.
  *
  * Immediate: enqueue due_at=now + flush up to 20 in this request.
  * Rest wait for cron-job.org → /api/cron/scheduled-template-sends.
@@ -58,8 +74,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
+  const parsedStages = parseStages(body.stages);
+  if (parsedStages === "invalid") {
+    return NextResponse.json({ error: "invalid_audience" }, { status: 400 });
+  }
   const audience = String(body.audience ?? "").trim();
-  const stageAudience = isMarketingBroadcastStage(audience) ? audience : null;
+  const stageAudience: MarketingStage[] | null = parsedStages
+    ? parsedStages.length > 0
+      ? parsedStages
+      : null
+    : isMarketingBroadcastStage(audience)
+      ? [audience]
+      : null;
+  if (parsedStages && parsedStages.length === 0) {
+    return NextResponse.json({ error: "missing_stages" }, { status: 400 });
+  }
   if (!stageAudience && !isFlowAudience(audience)) {
     return NextResponse.json({ error: "invalid_audience" }, { status: 400 });
   }
@@ -107,10 +136,10 @@ export async function POST(req: NextRequest) {
   let phones: string[];
   if (stageAudience) {
     const leads = await loadMarketingAdminLeads(admin);
-    phones = phonesForMarketingStage(leads, stageAudience).slice(0, AUDIENCE_LIMIT);
+    phones = phonesForMarketingStages(leads, stageAudience).slice(0, AUDIENCE_LIMIT);
     if (phones.length === AUDIENCE_LIMIT) {
       console.warn("[admin/marketing/broadcast] stage audience truncated", {
-        audience: stageAudience,
+        audience: stageAudience.join(","),
         limit: AUDIENCE_LIMIT,
       });
     }
