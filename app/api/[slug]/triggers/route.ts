@@ -300,6 +300,10 @@ const UNIQUE_TRIGGER_EXISTS_MESSAGE: Record<string, { error: string; message: st
     error: "class_cancelled_staff_exists",
     message: "כבר קיים טריגר ביטול שיעור למאמן",
   },
+  first_paid_purchase: {
+    error: "first_paid_purchase_exists",
+    message: "כבר קיים טריגר הצטרפות ראשונה",
+  },
 };
 
 async function findExistingTrialReminderRule(

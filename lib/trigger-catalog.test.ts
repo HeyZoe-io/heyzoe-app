@@ -45,6 +45,7 @@ import {
 
 const LIVE_AUTOMATIC = [
   "purchase",
+  "first_paid_purchase",
   "credit_refusal",
   "registered_after_trial",
   "not_registered_after_trial",
@@ -72,6 +73,7 @@ const LIVE_AUTOMATIC = [
 
 const PREVIOUS_ARBOX = [
   "purchase",
+  "first_paid_purchase",
   "credit_refusal",
   "registered_after_trial",
   "not_registered_after_trial",

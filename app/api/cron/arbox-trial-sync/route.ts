@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import {
+  hasEnabledFirstPaidPurchaseTrigger,
+  syncFirstPaidPurchasesForBusiness,
+} from "@/lib/leads/arbox-first-paid-purchase";
+import {
   arboxSaleHasOutstandingDebt,
   handleArboxTrialSaleRegistered,
   type ArboxSalesReportRow,
@@ -59,6 +63,7 @@ type BusinessSummary = {
   fetch_error?: string;
   credit_refusal?: Awaited<ReturnType<typeof syncArboxCreditRefusalsForBusiness>>;
   new_lead?: Awaited<ReturnType<typeof syncArboxNewLeadsForBusiness>>;
+  first_paid_purchase?: Awaited<ReturnType<typeof syncFirstPaidPurchasesForBusiness>>;
 };
 
 function authorizeCron(req: NextRequest): boolean {
@@ -335,7 +340,9 @@ export async function GET(req: NextRequest) {
       purchaseRules,
     });
 
-    if (purchaseSaleMembershipScopeIsEmpty(membershipScope)) {
+    const firstPaidOn = await hasEnabledFirstPaidPurchaseTrigger(admin, business.id);
+    const salesScopeEmpty = purchaseSaleMembershipScopeIsEmpty(membershipScope);
+    if (salesScopeEmpty && !firstPaidOn) {
       summary.skipped = true;
       console.info(
         "[cron/arbox-trial-sync] skipped sales — no trial membership_type_ids and no enabled purchase product filters",
@@ -362,10 +369,35 @@ export async function GET(req: NextRequest) {
       if (!report.ok) {
         summary.fetch_error = report.error;
       } else {
-      const relevantRows = filterSalesRowsForMembershipScope(report.rows, membershipScope);
+      if (firstPaidOn) {
+        try {
+          summary.first_paid_purchase = await syncFirstPaidPurchasesForBusiness({
+            admin,
+            businessId: business.id,
+            businessSlug: business.slug,
+            apiKey: business.crm_api_key,
+            boxId: business.crm_box_id,
+            trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+            salesRows: report.rows,
+            salesSyncSeeded: business.arbox_sales_sync_seeded,
+            now,
+          });
+          summary.errors += summary.first_paid_purchase.errors;
+        } catch (e) {
+          summary.errors += 1;
+          console.error("[cron/arbox-trial-sync] first_paid_purchase step threw", {
+            slug: business.slug,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
+      const relevantRows = salesScopeEmpty
+        ? []
+        : filterSalesRowsForMembershipScope(report.rows, membershipScope);
       summary.fetched = relevantRows.length;
 
-      if (!business.arbox_sales_sync_seeded) {
+      if (!salesScopeEmpty && !business.arbox_sales_sync_seeded) {
         console.info("[cron/arbox-trial-sync] first sales pass — seeding dedup without notify", {
           slug: business.slug,
           relevant_rows: relevantRows.length,

@@ -163,6 +163,7 @@ import {
     arbox_new_lead: ["Limitless"],
     no_response: ["דנה"],
     purchase: ["דנה", "Limitless"],
+    first_paid_purchase: ["דנה", "Limitless"],
     credit_refusal: ["דנה"],
     birthday: ["דנה", "Limitless"],
     birthday_former: ["דנה", "Limitless"],

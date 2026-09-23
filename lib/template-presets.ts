@@ -27,6 +27,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   arbox_new_lead: ["business_name"],
   no_response: ["first_name"],
   purchase: ["first_name", "business_name"],
+  first_paid_purchase: ["first_name", "business_name"],
   credit_refusal: ["first_name"],
   birthday: ["first_name", "business_name"],
   birthday_former: ["first_name", "business_name"],
@@ -75,6 +76,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "purchase_thanks",
     category: "UTILITY",
     body: "היי {{1}}, תודה על הרכישה! איזה כיף שאתם עכשיו חלק מ{{2}}! 🎉",
+  },
+  first_paid_purchase: {
+    name: "first_paid_purchase",
+    category: "UTILITY",
+    body: "היי {{1}}, איזה כיף שהצטרפת ל{{2}}! מחכים לך באימון הראשון.",
   },
   credit_refusal: {
     name: "credit_refusal",
