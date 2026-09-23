@@ -757,6 +757,14 @@ export default function AdminTemplatesClient({
                 ))}
               </select>
             ) : null}
+            <select
+              className={FIELD}
+              value={category}
+              onChange={(e) => setCategory(e.target.value === "MARKETING" ? "MARKETING" : "UTILITY")}
+            >
+              <option value="UTILITY">יוטיליטי</option>
+              <option value="MARKETING">מרקטינג</option>
+            </select>
             <input
               className={`${FIELD} text-left`}
               dir="ltr"
