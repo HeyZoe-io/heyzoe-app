@@ -722,12 +722,70 @@ export function isImmediateDelayTrigger(triggerType: string): boolean {
   return triggerCatalogEntry(triggerType)?.delay === "none";
 }
 
-/** Expiry / freeze-ending / birthday may fire before the calendar day. */
+/** Expiry / freeze-ending / birthday / class-before may fire before the calendar day. */
 export function allowsDelayBefore(triggerType: string): boolean {
   const e = triggerCatalogEntry(triggerType);
   if (!e) return false;
   if (e.delay === "either" || e.delay === "before") return true;
   return isBirthdayFamilyTriggerType(e.type);
+}
+
+/** Catalog delay is before-only — «after» is not a real choice. */
+export function forcesDelayBefore(triggerType: string): boolean {
+  return triggerCatalogEntry(triggerType)?.delay === "before";
+}
+
+/** Membership / session pack end date. Other triggers must not use expiry wording. */
+export function isExpiryFamilyTriggerType(value: string): boolean {
+  const t = canonicalizeTriggerType(value);
+  return t === "membership_expiring" || t === "sessions_expiring";
+}
+
+/** Reminder relative to a class, not a membership end date. */
+export function isClassBeforeTriggerType(value: string): boolean {
+  const t = canonicalizeTriggerType(value);
+  return (
+    t === "trial_reminder" ||
+    t === "trainer_trial_heads_up" ||
+    t === "class_reminder_regular"
+  );
+}
+
+export type DelayDirectionOption = { value: DelayDirection; labelHe: string };
+
+/**
+ * Direction picker copy. Expiry wording only for membership/session expiry.
+ * Class and freeze triggers are before-only.
+ */
+export function delayDirectionOptions(triggerType: string): DelayDirectionOption[] {
+  if (!allowsDelayBefore(triggerType) || isImmediateDelayTrigger(triggerType)) return [];
+  if (isBirthdayFamilyTriggerType(triggerType)) {
+    return [
+      { value: "before", labelHe: "לפני יום ההולדת" },
+      { value: "after", labelHe: "אחרי יום ההולדת" },
+    ];
+  }
+  if (isClassBeforeTriggerType(triggerType)) {
+    return [{ value: "before", labelHe: "לפני האימון" }];
+  }
+  if (isFreezeEndingTriggerType(triggerType)) {
+    return [{ value: "before", labelHe: "לפני סיום ההקפאה" }];
+  }
+  if (isExpiryFamilyTriggerType(triggerType)) {
+    return [
+      { value: "before", labelHe: "לפני פקיעת התוקף" },
+      { value: "after", labelHe: "אחרי פקיעת התוקף" },
+    ];
+  }
+  const mode = triggerCatalogEntry(triggerType)?.delay;
+  if (mode === "before") return [{ value: "before", labelHe: "לפני האירוע" }];
+  if (mode === "either") {
+    return [
+      { value: "before", labelHe: "לפני האירוע" },
+      { value: "after", labelHe: "אחרי האירוע" },
+    ];
+  }
+  return [];
 }
 
 /** salesReport item_type values used by purchase item_type_filter. */
@@ -870,7 +928,7 @@ export function formatDelayLabel(
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
-  if (type === "trial_reminder" || type === "trainer_trial_heads_up") {
+  if (isClassBeforeTriggerType(type)) {
     return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
   }
   if (type === "class_cancelled_staff") {
@@ -884,9 +942,14 @@ export function formatDelayLabel(
     const dir = direction === "before" ? "לפני יום ההולדת" : "אחרי יום ההולדת";
     return `${days} ימים ${dir}`;
   }
-  if (allowsDelayBefore(type)) {
+  if (isExpiryFamilyTriggerType(type)) {
     if (days === 0) return "ביום פקיעת התוקף";
     const dir = direction === "before" ? "לפני פקיעת התוקף" : "אחרי פקיעת התוקף";
+    return `${days} ימים ${dir}`;
+  }
+  if (allowsDelayBefore(type)) {
+    if (days === 0) return "ביום האירוע";
+    const dir = direction === "before" ? "לפני האירוע" : "אחרי האירוע";
     return `${days} ימים ${dir}`;
   }
   if (days === 0) return "ביום האירוע";

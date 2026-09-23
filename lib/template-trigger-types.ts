@@ -17,6 +17,7 @@ export {
   isIncomingLeadTriggerType,
   canonicalizeTriggerType,
   forcesDelayAfter,
+  forcesDelayBefore,
   allowsDelayBefore,
   delayDirectionForTrigger,
   isBirthdayFamilyTriggerType,

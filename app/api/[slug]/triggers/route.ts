@@ -6,6 +6,7 @@ import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
   canonicalizeTriggerType,
   forcesDelayAfter,
+  forcesDelayBefore,
   INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isArboxDependentTriggerType,
   isImmediateDelayTrigger,
@@ -189,8 +190,9 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
     product_filter: productFilter === "invalid" ? null : productFilter,
     item_type_filter: itemTypeFilter === "invalid" ? null : itemTypeFilter,
     delay_days: Number(row.delay_days ?? 0),
-    delay_direction:
-      forcesDelayAfter(canonicalType) || isImmediateDelayTrigger(canonicalType)
+    delay_direction: forcesDelayBefore(canonicalType)
+      ? "before"
+      : forcesDelayAfter(canonicalType) || isImmediateDelayTrigger(canonicalType)
         ? "after"
         : storedDirection,
     lookback_days: showsLookbackDays(canonicalType)
@@ -423,7 +425,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   }
 
   let delayDirection = String(body.delay_direction ?? "").trim();
-  if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) {
+  if (forcesDelayBefore(triggerType)) {
+    delayDirection = "before";
+  } else if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) {
     delayDirection = "after";
   }
   if (!isDelayDirection(delayDirection)) {
@@ -547,6 +551,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       patch.delay_direction = "after";
       patch.product_filter = null;
       patch.item_type_filter = null;
+    } else if (forcesDelayBefore(triggerType)) {
+      patch.delay_direction = "before";
     } else if (forcesDelayAfter(triggerType) || isImmediateDelayTrigger(triggerType)) {
       patch.delay_direction = "after";
     }
@@ -576,7 +582,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
         (existingForDelay as { trigger_type?: unknown } | null)?.trigger_type ?? ""
       );
     }
-    if (forcesDelayAfter(typeForDelay) || isImmediateDelayTrigger(typeForDelay)) {
+    if (forcesDelayBefore(typeForDelay)) {
+      delayDirection = "before";
+    } else if (forcesDelayAfter(typeForDelay) || isImmediateDelayTrigger(typeForDelay)) {
       delayDirection = "after";
     }
     if (!isDelayDirection(delayDirection)) {

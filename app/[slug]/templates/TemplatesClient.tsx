@@ -41,6 +41,7 @@ import {
   AUDIENCE_LABELS_HE,
   allowsDelayBefore,
   catalogEntriesFor,
+  delayDirectionOptions,
   creatableCatalogEntriesForCell,
   defaultDelayDays,
   defaultDelayDirection,
@@ -434,7 +435,8 @@ export default function TemplatesClient({
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const showNewItemTypeFilter = showsItemTypeFilter(newTriggerType);
   const isNewImmediateDelay = isImmediateDelayTrigger(newTriggerType);
-  const hideNewDelayDirection = !allowsDelayBefore(newTriggerType) || isNewImmediateDelay;
+  const newDirectionOptions = delayDirectionOptions(newTriggerType);
+  const hideNewDelayDirection = newDirectionOptions.length === 0;
   const newDelayDaysMin = minDelayDaysForTrigger(newTriggerType);
 
   useEffect(() => {
@@ -787,8 +789,13 @@ export default function TemplatesClient({
     setSuccess(null);
     setEditingTriggerId(trigger.id);
     setEditDelayDays(trigger.delay_days);
+    const storedDirection: DelayDirection =
+      trigger.delay_direction === "before" ? "before" : "after";
+    const directionOptions = delayDirectionOptions(trigger.trigger_type);
     setEditDelayDirection(
-      trigger.delay_direction === "before" ? "before" : "after"
+      directionOptions.some((option) => option.value === storedDirection)
+        ? storedDirection
+        : (directionOptions[0]?.value ?? storedDirection)
     );
     setEditLookbackDays(
       trigger.lookback_days != null && trigger.lookback_days > 0
@@ -1618,7 +1625,7 @@ export default function TemplatesClient({
                                   />
                                 </div>
                               ) : null}
-                              {allowsDelayBefore(trigger.trigger_type) ? (
+                              {delayDirectionOptions(trigger.trigger_type).length > 0 ? (
                                 <div className="space-y-1">
                                   <label className="text-xs font-medium text-zinc-700">כיוון</label>
                                   <select
@@ -1628,17 +1635,11 @@ export default function TemplatesClient({
                                     }
                                     className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
                                   >
-                                    {isBirthdayFamilyTriggerType(trigger.trigger_type) ? (
-                                      <>
-                                        <option value="before">לפני יום ההולדת</option>
-                                        <option value="after">אחרי יום ההולדת</option>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <option value="before">לפני פקיעת התוקף</option>
-                                        <option value="after">אחרי פקיעת התוקף</option>
-                                      </>
-                                    )}
+                                    {delayDirectionOptions(trigger.trigger_type).map((option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.labelHe}
+                                      </option>
+                                    ))}
                                   </select>
                                 </div>
                               ) : null}
@@ -1982,17 +1983,11 @@ export default function TemplatesClient({
                                   onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
                                   className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                                 >
-                                  {isBirthdayFamilyTriggerType(newTriggerType) ? (
-                                    <>
-                                      <option value="before">לפני יום ההולדת</option>
-                                      <option value="after">אחרי יום ההולדת</option>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <option value="before">לפני פקיעת התוקף</option>
-                                      <option value="after">אחרי פקיעת התוקף</option>
-                                    </>
-                                  )}
+                                  {newDirectionOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.labelHe}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
                             ) : null}

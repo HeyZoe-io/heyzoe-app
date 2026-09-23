@@ -13,8 +13,11 @@ import {
   delayDirectionForTrigger,
   forcesAfterNoProductFilter,
   forcesDelayAfter,
+  delayDirectionOptions,
+  forcesDelayBefore,
   formatDelayLabel,
   isArboxDependentTriggerType,
+  isExpiryFamilyTriggerType,
   isBirthdayFamilyTriggerType,
   isCreatableTriggerType,
   isIncomingLeadTriggerType,
@@ -549,6 +552,49 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("nth_workout", 10, "after"), "אימון מספר 10");
   assert.equal(minDelayDaysForTrigger("nth_workout"), 1);
   assert.equal(defaultDelayDays("nth_workout"), 3);
+  assert.equal(formatDelayLabel("freeze_ending_unbooked", 3, "before"), "3 ימים לפני סיום ההקפאה");
+  assert.equal(formatDelayLabel("class_reminder_regular", 1, "before"), "1 ימים לפני האימון");
+}
+
+{
+  assert.deepEqual(delayDirectionOptions("trainer_trial_heads_up"), [
+    { value: "before", labelHe: "לפני האימון" },
+  ]);
+  assert.deepEqual(delayDirectionOptions("trial_reminder"), [
+    { value: "before", labelHe: "לפני האימון" },
+  ]);
+  assert.deepEqual(delayDirectionOptions("freeze_ending_booked"), [
+    { value: "before", labelHe: "לפני סיום ההקפאה" },
+  ]);
+  assert.deepEqual(delayDirectionOptions("freeze_ending_unbooked"), [
+    { value: "before", labelHe: "לפני סיום ההקפאה" },
+  ]);
+  assert.deepEqual(
+    delayDirectionOptions("membership_expiring").map((option) => option.labelHe),
+    ["לפני פקיעת התוקף", "אחרי פקיעת התוקף"]
+  );
+  assert.deepEqual(
+    delayDirectionOptions("sessions_expiring").map((option) => option.labelHe),
+    ["לפני פקיעת התוקף", "אחרי פקיעת התוקף"]
+  );
+  assert.equal(forcesDelayBefore("trainer_trial_heads_up"), true);
+  assert.equal(forcesDelayBefore("trial_reminder"), true);
+  assert.equal(forcesDelayBefore("membership_expiring"), false);
+  assert.equal(isExpiryFamilyTriggerType("sessions_expiring"), true);
+  assert.equal(isExpiryFamilyTriggerType("trainer_trial_heads_up"), false);
+
+  for (const entry of TRIGGER_CATALOG) {
+    if (isExpiryFamilyTriggerType(entry.type)) continue;
+    const labels = [
+      formatDelayLabel(entry.type, 0, "before"),
+      formatDelayLabel(entry.type, 5, "before"),
+      formatDelayLabel(entry.type, 5, "after"),
+      ...delayDirectionOptions(entry.type).map((option) => option.labelHe),
+    ];
+    for (const label of labels) {
+      assert.equal(label.includes("פקיע"), false, `${entry.type}: ${label}`);
+    }
+  }
 }
 
 {
