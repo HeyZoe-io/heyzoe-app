@@ -1,21 +1,6 @@
--- זואי אדמין: סטטוס-על (רלוונטי / לא רלוונטי) בנפרד מהסטטוס המשני.
--- להריץ ב-Supabase SQL Editor.
--- אין cron חדש. הזרמה למטא נשארת בשמירת סטטוס (לא סריקה).
-
-alter table public.marketing_conversation_notes
-  add column if not exists relevance text not null default 'relevant';
-
-alter table public.marketing_conversation_notes
-  drop constraint if exists marketing_conversation_notes_relevance_check;
-
-alter table public.marketing_conversation_notes
-  add constraint marketing_conversation_notes_relevance_check
-  check (relevance in ('relevant', 'not_relevant'));
-
-update public.marketing_conversation_notes
-set relevance = 'not_relevant'
-where status = 'not_relevant'
-  and relevance is distinct from 'not_relevant';
+-- סטטוס «שיחת הקמה» בזואי אדמין (מי שנקבעה מולו שיחת הקמה).
+-- להריץ ב-Supabase SQL Editor אחרי marketing_admin_status_layers.sql.
+-- אין cron חדש. שמירת הסטטוס נשארת בקריאה הקיימת (בלי סריקה).
 
 alter table public.marketing_conversation_notes
   drop constraint if exists marketing_conversation_notes_status_check;
@@ -32,9 +17,6 @@ alter table public.marketing_conversation_notes
     'registered',
     'not_relevant'
   ));
-
-comment on column public.marketing_conversation_notes.relevance is
-  'סטטוס-על: relevant או not_relevant. לא תלוי בסטטוס המשני. מטא מסתנכרנת רק לפי השדה הזה.';
 
 alter table public.marketing_flow_sessions
   drop constraint if exists marketing_flow_sessions_pipeline_status_check;

@@ -3,6 +3,7 @@ import { metaAudienceBucketForRelevance, metaAudienceBucketForStatus } from "@/l
 import type { LeadRow } from "@/lib/leads-types";
 import {
   formatMarketingAdminStatusLabel,
+  marketingStageLabel,
   resolveMarketingAdminColumn,
   splitStoredMarketingStatus,
 } from "@/lib/marketing-admin-status";
@@ -62,11 +63,17 @@ assert.equal(
   "רלוונטי + ללא מענה"
 );
 assert.equal(formatMarketingAdminStatusLabel({ relevance: "not_relevant", stage: "followup" }), "לא רלוונטי");
+assert.equal(marketingStageLabel("setup_call"), "שיחת הקמה");
+assert.equal(
+  formatMarketingAdminStatusLabel({ relevance: "relevant", stage: "setup_call" }),
+  "רלוונטי + שיחת הקמה"
+);
 
 assert.equal(metaAudienceBucketForRelevance("relevant"), "relevant");
 assert.equal(metaAudienceBucketForRelevance("not_relevant"), "excluded");
 assert.equal(metaAudienceBucketForStatus("no_response"), "relevant");
 assert.equal(metaAudienceBucketForStatus("in_process"), "relevant");
+assert.equal(metaAudienceBucketForStatus("setup_call"), "relevant");
 assert.equal(metaAudienceBucketForStatus("not_relevant"), "excluded");
 assert.equal(metaAudienceBucketForStatus("opted_out"), null);
 

@@ -15,6 +15,7 @@ export const MARKETING_STAGE_STATUSES = [
   "followup",
   "no_response",
   "not_interested",
+  "setup_call",
   "registered",
 ] as const;
 export type MarketingStage = (typeof MARKETING_STAGE_STATUSES)[number];
@@ -26,6 +27,7 @@ export const MARKETING_ADMIN_COLUMNS = [
   "followup",
   "no_response",
   "not_interested",
+  "setup_call",
   "registered",
   "not_relevant",
   "opted_out",
@@ -41,7 +43,8 @@ const STAGE_RANK: Record<MarketingStage, number> = {
   followup: 2,
   no_response: 3,
   not_interested: 4,
-  registered: 5,
+  setup_call: 5,
+  registered: 6,
 };
 
 export function isMarketingRelevance(v: unknown): v is MarketingRelevance {
@@ -66,6 +69,8 @@ export function marketingStageLabel(stage: MarketingStage): string {
       return "ללא מענה";
     case "not_interested":
       return "לא מעוניין";
+    case "setup_call":
+      return "שיחת הקמה";
     case "registered":
       return "נרשם";
     case "in_process":
@@ -90,8 +95,10 @@ export function marketingAdminColumnHeaderClass(column: MarketingAdminColumn): s
       return "border-red-200 bg-red-50 text-red-800";
     case "not_interested":
       return "border-rose-200 bg-rose-50 text-rose-800";
+    case "setup_call":
+      return "border-purple-200 bg-purple-50 text-purple-800";
     case "registered":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-cyan-200 bg-cyan-50 text-cyan-800";
     case "not_relevant":
       return "border-slate-300 bg-slate-100 text-slate-800";
     case "opted_out":
@@ -119,7 +126,7 @@ export function marketingAdminStatusRank(input: {
   relevance?: MarketingRelevance | null;
   stage?: MarketingStage | null;
 }): number {
-  if (input.relevance === "not_relevant") return 6;
+  if (input.relevance === "not_relevant") return 7;
   return STAGE_RANK[input.stage ?? "in_process"];
 }
 
@@ -143,6 +150,7 @@ export function marketingAdminColumnStopsFollowups(column: MarketingAdminColumn)
   return (
     column === "not_relevant" ||
     column === "not_interested" ||
+    column === "setup_call" ||
     column === "registered" ||
     column === "no_response" ||
     column === "requires_call" ||
@@ -169,6 +177,8 @@ export function mapLegacyPipelineToAdminColumn(status: string | null | undefined
       return "no_response";
     case "not_interested":
       return "not_interested";
+    case "setup_call":
+      return "setup_call";
     case "registered":
       return "registered";
     case "not_relevant":

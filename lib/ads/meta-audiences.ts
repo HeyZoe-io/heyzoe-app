@@ -74,6 +74,7 @@ export function metaAudienceBucketForStatus(status: string): MetaAudienceBucket 
     status === "followup" ||
     status === "no_response" ||
     status === "not_interested" ||
+    status === "setup_call" ||
     status === "registered"
   ) {
     return "relevant";

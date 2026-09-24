@@ -5,6 +5,8 @@ import {
   applyManualPipelineStatus,
   applyMarketingLeadStatusHints,
   marketingNoteStatusToPipeline,
+  pipelineStatusStopsFollowups,
+  pipelineStatusToNoteStatus,
 } from "@/lib/marketing-pipeline-status";
 
 const nowIso = new Date().toISOString();
@@ -32,6 +34,8 @@ assert.equal(marketingNoteStatusToPipeline("registered"), "registered");
 assert.equal(marketingNoteStatusToPipeline("not_interested"), "not_interested");
 assert.equal(marketingNoteStatusToPipeline("not_relevant"), "not_relevant");
 assert.equal(marketingNoteStatusToPipeline("in_process"), null);
+assert.equal(pipelineStatusToNoteStatus("setup_call"), "setup_call");
+assert.equal(pipelineStatusStopsFollowups("setup_call"), true);
 
 const elin = applyMarketingLeadStatusHints(base, {
   registeredFromMessage: false,

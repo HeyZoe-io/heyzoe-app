@@ -11,6 +11,7 @@ assert.deepEqual([...MARKETING_NOTE_STATUSES], [
   "followup",
   "no_response",
   "not_interested",
+  "setup_call",
   "registered",
   "not_relevant",
 ]);
@@ -20,8 +21,9 @@ assert.equal(marketingNoteStatusRank("requires_call"), 1);
 assert.equal(marketingNoteStatusRank("followup"), 2);
 assert.equal(marketingNoteStatusRank("no_response"), 3);
 assert.equal(marketingNoteStatusRank("not_interested"), 4);
-assert.equal(marketingNoteStatusRank("registered"), 5);
-assert.equal(marketingNoteStatusRank("not_relevant"), 6);
+assert.equal(marketingNoteStatusRank("setup_call"), 5);
+assert.equal(marketingNoteStatusRank("registered"), 6);
+assert.equal(marketingNoteStatusRank("not_relevant"), 7);
 assert.equal(marketingNoteStatusRank(null), 0);
 assert.equal(marketingNoteStatusRank(undefined), 0);
 
@@ -31,6 +33,7 @@ const older = "2026-08-20T12:00:00.000Z";
 const sorted = sortMarketingSessionsByStatusPriority([
   { id: "not_relevant-new", noteStatus: "not_relevant" as const, lastAt: newer },
   { id: "registered", noteStatus: "registered" as const, lastAt: newer },
+  { id: "setup_call", noteStatus: "setup_call" as const, lastAt: newer },
   { id: "not_interested", noteStatus: "not_interested" as const, lastAt: newer },
   { id: "no_response", noteStatus: "no_response" as const, lastAt: newer },
   { id: "requires_call", noteStatus: "requires_call" as const, lastAt: older },
@@ -46,6 +49,7 @@ assert.deepEqual(
     "requires_call",
     "no_response",
     "not_interested",
+    "setup_call",
     "registered",
     "not_relevant-new",
   ]

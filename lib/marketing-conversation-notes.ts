@@ -9,6 +9,7 @@ export const MARKETING_NOTE_STATUSES = [
   "followup",
   "no_response",
   "not_interested",
+  "setup_call",
   "registered",
   "not_relevant",
 ] as const;
@@ -23,8 +24,9 @@ const MARKETING_NOTE_STATUS_RANK: Record<MarketingNoteStatus, number> = {
   followup: 2,
   no_response: 3,
   not_interested: 4,
-  registered: 5,
-  not_relevant: 6,
+  setup_call: 5,
+  registered: 6,
+  not_relevant: 7,
 };
 
 export function isMarketingNoteStatus(v: unknown): v is MarketingNoteStatus {
@@ -47,7 +49,7 @@ function sessionActivityMs(lastAt?: string | null): number {
 }
 
 /**
- * לידים לפי חשיבות: ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → נרשם,
+ * לידים לפי חשיבות: ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → שיחת הקמה → נרשם,
  * ולא רלוונטי בסוף. באותו סטטוס — לפי פעילות אחרונה.
  */
 export function sortMarketingSessionsByStatusPriority<
@@ -71,7 +73,7 @@ function sessionStatusRank(row: {
   noteStatus?: MarketingNoteStatus | null;
   noteRelevance?: "relevant" | "not_relevant" | null;
 }): number {
-  if (row.noteRelevance === "not_relevant" || row.noteStatus === "not_relevant") return 6;
+  if (row.noteRelevance === "not_relevant" || row.noteStatus === "not_relevant") return 7;
   return marketingNoteStatusRank(row.noteStatus);
 }
 
@@ -90,12 +92,19 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
         activeBg: "#f4f4f5",
         activeFg: "#52525b",
       };
-    case "registered":
+    case "setup_call":
       return {
-        label: "נרשם",
+        label: "שיחת הקמה",
         badgeClass: "bg-purple-50 text-purple-800",
         activeBg: "#faf5ff",
         activeFg: "#6b21a8",
+      };
+    case "registered":
+      return {
+        label: "נרשם",
+        badgeClass: "bg-cyan-50 text-cyan-800",
+        activeBg: "#ecfeff",
+        activeFg: "#155e75",
       };
     case "no_response":
       return {
@@ -138,7 +147,7 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
 
 /** כפתורי הסטטוס המשני. «לא רלוונטי» הוא סטטוס-על, לא אופציה כאן. */
 export const MARKETING_NOTE_STATUS_OPTIONS = (
-  ["in_process", "requires_call", "followup", "no_response", "not_interested", "registered"] as const
+  ["in_process", "requires_call", "followup", "no_response", "not_interested", "setup_call", "registered"] as const
 ).map((value) => {
   const meta = getMarketingNoteStatusMeta(value);
   return {

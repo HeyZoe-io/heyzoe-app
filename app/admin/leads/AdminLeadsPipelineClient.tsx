@@ -94,7 +94,7 @@ function leadStatus(c: LeadRow): PipelineStatus {
   return resolveMarketingAdminColumn(c);
 }
 
-const COLUMN_ORDER_KEY = "heyzoe.admin.leads.columnOrder.v2";
+const COLUMN_ORDER_KEY = "heyzoe.admin.leads.columnOrder.v3";
 const LEAD_DRAG_MIME = "application/x-heyzoe-lead";
 const COLUMN_DRAG_MIME = "application/x-heyzoe-column";
 
