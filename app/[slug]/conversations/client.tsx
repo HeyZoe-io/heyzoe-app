@@ -614,12 +614,23 @@ export default function ConversationsClient({
   useEffect(() => {
     if (!sessionParam) return;
     const exists = sessions.some((s) => s.session_id === sessionParam);
-    if (exists) setSelectedId(sessionParam);
+    if (exists) {
+      setSelectedId(sessionParam);
+      acknowledgeMarketingLead(sessionParam);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionParam, sessions]);
 
   useEffect(() => {
     setActionError(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || !messagesQuery.data) return;
+    acknowledgeMarketingLead(selectedId);
+    // פתיחה בפועל של השיחה (גם בחירה אוטומטית של השיחה שעל המסך) מבטלת בולד.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, messagesQuery.data]);
 
   useEffect(() => {
     if (!selectedId || !messagesQuery.data?.length) return;
@@ -635,7 +646,9 @@ export default function ConversationsClient({
     if (sessionParam) return;
     if (!normalizedFilter) return;
     if (selectedId && visibleSessions.some((s) => s.session_id === selectedId)) return;
-    setSelectedId(visibleSessions[0]?.session_id ?? null);
+    const nextId = visibleSessions[0]?.session_id ?? null;
+    setSelectedId(nextId);
+    if (nextId) acknowledgeMarketingLead(nextId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedFilter, visibleSessions.length, sessionParam]);
 
@@ -644,6 +657,25 @@ export default function ConversationsClient({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [selectedScrollKey]);
+
+  function acknowledgeMarketingLead(sessionId: string) {
+    const sid = String(sessionId ?? "").trim();
+    if (!sid || apiScope !== "admin") return;
+    const session = sessions.find((s) => s.session_id === sid);
+    const marketing =
+      isMarketingConversationsSlug(slug) ||
+      isMarketingConversationsSlug(session?.source_slug ?? "");
+    if (!marketing || !sessionAwaitingReply(session ?? { lastFromUser: false })) return;
+    setSessions((prev) => {
+      const next = prev.map((s) => (s.session_id === sid ? { ...s, lastFromUser: false, isOpen: false } : s));
+      return isMarketingConversationsSlug(slug) ? sortMarketingSessionsByStatusPriority(next) : next;
+    });
+    void fetch("/api/admin/marketing/conversation-seen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sid }),
+    }).catch(() => {});
+  }
 
   function clearPhoneFilter() {
     const sp = new URLSearchParams(searchParams.toString());
@@ -918,7 +950,10 @@ export default function ConversationsClient({
                   <button
                     key={s.session_id}
                     type="button"
-                    onClick={() => setSelectedId(s.session_id)}
+                    onClick={() => {
+                      setSelectedId(s.session_id);
+                      acknowledgeMarketingLead(s.session_id);
+                    }}
                     onMouseEnter={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
                     onFocus={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
                     onPointerDown={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}

@@ -258,10 +258,14 @@ export type MarketingSessionSummary = {
   nextCallTime?: string | null;
 };
 
+/** פתיחת השיחה באדמין — מבטלת בולד בלי להיחשב כהודעת מענה. */
+export const MARKETING_ADMIN_SEEN_MODEL = "marketing_admin_seen";
+
 type MarketingMessageRow = {
   session_id?: string | null;
   role?: string | null;
   created_at?: string | null;
+  model_used?: string | null;
 };
 
 function mergeMarketingMessageRows(
@@ -286,12 +290,21 @@ function ingestMarketingMessage(
   const at = new Date(String(row.created_at ?? ""));
   if (Number.isNaN(at.getTime())) return;
   const role = String(row.role ?? "");
+  const seenByAdmin = role === "event" && String(row.model_used ?? "") === MARKETING_ADMIN_SEEN_MODEL;
   const speaker = role === "user" || role === "assistant";
   const fromUser = role === "user";
   const phone = formatMarketingPhoneDisplay(
     extractLeadPhoneFromMarketingSession(rawSid) || marketingPhoneDigits(rawSid) || rawSid
   );
   const existing = bySession.get(sid);
+  if (seenByAdmin) {
+    if (!existing) {
+      bySession.set(sid, { lastAt: at, count: 0, lastFromUser: false, phone });
+      return;
+    }
+    if (at >= existing.lastAt) existing.lastFromUser = false;
+    return;
+  }
   if (!existing) {
     bySession.set(sid, { lastAt: at, count: 1, lastFromUser: speaker ? fromUser : false, phone });
     return;
@@ -317,7 +330,7 @@ export async function loadMarketingMessagesNewestFirst(
     const from = page * MARKETING_MESSAGES_PAGE;
     const { data, error } = await admin
       .from("messages")
-      .select("session_id, role, created_at")
+      .select("session_id, role, created_at, model_used")
       .ilike("business_slug", MARKETING_CONVERSATIONS_SLUG)
       .order("created_at", { ascending: false })
       .range(from, from + MARKETING_MESSAGES_PAGE - 1);
