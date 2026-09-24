@@ -25,4 +25,6 @@ export type LeadRow = {
   marketing_relevance?: "relevant" | "not_relevant" | null;
   /** סטטוס משני מזואי אדמין. תקף רק כש-marketing_relevance הוא relevant. */
   marketing_stage?: string | null;
+  /** ההודעה האחרונה מהליד ועדיין אין מענה — בולד ובראש העמודה */
+  awaiting_reply?: boolean;
 };

@@ -2,6 +2,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { matchesMarketingRegisteredClick } from "@/lib/admin-marketing-analytics";
 import {
   extractLeadPhoneFromMarketingSession,
+  loadMarketingAwaitingReplyPhoneKeys,
   MARKETING_CONVERSATIONS_SLUG,
 } from "@/lib/marketing-whatsapp";
 import {
@@ -462,11 +463,15 @@ export async function loadMarketingAdminLeads(
     }
   }
 
+  const awaitingKeys = await loadMarketingAwaitingReplyPhoneKeys().catch((e) => {
+    console.error("[leads-data] awaiting-reply lookup failed:", e);
+    return new Set<string>();
+  });
   const rows = (sessionRows ?? []).map((row) => {
     const s = row as Record<string, unknown>;
     const key = phoneKey(String(s.phone ?? "").trim());
     const note = key ? notesByPhone.get(key) : undefined;
-    return mapMarketingFlowSessionToLeadRow(s, {
+    const mapped = mapMarketingFlowSessionToLeadRow(s, {
       registeredFromMessage: key ? registeredKeys.has(key) : false,
       noteStatus: note?.status ?? null,
       noteRelevance: note?.relevance ?? null,
@@ -474,6 +479,8 @@ export async function loadMarketingAdminLeads(
       noteUpdatedAt: note?.updatedAt ?? null,
       pipelineStatus: typeof s.pipeline_status === "string" ? s.pipeline_status : null,
     });
+    const tail = key.length >= 9 ? key.slice(-9) : key;
+    return { ...mapped, awaiting_reply: Boolean(key && (awaitingKeys.has(key) || awaitingKeys.has(tail))) };
   });
   return sortLeadsByRecentActivity(rows);
 }

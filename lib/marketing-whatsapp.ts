@@ -304,36 +304,62 @@ function ingestMarketingMessage(
   if (!existing.phone && phone) existing.phone = phone;
 }
 
+const MARKETING_MESSAGES_PAGE = 1000;
+/** Supabase מחזיר לכל היותר 1000 שורות. סריקה מהחדש לישן, עד 20 עמודים (~20k). */
+const MARKETING_MESSAGES_MAX_PAGES = 20;
+
+/** הודעות קו השיווק, מהחדשה לישנה. בלי זה נטענות רק 1000 ההודעות הישנות והליד לא מסומן כממתין. */
+export async function loadMarketingMessagesNewestFirst(
+  admin: ReturnType<typeof createSupabaseAdminClient> = createSupabaseAdminClient()
+): Promise<MarketingMessageRow[]> {
+  const out: MarketingMessageRow[] = [];
+  for (let page = 0; page < MARKETING_MESSAGES_MAX_PAGES; page++) {
+    const from = page * MARKETING_MESSAGES_PAGE;
+    const { data, error } = await admin
+      .from("messages")
+      .select("session_id, role, created_at")
+      .ilike("business_slug", MARKETING_CONVERSATIONS_SLUG)
+      .order("created_at", { ascending: false })
+      .range(from, from + MARKETING_MESSAGES_PAGE - 1);
+    if (error) {
+      console.error("[marketing-whatsapp] messages page failed:", error.message, { page });
+      break;
+    }
+    const rows = (data ?? []) as MarketingMessageRow[];
+    out.push(...rows);
+    if (rows.length < MARKETING_MESSAGES_PAGE) break;
+  }
+  return out;
+}
+
+/** טלפונים שההודעה האחרונה בהם מהליד — לראש עמודת הסטטוס ובולד. */
+export async function loadMarketingAwaitingReplyPhoneKeys(): Promise<Set<string>> {
+  const rows = await loadMarketingMessagesNewestFirst();
+  const bySession = new Map<string, { lastAt: Date; count: number; lastFromUser: boolean; phone: string }>();
+  for (const row of rows) ingestMarketingMessage(bySession, row);
+  const keys = new Set<string>();
+  for (const data of bySession.values()) {
+    if (!data.lastFromUser) continue;
+    const digits = String(data.phone ?? "").replace(/\D/g, "");
+    if (!digits) continue;
+    keys.add(digits);
+    if (digits.length >= 9) keys.add(digits.slice(-9));
+  }
+  return keys;
+}
+
 /** שיחות קו שיווקי: messages + סשנים מ-marketing_flow_sessions (גם לפני שהתחלנו לרשום הודעות) */
 export async function loadMarketingConversationSessions(): Promise<MarketingSessionSummary[]> {
   const admin = createSupabaseAdminClient();
   const slug = MARKETING_CONVERSATIONS_SLUG;
 
-  const sessionIdOrFilter = marketingWaPhoneNumberIds()
-    .map((id) => `session_id.like.wa_${id}_%`)
-    .join(",");
-
   const [
-    { data: slugMessages, error: slugErr },
-    { data: lineMessages, error: lineErr },
+    slugMessages,
     { data: pausedRows },
     { data: flowSessions, error: flowErr },
     { data: noteRows, error: notesErr },
   ] = await Promise.all([
-    admin
-      .from("messages")
-      .select("session_id, role, created_at")
-      .ilike("business_slug", slug)
-      .order("created_at", { ascending: true })
-      .limit(50_000),
-    sessionIdOrFilter
-      ? admin
-          .from("messages")
-          .select("session_id, role, created_at")
-          .or(sessionIdOrFilter)
-          .order("created_at", { ascending: true })
-          .limit(50_000)
-      : Promise.resolve({ data: [] as MarketingMessageRow[], error: null }),
+    loadMarketingMessagesNewestFirst(admin),
     admin
       .from("paused_sessions")
       .select("session_id, paused_until")
@@ -349,8 +375,6 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     admin.from("marketing_conversation_notes").select("phone, status, relevance").limit(10_000),
   ]);
 
-  if (slugErr) console.error("[marketing-whatsapp] slug messages:", slugErr.message);
-  if (lineErr) console.error("[marketing-whatsapp] line messages:", lineErr.message);
   let resolvedFlowSessions = flowSessions;
   if (flowErr) {
     console.error("[marketing-whatsapp] flow_sessions:", flowErr.message);
@@ -435,7 +459,6 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
   const seenMsgKeys = new Set<string>();
   const allMessages: MarketingMessageRow[] = [];
   mergeMarketingMessageRows(allMessages, seenMsgKeys, slugMessages);
-  mergeMarketingMessageRows(allMessages, seenMsgKeys, lineMessages);
 
   const pausedUntilByCanonical = new Map<string, string>();
   for (const p of pausedRows ?? []) {

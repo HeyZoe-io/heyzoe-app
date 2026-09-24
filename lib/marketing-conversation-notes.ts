@@ -53,6 +53,7 @@ function sessionActivityMs(lastAt?: string | null): number {
 export function sortMarketingSessionsByStatusPriority<
   T extends {
     lastAt?: string | null;
+    lastFromUser?: boolean | null;
     noteStatus?: MarketingNoteStatus | null;
     noteRelevance?: "relevant" | "not_relevant" | null;
   },
@@ -60,6 +61,8 @@ export function sortMarketingSessionsByStatusPriority<
   return [...sessions].sort((a, b) => {
     const rankDiff = sessionStatusRank(a) - sessionStatusRank(b);
     if (rankDiff !== 0) return rankDiff;
+    const waitDiff = Number(Boolean(b.lastFromUser)) - Number(Boolean(a.lastFromUser));
+    if (waitDiff !== 0) return waitDiff;
     return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
   });
 }

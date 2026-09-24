@@ -51,4 +51,14 @@ assert.deepEqual(
   ]
 );
 
+const withinStatus = sortMarketingSessionsByStatusPriority([
+  { id: "answered", noteStatus: "followup" as const, lastAt: newer, lastFromUser: false },
+  { id: "waiting-older", noteStatus: "followup" as const, lastAt: older, lastFromUser: true },
+  { id: "waiting-newer", noteStatus: "followup" as const, lastAt: newer, lastFromUser: true },
+]);
+assert.deepEqual(
+  withinStatus.map((s) => s.id),
+  ["waiting-newer", "waiting-older", "answered"]
+);
+
 console.log("marketing-conversation-notes.test.ts: ok");

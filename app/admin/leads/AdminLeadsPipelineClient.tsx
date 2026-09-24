@@ -138,11 +138,18 @@ function nextCallMs(c: LeadRow): number {
   return nextCallSortMs(c.next_call_at, c.next_call_time);
 }
 
+function awaitingFirst(a: LeadRow, b: LeadRow): number {
+  return Number(Boolean(b.awaiting_reply)) - Number(Boolean(a.awaiting_reply));
+}
+
 function sortColumnLeads(status: PipelineStatus, rows: LeadRow[]): LeadRow[] {
-  if (status !== "requires_call") return rows;
   return [...rows].sort((a, b) => {
-    const diff = nextCallMs(a) - nextCallMs(b);
-    if (diff !== 0) return diff;
+    const waiting = awaitingFirst(a, b);
+    if (waiting !== 0) return waiting;
+    if (status === "requires_call") {
+      const diff = nextCallMs(a) - nextCallMs(b);
+      if (diff !== 0) return diff;
+    }
     const aAt = leadConversationAt(a);
     const bAt = leadConversationAt(b);
     return new Date(bAt ?? 0).getTime() - new Date(aAt ?? 0).getTime();
@@ -677,7 +684,9 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold text-zinc-900">{c.full_name?.trim() || "ליד"}</p>
+                          <p className={`text-sm text-zinc-900 ${c.awaiting_reply ? "font-bold" : "font-normal"}`}>
+                            {c.full_name?.trim() || "ליד"}
+                          </p>
                           {c.phone && !busy ? (
                             <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-zinc-300" aria-hidden />
                           ) : null}
