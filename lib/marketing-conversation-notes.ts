@@ -4,12 +4,12 @@
  * סדר: 0 = הכי למעלה ברשימת השיחות.
  */
 export const MARKETING_NOTE_STATUSES = [
+  "setup_call",
   "in_process",
   "requires_call",
   "followup",
   "no_response",
   "not_interested",
-  "setup_call",
   "registered",
   "not_relevant",
 ] as const;
@@ -19,12 +19,12 @@ export type MarketingNoteStatus = (typeof MARKETING_NOTE_STATUSES)[number];
 export const DEFAULT_MARKETING_NOTE_STATUS: MarketingNoteStatus = "in_process";
 
 const MARKETING_NOTE_STATUS_RANK: Record<MarketingNoteStatus, number> = {
-  in_process: 0,
-  requires_call: 1,
-  followup: 2,
-  no_response: 3,
-  not_interested: 4,
-  setup_call: 5,
+  setup_call: 0,
+  in_process: 1,
+  requires_call: 2,
+  followup: 3,
+  no_response: 4,
+  not_interested: 5,
   registered: 6,
   not_relevant: 7,
 };
@@ -49,7 +49,7 @@ function sessionActivityMs(lastAt?: string | null): number {
 }
 
 /**
- * לידים לפי חשיבות: ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → שיחת הקמה → נרשם,
+ * לידים לפי חשיבות: שיחת הקמה → ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → נרשם,
  * ולא רלוונטי בסוף. באותו סטטוס — לפי פעילות אחרונה.
  */
 export function sortMarketingSessionsByStatusPriority<
@@ -147,7 +147,7 @@ export function getMarketingNoteStatusMeta(status: MarketingNoteStatus): {
 
 /** כפתורי הסטטוס המשני. «לא רלוונטי» הוא סטטוס-על, לא אופציה כאן. */
 export const MARKETING_NOTE_STATUS_OPTIONS = (
-  ["in_process", "requires_call", "followup", "no_response", "not_interested", "setup_call", "registered"] as const
+  ["setup_call", "in_process", "requires_call", "followup", "no_response", "not_interested", "registered"] as const
 ).map((value) => {
   const meta = getMarketingNoteStatusMeta(value);
   return {

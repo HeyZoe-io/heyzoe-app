@@ -6,26 +6,26 @@ import {
 } from "@/lib/marketing-conversation-notes";
 
 assert.deepEqual([...MARKETING_NOTE_STATUSES], [
+  "setup_call",
   "in_process",
   "requires_call",
   "followup",
   "no_response",
   "not_interested",
-  "setup_call",
   "registered",
   "not_relevant",
 ]);
 
-assert.equal(marketingNoteStatusRank("in_process"), 0);
-assert.equal(marketingNoteStatusRank("requires_call"), 1);
-assert.equal(marketingNoteStatusRank("followup"), 2);
-assert.equal(marketingNoteStatusRank("no_response"), 3);
-assert.equal(marketingNoteStatusRank("not_interested"), 4);
-assert.equal(marketingNoteStatusRank("setup_call"), 5);
+assert.equal(marketingNoteStatusRank("setup_call"), 0);
+assert.equal(marketingNoteStatusRank("in_process"), 1);
+assert.equal(marketingNoteStatusRank("requires_call"), 2);
+assert.equal(marketingNoteStatusRank("followup"), 3);
+assert.equal(marketingNoteStatusRank("no_response"), 4);
+assert.equal(marketingNoteStatusRank("not_interested"), 5);
 assert.equal(marketingNoteStatusRank("registered"), 6);
 assert.equal(marketingNoteStatusRank("not_relevant"), 7);
-assert.equal(marketingNoteStatusRank(null), 0);
-assert.equal(marketingNoteStatusRank(undefined), 0);
+assert.equal(marketingNoteStatusRank(null), 1);
+assert.equal(marketingNoteStatusRank(undefined), 1);
 
 const newer = "2026-08-24T12:00:00.000Z";
 const older = "2026-08-20T12:00:00.000Z";
@@ -44,12 +44,12 @@ const sorted = sortMarketingSessionsByStatusPriority([
 assert.deepEqual(
   sorted.map((s) => s.id),
   [
+    "setup_call",
     "in_process-new",
     "in_process-old",
     "requires_call",
     "no_response",
     "not_interested",
-    "setup_call",
     "registered",
     "not_relevant-new",
   ]

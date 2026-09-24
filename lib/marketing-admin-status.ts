@@ -10,24 +10,24 @@ export type MarketingRelevance = (typeof MARKETING_RELEVANCE)[number];
  * `in_process` הוא «ליד חדש» (קודם הוצג כ«בתהליך»).
  */
 export const MARKETING_STAGE_STATUSES = [
+  "setup_call",
   "in_process",
   "requires_call",
   "followup",
   "no_response",
   "not_interested",
-  "setup_call",
   "registered",
 ] as const;
 export type MarketingStage = (typeof MARKETING_STAGE_STATUSES)[number];
 
 /** עמודות דף הלידים של זואי אדמין. «הסר» נשאר לבד — זו בקשת וואטסאפ, לא סטטוס CRM. */
 export const MARKETING_ADMIN_COLUMNS = [
+  "setup_call",
   "in_process",
   "requires_call",
   "followup",
   "no_response",
   "not_interested",
-  "setup_call",
   "registered",
   "not_relevant",
   "opted_out",
@@ -38,12 +38,12 @@ const STAGE_SET = new Set<string>(MARKETING_STAGE_STATUSES);
 const COLUMN_SET = new Set<string>(MARKETING_ADMIN_COLUMNS);
 
 const STAGE_RANK: Record<MarketingStage, number> = {
-  in_process: 0,
-  requires_call: 1,
-  followup: 2,
-  no_response: 3,
-  not_interested: 4,
-  setup_call: 5,
+  setup_call: 0,
+  in_process: 1,
+  requires_call: 2,
+  followup: 3,
+  no_response: 4,
+  not_interested: 5,
   registered: 6,
 };
 
