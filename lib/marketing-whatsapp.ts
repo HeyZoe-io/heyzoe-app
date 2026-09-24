@@ -525,7 +525,7 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
       relevance: note?.relevance,
       hasNote: Boolean(note),
     });
-    const followupStage = flow?.followup_3_sent_at ? 3 : flow?.followup_2_sent_at ? 2 : flow?.followup_1_sent_at ? 1 : 0;
+    const followupStage = 0;
     const messageAt = data.lastAt;
     const leadAtRaw = marketingLeadConversationAt(flow);
     const leadAt = leadAtRaw ? new Date(leadAtRaw) : null;

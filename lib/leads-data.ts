@@ -183,17 +183,6 @@ export async function loadLeadsForBusiness(
 
 const ADMIN_LEADS_LIMIT = 10_000;
 
-function deriveMarketingWaFollowupStage(row: {
-  followup_1_sent_at?: string | null;
-  followup_2_sent_at?: string | null;
-  followup_3_sent_at?: string | null;
-}): number {
-  if (row.followup_3_sent_at) return 3;
-  if (row.followup_2_sent_at) return 2;
-  if (row.followup_1_sent_at) return 1;
-  return 0;
-}
-
 function deriveMarketingSessionPhase(
   row: { flow_completed?: boolean | null; current_node_id?: string | null },
   registered: boolean
@@ -225,11 +214,8 @@ export function mapMarketingFlowSessionToLeadRow(
       : registeredOrHints;
   const registered = Boolean(hints.registeredFromMessage);
   const phone = String(s.phone ?? "").trim();
-  const waStage = deriveMarketingWaFollowupStage({
-    followup_1_sent_at: s.followup_1_sent_at as string | null,
-    followup_2_sent_at: s.followup_2_sent_at as string | null,
-    followup_3_sent_at: s.followup_3_sent_at as string | null,
-  });
+  // שליחת פולואפ אוטומטי לא מזיזה עמודת אדמין. «פולואפ» הוא סטטוס ידני.
+  const waStage = 0;
   const lastContact = marketingLeadConversationAt({
     last_user_message_at: s.last_user_message_at as string | null,
     updated_at: s.updated_at as string | null,

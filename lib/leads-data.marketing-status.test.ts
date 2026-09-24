@@ -24,10 +24,11 @@ assert.equal(registered.opted_out, false);
 assert.equal(registered.trial_registered, true);
 assert.equal(computeContactStatus(registered), "registered");
 
-const followup = mapMarketingFlowSessionToLeadRow(session, false);
-assert.equal(followup.opted_out, false);
-assert.equal(followup.trial_registered, false);
-assert.equal(computeContactStatus(followup), "followup");
+const followupSent = mapMarketingFlowSessionToLeadRow(session, false);
+assert.equal(followupSent.opted_out, false);
+assert.equal(followupSent.trial_registered, false);
+assert.equal(followupSent.wa_followup_stage, 0);
+assert.notEqual(computeContactStatus(followupSent), "followup");
 
 const elinFromNotes = mapMarketingFlowSessionToLeadRow(
   {
