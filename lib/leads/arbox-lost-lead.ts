@@ -21,6 +21,11 @@ import {
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 import { fetchLostLeadsReportRows } from "@/lib/leads/arbox-lost-leads-report";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -63,6 +68,7 @@ export type LostLeadDispatch =
   | "seeded"
   | "already"
   | "no_phone"
+  | "skipped_active"
   | "send_failed";
 
 export type LostLeadSyncSummary = {
@@ -74,6 +80,7 @@ export type LostLeadSyncSummary = {
   soft_seeded: number;
   processed: number;
   already: number;
+  skipped_active: number;
   notified: number;
   deferred: number;
   gated: number;
@@ -341,8 +348,10 @@ async function dispatchLostLeadTemplate(input: {
  * Daily lost_lead step for one Arbox business.
  *
  * IO (10 businesses): 1 lostLeadsReport GET each when an enabled rule with
- * template_name exists (paginated; typically 1 page after seed). No per-lead
- * Arbox calls. WhatsApp/Meta: one immediate send per matching rule on its due day.
+ * template_name exists (paginated; typically 1 page after seed). When a row is
+ * due to send: +1 activeMemberships, +1 sessions, +1 future bookings (and
+ * membershipTypes only if trial product ids are set) — once per business, not
+ * per lead. WhatsApp/Meta: one immediate send per matching rule on its due day.
  *
  * Seed (arbox_lost_lead_seeded=false): mark the 30-day window seen, no WhatsApp.
  * Soft-seed: flag true + empty log for that trigger_id → same 30-day mark, no WhatsApp.
@@ -355,6 +364,8 @@ export async function syncArboxLostLeadForBusiness(input: {
   boxId: string;
   lostLeadSeeded: boolean;
   now?: Date;
+  /** Shared daily-cron read. When set, this step does not fetch again. */
+  activeProductKeys?: ActiveProductKeys;
 }): Promise<LostLeadSyncSummary> {
   const summary: LostLeadSyncSummary = {
     fetched: 0,
@@ -363,6 +374,7 @@ export async function syncArboxLostLeadForBusiness(input: {
     soft_seeded: 0,
     processed: 0,
     already: 0,
+    skipped_active: 0,
     notified: 0,
     deferred: 0,
     gated: 0,
@@ -422,6 +434,40 @@ export async function syncArboxLostLeadForBusiness(input: {
   summary.fetched = report.rows.length;
   const reportRows = report.rows;
   const todayYmd = formatDateYmdIsrael(now);
+
+  type ActiveProductState = { kind: "ready"; keys: ActiveProductKeys } | { kind: "failed" };
+  let activeProductState: ActiveProductState | undefined;
+
+  async function ensureActiveProductKeys(): Promise<ActiveProductKeys | null> {
+    if (input.activeProductKeys) return input.activeProductKeys;
+    if (activeProductState?.kind === "ready") return activeProductState.keys;
+    if (activeProductState?.kind === "failed") return null;
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    const fetched = await fetchArboxActiveProductKeys({
+      apiKey,
+      boxId,
+      now,
+      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids,
+    });
+    if (!fetched.ok) {
+      activeProductState = { kind: "failed" };
+      summary.errors += 1;
+      summary.fetch_error = fetched.error;
+      console.error("[leads/arbox-lost-lead] active product fetch failed", {
+        businessId,
+        businessSlug,
+        error: fetched.error,
+      });
+      return null;
+    }
+    activeProductState = { kind: "ready", keys: fetched.keys };
+    return fetched.keys;
+  }
 
   async function seedRuleRows(
     rule: PurchaseTemplateTriggerRule,
@@ -602,6 +648,44 @@ export async function syncArboxLostLeadForBusiness(input: {
             ...logBase,
             contact: resolved.contact?.id ?? null,
             dispatch: "no_phone" satisfies LostLeadDispatch,
+          });
+          continue;
+        }
+
+        const activeKeys = await ensureActiveProductKeys();
+        if (!activeKeys) {
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            contact: resolved.contact?.id ?? null,
+            dispatch: "active_check_failed",
+          });
+          continue;
+        }
+        if (
+          matchesActiveProduct({
+            userId: leadId,
+            phone,
+            keys: activeKeys,
+          })
+        ) {
+          summary.skipped_active += 1;
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "seeded",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            contact: resolved.contact?.id ?? null,
+            phone: maskPhoneForLog(phone),
+            dispatch: "skipped_active" satisfies LostLeadDispatch,
           });
           continue;
         }

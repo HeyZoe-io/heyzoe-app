@@ -16,6 +16,11 @@ import {
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import type { ArboxSalesReportRow } from "@/lib/leads/arbox-trial-sale-registered";
 import {
@@ -504,6 +509,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   prefetchedPastPages?: number;
   lookbackFrom?: string;
   lookbackTo?: string;
+  activeProductKeys?: ActiveProductKeys;
 }): Promise<PostTrialSyncSummary> {
   const summary: PostTrialSyncSummary = {
     fetched_bookings: 0,
@@ -663,6 +669,35 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
 
   const seedThisRun = softSeedOutcomes.length > 0;
 
+  let notRegisteredKeys: ActiveProductKeys | null | undefined = input.activeProductKeys;
+  async function ensureNotRegisteredActiveKeys(): Promise<ActiveProductKeys | null> {
+    if (notRegisteredKeys !== undefined) return notRegisteredKeys;
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    const products = await fetchArboxActiveProductKeys({
+      apiKey,
+      boxId,
+      now,
+      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids,
+    });
+    if (!products.ok) {
+      notRegisteredKeys = null;
+      summary.errors += 1;
+      summary.fetch_error = products.error;
+      console.error("[leads/arbox-post-trial-followup] active product fetch failed", {
+        businessId,
+        error: products.error,
+      });
+      return null;
+    }
+    notRegisteredKeys = products.keys;
+    return products.keys;
+  }
+
   for (const att of attendances) {
     const outcome = outcomeForTrialAttendance({
       userId: att.userId,
@@ -752,6 +787,45 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           nowIso,
         });
         continue;
+      }
+
+      if (outcome === "not_registered") {
+        const activeKeys = await ensureNotRegisteredActiveKeys();
+        if (!activeKeys) {
+          console.info("[leads/arbox-post-trial-followup] dispatch", {
+            businessId,
+            outcome,
+            user_id: att.userId,
+            dispatch: "active_check_failed",
+          });
+          continue;
+        }
+        if (
+          matchesActiveProduct({
+            userId: att.userId,
+            phone: resolved.phone,
+            keys: activeKeys,
+          })
+        ) {
+          await upsertFollowupSyncLog({
+            admin: input.admin,
+            businessId,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            outcome,
+            contactId: resolved.contact.id,
+            attempts: attemptsSoFar,
+            status: "seeded",
+            nowIso,
+          });
+          console.info("[leads/arbox-post-trial-followup] dispatch", {
+            businessId,
+            outcome,
+            user_id: att.userId,
+            dispatch: "skipped_active",
+          });
+          continue;
+        }
       }
 
       const send = await dispatchFollowupTemplate({

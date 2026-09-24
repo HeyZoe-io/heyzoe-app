@@ -1,10 +1,14 @@
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
+import {
   buildActiveMembershipsReportPath,
   buildSessionsReportPath,
   customerReportsDateRange,
-  fetchArboxCustomerUserIds,
   isArboxActiveCustomerMembershipStatus,
   isArboxActiveCustomerSessionStatus,
 } from "@/lib/leads/arbox-customer-set";
@@ -438,19 +442,23 @@ export async function buildManualBulkAudience(input: {
 
   const { data: biz } = await input.admin
     .from("businesses")
-    .select("crm_type, crm_api_key, crm_box_id")
+    .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
     .eq("id", input.businessId)
     .maybeSingle();
-  let customerIds = new Set<number>();
+  let activeKeys: ActiveProductKeys | null = null;
   let customerPages = 0;
   if (businessHasArboxConnection(biz)) {
     const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
     const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (apiKey && boxId) {
-      const customers = await fetchArboxCustomerUserIds({ apiKey, boxId });
+      const customers = await fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        trialMembershipTypeIds: (biz as { arbox_trial_membership_type_ids?: unknown })
+          .arbox_trial_membership_type_ids,
+      });
       if (!customers.ok) throw new Error(customers.error);
-      customerIds = customers.userIds;
-      customerPages = customers.membershipPages + customers.sessionPages;
+      activeKeys = customers.keys;
     }
   }
 
@@ -493,7 +501,14 @@ export async function buildManualBulkAudience(input: {
       continue;
     }
     const arboxId = parseLeadIdFromUserId(contact.arbox_user_id);
-    if (arboxId != null && customerIds.has(arboxId)) {
+    if (
+      activeKeys &&
+      matchesActiveProduct({
+        userId: arboxId,
+        phone,
+        keys: activeKeys,
+      })
+    ) {
       skipped.customer += 1;
       continue;
     }

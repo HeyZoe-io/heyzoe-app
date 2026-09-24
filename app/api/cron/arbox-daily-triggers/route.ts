@@ -12,6 +12,7 @@ import {
   businessNeedsNthWorkoutSync,
   syncArboxNthWorkoutForBusiness,
 } from "@/lib/leads/arbox-nth-workout";
+import { fetchArboxActiveProductKeys, type ActiveProductKeys } from "@/lib/leads/arbox-active-product";
 import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
   businessNeedsFreezeSync,
@@ -216,6 +217,29 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    let sharedActiveKeys: ActiveProductKeys | undefined;
+    try {
+      const products = await fetchArboxActiveProductKeys({
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+        trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+        ...(prefetchedMembershipRows ? { prefetchedMembershipRows } : {}),
+      });
+      if (products.ok) sharedActiveKeys = products.keys;
+      else {
+        console.error("[cron/arbox-daily-triggers] active product fetch failed", {
+          slug: business.slug,
+          error: products.error,
+        });
+      }
+    } catch (e) {
+      console.error("[cron/arbox-daily-triggers] active product prefetch threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     // --- Step: birthday ---
     try {
       entry.birthday = await syncArboxBirthdaysForBusiness({
@@ -231,6 +255,7 @@ export async function GET(req: NextRequest) {
               prefetchedMembershipPages,
             }
           : {}),
+        ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -438,6 +463,7 @@ export async function GET(req: NextRequest) {
               lookbackTo,
             }
           : {}),
+        ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -479,6 +505,7 @@ export async function GET(req: NextRequest) {
         prefetchedPages,
         lookbackFrom,
         lookbackTo,
+        ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -804,6 +831,7 @@ export async function GET(req: NextRequest) {
         boxId: business.crm_box_id,
         cancellationSeeded: business.arbox_cancellation_seeded,
         now,
+        ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -839,6 +867,7 @@ export async function GET(req: NextRequest) {
         boxId: business.crm_box_id,
         lostLeadSeeded: business.arbox_lost_lead_seeded,
         now,
+        ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -853,6 +882,7 @@ export async function GET(req: NextRequest) {
         soft_seeded: 0,
         processed: 0,
         already: 0,
+        skipped_active: 0,
         notified: 0,
         deferred: 0,
         gated: 0,

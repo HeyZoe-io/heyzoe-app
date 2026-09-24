@@ -5,6 +5,11 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -96,6 +101,7 @@ export type BirthdaySyncSummary = {
   errors: number;
   members_due: number;
   former_due: number;
+  skipped_active?: number;
   fetch_error?: string;
 };
 
@@ -507,6 +513,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
   now?: Date;
   prefetchedMembershipRows?: Record<string, unknown>[];
   prefetchedMembershipPages?: number;
+  /** Upcoming trial (and active products). Former path skips matches. */
+  activeProductKeys?: ActiveProductKeys;
 }): Promise<BirthdaySyncSummary> {
   const summary: BirthdaySyncSummary = {
     fetched: 0,
@@ -580,6 +588,36 @@ export async function syncArboxBirthdaysForBusiness(input: {
   }
   summary.customer_membership_pages = customerSet.membershipPages;
   summary.customer_session_pages = customerSet.sessionPages;
+
+  let activeProductKeys = input.activeProductKeys;
+  let activeCheckFailed = false;
+  if (!activeProductKeys && formerOk) {
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    const products = await fetchArboxActiveProductKeys({
+      apiKey,
+      boxId,
+      now,
+      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids,
+      prefetchedMembershipRows: input.prefetchedMembershipRows,
+    });
+    if (!products.ok) {
+      activeCheckFailed = true;
+      summary.errors += 1;
+      summary.fetch_error = products.error;
+      console.error("[leads/arbox-birthday] active product fetch failed", {
+        businessId,
+        businessSlug,
+        error: products.error,
+      });
+    } else {
+      activeProductKeys = products.keys;
+    }
+  }
 
   const windowKeys = new Map<string, { fromDate: string; toDate: string }>();
   for (const rule of [membersOk ? membersRule : null, formerOk ? formerRule : null]) {
@@ -666,6 +704,36 @@ export async function syncArboxBirthdaysForBusiness(input: {
           audience: kind,
           contact: null,
           dispatch: "no_phone",
+        });
+        continue;
+      }
+
+      if (kind === "former" && activeCheckFailed) {
+        console.info("[leads/arbox-birthday] dispatch", {
+          businessId,
+          user_id: userId,
+          audience: kind,
+          dispatch: "active_check_failed",
+        });
+        continue;
+      }
+
+      if (
+        kind === "former" &&
+        activeProductKeys &&
+        matchesActiveProduct({
+          userId,
+          phone: resolved.phone,
+          keys: activeProductKeys,
+        })
+      ) {
+        summary.skipped_active = (summary.skipped_active ?? 0) + 1;
+        console.info("[leads/arbox-birthday] dispatch", {
+          businessId,
+          user_id: userId,
+          audience: kind,
+          contact: resolved.contact.id,
+          dispatch: "skipped_active",
         });
         continue;
       }

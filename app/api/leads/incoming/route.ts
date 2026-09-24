@@ -13,6 +13,10 @@ import {
   type OpeningTemplateLeadSource,
 } from "@/lib/lead-template";
 import { dispatchCrmEvent } from "@/lib/crm/dispatch";
+import {
+  loadBusinessActiveProductKeys,
+  matchesActiveProduct,
+} from "@/lib/leads/arbox-active-product";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import {
   buildSiteLeadScheduledDedupKey,
@@ -317,6 +321,35 @@ export async function POST(req: NextRequest) {
       errorDetail: "contact_upsert_failed",
     });
     return NextResponse.json({ error: "contact_upsert_failed" }, { status: 500 });
+  }
+
+  const activeProducts = await loadBusinessActiveProductKeys({ admin, businessId, now });
+  if (!activeProducts.ok) {
+    console.error("[api/leads/incoming] active product check failed:", activeProducts.error);
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 502,
+      errorDetail: "active_product_check_failed",
+    });
+    return NextResponse.json({ error: "active_product_check_failed" }, { status: 502 });
+  }
+  if (
+    activeProducts.keys &&
+    matchesActiveProduct({ userId: null, phone: phoneNorm, keys: activeProducts.keys })
+  ) {
+    console.info("[api/leads/incoming] skip — active membership, punch card, or trial", {
+      businessId,
+    });
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "validated",
+      statusCode: 200,
+      errorDetail: "skipped_active_product",
+    });
+    return NextResponse.json({ ok: true, dispatch: "skipped_active" });
   }
 
   // Rule path with delay → enqueue (Stage C queue).

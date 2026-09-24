@@ -2,6 +2,11 @@
  * C3 missed_class (members) + C4 missed_trial (leads): bookingsReport past rows with check_in="No".
  * Shares bookingsReport fetch with trial_attended (cron prefetch). Shared sync_log (no event_kind).
  */
+import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 import { logMessage } from "@/lib/analytics";
 import {
   fetchAllArboxMembershipTypes,
@@ -467,6 +472,7 @@ export async function syncArboxMissedClassForBusiness(input: {
   prefetchedPages?: number;
   lookbackFrom?: string;
   lookbackTo?: string;
+  activeProductKeys?: ActiveProductKeys;
 }): Promise<MissedClassSyncSummary> {
   const summary: MissedClassSyncSummary = {
     fetched: 0,
@@ -620,6 +626,35 @@ export async function syncArboxMissedClassForBusiness(input: {
     return summary;
   }
 
+  let missedTrialKeys: ActiveProductKeys | null | undefined = input.activeProductKeys;
+  async function ensureMissedTrialActiveKeys(): Promise<ActiveProductKeys | null> {
+    if (missedTrialKeys !== undefined) return missedTrialKeys;
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    const products = await fetchArboxActiveProductKeys({
+      apiKey,
+      boxId,
+      now,
+      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids,
+    });
+    if (!products.ok) {
+      missedTrialKeys = null;
+      summary.errors += 1;
+      summary.fetch_error = products.error;
+      console.error("[leads/arbox-missed-class] active product fetch failed", {
+        businessId,
+        error: products.error,
+      });
+      return null;
+    }
+    missedTrialKeys = products.keys;
+    return products.keys;
+  }
+
   for (const row of rows) {
     if (!isBookingCheckInNo(row.check_in)) continue;
     if (isBookingCheckedIn(row.check_in)) continue;
@@ -695,6 +730,46 @@ export async function syncArboxMissedClassForBusiness(input: {
           nowIso,
         });
         continue;
+      }
+
+      if (kind === "missed_trial") {
+        const activeKeys = await ensureMissedTrialActiveKeys();
+        if (!activeKeys) {
+          console.info("[leads/arbox-missed-class] dispatch", {
+            businessId,
+            kind,
+            user_id: userId,
+            dispatch: "active_check_failed",
+          });
+          continue;
+        }
+        if (
+          matchesActiveProduct({
+            userId,
+            phone: resolved.phone,
+            keys: activeKeys,
+          })
+        ) {
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact.id,
+            attempts: attemptsSoFar,
+            status: "seeded",
+            nowIso,
+          });
+          console.info("[leads/arbox-missed-class] dispatch", {
+            businessId,
+            kind,
+            user_id: userId,
+            dispatch: "skipped_active",
+          });
+          continue;
+        }
       }
 
       const send = await dispatchMissedTemplate({

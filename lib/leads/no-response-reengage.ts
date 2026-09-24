@@ -27,6 +27,12 @@ import {
   fetchLatestUserMessageAt,
   hasUserReplyAfter,
 } from "@/lib/wa-followup-cron-eval";
+import {
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
+import { canUseArboxScheduleLookup } from "@/lib/crm/types";
 import { waNoResponseEligible } from "@/lib/wa-no-response";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -112,6 +118,7 @@ type ContactCandidate = {
   human_requested_at?: string | null;
   trial_registered?: boolean | null;
   session_phase?: string | null;
+  arbox_user_id?: string | null;
 };
 
 function bump(summary: NoResponseReengageSummary, reason: string) {
@@ -272,6 +279,9 @@ async function dispatchNoResponseTemplate(input: {
 /**
  * Process one business with an enabled no_response rule.
  * IO: one candidate contacts query + per-candidate message lookups + optional Meta send.
+ * Arbox businesses with candidates: +1 activeMemberships, +1 sessions, +1 future
+ * bookings once (membershipTypes only if trial product ids are set) so people
+ * with a membership, punch card, or upcoming trial class are skipped.
  */
 export async function syncNoResponseReengageForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -315,7 +325,7 @@ export async function syncNoResponseReengageForBusiness(input: {
   const { data: rows, error } = await input.admin
     .from("contacts")
     .select(
-      "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase"
+      "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, arbox_user_id"
     )
     .eq("business_id", input.businessId)
     .eq("source", "whatsapp")
@@ -337,6 +347,41 @@ export async function syncNoResponseReengageForBusiness(input: {
     return summary;
   }
 
+  let activeKeys: ActiveProductKeys | null = null;
+  let activeCheckFailed = false;
+  if ((rows ?? []).length) {
+    const { data: bizRow, error: bizErr } = await input.admin
+      .from("businesses")
+      .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+      .eq("id", input.businessId)
+      .maybeSingle();
+    if (bizErr) {
+      console.error("[no-response-reengage] business crm lookup failed:", bizErr.message, {
+        businessId: input.businessId,
+      });
+    }
+    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const boxId = String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
+    if (canUseArboxScheduleLookup(bizRow) && apiKey && boxId) {
+      const fetched = await fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      });
+      if (!fetched.ok) {
+        activeCheckFailed = true;
+        console.error("[no-response-reengage] active product fetch failed", {
+          businessId: input.businessId,
+          error: fetched.error,
+        });
+      } else {
+        activeKeys = fetched.keys;
+      }
+    }
+  }
+
   for (const row of rows ?? []) {
     summary.examined += 1;
     const contact = row as ContactCandidate;
@@ -351,6 +396,24 @@ export async function syncNoResponseReengageForBusiness(input: {
     if (!waNoResponseEligible(contact)) {
       bump(summary, "gate_ineligible");
       continue;
+    }
+
+    if (activeCheckFailed) {
+      bump(summary, "active_check_failed");
+      continue;
+    }
+    if (activeKeys) {
+      const arboxUserId = Number(String(contact.arbox_user_id ?? "").trim());
+      if (
+        matchesActiveProduct({
+          userId: Number.isFinite(arboxUserId) && arboxUserId > 0 ? Math.trunc(arboxUserId) : null,
+          phone,
+          keys: activeKeys,
+        })
+      ) {
+        bump(summary, "active_product");
+        continue;
+      }
     }
 
     try {

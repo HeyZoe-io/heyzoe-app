@@ -17,7 +17,10 @@ import {
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { fetchCanceledMembershipsReportRows } from "@/lib/leads/arbox-canceled-memberships-report";
-import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
+import {
+  fetchArboxActiveProductKeys,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 import { parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
@@ -476,7 +479,7 @@ async function dispatchMembershipCancelledTemplate(input: {
  * on seed, 1 page after). Plus 1 GET /v3/membershipTypes only when a product_filter is set.
  * WhatsApp/Meta: one immediate send per matching rule on its due day (delay 0 = cancel day).
  * Multiple rules replace a D4 state machine. Win-back steps (delay > 0) cross the A1
- * customer set (`fetchArboxCustomerUserIds`: activeMemberships ∪ sessions). If the user
+ * active product set (memberships ∪ punch cards ∪ upcoming trial). If the user
  * is active again, skip that step. Day-of confirmation still sends.
  * **IO:** +2 customer-report GETs only when a delay>0 step is due today (same reports as A1;
  * lazy, one fetch per business run). 10 businesses → 0 extra if only delay 0 is live.
@@ -494,6 +497,8 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   now?: Date;
   /** Optional A1 customer set from the same cron run — skip a second fetch. */
   activeCustomerIds?: ReadonlySet<number>;
+  /** Membership + punch card + upcoming trial. Wins over activeCustomerIds. */
+  activeProductKeys?: ActiveProductKeys;
 }): Promise<MembershipCancelledSyncSummary> {
   const summary: MembershipCancelledSyncSummary = {
     fetched: 0,
@@ -646,27 +651,40 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   }
 
   type CustomerSetState = { kind: "ready"; ids: ReadonlySet<number> } | { kind: "failed" };
-  let customerSetState: CustomerSetState | undefined = input.activeCustomerIds
-    ? { kind: "ready", ids: input.activeCustomerIds }
-    : undefined;
+  let customerSetState: CustomerSetState | undefined = input.activeProductKeys
+    ? { kind: "ready", ids: input.activeProductKeys.userIds }
+    : input.activeCustomerIds
+      ? { kind: "ready", ids: input.activeCustomerIds }
+      : undefined;
 
   async function ensureActiveCustomerIds(): Promise<ReadonlySet<number> | null> {
     if (customerSetState?.kind === "ready") return customerSetState.ids;
     if (customerSetState?.kind === "failed") return null;
-    const fetched = await fetchArboxCustomerUserIds({ apiKey, boxId, now });
-    if (!fetched.ok) {
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    const products = await fetchArboxActiveProductKeys({
+      apiKey,
+      boxId,
+      now,
+      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids,
+    });
+    if (!products.ok) {
       customerSetState = { kind: "failed" };
       summary.errors += 1;
-      summary.fetch_error = fetched.error;
-      console.error("[leads/arbox-membership-cancelled] customer set fetch failed", {
+      summary.fetch_error = products.error;
+      console.error("[leads/arbox-membership-cancelled] active product fetch failed", {
         businessId,
         businessSlug,
-        error: fetched.error,
+        error: products.error,
       });
       return null;
     }
-    customerSetState = { kind: "ready", ids: fetched.userIds };
-    return fetched.userIds;
+    customerSetState = { kind: "ready", ids: products.keys.userIds };
+    return products.keys.userIds;
   }
 
   for (const raw of reportRows) {

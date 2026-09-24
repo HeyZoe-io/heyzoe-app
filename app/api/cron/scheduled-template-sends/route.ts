@@ -34,6 +34,12 @@ import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { materializeDueManualBulkSchedules } from "@/lib/manual-bulk/schedules";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
+import {
+  loadBusinessActiveProductKeys,
+  matchesActiveProduct,
+  triggerSuppressesActiveProduct,
+  type ActiveProductKeys,
+} from "@/lib/leads/arbox-active-product";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
  *  גם שוטף scheduled_marketing_template_sends ו-manual_bulk_queued_sends.
@@ -106,6 +112,21 @@ async function lookupContactFullName(
     .maybeSingle();
   const name = String((data as { full_name?: string | null } | null)?.full_name ?? "").trim();
   return name || null;
+}
+
+const activeProductCache = new Map<number, ActiveProductKeys | null | "failed">();
+
+async function cachedActiveProductKeys(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  now: Date
+): Promise<ActiveProductKeys | null | "failed"> {
+  const hit = activeProductCache.get(businessId);
+  if (hit !== undefined) return hit;
+  const loaded = await loadBusinessActiveProductKeys({ admin, businessId, now });
+  const value = loaded.ok ? loaded.keys : "failed";
+  activeProductCache.set(businessId, value);
+  return value;
 }
 
 /**
@@ -184,6 +205,33 @@ async function dispatchOneScheduledSend(
       last_error: gate.last_error,
     });
     return "canceled";
+  }
+
+  if (!isStaffRecipient && triggerSuppressesActiveProduct(triggerType || "")) {
+    const activeKeys = await cachedActiveProductKeys(admin, businessId, now);
+    if (activeKeys === "failed") {
+      console.error("[cron/scheduled-template-sends] active product check failed", {
+        id: row.id,
+        businessId,
+        triggerType,
+      });
+      return "skipped";
+    }
+    if (
+      activeKeys &&
+      matchesActiveProduct({ userId: null, phone, keys: activeKeys })
+    ) {
+      console.info("[cron/scheduled-template-sends] suppressed active product", {
+        id: row.id,
+        businessId,
+        triggerType,
+      });
+      await markScheduledSend(admin, row.id, {
+        status: "canceled",
+        last_error: "active_product",
+      });
+      return "canceled";
+    }
   }
 
   if (!isStaffRecipient) {
@@ -299,6 +347,7 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
   const ranAt = now.toISOString();
+  activeProductCache.clear();
   const nowIso = ranAt;
   const admin = createSupabaseAdminClient();
 

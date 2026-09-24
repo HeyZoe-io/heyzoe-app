@@ -26,9 +26,10 @@ import {
   parseLeadIdFromUserId,
 } from "@/lib/leads/arbox-all-leads-report";
 import {
-  fetchArboxCustomerUserIds,
-  shouldFetchArboxCustomerSet,
-} from "@/lib/leads/arbox-customer-set";
+  fetchArboxActiveProductKeys,
+  matchesActiveProduct,
+} from "@/lib/leads/arbox-active-product";
+import { shouldFetchArboxCustomerSet } from "@/lib/leads/arbox-customer-set";
 
 export { parseLeadIdFromUserId };
 export { buildAllLeadsReportPath } from "@/lib/leads/arbox-all-leads-report";
@@ -701,14 +702,24 @@ export async function syncArboxNewLeadsForBusiness(input: {
     return summary;
   }
 
-  const customers = await fetchArboxCustomerUserIds({ apiKey, boxId, now });
+  const { data: trialBiz } = await input.admin
+    .from("businesses")
+    .select("arbox_trial_membership_type_ids")
+    .eq("id", businessId)
+    .maybeSingle();
+  const customers = await fetchArboxActiveProductKeys({
+    apiKey,
+    boxId,
+    now,
+    trialMembershipTypeIds: (trialBiz as { arbox_trial_membership_type_ids?: unknown } | null)
+      ?.arbox_trial_membership_type_ids,
+  });
   if (!customers.ok) {
     summary.fetch_error = customers.error;
     summary.errors += 1;
     return summary;
   }
-  summary.customer_pages_fetched = customers.membershipPages + customers.sessionPages;
-  const customerIds = customers.userIds;
+  const activeKeys = customers.keys;
 
   for (const { row, leadId, userId } of unseenNonZoe) {
     try {
@@ -725,7 +736,11 @@ export async function syncArboxNewLeadsForBusiness(input: {
         seen: false,
         zoeSource: false,
         alreadyInApp: Boolean(existingContact?.id),
-        isCustomer: customerIds.has(leadId),
+        isCustomer: matchesActiveProduct({
+          userId: leadId,
+          phone: reportPhone,
+          keys: activeKeys,
+        }),
       });
 
       if (decision === "already_in_app" || decision === "customer") {
