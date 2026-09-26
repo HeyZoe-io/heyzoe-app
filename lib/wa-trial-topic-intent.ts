@@ -12,6 +12,29 @@ function normalizeTrialTopicText(raw: string): string {
   return normalizeSalesFlowGreetingToken(raw);
 }
 
+/**
+ * Mentions trial/intro only to reject it («רק אופציה של היכרות אבל כבר הייתי»).
+ * Must not open trial_topic_flow_entry.
+ */
+export function matchesTrialTopicRejectionOrReturningClient(raw: string): boolean {
+  const t = stripLeadingCasualGreeting(normalizeTrialTopicText(raw));
+  if (!t || t.length > 500) return false;
+  if (/כבר\s+היית(?:י|ם|ן|ה)\s+אצל/u.test(t)) return true;
+  if (/כבר\s+(?:הגעתי|באתי|הייתי)\s+(?:אליכם|אליכן|לכם|לכן|אצלכם|אצלכן)/u.test(t)) {
+    return true;
+  }
+  if (/\balready\s+(?:been|visited|came)\b/i.test(t) && /\b(?:you|your\s+studio|there)\b/i.test(t)) {
+    return true;
+  }
+  if (
+    /רק\s+(?:אופצי(?:ה|ות)\s+של\s+)?(?:אימון\s+|שיעור\s+)?(?:היכרות|הכרות|ניסיון|נסיון)/u.test(t) &&
+    /(?:אבל|כבר|אני\s+כבר)/u.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Common Hebrew typo: הכרות (without י) vs היכרות */
 const TRIAL_TOPIC_MARKERS =
   /(?:ניסיון|נסיון|היכרות|הכרות|\btrial\b|\bintro\b|taster|first\s+class)/iu;
@@ -64,6 +87,8 @@ export function matchesTrialTopicIntent(raw: string): boolean {
   const t = stripLeadingCasualGreeting(normalized);
   if (!t || t.length > 400) return false;
   if (isExistingTrialEnrollmentMention(raw)) return false;
+  // «רק אופציה של אימון היכרות אבל כבר הייתי אצלכם» — not requesting a trial
+  if (matchesTrialTopicRejectionOrReturningClient(raw)) return false;
   if (!TRIAL_TOPIC_MARKERS.test(t)) return false;
   if (TRIAL_CLASS_PHRASE.test(t)) return true;
   if (/אימוני\s+(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) return true;

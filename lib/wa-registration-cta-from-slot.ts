@@ -14,6 +14,7 @@ import {
 import { matchesTryClassIntent } from "@/lib/wa-try-class-offer";
 import { normalizeTrialSignupIntentText } from "@/lib/wa-trial-signup-intent";
 import { matchesUnspecifiedClassPriceQuestion } from "@/lib/wa-price-which-service";
+import { shouldAskMembershipVsTrialFirst } from "@/lib/wa-registration-intent";
 
 export const REGISTRATION_CTA_LINK_MODEL = "registration_cta_class_link";
 export const REGISTRATION_CTA_ASK_CLASS_MODEL = "registration_cta_ask_class";
@@ -141,6 +142,8 @@ export function resolveRegistrationCtaDecision(input: {
   const current = String(input.currentText ?? "").trim();
   if (!current || current.length > 500) return { action: "none" };
   if (matchesUnspecifiedClassPriceQuestion(current)) return { action: "none" };
+  // Ambiguous signup without «ניסיון» — webhook asks membership vs trial first.
+  if (shouldAskMembershipVsTrialFirst(current)) return { action: "none" };
 
   const blob = conversationBlobForRegistrationCta(current, input.recentUserTexts);
   const registerAsk = isJoinSignupIntentText(current);

@@ -220,4 +220,17 @@ assert.equal(
   "רגע, אני רואה שהמפגש של Power&HIIT ב-08:00 לא מתקיים השבוע. השיעור עצמו קבוע במערכת, אז סביר שהוא חוזר בשבוע הבא - אני מעבירה את הפנייה לצוות שיעדכן אותך בדיוק, בסדר?"
 );
 
+// Sivan / returning-member case: signup for a named class without «ניסיון» must NOT
+// send the trial payment link — membership-vs-trial clarify runs first.
+{
+  const pilates = [svc("פילאטיס מזרן", [{ day: "ה", time: "10:00" }])];
+  const d = resolveRegistrationCtaDecision({
+    currentText: "היי, אשמח להירשם לשיעור של פילאטיס מזרן ביום חמישי",
+    recentUserTexts: [],
+    services: pilates,
+    now: tueMorning,
+  });
+  assert.deepEqual(d, { action: "none" }, "ambiguous signup → none (ask membership vs trial)");
+}
+
 console.log("wa-registration-cta-from-slot.test.ts: ok");
