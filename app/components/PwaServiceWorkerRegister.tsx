@@ -4,6 +4,10 @@ import { useEffect } from "react";
 
 /**
  * Registers minimal `/sw.js` in production only (avoids interfering with HMR in dev).
+ *
+ * Do NOT auto-reload on SW activate: skipWaiting + clients.claim + location.reload
+ * caused the admin/dashboard UI to hard-refresh on mobile (PWA / Chrome) whenever
+ * an update was detected — including noisy update checks after tab focus.
  */
 export default function PwaServiceWorkerRegister() {
   useEffect(() => {
@@ -11,22 +15,10 @@ export default function PwaServiceWorkerRegister() {
     if (process.env.NODE_ENV !== "production") return;
 
     void navigator.serviceWorker
-      .register("/sw.js?v=2026-05-21-dashboard-ui", {
+      .register("/sw.js?v=2026-09-26-no-autoreload", {
         scope: "/",
         type: "classic",
         updateViaCache: "none",
-      })
-      .then((reg) => {
-        void reg?.update();
-        reg?.addEventListener("updatefound", () => {
-          const worker = reg.installing;
-          if (!worker) return;
-          worker.addEventListener("statechange", () => {
-            if (worker.state === "activated" && navigator.serviceWorker.controller) {
-              window.location.reload();
-            }
-          });
-        });
       })
       .catch(() => {
         /* ignore — ad blockers / private mode */

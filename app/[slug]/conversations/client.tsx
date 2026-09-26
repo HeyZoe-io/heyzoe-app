@@ -372,7 +372,9 @@ export default function ConversationsClient({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [pausing, setPausing] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isDesktop, setIsDesktop] = useState(true);
+  // Mobile-first: starting as `true` made the first paint show both panels on phones,
+  // then snap to list-only after matchMedia — felt like the admin screen "jumped/refreshed".
+  const [isDesktop, setIsDesktop] = useState(false);
   const [lastMessagePreview, setLastMessagePreview] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const now = useNowDate();
@@ -492,7 +494,9 @@ export default function ConversationsClient({
       return (j.sessions ?? []) as SessionSummary[];
     },
     ...(initialSessions.length > 0 ? { initialData: initialSessions } : {}),
-    refetchOnWindowFocus: true,
+    // Avoid refetch-on-focus on mobile: app switching (WhatsApp ↔ admin) was re-sorting
+    // the list and snapping scroll, which felt like a full screen refresh.
+    refetchOnWindowFocus: false,
     refetchInterval: 30_000,
   });
   const listLoading = sessions.length === 0 && (sessionsQuery.isPending || sessionsQuery.isFetching);

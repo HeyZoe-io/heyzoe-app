@@ -64,7 +64,9 @@ export default function ZoeConversationsTab({
   const [initialSessions, setInitialSessions] = useState<ZoeAdminSessionSummary[]>(
     marketingOnly ? [] : initialAllSessions
   );
-  const [loading, setLoading] = useState(false);
+  // Start loading when a slug is selected so the first paint does not mount ConversationsClient
+  // and then tear it down (previous `useState(false)` + effect `setLoading(true)` cycle).
+  const [loading, setLoading] = useState(() => Boolean(slug));
   const [loadErr, setLoadErr] = useState("");
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export default function ZoeConversationsTab({
   useEffect(() => {
     if (!slug) {
       setInitialSessions([]);
+      setLoading(false);
       return;
     }
     let cancelled = false;
