@@ -5,6 +5,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { AdminNav } from "@/app/admin/AdminNav";
 import { AdminAiUsageTab } from "@/app/admin/businesses/AdminAiUsageTab";
+import { IntroPlanActions } from "@/app/admin/businesses/IntroPlanActions";
+import { formatIsraelDate, introAdminState, type IntroAdminState } from "@/lib/intro-offer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +26,8 @@ type BizRow = {
   plan: string | null;
   is_active: boolean | null;
   whatsapp_number: string | null;
+  intro_period_ends_at?: string | null;
+  intro_full_price_at?: string | null;
 };
 
 type ChannelRow = {
@@ -140,12 +144,23 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
   const tab = parseTab(firstSearchParam(sp.tab));
   const admin = createSupabaseAdminClient();
 
-  const [{ data: businessesRaw }, { data: channelsRaw }, { data: surveysRaw }, { data: threadsRaw }] = await Promise.all([
-    admin
+  const businessSelect =
+    "id, slug, name, plan, is_active, whatsapp_number, intro_period_ends_at, intro_full_price_at";
+  let businessesQuery = await admin
+    .from("businesses")
+    .select(businessSelect)
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  if (businessesQuery.error) {
+    console.error("[admin/businesses] intro columns unavailable — run supabase/businesses_intro_period.sql:", businessesQuery.error.message);
+    businessesQuery = await admin
       .from("businesses")
       .select("id, slug, name, plan, is_active, whatsapp_number")
       .order("created_at", { ascending: false })
-      .limit(2000),
+      .limit(2000);
+  }
+
+  const [{ data: channelsRaw }, { data: surveysRaw }, { data: threadsRaw }] = await Promise.all([
     admin
       .from("whatsapp_channels")
       .select("business_slug, phone_display, is_active, provisioning_status")
@@ -162,7 +177,7 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
       .limit(200),
   ]);
 
-  const businesses = (businessesRaw ?? []) as unknown as BizRow[];
+  const businesses = (businessesQuery.data ?? []) as unknown as BizRow[];
   const channels = (channelsRaw ?? []) as unknown as ChannelRow[];
   const surveys = ((surveysRaw ?? []) as unknown as SurveyRow[]).filter(Boolean);
   const threads = ((threadsRaw ?? []) as unknown as SupportThreadRow[]).filter(Boolean);
@@ -260,6 +275,41 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
   );
 }
 
+function PlanBadge({ business }: { business: BizRow }) {
+  const state: IntroAdminState = introAdminState({
+    introPeriodEndsAt: business.intro_period_ends_at,
+    introFullPriceAt: business.intro_full_price_at,
+  });
+  const until = formatIsraelDate(business.intro_period_ends_at);
+  if (state === "active") {
+    return (
+      <div>
+        <span className="inline-flex rounded-full border border-[#ff92ff]/50 bg-[#7133da]/10 px-3 py-1 text-xs text-[#7133da]">
+          חודש ב־₪5
+        </span>
+        {until ? <div className="mt-1 text-[11px] text-zinc-500">עד {until} · יכולות Pro</div> : null}
+        <IntroPlanActions slug={String(business.slug ?? "").trim()} />
+      </div>
+    );
+  }
+  if (state === "awaiting_full_price") {
+    return (
+      <div>
+        <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-900">
+          ₪5 נגמר · ממתין לאישור
+        </span>
+        {until ? <div className="mt-1 text-[11px] text-zinc-500">הסתיים ב־{until}</div> : null}
+        <IntroPlanActions slug={String(business.slug ?? "").trim()} />
+      </div>
+    );
+  }
+  return (
+    <span className="inline-flex rounded-full border border-[#7133da]/15 bg-[#7133da]/10 px-3 py-1 text-xs text-[#7133da]">
+      {planLabel(business.plan)}
+    </span>
+  );
+}
+
 function BusinessesTable({
   businesses,
   channelBySlug,
@@ -296,9 +346,7 @@ function BusinessesTable({
                   {channelStatus ? <span className="ms-2 text-[11px] text-zinc-400">{channelStatus}</span> : null}
                 </td>
                 <td className="px-2 py-3">
-                  <span className="inline-flex rounded-full border border-[#7133da]/15 bg-[#7133da]/10 px-3 py-1 text-xs text-[#7133da]">
-                    {planLabel(b.plan)}
-                  </span>
+                  <PlanBadge business={b} />
                 </td>
                 <td className="px-2 py-3">
                   <span

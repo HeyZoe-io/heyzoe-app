@@ -227,6 +227,37 @@ export function adminPlainAlertEmail(title: string, lines: string[]): EmailTempl
   };
 }
 
+/** לאדמין: 3 ימים לפני שחודש ה-₪5 נגמר, כדי לבקש אישור למחיר מלא. */
+export function introRenewalOpsEmail(input: {
+  businessName: string;
+  slug: string;
+  customerEmail: string;
+  endsAtLabel: string;
+  adminUrl: string;
+}): EmailTemplateResult {
+  const name = String(input.businessName ?? "").trim() || input.slug;
+  const ends = String(input.endsAtLabel ?? "").trim();
+  return {
+    subject: `חודש ה-₪5 של ${name} נגמר ב-${ends}`,
+    htmlContent: [
+      `<div dir="rtl" style="font-family:Heebo,Arial,sans-serif;line-height:1.7">`,
+      `<p>${p([
+        `חודש המבצע (₪5) של ${name} נגמר ב-${ends}.`,
+        "",
+        `עסק: ${name}`,
+        `slug: ${input.slug}`,
+        input.customerEmail ? `מייל לקוח: ${input.customerEmail}` : "",
+        "",
+        "צריך לבקש אישור לחידוש במחיר מלא — Starter ₪299 או Pro ₪429 — ואז לעדכן את הוראת הקבע ב-iCount.",
+        "אחרי האישור, סמני בדף העסקים באדמין לאיזו חבילה עברו. עד אז הם נשארים על ₪5 עם יכולות Pro, והמערכת לא משנה את המחיר לבד.",
+        "",
+        input.adminUrl,
+      ].filter((line) => line !== ""))}</p>`,
+      `</div>`,
+    ].join(""),
+  };
+}
+
 function quotaUpgradeToProButtonHtml(billingUrl: string): string {
   const href = esc(billingUrl);
   return `<p style="margin:20px 0"><a href="${href}" style="display:inline-block;background:#7133da;color:#fff;padding:12px 24px;border-radius:12px;text-decoration:none;font-weight:600;font-family:Heebo,Arial,sans-serif">שדרג ל‑Pro</a></p>`;

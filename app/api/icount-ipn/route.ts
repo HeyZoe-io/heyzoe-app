@@ -14,6 +14,7 @@ import {
   marketingWaSessionId,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
+import { introPaymentPatch } from "@/lib/intro-offer";
 import { businessPlanFromCheckout, planPriceIls } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
@@ -245,7 +246,7 @@ async function insertBusinessResilient(admin: ReturnType<typeof createSupabaseAd
   if (!r.error) return r;
 
   // Retry removing missing columns (limited to known optional ones)
-  const optionalCols = ["email", "status", "plan_price", "icount_client_id", "billing_anchor_day"];
+  const optionalCols = ["email", "status", "plan_price", "icount_client_id", "billing_anchor_day", "intro_period_ends_at"];
   let nextPayload = { ...payload };
   for (const col of optionalCols) {
     if (r.error && isSchemaColumnMissing(r.error, col) && col in nextPayload) {
@@ -500,20 +501,57 @@ export async function POST(req: NextRequest) {
         const paidPlan = businessPlanFromCheckout(paidMarker);
         const paidPlanPrice = planPriceIls(paidMarker);
         // Reactivation flow: mark existing business as active + update plan tier.
-        const { data: biz } = await admin
+        let introColsAvailable = true;
+        let bizQuery = await admin
           .from("businesses")
-          .select("id, slug, billing_anchor_day")
+          .select("id, slug, billing_anchor_day, intro_period_ends_at, intro_full_price_at")
           .eq("user_id", existingAuth.id)
           .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle();
+        if (
+          bizQuery.error &&
+          (isSchemaColumnMissing(bizQuery.error, "intro_period_ends_at") ||
+            isSchemaColumnMissing(bizQuery.error, "intro_full_price_at"))
+        ) {
+          introColsAvailable = false;
+          console.error(
+            "[api/icount-ipn] intro columns missing — run supabase/businesses_intro_period.sql:",
+            bizQuery.error.message
+          );
+          bizQuery = await admin
+            .from("businesses")
+            .select("id, slug, billing_anchor_day")
+            .eq("user_id", existingAuth.id)
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+        }
+        if (bizQuery.error) {
+          console.error("[api/icount-ipn] business lookup failed:", bizQuery.error);
+          return NextResponse.json({ ok: true });
+        }
+        const biz = bizQuery.data;
         if (biz?.id) {
+          const introPatch = introPaymentPatch({
+            marker: paidMarker,
+            existingIntroEndsAt: (biz as { intro_period_ends_at?: string | null }).intro_period_ends_at,
+            existingIntroFullPriceAt: (biz as { intro_full_price_at?: string | null }).intro_full_price_at,
+          });
           const reactivationUpdate: Record<string, unknown> = {
             is_active: true,
-            plan: paidPlan,
-            plan_price: paidPlanPrice,
             ...(icountClientId ? { icount_client_id: icountClientId } : {}),
           };
+          if (!introColsAvailable || introPatch.applyCatalogPrice) {
+            reactivationUpdate.plan = introPatch.plan ?? paidPlan;
+            reactivationUpdate.plan_price = introPatch.plan_price ?? paidPlanPrice;
+          }
+          if (introColsAvailable && introPatch.intro_period_ends_at) {
+            reactivationUpdate.intro_period_ends_at = introPatch.intro_period_ends_at;
+          }
+          if (introColsAvailable && introPatch.intro_full_price_at) {
+            reactivationUpdate.intro_full_price_at = introPatch.intro_full_price_at;
+          }
           if ((biz as { billing_anchor_day?: number | null }).billing_anchor_day == null) {
             reactivationUpdate.billing_anchor_day = billingAnchorDayFromPaymentDate(new Date());
           }
@@ -640,6 +678,7 @@ export async function POST(req: NextRequest) {
           const planMarker = String(sessionRow?.plan ?? "").trim().toLowerCase() || custom;
           const plan = businessPlanFromCheckout(planMarker);
           const plan_price = planPriceIls(planMarker);
+          const introPatch = introPaymentPatch({ marker: planMarker });
 
           console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
 
@@ -660,6 +699,7 @@ export async function POST(req: NextRequest) {
             email,
             status: "active",
             billing_anchor_day: billingAnchorDayFromPaymentDate(new Date()),
+            ...(introPatch.intro_period_ends_at ? { intro_period_ends_at: introPatch.intro_period_ends_at } : {}),
             ...(icountClientId ? { icount_client_id: icountClientId } : {}),
           };
 
@@ -750,6 +790,7 @@ export async function POST(req: NextRequest) {
     const planMarker = String(sessionRow?.plan ?? "").trim().toLowerCase() || custom;
     const plan = businessPlanFromCheckout(planMarker);
     const plan_price = planPriceIls(planMarker);
+    const introPatch = introPaymentPatch({ marker: planMarker });
 
     console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
 
@@ -770,6 +811,7 @@ export async function POST(req: NextRequest) {
       email,
       status: "active",
       billing_anchor_day: billingAnchorDayFromPaymentDate(new Date()),
+      ...(introPatch.intro_period_ends_at ? { intro_period_ends_at: introPatch.intro_period_ends_at } : {}),
       ...(icountClientId ? { icount_client_id: icountClientId } : {}),
     };
 
