@@ -6,7 +6,9 @@ import {
   fetchAllArboxMembershipTypes,
   filterArboxMembershipTypesByWords,
   filterArboxPlanAndPunchCardTypes,
+  filterArboxPunchCardTypes,
   isArboxPlanOrPunchCardType,
+  isArboxPunchCardType,
   membershipTypeNameById,
   parseArboxMembershipTypeRows,
 } from "@/lib/arbox-membership-types";
@@ -193,6 +195,15 @@ async function main() {
   assert.deepEqual(
     filterArboxPlanAndPunchCardTypes(parsed).map((r) => r.membership_type_id),
     [1, 2, 5]
+  );
+
+  assert.equal(isArboxPunchCardType("session"), true);
+  assert.equal(isArboxPunchCardType("plan"), false);
+  assert.equal(isArboxPunchCardType("trial"), false);
+  assert.equal(isArboxPunchCardType(""), true);
+  assert.deepEqual(
+    filterArboxPunchCardTypes(parsed).map((r) => r.membership_type_id),
+    [2, 5]
   );
 }
 

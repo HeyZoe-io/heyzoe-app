@@ -34,6 +34,7 @@ import {
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import {
   filterArboxMembershipTypesByWords,
+  filterArboxPunchCardTypes,
   type ArboxMembershipTypeRow,
 } from "@/lib/arbox-membership-types";
 import {
@@ -60,6 +61,7 @@ import {
   PURCHASE_ITEM_TYPE_LABELS_HE,
   PURCHASE_ITEM_TYPE_VALUES,
   showsItemTypeFilter,
+  productFilterScope,
   showsLookbackDays,
   showsProductFilter,
   TRIGGER_TYPE_OPTIONS,
@@ -116,6 +118,166 @@ function delayDaysFieldLabel(type: string, variant: "create" | "edit"): string {
   if (isNthWorkoutTriggerType(type)) return "אימון מספר";
   if (isAttendanceGapTriggerType(type)) return "ימי היעדרות";
   return variant === "create" ? "ימים" : "השהייה (ימים)";
+}
+
+function productFilterCopy(triggerType: string): {
+  label: string;
+  help: string;
+  empty: string;
+  searchPlaceholder: string;
+  searchLabel: string;
+  noMatch: string;
+} {
+  if (triggerType === "sessions_expiring") {
+    return {
+      label: "כרטיסיות לשליחת חידוש",
+      help: "סמנו את הכרטיסיות שעבורן תישלח הודעת החידוש. כרטיסיות שלא סומנו — למשל כרטיסיית היכרות — לא יקבלו את ההודעה. בלי סימון ההודעה נשלחת לכל הכרטיסיות.",
+      empty: "לא נמצאו כרטיסיות — בלי בחירה ההודעה נשלחת לכל הכרטיסיות.",
+      searchPlaceholder: "סינון כרטיסיות לפי מילים…",
+      searchLabel: "סינון כרטיסיות לפי מילים",
+      noMatch: "אין כרטיסיות שמתאימות לסינון.",
+    };
+  }
+  if (triggerType === "trial_reminder" || triggerType === "trainer_trial_heads_up") {
+    return {
+      label: "מוצרי ניסיון",
+      help: "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה ההתראה לא תישלח.",
+      empty: "לא נמצאו מוצרים — ההתראה לא תישלח עד שיוגדרו מוצרי ניסיון.",
+      searchPlaceholder: "סינון לפי מילים…",
+      searchLabel: "סינון מוצרים לפי מילים",
+      noMatch: "אין מוצרים שמתאימים לסינון.",
+    };
+  }
+  return {
+    label: "סינון מוצרים (אופציונלי)",
+    help: "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM.",
+    empty: "לא נמצאו מוצרים — יוחל על כל המוצרים.",
+    searchPlaceholder: "סינון לפי מילים…",
+    searchLabel: "סינון מוצרים לפי מילים",
+    noMatch: "אין מוצרים שמתאימים לסינון.",
+  };
+}
+
+function membershipTypesForProductFilter(
+  triggerType: string,
+  types: readonly ArboxMembershipTypeRow[],
+  selectedIds: readonly number[]
+): ArboxMembershipTypeRow[] {
+  if (productFilterScope(triggerType) !== "session") return [...types];
+  const scoped = filterArboxPunchCardTypes(types);
+  const seen = new Set(scoped.map((row) => row.membership_type_id));
+  const selected = new Set(selectedIds);
+  const extras = types.filter(
+    (row) => selected.has(row.membership_type_id) && !seen.has(row.membership_type_id)
+  );
+  return [...scoped, ...extras];
+}
+
+function ProductFilterPicker({
+  triggerType,
+  idPrefix,
+  types,
+  loading,
+  loadError,
+  selected,
+  query,
+  onQueryChange,
+  onToggle,
+  onSetIds,
+}: {
+  triggerType: string;
+  idPrefix: string;
+  types: readonly ArboxMembershipTypeRow[];
+  loading: boolean;
+  loadError: string | null;
+  selected: number[];
+  query: string;
+  onQueryChange: (value: string) => void;
+  onToggle: (id: number) => void;
+  onSetIds: (ids: number[]) => void;
+}) {
+  const copy = productFilterCopy(triggerType);
+  const visible = filterArboxMembershipTypesByWords(
+    membershipTypesForProductFilter(triggerType, types, selected),
+    query,
+    selected
+  );
+
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-zinc-800">{copy.label}</label>
+      <p className="text-xs text-zinc-500">{copy.help}</p>
+      {loading ? (
+        <p className="flex items-center gap-2 text-xs text-zinc-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          טוען מוצרים מארבוקס…
+        </p>
+      ) : loadError ? (
+        <div className="space-y-2">
+          <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+            לא נטענו מוצרים מארבוקס ({loadError}). הזינו מזהי membership_type מופרדים בפסיק:
+          </p>
+          <input
+            value={selected.join(",")}
+            onChange={(e) => {
+              const ids = e.target.value
+                .split(",")
+                .map((s) => Number(s.trim()))
+                .filter((n) => Number.isFinite(n) && n > 0);
+              onSetIds([...new Set(ids)].sort((a, b) => a - b));
+            }}
+            dir="ltr"
+            placeholder="123, 456"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
+          />
+        </div>
+      ) : types.length === 0 ? (
+        <p className="text-xs text-zinc-500">{copy.empty}</p>
+      ) : (
+        <div className="space-y-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder={copy.searchPlaceholder}
+            aria-label={copy.searchLabel}
+            autoComplete="off"
+            className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+          />
+          {visible.length === 0 ? (
+            <p className="text-xs text-zinc-500">{query.trim() ? copy.noMatch : copy.empty}</p>
+          ) : (
+            <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
+              {visible.map((row) => {
+                const id = row.membership_type_id;
+                const checked = selected.includes(id);
+                const inputId = `${idPrefix}-product-${id}`;
+                return (
+                  <li key={id}>
+                    <label
+                      htmlFor={inputId}
+                      className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                    >
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={checked}
+                        onChange={() => onToggle(id)}
+                      />
+                      <span className="text-xs leading-snug text-zinc-800" dir="ltr">
+                        {`${id} - ${row.membership_type_name}`}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function isArboxTriggerType(type: TriggerType): boolean {
@@ -322,6 +484,8 @@ export default function TemplatesClient({
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editDelayDirection, setEditDelayDirection] = useState<DelayDirection>("after");
   const [editLookbackDays, setEditLookbackDays] = useState(defaultLookbackDays());
+  const [editProductFilter, setEditProductFilter] = useState<number[]>([]);
+  const [editProductFilterQuery, setEditProductFilterQuery] = useState("");
   const [editTemplateName, setEditTemplateName] = useState("");
   const [triggerEditSaving, setTriggerEditSaving] = useState(false);
 
@@ -422,16 +586,6 @@ export default function TemplatesClient({
     return map;
   }, [arboxMembershipTypes]);
 
-  const visibleNewProductFilterTypes = useMemo(
-    () =>
-      filterArboxMembershipTypesByWords(
-        arboxMembershipTypes,
-        newProductFilterQuery,
-        newProductFilter
-      ),
-    [arboxMembershipTypes, newProductFilterQuery, newProductFilter]
-  );
-
   const showNewProductFilter = showsProductFilter(newTriggerType);
   const showNewItemTypeFilter = showsItemTypeFilter(newTriggerType);
   const isNewImmediateDelay = isImmediateDelayTrigger(newTriggerType);
@@ -463,8 +617,13 @@ export default function TemplatesClient({
     }
   }, [newTriggerType]);
 
+  const editingTrigger = triggers.find((row) => row.id === editingTriggerId) ?? null;
+  const needsArboxMembershipTypes =
+    showNewProductFilter ||
+    (editingTrigger != null && showsProductFilter(editingTrigger.trigger_type));
+
   useEffect(() => {
-    if (!hasArbox || !showNewProductFilter) return;
+    if (!hasArbox || !needsArboxMembershipTypes) return;
 
     let cancelled = false;
     setArboxMembershipTypesLoading(true);
@@ -500,7 +659,7 @@ export default function TemplatesClient({
     return () => {
       cancelled = true;
     };
-  }, [hasArbox, showNewProductFilter, slug]);
+  }, [hasArbox, needsArboxMembershipTypes, slug]);
 
   const reloadTriggers = useCallback(async () => {
     const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, { cache: "no-store" });
@@ -522,6 +681,14 @@ export default function TemplatesClient({
     });
   }
 
+  function toggleEditProductFilter(id: number) {
+    setEditProductFilter((prev) => {
+      const has = prev.includes(id);
+      const next = has ? prev.filter((x) => x !== id) : [...prev, id];
+      return next.sort((a, b) => a - b);
+    });
+  }
+
   function toggleNewItemTypeFilter(value: PurchaseItemType) {
     setNewItemTypeFilter((prev) => {
       const has = prev.includes(value);
@@ -530,8 +697,10 @@ export default function TemplatesClient({
     });
   }
 
-  function formatProductFilterLabel(ids: number[] | null): string {
-    if (!ids || ids.length === 0) return "כל המוצרים";
+  function formatProductFilterLabel(ids: number[] | null, triggerType: string): string {
+    if (!ids || ids.length === 0) {
+      return productFilterScope(triggerType) === "session" ? "כל הכרטיסיות" : "כל המוצרים";
+    }
     return ids
       .map((id) => {
         const name = arboxMembershipTypeNameById.get(id);
@@ -806,6 +975,8 @@ export default function TemplatesClient({
         : defaultLookbackDays()
     );
     setEditTemplateName(trigger.template_name ?? "");
+    setEditProductFilter(trigger.product_filter ? [...trigger.product_filter] : []);
+    setEditProductFilterQuery("");
   }
 
   async function onSaveTriggerEdit(trigger: TriggerRow) {
@@ -831,6 +1002,9 @@ export default function TemplatesClient({
           NTH_WORKOUT_LOOKBACK_MAX,
           Math.max(1, Math.trunc(Number(editLookbackDays) || defaultLookbackDays()))
         );
+      }
+      if (showsProductFilter(trigger.trigger_type)) {
+        body.product_filter = editProductFilter.length > 0 ? editProductFilter : null;
       }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
         method: "PATCH",
@@ -1547,7 +1721,10 @@ export default function TemplatesClient({
                       </p>
                       {showsProductFilter(trigger.trigger_type) ? (
                         <p className="text-xs text-zinc-600">
-                          מוצרים: {formatProductFilterLabel(trigger.product_filter)}
+                          {productFilterScope(trigger.trigger_type) === "session"
+                            ? "כרטיסיות"
+                            : "מוצרים"}
+                          : {formatProductFilterLabel(trigger.product_filter, trigger.trigger_type)}
                         </p>
                       ) : null}
                       {showsItemTypeFilter(trigger.trigger_type) ? (
@@ -1648,6 +1825,20 @@ export default function TemplatesClient({
                               ) : null}
                             </div>
                           )}
+                          {showsProductFilter(trigger.trigger_type) ? (
+                            <ProductFilterPicker
+                              triggerType={trigger.trigger_type}
+                              idPrefix={`edit-${trigger.id}`}
+                              types={arboxMembershipTypes}
+                              loading={arboxMembershipTypesLoading}
+                              loadError={arboxMembershipTypesError}
+                              selected={editProductFilter}
+                              query={editProductFilterQuery}
+                              onQueryChange={setEditProductFilterQuery}
+                              onToggle={toggleEditProductFilter}
+                              onSetIds={setEditProductFilter}
+                            />
+                          ) : null}
                           <div className="space-y-1">
                             <label className="text-xs font-medium text-zinc-700">טמפלייט</label>
                             <select
@@ -1775,95 +1966,18 @@ export default function TemplatesClient({
                     {open ? (
                       <form className="mt-3 space-y-4 border-t border-zinc-200/80 pt-3" onSubmit={(e) => void onCreateTrigger(e)}>
                         {showNewProductFilter ? (
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium text-zinc-800">
-                              {newTriggerType === "trial_reminder" ||
-                              newTriggerType === "trainer_trial_heads_up"
-                                ? "מוצרי ניסיון"
-                                : "סינון מוצרים (אופציונלי)"}
-                            </label>
-                            <p className="text-xs text-zinc-500">
-                              {newTriggerType === "trial_reminder" ||
-                              newTriggerType === "trainer_trial_heads_up"
-                                ? "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה ההתראה לא תישלח."
-                                : "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM."}
-                            </p>
-                            {arboxMembershipTypesLoading ? (
-                              <p className="flex items-center gap-2 text-xs text-zinc-500">
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                טוען מוצרים מארבוקס…
-                              </p>
-                            ) : arboxMembershipTypesError ? (
-                              <div className="space-y-2">
-                                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                                  לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
-                                  membership_type מופרדים בפסיק:
-                                </p>
-                                <input
-                                  value={newProductFilter.join(",")}
-                                  onChange={(e) => {
-                                    const ids = e.target.value
-                                      .split(",")
-                                      .map((s) => Number(s.trim()))
-                                      .filter((n) => Number.isFinite(n) && n > 0);
-                                    setNewProductFilter([...new Set(ids)].sort((a, b) => a - b));
-                                  }}
-                                  dir="ltr"
-                                  placeholder="123, 456"
-                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
-                                />
-                              </div>
-                            ) : arboxMembershipTypes.length === 0 ? (
-                              <p className="text-xs text-zinc-500">
-                                {newTriggerType === "trial_reminder" ||
-                                newTriggerType === "trainer_trial_heads_up"
-                                  ? "לא נמצאו מוצרים — ההתראה לא תישלח עד שיוגדרו מוצרי ניסיון."
-                                  : "לא נמצאו מוצרים — יוחל על כל המוצרים."}
-                              </p>
-                            ) : (
-                              <div className="space-y-2">
-                                <input
-                                  type="search"
-                                  value={newProductFilterQuery}
-                                  onChange={(e) => setNewProductFilterQuery(e.target.value)}
-                                  placeholder="סינון לפי מילים…"
-                                  aria-label="סינון מוצרים לפי מילים"
-                                  autoComplete="off"
-                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                                />
-                                {visibleNewProductFilterTypes.length === 0 ? (
-                                  <p className="text-xs text-zinc-500">אין מוצרים שמתאימים לסינון.</p>
-                                ) : (
-                                  <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2">
-                                    {visibleNewProductFilterTypes.map((row) => {
-                                      const id = row.membership_type_id;
-                                      const checked = newProductFilter.includes(id);
-                                      const inputId = `trigger-product-${type}-${id}`;
-                                      return (
-                                        <li key={id}>
-                                          <label
-                                            htmlFor={inputId}
-                                            className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
-                                          >
-                                            <input
-                                              id={inputId}
-                                              type="checkbox"
-                                              className="mt-0.5 shrink-0"
-                                              checked={checked}
-                                              onChange={() => toggleNewProductFilter(id)}
-                                            />
-                                            <span className="text-xs leading-snug text-zinc-800" dir="ltr">
-                                              {`${id} - ${row.membership_type_name}`}
-                                            </span>
-                                          </label>
-                                        </li>
-                                      );
-                                    })}
-                                  </ul>
-                                )}
-                              </div>
-                            )}
-                          </div>
+                          <ProductFilterPicker
+                            triggerType={newTriggerType}
+                            idPrefix={`create-${type}`}
+                            types={arboxMembershipTypes}
+                            loading={arboxMembershipTypesLoading}
+                            loadError={arboxMembershipTypesError}
+                            selected={newProductFilter}
+                            query={newProductFilterQuery}
+                            onQueryChange={setNewProductFilterQuery}
+                            onToggle={toggleNewProductFilter}
+                            onSetIds={setNewProductFilter}
+                          />
                         ) : null}
 
                         {showNewItemTypeFilter ? (

@@ -8,7 +8,11 @@ import {
   type ArboxExpiringSessionRow,
 } from "@/lib/leads/arbox-sessions-expiring";
 import { buildSessionsExpiringScheduledDedupKey } from "@/lib/scheduled-template-sends";
-import { pickSessionsExpiringTemplateTriggerRule } from "@/lib/template-triggers-match";
+import {
+  pickRuleForMembershipTypeName,
+  pickSessionsExpiringTemplateTriggerRule,
+  type PurchaseTemplateTriggerRule,
+} from "@/lib/template-triggers-match";
 
 /** renewed → skipped (has_another_session / has_another_plan; string "yes"). */
 {
@@ -135,6 +139,62 @@ import { pickSessionsExpiringTemplateTriggerRule } from "@/lib/template-triggers
     },
   ]);
   assert.equal(picked?.template_name, "T_sessions_expiring");
+}
+
+/** Card include-list: intro pack is skipped; selected pack matches; empty filter is all. */
+{
+  const nameById = new Map<number, string>([
+    [10, "כרטיסייה 10"],
+    [11, "כרטיסיית היכרות"],
+  ]);
+  function rule(
+    id: string,
+    productFilter: number[] | null,
+    templateName = "T_sessions_expiring"
+  ): PurchaseTemplateTriggerRule {
+    return {
+      id,
+      business_id: 1,
+      trigger_type: "sessions_expiring",
+      product_filter: productFilter,
+      item_type_filter: null,
+      delay_days: 3,
+      delay_direction: "before",
+      lookback_days: null,
+      template_name: templateName,
+      enabled: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    };
+  }
+
+  const selected = rule("cards", [10]);
+  assert.equal(
+    pickRuleForMembershipTypeName([selected], "כרטיסייה 10", nameById)?.id,
+    "cards"
+  );
+  assert.equal(
+    pickRuleForMembershipTypeName([selected], "כרטיסיית היכרות", nameById),
+    null
+  );
+  assert.equal(
+    pickRuleForMembershipTypeName([selected], "  כרטיסייה   10  ", nameById)?.id,
+    "cards"
+  );
+
+  const catchAll = rule("all", null, "T_all");
+  assert.equal(
+    pickRuleForMembershipTypeName([catchAll], "כרטיסיית היכרות", nameById)?.id,
+    "all"
+  );
+  assert.equal(
+    pickRuleForMembershipTypeName([catchAll, selected], "כרטיסייה 10", nameById)?.id,
+    "cards"
+  );
+  assert.equal(
+    pickRuleForMembershipTypeName([catchAll, selected], "כרטיסיית היכרות", nameById)?.id,
+    "all"
+  );
 }
 
 /** path + horizon filter. */

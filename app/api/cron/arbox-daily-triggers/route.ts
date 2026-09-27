@@ -815,6 +815,7 @@ export async function GET(req: NextRequest) {
         skipped_expired_end: 0,
         skipped_no_end_date: 0,
         skipped_outside_horizon: 0,
+        skipped_filter: 0,
         no_phone: 0,
         errors: 1,
         fetch_error: message,

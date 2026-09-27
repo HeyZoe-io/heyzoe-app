@@ -846,6 +846,19 @@ export function pickMembershipCancelledTemplateTriggerRule(
   return pool[0] ?? null;
 }
 
+/**
+ * One template for a report row that has membership_type_name (not id).
+ * Empty product_filter matches every name. A specific list matches names from /v3/membershipTypes.
+ * Unmatched rows are skipped and must not be marked seen.
+ */
+export function pickRuleForMembershipTypeName(
+  rules: PurchaseTemplateTriggerRule[],
+  rowTypeName: string,
+  nameById: Map<number, string>
+): PurchaseTemplateTriggerRule | null {
+  return pickMembershipCancelledTemplateTriggerRule(rules, rowTypeName, nameById);
+}
+
 /** All enabled rules whose product_filter matches the cancelled membership type. */
 export function matchingMembershipCancelledTemplateTriggerRules(
   rules: PurchaseTemplateTriggerRule[],
