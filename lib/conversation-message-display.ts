@@ -169,10 +169,12 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
   }
 
   const singleButtons: WaConversationButton[] = [];
-  let withoutSingle = displaySource.replace(/\n?\[כפתור:\s*([^\]]+)\]\s*/g, (_, inner: string) => {
-    singleButtons.push(parseButtonToken(inner));
-    return "";
-  }).trim();
+  const withoutSingle = displaySource
+    .replace(/\n?\[כפתור(?:\s+תשובה)?:\s*([^\]]+)\]\s*/g, (_, inner: string) => {
+      singleButtons.push(parseButtonToken(inner));
+      return "";
+    })
+    .trim();
   if (singleButtons.length > 0) {
     return asInteractive(withoutSingle, singleButtons, withoutFooter.footerHint);
   }

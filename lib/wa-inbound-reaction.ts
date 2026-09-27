@@ -44,7 +44,7 @@ export function excerptForReactionQuote(raw: string): string {
   if (s.startsWith("[image]")) return (s.slice("[image]".length).trim() || "📷 תמונה").slice(0, 160);
   if (s.startsWith("[video]")) return (s.slice("[video]".length).trim() || "🎥 וידאו").slice(0, 160);
   s = s.replace(/\n?\[כפתורים:[^\]]+\]\s*$/u, "").trim();
-  s = s.replace(/\n?\[כפתור:[^\]]+\]\s*/gu, "").trim();
+  s = s.replace(/\n?\[כפתור(?:\s+תשובה)?:[^\]]+\]\s*/gu, "").trim();
   s = s.replace(/\n?\[([^:\]\n]{1,80}):\s*https?:\/\/[^\]\s]+\]\s*$/iu, "").trim();
   return s.replace(/\s+/g, " ").trim().slice(0, 160);
 }

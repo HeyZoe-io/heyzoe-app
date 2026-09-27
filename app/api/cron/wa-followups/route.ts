@@ -728,7 +728,7 @@ export async function GET(req: NextRequest) {
 
       let logContent = `${bodyCore}${FOLLOWUP_FOOTER}`;
       if (cta?.mode === "url") logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
-      else if (cta?.mode === "reply") logContent += `\n\n[כפתור תשובה: ${cta.label}]`;
+      else if (cta?.mode === "reply") logContent += `\n\n[כפתור: ${cta.label}]`;
 
       await logMessage({
         business_slug,

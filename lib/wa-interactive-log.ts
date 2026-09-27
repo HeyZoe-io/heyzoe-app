@@ -12,7 +12,7 @@ export function formatInteractiveButtonsLogLine(labels: string[]): string {
 export function stripAssistantInteractiveButtonsLog(text: string): string {
   return String(text ?? "")
     .replace(/\n?\[כפתורים:\s*[^\]]+\]\s*/gu, "\n")
-    .replace(/\n?\[כפתור:\s*[^\]]+\]\s*/gu, "\n")
+    .replace(/\n?\[כפתור(?:\s+תשובה)?:\s*[^\]]+\]\s*/gu, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
