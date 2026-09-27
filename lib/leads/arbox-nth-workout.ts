@@ -9,10 +9,10 @@
  */
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { parseLeadIdFromUserId } from "@/lib/leads/arbox-all-leads-report";
 import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
 import {
@@ -37,7 +37,7 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledNthWorkoutTemplateTriggers,
@@ -308,6 +308,7 @@ async function dispatchNthWorkoutTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   rule: PurchaseTemplateTriggerRule;
 }): Promise<{ dispatch: NthWorkoutDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
@@ -335,7 +336,14 @@ async function dispatchNthWorkoutTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("nth_workout", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-nth-workout] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -720,7 +728,8 @@ export async function syncArboxNthWorkoutForBusiness(input: {
           businessId,
           businessSlug,
           phone,
-          fullName: resolveReportFullName(member) ?? resolved.contact?.full_name ?? null,
+          fullName: resolveReportFullName(member),
+          contactFullName: resolved.contact?.full_name ?? null,
           rule,
         });
 

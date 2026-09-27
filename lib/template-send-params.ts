@@ -168,6 +168,24 @@ export function triggerTypeFromScheduledDedupKey(dedupKey: string): string | nul
   return prefix;
 }
 
+function slotAt(slots: TemplateParamSlot[], index: number): TemplateParamSlot {
+  return slots[index] ?? (index === 0 ? "first_name" : slots[slots.length - 1] ?? "first_name");
+}
+
+/** True when a body parameter is filled from the personal first-name slot. */
+export function templateBodyUsesFirstNameSlot(
+  triggerType: string,
+  storedComponents: unknown
+): boolean {
+  const body = bodyTextFromTemplateComponents(storedComponents);
+  const slots = paramSlotsForTriggerType(triggerType);
+  const varCount = body ? extractBodyVarCount(body) : slots.length;
+  for (let i = 0; i < varCount; i += 1) {
+    if (slotAt(slots, i) === "first_name") return true;
+  }
+  return false;
+}
+
 export function resolveTemplateSlotValue(
   slot: TemplateParamSlot,
   ctx: TemplateSendParamContext
@@ -222,7 +240,7 @@ export function resolveTemplateBodyParamValues(ctx: TemplateSendParamContext): s
   if (varCount <= 0) return [];
   const values: string[] = [];
   for (let i = 0; i < varCount; i += 1) {
-    const slot = slots[i] ?? (i === 0 ? "first_name" : slots[slots.length - 1] ?? "first_name");
+    const slot = slotAt(slots, i);
     values.push(resolveTemplateSlotValue(slot, ctx));
   }
   return values;

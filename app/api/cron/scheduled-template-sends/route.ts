@@ -4,6 +4,7 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
@@ -27,6 +28,7 @@ import {
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
   startDateYmdFromScheduledDedupKey,
+  templateBodyUsesFirstNameSlot,
   templateSendPayload,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
@@ -260,7 +262,26 @@ async function dispatchOneScheduledSend(
     ? clientFirstNameFromStaffDedupKey(row.dedup_key)
     : null;
   const fullName = isStaffRecipient ? null : await lookupContactFullName(admin, businessId, phone);
-  const firstName = firstNameFromFullName(String(staffClientFirst || fullName || ""));
+  const firstName = isStaffRecipient
+    ? firstNameFromFullName(String(staffClientFirst || fullName || ""))
+    : resolveTemplateFirstName({ full_name: fullName });
+  if (
+    !isStaffRecipient &&
+    !firstName &&
+    templateBodyUsesFirstNameSlot(triggerType, (approvedTpl as { components?: unknown } | null)?.components)
+  ) {
+    console.info("[cron/scheduled-template-sends] skip", {
+      reason: "no_valid_name",
+      id: row.id,
+      businessId,
+      triggerType,
+    });
+    await markScheduledSend(admin, row.id, {
+      status: "canceled",
+      last_error: "no_valid_name",
+    });
+    return "canceled";
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -321,7 +342,7 @@ async function dispatchOneScheduledSend(
         business_slug: businessSlug,
         role: "assistant",
         content: formatLeadTemplateMessageContent(templateName, {
-          firstName,
+          firstName: firstName ?? undefined,
           components: storedComponents,
           bodyParams,
         }),

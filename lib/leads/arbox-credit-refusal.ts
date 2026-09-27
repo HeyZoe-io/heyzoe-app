@@ -1,9 +1,9 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -12,7 +12,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveCreditRefusalTemplateTrigger,
@@ -355,6 +355,7 @@ async function sendCreditRefusalTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   transactionId: number;
   transactionDate: unknown;
   rule: PurchaseTemplateTriggerRule;
@@ -418,7 +419,14 @@ async function sendCreditRefusalTemplate(input: {
     return { dispatch: "gated", ok: false };
   }
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("credit_refusal", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-credit-refusal] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -664,7 +672,8 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         businessId,
         businessSlug,
         phone,
-        fullName: resolveReportFullName(row) ?? resolved.contact.full_name ?? null,
+        fullName: resolveReportFullName(row),
+        contactFullName: resolved.contact.full_name ?? null,
         transactionId,
         transactionDate: row.transaction_date,
         rule,

@@ -1,10 +1,10 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   arboxFlagYes,
   endDateToUtcNoon,
@@ -21,7 +21,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveSessionsExpiringTemplateTrigger,
@@ -304,6 +304,7 @@ async function dispatchSessionsExpiringTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   userId: number;
   startDateYmd: string;
   endDateYmd: string;
@@ -362,7 +363,14 @@ async function dispatchSessionsExpiringTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("sessions_expiring", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-sessions-expiring] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -593,7 +601,8 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
         businessId,
         businessSlug,
         phone: resolved.phone,
-        fullName: resolveReportFullName(row) ?? resolved.contact.full_name ?? null,
+        fullName: resolveReportFullName(row),
+        contactFullName: resolved.contact.full_name ?? null,
         userId,
         startDateYmd,
         endDateYmd,

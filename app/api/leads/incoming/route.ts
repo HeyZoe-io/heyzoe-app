@@ -7,11 +7,11 @@ import {
 } from "@/lib/leads/parse-incoming-lead-fields";
 import {
   buildTemplateIncomingContactPatch,
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
   type OpeningTemplateLeadSource,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { dispatchCrmEvent } from "@/lib/crm/dispatch";
 import {
   loadBusinessActiveProductKeys,
@@ -24,7 +24,7 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { resolveSiteLeadTemplateTrigger } from "@/lib/template-triggers-match";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -439,7 +439,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, dispatch: "gated", gate });
     }
 
-    const firstName = firstNameFromFullName(fullName);
+    const firstName = resolveTemplateFirstName({ full_name: fullName });
+    if (!firstName && templateBodyUsesFirstNameSlot("incoming_lead", (approvedTpl as { components?: unknown }).components)) {
+      console.info("[api/leads/incoming] skip", { reason: "no_valid_name", businessId });
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "validated",
+        statusCode: 200,
+        errorDetail: "gated:no_valid_name",
+      });
+      return NextResponse.json({ ok: true, dispatch: "gated", gate: "no_valid_name" });
+    }
     const languageCode =
       String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
     const { sendComponents, bodyParams } = templateSendPayload({
@@ -538,7 +549,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatch: "gated", gate: "template_disabled" });
   }
 
-  const firstName = firstNameFromFullName(fullName);
+  const firstName = resolveTemplateFirstName({ full_name: fullName });
+  if (!firstName && templateBodyUsesFirstNameSlot("legacy_opening", (fallbackTpl as { components?: unknown } | null)?.components)) {
+    console.info("[api/leads/incoming] skip", { reason: "no_valid_name", businessId });
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "validated",
+      statusCode: 200,
+      errorDetail: "gated:no_valid_name",
+    });
+    return NextResponse.json({ ok: true, dispatch: "gated", gate: "no_valid_name" });
+  }
   const { sendComponents, bodyParams } = templateSendPayload({
     triggerType: "legacy_opening",
     storedComponents: (fallbackTpl as { components?: unknown } | null)?.components,

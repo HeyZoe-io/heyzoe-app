@@ -14,10 +14,10 @@
  */
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   buildSessionsReportPath,
   customerReportsDateRange,
@@ -35,7 +35,7 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { PurchaseTemplateTriggerRule } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -346,7 +346,11 @@ async function sendWelcome(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return "gated";
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(null, input.fullName);
+  if (!firstName && templateBodyUsesFirstNameSlot("first_paid_purchase", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-first-paid-purchase] skip", { reason: "no_valid_name" });
+    return "gated";
+  }
   const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const { sendComponents, bodyParams } = templateSendPayload({

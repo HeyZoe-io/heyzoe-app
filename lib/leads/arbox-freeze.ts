@@ -5,10 +5,10 @@
  */
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
   parseCancellationSyncAttempts,
@@ -37,7 +37,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledFreezeCreatedTemplateTriggers,
@@ -389,6 +389,7 @@ async function dispatchFreezeTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   startYmd: string | null;
   endYmd: string | null;
   className: string | null;
@@ -440,7 +441,14 @@ async function dispatchFreezeTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot(input.triggerType, (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-freeze] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -706,7 +714,8 @@ export async function syncArboxFreezeForBusiness(input: {
               businessId,
               businessSlug,
               phone: resolved.phone,
-              fullName: resolveHoldFullName(row) ?? resolved.contact.full_name,
+              fullName: resolveHoldFullName(row),
+              contactFullName: resolved.contact.full_name,
               startYmd,
               endYmd,
               className: null,
@@ -781,7 +790,8 @@ export async function syncArboxFreezeForBusiness(input: {
               businessId,
               businessSlug,
               phone: resolved.phone,
-              fullName: resolveHoldFullName(row) ?? resolved.contact.full_name,
+              fullName: resolveHoldFullName(row),
+              contactFullName: resolved.contact.full_name,
               startYmd,
               endYmd,
               className: null,
@@ -922,7 +932,8 @@ export async function syncArboxFreezeForBusiness(input: {
         businessId,
         businessSlug,
         phone: resolved.phone,
-        fullName: resolveHoldFullName(row) ?? resolved.contact.full_name,
+        fullName: resolveHoldFullName(row),
+        contactFullName: resolved.contact.full_name,
         startYmd,
         endYmd,
         className,

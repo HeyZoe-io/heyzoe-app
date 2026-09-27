@@ -2,11 +2,11 @@ import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
 import {
   buildTemplateIncomingContactPatch,
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
   type OpeningTemplateLeadSource,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -14,7 +14,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveArboxNewLeadTemplateTrigger,
@@ -386,6 +386,7 @@ async function sendArboxNewLeadTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   leadId: number;
   createdAt: unknown;
   rule: PurchaseTemplateTriggerRule;
@@ -449,7 +450,14 @@ async function sendArboxNewLeadTemplate(input: {
     return { dispatch: "gated", ok: false };
   }
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("arbox_new_lead", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-new-lead] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;

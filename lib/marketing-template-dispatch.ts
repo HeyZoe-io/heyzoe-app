@@ -1,4 +1,5 @@
-import { firstNameFromFullName, formatLeadTemplateMessageContent } from "@/lib/lead-template";
+import { formatLeadTemplateMessageContent } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   computeCallDayDueAt,
   decideCallDayQueuedDate,
@@ -102,14 +103,23 @@ async function loadEnabledTriggers(
   );
 }
 
-async function lookupLeadFirstName(admin: AdminClient, phone: string): Promise<string> {
+async function lookupLeadFirstName(admin: AdminClient, phone: string): Promise<string | null> {
   const { data, error } = await admin
     .from("marketing_flow_sessions")
     .select("full_name")
     .eq("phone", phone)
     .maybeSingle();
-  if (error) return "שלום";
-  return firstNameFromFullName(String((data as { full_name?: unknown } | null)?.full_name ?? ""));
+  if (error) {
+    console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", phone });
+    return null;
+  }
+  const name = resolveTemplateFirstName({
+    full_name: String((data as { full_name?: unknown } | null)?.full_name ?? ""),
+  });
+  if (!name) {
+    console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", phone });
+  }
+  return name;
 }
 
 async function lookupApprovedTemplate(
@@ -298,7 +308,9 @@ async function resolveDueMarketingBodyParams(input: {
 
   const liveTime = input.liveTimeHm ?? null;
   const callTime = preferLiveCallTime(queued[1], liveTime);
-  const firstName = String(queued[0] ?? "").trim() || (await lookupLeadFirstName(input.admin, input.phone));
+  const queuedName = resolveTemplateFirstName({ full_name: String(queued[0] ?? "") });
+  const firstName = queuedName || (await lookupLeadFirstName(input.admin, input.phone));
+  if (!firstName) return [];
   const refreshed = paramsForTrigger({
     triggerType: "call_day",
     components: input.approvedComponents,
@@ -544,15 +556,17 @@ export async function onMarketingFlowNodeAnswered(input: {
 
   if (dateYmd && timeHm) {
     await saveParsedCallTime(admin, phone, dateYmd, timeHm);
-    await enqueueCallDayTriggers({
-      admin,
-      phone,
-      dateYmd,
-      timeHm,
-      firstName,
-      now,
-      sourceNodeId: nodeId,
-    });
+    if (firstName) {
+      await enqueueCallDayTriggers({
+        admin,
+        phone,
+        dateYmd,
+        timeHm,
+        firstName,
+        now,
+        sourceNodeId: nodeId,
+      });
+    }
   } else if (dateYmd) {
     await saveParsedCallTime(admin, phone, dateYmd, null);
   }
@@ -563,6 +577,7 @@ export async function onMarketingFlowNodeAnswered(input: {
   const eventDay = israelDayYmd(now);
   for (const rule of answeredRules) {
     const days = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
+    if (!firstName) continue;
     const dueAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
     await dispatchOrEnqueue({
       admin,
@@ -583,6 +598,7 @@ export async function onMarketingFlowCompleted(input: { phone: string }): Promis
   const admin = createSupabaseAdminClient();
   const now = new Date();
   const firstName = await lookupLeadFirstName(admin, phone);
+  if (!firstName) return;
   const eventDay = israelDayYmd(now);
   const rules = await loadEnabledTriggers(admin, "flow_completed");
   for (const rule of rules) {
@@ -610,6 +626,7 @@ export async function onMarketingCallScheduled(input: {
   if (!phone || !dateYmd) return;
   const admin = createSupabaseAdminClient();
   const firstName = await lookupLeadFirstName(admin, phone);
+  if (!firstName) return;
   await enqueueCallDayTriggers({
     admin,
     phone,
@@ -742,6 +759,12 @@ export async function dispatchDueMarketingScheduledSend(
     callDateYmd,
     liveTimeHm: liveSlot?.timeHm,
   });
+  const greeting = resolveTemplateFirstName({ full_name: String(bodyParams[0] ?? "") });
+  if (!greeting) {
+    console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", id: row.id });
+    await mark("canceled", "no_valid_name");
+    return "canceled";
+  }
   const callTimeHm = resolveCallTimeHm(bodyParams[1], liveSlot?.timeHm);
   const bodyText = bodyTextFromTemplateComponents(approved?.components);
   const sent =
@@ -749,7 +772,7 @@ export async function dispatchDueMarketingScheduledSend(
       ? await sendMarketingCallDayNoTimeFallback({
           admin,
           phone,
-          firstName: String(bodyParams[0] ?? "").trim() || (await lookupLeadFirstName(admin, phone)),
+          firstName: greeting,
           components: approved?.components,
         })
       : await sendMarketingLeadTemplate({
@@ -786,6 +809,7 @@ export async function enqueueMarketingBroadcast(input: {
     const phone = phoneNorm(raw);
     if (!phone) continue;
     const firstName = await lookupLeadFirstName(admin, phone);
+    if (!firstName) continue;
     const bodyParams = paramsForTrigger({
       triggerType: "broadcast",
       components: approved?.components,

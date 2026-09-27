@@ -52,7 +52,7 @@ type LeadTemplatePreview = {
 };
 
 export type LeadTemplateRenderOpts = {
-  firstName?: string;
+  firstName?: string | null;
   bodyParams?: string[];
   components?: unknown;
   componentsByName?: Record<string, unknown>;

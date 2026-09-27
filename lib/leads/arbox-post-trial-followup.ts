@@ -6,10 +6,10 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
   parseCancellationSyncAttempts,
@@ -41,7 +41,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledNotRegisteredAfterTrialTemplateTriggers,
@@ -374,6 +374,7 @@ async function dispatchFollowupTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   className: string | null;
   userId: number;
   classDateYmd: string;
@@ -434,7 +435,14 @@ async function dispatchFollowupTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot(triggerType, (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-post-trial-followup] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -833,7 +841,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         businessId,
         businessSlug,
         phone: resolved.phone,
-        fullName: resolveReportFullName(att.sampleRow) ?? resolved.contact.full_name ?? null,
+        fullName: resolveReportFullName(att.sampleRow),
+        contactFullName: resolved.contact.full_name ?? null,
         className: att.className,
         userId: att.userId,
         classDateYmd: att.classDateYmd,

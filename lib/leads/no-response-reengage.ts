@@ -4,10 +4,10 @@
  * the within-24h follow-up layer.
  */
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, normalizePhone, waSessionIdLookupVariants } from "@/lib/phone-normalize";
@@ -16,7 +16,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   resolveNoResponseTemplateTrigger,
@@ -226,7 +226,14 @@ async function dispatchNoResponseTemplate(input: {
     return "gated";
   }
 
-  const firstName = firstNameFromFullName(String(input.contact.full_name ?? ""));
+  const firstName = resolveTemplateFirstName(input.contact);
+  if (!firstName && templateBodyUsesFirstNameSlot("no_response", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[no-response-reengage] skip", {
+      reason: "no_valid_name",
+      contact_id: input.contact.id,
+    });
+    return "skipped";
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;

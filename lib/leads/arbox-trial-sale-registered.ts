@@ -1,16 +1,16 @@
 import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import {
   buildPurchaseScheduledDedupKey,
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
@@ -258,7 +258,14 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   }
 
   dispatch = "immediate";
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(null, input.fullName);
+  if (!firstName && templateBodyUsesFirstNameSlot("purchase", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-trial-sale-registered] skip", {
+      reason: "no_valid_name",
+      sale_id: input.saleId,
+    });
+    return { outcome: "template_not_configured", dispatch: "gated" };
+  }
   const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const { sendComponents, bodyParams } = templateSendPayload({

@@ -6,10 +6,10 @@
  */
 import { logMessage } from "@/lib/analytics";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   formatDateYmdIsrael,
   isExactDaysAfterEvent,
@@ -29,7 +29,7 @@ import {
 import { fetchLostLeadsReportRows } from "@/lib/leads/arbox-lost-leads-report";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledLostLeadTemplateTriggers,
@@ -276,6 +276,7 @@ async function dispatchLostLeadTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   leadId: number;
   lostDate: string;
   rule: PurchaseTemplateTriggerRule;
@@ -305,7 +306,14 @@ async function dispatchLostLeadTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("lost_lead", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-lost-lead] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -695,7 +703,8 @@ export async function syncArboxLostLeadForBusiness(input: {
           businessId,
           businessSlug,
           phone,
-          fullName: resolveReportFullName(row) ?? resolved.contact?.full_name ?? null,
+          fullName: resolveReportFullName(row),
+          contactFullName: resolved.contact?.full_name ?? null,
           leadId,
           lostDate,
           rule,

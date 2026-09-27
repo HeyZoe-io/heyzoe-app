@@ -1,4 +1,5 @@
-import { firstNameFromFullName, formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
+import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { MANUAL_BULK_FLUSH_LIMIT } from "@/lib/manual-bulk/constants";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
@@ -8,7 +9,7 @@ import {
   decideScheduledSendGate,
   NO_TEMPLATE_SKIPPED_ERROR,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { logMessage } from "@/lib/analytics";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -123,7 +124,12 @@ async function dispatchOne(
   }
 
   const fullName = await lookupContactFullName(admin, businessId, phone);
-  const firstName = firstNameFromFullName(String(fullName ?? ""));
+  const firstName = resolveTemplateFirstName({ full_name: fullName });
+  if (!firstName && templateBodyUsesFirstNameSlot("purchase", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[manual-bulk] skip", { reason: "no_valid_name", id: row.id, businessId });
+    await markQueued(admin, row.id, { status: "canceled", last_error: "no_valid_name" });
+    return "canceled";
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;

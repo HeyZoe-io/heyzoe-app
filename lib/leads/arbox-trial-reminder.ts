@@ -14,10 +14,10 @@ import {
   membershipTypeNameById,
 } from "@/lib/arbox-membership-types";
 import {
-  firstNameFromFullName,
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   ATTENDANCE_GAP_FUTURE_SPAN_DAYS,
   sharedFutureBookingsWindow,
@@ -44,7 +44,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledTrialReminderTemplateTriggers,
@@ -300,6 +300,7 @@ async function dispatchTrialReminderTemplate(input: {
   businessSlug: string;
   phone: string;
   fullName: string | null;
+  contactFullName?: string | null;
   className: string;
   classTime: string;
   userId: number;
@@ -358,7 +359,14 @@ async function dispatchTrialReminderTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = firstNameFromFullName(String(input.fullName ?? ""));
+  const firstName = resolveTemplateFirstName(
+    { full_name: input.contactFullName ?? null },
+    input.fullName
+  );
+  if (!firstName && templateBodyUsesFirstNameSlot("trial_reminder", (approvedTpl as { components?: unknown }).components)) {
+    console.info("[leads/arbox-trial-reminder] skip", { reason: "no_valid_name" });
+    return { dispatch: "gated", ok: false };
+  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -745,7 +753,8 @@ export async function syncArboxTrialReminderForBusiness(input: {
         businessId,
         businessSlug,
         phone: resolved.phone,
-        fullName: resolveReportFullName(row) ?? resolved.contact?.full_name ?? null,
+        fullName: resolveReportFullName(row),
+        contactFullName: resolved.contact?.full_name ?? null,
         className,
         classTime,
         userId,
