@@ -473,6 +473,24 @@ export const TRIGGER_CATALOG = [
     uiOrder: 2,
     sendHintHe: SEND_HINT_DAILY_HE,
   },
+  {
+    type: "class_cancelled_customer",
+    labelHe: "שיעור בוטל - הודעה לנרשמים",
+    activation: "automatic",
+    audience: "members",
+    implemented: true,
+    arboxOnly: true,
+    delay: "none",
+    showProductFilter: false,
+    uniquePerBusiness: true,
+    uniqueCreateMode: "hide",
+    minDelayDays: 0,
+    recipient: "customer",
+    presetKey: "class_cancelled_customer",
+    uiOrder: 16,
+    sendHintHe:
+      "נשלח עד כשעה אחרי הביטול. לא נשלח בלילה (23:00–06:30) או מסוף שישי 16:00 עד שבת 19:00",
+  },
 
   // —— Manual (M1) — not persisted on template_triggers ——
   {

@@ -69,6 +69,7 @@ const LIVE_AUTOMATIC = [
   "missed_trial",
   "trainer_trial_heads_up",
   "class_cancelled_staff",
+  "class_cancelled_customer",
 ] as const;
 
 const PREVIOUS_ARBOX = [
@@ -95,6 +96,7 @@ const PREVIOUS_ARBOX = [
   "missed_trial",
   "trainer_trial_heads_up",
   "class_cancelled_staff",
+  "class_cancelled_customer",
 ] as const;
 
 {
@@ -497,6 +499,16 @@ function triggerCatalogAudience(type: string) {
   assert.equal(defaultDelayDirection("birthday"), "after");
   assert.equal(defaultDelayDirection("birthday_former"), "after");
   assert.equal(isImmediateDelayTrigger("freeze_created"), true);
+  assert.equal(isImmediateDelayTrigger("class_cancelled_customer"), true);
+  assert.equal(defaultDelayDirection("class_cancelled_customer"), "after");
+  assert.equal(formatDelayLabel("class_cancelled_customer", 3, "before"), "נשלח מיד");
+  assert.equal(triggerTypeLabel("class_cancelled_customer"), "שיעור בוטל - הודעה לנרשמים");
+  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_customer"), true);
+  assert.equal(uniqueCreateModeFor("class_cancelled_customer"), "hide");
+  assert.equal(forcesAfterNoProductFilter("class_cancelled_customer"), true);
+  assert.equal(showsProductFilter("class_cancelled_customer"), false);
+  assert.equal(isStaffRecipientTriggerType("class_cancelled_customer"), false);
+  assert.deepEqual(delayDirectionOptions("class_cancelled_customer"), []);
   assert.equal(defaultDelayDays("freeze_ending_unbooked"), 3);
 }
 

@@ -184,6 +184,7 @@ import {
     nth_workout: ["דנה", "3"],
     trainer_trial_heads_up: ["יוגה", "18:00", "דנה כהן"],
     class_cancelled_staff: ["יוגה", "15.09.2026", "18:00"],
+    class_cancelled_customer: ["דנה", "יוגה", "15.09.2026", "18:00"],
   };
 
   for (const [type, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -250,6 +251,10 @@ import {
     }
     if (type === "class_cancelled_staff") {
       assert.deepEqual(slots, ["class_name", "class_date", "class_time"]);
+      continue;
+    }
+    if (type === "class_cancelled_customer") {
+      assert.deepEqual(slots, ["first_name", "class_name", "class_date", "class_time"]);
       continue;
     }
     if (slots.length >= 2) assert.equal(slots[1], "business_name");

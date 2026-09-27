@@ -48,6 +48,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   nth_workout: ["first_name", "workout_n"],
   trainer_trial_heads_up: ["class_name", "class_time", "client_full_name"],
   class_cancelled_staff: ["class_name", "class_date", "class_time"],
+  class_cancelled_customer: ["first_name", "class_name", "class_date", "class_time"],
 };
 
 const LEAD_OPENING_BODY =
@@ -186,6 +187,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "class_cancelled_staff",
     category: "UTILITY",
     body: "שים לב - השיעור {{1}} בתאריך {{2}} בשעה {{3}} בוטל.",
+  },
+  class_cancelled_customer: {
+    name: "class_cancelled_customer",
+    category: "UTILITY",
+    body: "היי {{1}}, השיעור {{2}} בתאריך {{3}} בשעה {{4}} בוטל.",
   },
 };
 

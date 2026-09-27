@@ -617,6 +617,9 @@ export default function TemplatesClient({
       if (j.error === "class_cancelled_staff_exists") {
         throw new Error("כבר קיים טריגר ביטול שיעור למאמן — ערכו את הקיים במקום ליצור עוד אחד");
       }
+      if (j.error === "class_cancelled_customer_exists") {
+        throw new Error("כבר קיים טריגר שיעור בוטל לנרשמים — ערכו את הקיים במקום ליצור עוד אחד");
+      }
       if (j.error === "first_paid_purchase_exists") {
         throw new Error("כבר קיים טריגר הצטרפות ראשונה — ערכו את הקיים במקום ליצור עוד אחד");
       }

@@ -27,7 +27,8 @@ function forcesAfterNoProductFilter(triggerType: string): boolean {
   return (
     isIncomingLeadTriggerType(triggerType) ||
     triggerType === "no_response" ||
-    triggerType === "arbox_new_lead"
+    triggerType === "arbox_new_lead" ||
+    triggerType === "class_cancelled_customer"
   );
 }
 
@@ -299,6 +300,10 @@ const UNIQUE_TRIGGER_EXISTS_MESSAGE: Record<string, { error: string; message: st
   class_cancelled_staff: {
     error: "class_cancelled_staff_exists",
     message: "כבר קיים טריגר ביטול שיעור למאמן",
+  },
+  class_cancelled_customer: {
+    error: "class_cancelled_customer_exists",
+    message: "כבר קיים טריגר שיעור בוטל לנרשמים",
   },
   first_paid_purchase: {
     error: "first_paid_purchase_exists",

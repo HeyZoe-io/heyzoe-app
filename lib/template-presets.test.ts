@@ -136,6 +136,14 @@ assert.deepEqual(paramSlotsForTriggerType("class_cancelled_staff"), [
   "class_date",
   "class_time",
 ]);
+assert.equal(TEMPLATE_PRESETS.class_cancelled_customer.category, "UTILITY");
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.class_cancelled_customer.body), 4);
+assert.deepEqual(paramSlotsForTriggerType("class_cancelled_customer"), [
+  "first_name",
+  "class_name",
+  "class_date",
+  "class_time",
+]);
 assert.equal(isPresetAvailable("nth_workout", false), false);
 assert.equal(isPresetAvailable("nth_workout", true), true);
 
