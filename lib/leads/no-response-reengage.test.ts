@@ -6,6 +6,7 @@ import {
   isNoResponseEpisodeAlreadyReengaged,
   isSilentLongEnough,
   isValidNoResponseDelayDays,
+  shouldCloseNoResponseEpisode,
   silenceEpisodeKeyFromLastUserAt,
 } from "@/lib/leads/no-response-reengage";
 import { buildNoResponseScheduledDedupKey } from "@/lib/scheduled-template-sends";
@@ -50,6 +51,25 @@ import {
     d1,
     `no_response:1:rule-a:972501111111:${key1}`
   );
+}
+
+/** Terminal skip closes the episode. Retryable skip leaves it open. */
+{
+  assert.equal(shouldCloseNoResponseEpisode("no_valid_name"), true);
+  assert.equal(shouldCloseNoResponseEpisode("no_zoe_conversation"), true);
+  assert.equal(shouldCloseNoResponseEpisode("arbox_member"), true);
+  assert.equal(shouldCloseNoResponseEpisode("member_sync_log"), true);
+  assert.equal(shouldCloseNoResponseEpisode("human_cooldown"), false);
+  assert.equal(shouldCloseNoResponseEpisode("recent_template"), false);
+  assert.equal(shouldCloseNoResponseEpisode("template_not_approved"), false);
+
+  const lastUser = "2026-09-20T13:26:59.000Z";
+  const closedAt = "2026-09-27T08:00:00.000Z";
+  assert.equal(isNoResponseEpisodeAlreadyReengaged(closedAt, lastUser), true);
+  assert.equal(isNoResponseEpisodeAlreadyReengaged(null, lastUser), false);
+
+  const wroteAgain = "2026-09-28T09:00:00.000Z";
+  assert.equal(isNoResponseEpisodeAlreadyReengaged(closedAt, wroteAgain), false);
 }
 
 /** delay_days >= 2 enforcement helper */

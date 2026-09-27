@@ -49,6 +49,20 @@ import {
 const MS_DAY = 24 * 60 * 60 * 1000;
 const MS_24H = 24 * 60 * 60 * 1000;
 const CANDIDATE_BATCH = 200;
+/** Closed episodes sit at the front of last_contact_at ASC. Scan past them, then stop. */
+const CANDIDATE_PAGE_CAP = 20;
+
+/** Failures that will not change until the lead writes again. */
+const NO_RESPONSE_TERMINAL_SKIP_REASONS = new Set([
+  "no_valid_name",
+  "no_zoe_conversation",
+  "arbox_member",
+  "member_sync_log",
+]);
+
+export function shouldCloseNoResponseEpisode(reason: string): boolean {
+  return NO_RESPONSE_TERMINAL_SKIP_REASONS.has(reason);
+}
 
 /** Member-trigger logs. Phone is not a column; rows point at contact_id and (usually) user_id. */
 const MEMBER_SYNC_LOGS: { table: string; userIdColumn: "user_id" | null }[] = [
@@ -84,7 +98,9 @@ export function silenceEpisodeKeyFromLastUserAt(lastUserAtIso: string): string {
   return new Date(ms).toISOString();
 }
 
-/** Already re-engaged this silence episode: marker is on/after the last inbound. */
+/** Already closed this silence episode: marker is on/after the last inbound.
+ *  Set on a real re-engage and on a terminal skip (no_valid_name, no Zoe
+ *  exchange, Arbox member). A newer inbound opens a new episode. */
 export function isNoResponseEpisodeAlreadyReengaged(
   waLastReengagedAt: string | null | undefined,
   lastUserAtIso: string
@@ -167,10 +183,48 @@ function candidateQuery(
     .or("session_phase.is.null,session_phase.neq.registered")
     .not("last_contact_at", "is", null)
     .lte("last_contact_at", silenceCutoffIso)
-    .order("last_contact_at", { ascending: true })
-    .limit(CANDIDATE_BATCH);
+    .order("last_contact_at", { ascending: true });
   if (includeMemberFlag) query = query.eq("arbox_is_member", false);
   return query;
+}
+
+/**
+ * Oldest silent contacts, skipping episodes already closed
+ * (wa_last_reengaged_at on or after last_contact_at). A newer
+ * last_contact_at — a new inbound — puts the contact back in the batch.
+ */
+async function loadCandidateBatch(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  silenceCutoffIso: string,
+  includeMemberFlag: boolean
+): Promise<{ rows: ContactCandidate[]; error: { message: string } | null }> {
+  const open: ContactCandidate[] = [];
+  for (let page = 0; page < CANDIDATE_PAGE_CAP && open.length < CANDIDATE_BATCH; page += 1) {
+    const from = page * CANDIDATE_BATCH;
+    const { data, error } = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).range(
+      from,
+      from + CANDIDATE_BATCH - 1
+    );
+    if (error) return { rows: open, error };
+    const pageRows = (data ?? []) as unknown as ContactCandidate[];
+    for (const row of pageRows) {
+      if (isNoResponseEpisodeAlreadyReengaged(row.wa_last_reengaged_at, String(row.last_contact_at ?? ""))) {
+        continue;
+      }
+      open.push(row);
+      if (open.length >= CANDIDATE_BATCH) break;
+    }
+    if (pageRows.length < CANDIDATE_BATCH) break;
+    if (page === CANDIDATE_PAGE_CAP - 1 && open.length < CANDIDATE_BATCH) {
+      console.error("[no-response-reengage] candidate scan hit page cap", {
+        businessId,
+        pages: CANDIDATE_PAGE_CAP,
+        open: open.length,
+      });
+    }
+  }
+  return { rows: open, error: null };
 }
 
 /** One parallel round per business: member-trigger logs for this candidate set, not per contact. */
@@ -360,6 +414,7 @@ async function dispatchNoResponseTemplate(input: {
       reason: "no_valid_name",
       contact_id: input.contact.id,
     });
+    await markReengagedAt(input.admin, input.contact.id, input.now.toISOString());
     return "skipped";
   }
   const languageCode =
@@ -413,11 +468,13 @@ async function dispatchNoResponseTemplate(input: {
 
 /**
  * Process one business with an enabled no_response rule.
- * IO: one candidate contacts query + one phone-alias query + 7 member-log
- * lookups in parallel (not per contact) + per-candidate message lookups +
- * one audience message query (window covers the silence episode and the
- * 72h template cooldown; the 48h human cooldown sits inside that) +
- * optional Meta send.
+ * IO: one candidate contacts query per 200-row page (up to 20 pages, skipping
+ * episodes already closed via wa_last_reengaged_at) + one phone-alias query +
+ * 7 member-log lookups in parallel (not per contact) + per-candidate message
+ * lookups + one audience message query (window covers the silence episode and
+ * the 72h template cooldown; the 48h human cooldown sits inside that) +
+ * optional Meta send. Terminal skips write wa_last_reengaged_at once per
+ * episode so the next run does not read their messages.
  * The within-24h layer's hours_since_user >= 24 skip stays in wa-followup-cron-eval.
  * This cron uses the inverse (isBeyondSessionFollowupWindow) so the two do not overlap.
  * Arbox businesses with candidates: +1 activeMemberships, +1 sessions, +1 future
@@ -463,21 +520,16 @@ export async function syncNoResponseReengageForBusiness(input: {
 
   const silenceCutoffIso = new Date(nowMs - rule.delay_days * MS_DAY).toISOString();
 
-  let { data: rows, error } = await candidateQuery(
-    input.admin,
-    input.businessId,
-    silenceCutoffIso,
-    true
-  );
-  if (error && /arbox_is_member|schema cache|does not exist/i.test(error.message)) {
+  let loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso, true);
+  if (loaded.error && /arbox_is_member|schema cache|does not exist/i.test(loaded.error.message)) {
     console.error(
       "[no-response-reengage] arbox_is_member missing — run supabase/contacts_arbox_is_member.sql",
       { businessId: input.businessId }
     );
-    const fallback = await candidateQuery(input.admin, input.businessId, silenceCutoffIso, false);
-    rows = fallback.data;
-    error = fallback.error;
+    loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso, false);
   }
+  const rows = loaded.rows;
+  const error = loaded.error;
 
   if (error) {
     console.error("[no-response-reengage] candidates query failed:", error.message, {
@@ -522,7 +574,7 @@ export async function syncNoResponseReengageForBusiness(input: {
     }
   }
 
-  const candidateRows = (rows ?? []) as unknown as ContactCandidate[];
+  const candidateRows = rows as unknown as ContactCandidate[];
   const phoneToCandidateIds = new Map<string, string[]>();
   for (const row of candidateRows) {
     const id = String(row.id);
@@ -699,6 +751,9 @@ export async function syncNoResponseReengageForBusiness(input: {
           blocks,
           contact_id: contactId,
         });
+        if (shouldCloseNoResponseEpisode(blocks[0])) {
+          await markReengagedAt(input.admin, contactId, now.toISOString());
+        }
         bump(summary, blocks[0]);
         continue;
       }
