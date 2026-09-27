@@ -108,6 +108,84 @@ function purchaseRuleSpecificity(rule: PurchaseTemplateTriggerRule): number {
   return (rule.product_filter?.length ? 2 : 0) + (rule.item_type_filter?.length ? 1 : 0);
 }
 
+export type PurchaseMatchContext = {
+  /** businesses.arbox_trial_membership_type_ids — trial class, not salesReport item_type. */
+  trialMembershipTypeIds?: readonly number[];
+  /** membership_type_id → plan | session | service | trial, from GET /v3/membershipTypes. */
+  classByProductId?: ReadonlyMap<number, PurchaseItemType>;
+};
+
+/** Trial wins when the product is one of the studio's configured trial types. */
+export function purchaseSaleClass(
+  membershipTypeId: number | null,
+  itemType: string | null | undefined,
+  trialMembershipTypeIds: readonly number[] | undefined
+): PurchaseItemType | null {
+  if (membershipTypeId != null && (trialMembershipTypeIds ?? []).includes(membershipTypeId)) {
+    return "trial";
+  }
+  const normalized = String(itemType ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "trial") return null;
+  if (!normalized || !isPurchaseItemType(normalized)) return null;
+  return normalized;
+}
+
+/**
+ * Class filter, then optional product ids.
+ * An empty product list for a selected class means every product of that class.
+ * Trial has no product list: it is the configured trial membership types.
+ * Ids are classed with classByProductId so «all plans» can sit next to specific punch cards.
+ */
+export function purchaseRuleMatchesSale(
+  rule: Pick<PurchaseTemplateTriggerRule, "product_filter" | "item_type_filter">,
+  membershipTypeId: number | null,
+  itemType: string | null | undefined,
+  ctx?: PurchaseMatchContext
+): boolean {
+  const classes = rule.item_type_filter ?? [];
+  const trialIds = ctx?.trialMembershipTypeIds ?? [];
+  const classByProductId = ctx?.classByProductId;
+  const saleClass = purchaseSaleClass(membershipTypeId, itemType, trialIds);
+
+  if (!classes.length) {
+    if (!saleClass && String(itemType ?? "").trim().toLowerCase() === "trial") {
+      return purchaseTriggerRuleMatchesMembershipType(
+        rule as PurchaseTemplateTriggerRule,
+        membershipTypeId ?? -1
+      );
+    }
+    if (saleClass === "trial") {
+      return purchaseTriggerRuleMatchesMembershipType(
+        rule as PurchaseTemplateTriggerRule,
+        membershipTypeId ?? -1
+      );
+    }
+    return (
+      purchaseTriggerRuleMatchesItemType(rule as PurchaseTemplateTriggerRule, itemType) &&
+      (membershipTypeId == null
+        ? !(rule.product_filter?.length)
+        : purchaseTriggerRuleMatchesMembershipType(
+            rule as PurchaseTemplateTriggerRule,
+            membershipTypeId
+          ))
+    );
+  }
+
+  if (!saleClass || !classes.includes(saleClass)) return false;
+  if (saleClass === "trial") return true;
+
+  const selected = rule.product_filter ?? [];
+  if (!selected.length) return true;
+  if (!classByProductId || classByProductId.size === 0) {
+    return membershipTypeId != null && selected.includes(membershipTypeId);
+  }
+  const ofClass = selected.filter((id) => classByProductId.get(id) === saleClass);
+  if (!ofClass.length) return true;
+  return membershipTypeId != null && ofClass.includes(membershipTypeId);
+}
+
 /**
  * Among enabled purchase rules, pick the best match for a sale.
  * Prefer more specific filters (ids > item_type > catch-all); tie-break by most recently updated.
@@ -115,12 +193,11 @@ function purchaseRuleSpecificity(rule: PurchaseTemplateTriggerRule): number {
 export function pickPurchaseTemplateTriggerRule(
   rules: PurchaseTemplateTriggerRule[],
   membershipTypeId: number,
-  itemType?: string | null
+  itemType?: string | null,
+  ctx?: PurchaseMatchContext
 ): PurchaseTemplateTriggerRule | null {
-  const matching = rules.filter(
-    (rule) =>
-      purchaseTriggerRuleMatchesMembershipType(rule, membershipTypeId) &&
-      purchaseTriggerRuleMatchesItemType(rule, itemType)
+  const matching = rules.filter((rule) =>
+    purchaseRuleMatchesSale(rule, membershipTypeId, itemType, ctx)
   );
   if (!matching.length) return null;
 
@@ -950,14 +1027,13 @@ export async function resolvePurchaseTemplateTriggerForSale(input: {
   businessId: number;
   membershipTypeId: number | null;
   itemType?: string | null;
+  match?: PurchaseMatchContext;
 }): Promise<PurchaseTemplateTriggerRule | null> {
   const rules = await loadEnabledPurchaseTemplateTriggers(input.admin, input.businessId);
   if (!rules.length) return null;
   if (input.membershipTypeId == null) {
-    const catchAll = rules.filter(
-      (rule) =>
-        !rule.product_filter?.length &&
-        purchaseTriggerRuleMatchesItemType(rule, input.itemType)
+    const catchAll = rules.filter((rule) =>
+      purchaseRuleMatchesSale(rule, null, input.itemType, input.match)
     );
     if (!catchAll.length) return null;
     catchAll.sort((a, b) => {
@@ -967,7 +1043,12 @@ export async function resolvePurchaseTemplateTriggerForSale(input: {
     });
     return catchAll[0] ?? null;
   }
-  return pickPurchaseTemplateTriggerRule(rules, input.membershipTypeId, input.itemType);
+  return pickPurchaseTemplateTriggerRule(
+    rules,
+    input.membershipTypeId,
+    input.itemType,
+    input.match
+  );
 }
 
 /**
@@ -978,11 +1059,33 @@ export type PurchaseSaleMembershipScope =
   | { mode: "all" }
   | { mode: "ids"; membershipTypeIds: number[] };
 
+function purchaseRuleForcesAllSales(
+  rule: { product_filter: number[] | null; item_type_filter?: PurchaseItemType[] | null },
+  classByProductId: ReadonlyMap<number, PurchaseItemType> | undefined
+): boolean {
+  if (!(rule.product_filter?.length ?? 0)) return true;
+  const classes = rule.item_type_filter ?? [];
+  if (!classes.length) return false;
+  const nonTrial = classes.filter((cls) => cls !== "trial");
+  if (!nonTrial.length) return false;
+  if (!classByProductId || classByProductId.size === 0) return true;
+  return nonTrial.some((cls) => {
+    const ofClass = (rule.product_filter ?? []).filter((id) => classByProductId.get(id) === cls);
+    return ofClass.length === 0;
+  });
+}
+
 export function resolvePurchaseSaleMembershipScope(input: {
   trialMembershipTypeIds: number[];
-  purchaseRules: Array<{ product_filter: number[] | null }>;
+  purchaseRules: Array<{
+    product_filter: number[] | null;
+    item_type_filter?: PurchaseItemType[] | null;
+  }>;
+  classByProductId?: ReadonlyMap<number, PurchaseItemType>;
 }): PurchaseSaleMembershipScope {
-  const hasCatchAll = input.purchaseRules.some((rule) => !(rule.product_filter?.length ?? 0));
+  const hasCatchAll = input.purchaseRules.some((rule) =>
+    purchaseRuleForcesAllSales(rule, input.classByProductId)
+  );
   if (hasCatchAll) return { mode: "all" };
 
   const ids = new Set<number>();

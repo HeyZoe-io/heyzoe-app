@@ -30,7 +30,8 @@ export type PlandoRegisteredResult =
         | "outside_24h_window"
         | "no_user_session"
         | "send_failed"
-        | "opted_out";
+        | "opted_out"
+        | "trial_template_already_sent";
       contact_created: boolean;
     }
   | { ok: false; error: string };

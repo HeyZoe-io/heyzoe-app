@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   pickPurchaseTemplateTriggerRule,
+  purchaseRuleMatchesSale,
   purchaseSaleMembershipScopeIsEmpty,
   purchaseTriggerRuleMatchesItemType,
   purchaseTriggerRuleMatchesMembershipType,
@@ -185,6 +186,45 @@ const rules = [trialRule, membershipRule];
     purchaseRules: [],
   });
   assert.equal(purchaseSaleMembershipScopeIsEmpty(scope), true);
+}
+
+/** Trial checkbox = configured trial products, not salesReport item_type trial. */
+{
+  const trialRule = rule({
+    id: "rule-trial-class",
+    product_filter: null,
+    item_type_filter: ["trial"],
+    template_name: "T_trial_class",
+  });
+  const ctx = { trialMembershipTypeIds: [80601] };
+  assert.equal(purchaseRuleMatchesSale(trialRule, 80601, "session", ctx), true);
+  assert.equal(purchaseRuleMatchesSale(trialRule, 90001, "trial", ctx), false);
+  assert.equal(purchaseRuleMatchesSale(trialRule, 90001, "plan", ctx), false);
+}
+
+/** All plans + specific punch cards. */
+{
+  const mixed = rule({
+    id: "rule-mixed",
+    product_filter: [7001],
+    item_type_filter: ["plan", "session"],
+    template_name: "T_mixed",
+  });
+  const classByProductId = new Map<number, "plan" | "session" | "service" | "trial">([
+    [7001, "session"],
+    [8001, "plan"],
+  ]);
+  const ctx = { classByProductId, trialMembershipTypeIds: [] as number[] };
+  assert.equal(purchaseRuleMatchesSale(mixed, 8001, "plan", ctx), true);
+  assert.equal(purchaseRuleMatchesSale(mixed, 8002, "plan", ctx), true);
+  assert.equal(purchaseRuleMatchesSale(mixed, 7001, "session", ctx), true);
+  assert.equal(purchaseRuleMatchesSale(mixed, 7002, "session", ctx), false);
+  const scope = resolvePurchaseSaleMembershipScope({
+    trialMembershipTypeIds: [],
+    purchaseRules: [mixed],
+    classByProductId,
+  });
+  assert.equal(scope.mode, "all");
 }
 
 console.log("template-triggers-match.test.ts: ok");

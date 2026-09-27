@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchAllArboxMembershipTypes } from "@/lib/arbox-membership-types";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import {
   hasEnabledFirstPaidPurchaseTrigger,
@@ -22,8 +23,10 @@ import {
   purchaseSaleMembershipScopeIsEmpty,
   resolvePurchaseSaleMembershipScope,
   saleMembershipTypeInScope,
+  type PurchaseMatchContext,
   type PurchaseSaleMembershipScope,
 } from "@/lib/template-triggers-match";
+import { isPurchaseItemType, type PurchaseItemType } from "@/lib/trigger-catalog";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -335,9 +338,37 @@ export async function GET(req: NextRequest) {
     };
 
     const purchaseRules = await loadEnabledPurchaseTemplateTriggers(admin, business.id);
+    const classByProductId = new Map<number, PurchaseItemType>();
+    const needsClassMap = purchaseRules.some(
+      (rule) => (rule.product_filter?.length ?? 0) > 0 && (rule.item_type_filter?.length ?? 0) > 0
+    );
+    if (needsClassMap) {
+      // One GET /v3/membershipTypes per business per run, only when a purchase rule
+      // picked specific products inside a class. 10 studios ≈ 10 extra GETs / 15 min.
+      const types = await fetchAllArboxMembershipTypes({
+        apiKey: business.crm_api_key,
+        logLabel: "cron/arbox-trial-sync",
+      });
+      if (types.ok) {
+        for (const row of types.types) {
+          const kind = String(row.type ?? "").trim().toLowerCase();
+          if (isPurchaseItemType(kind)) classByProductId.set(row.membership_type_id, kind);
+        }
+      } else {
+        console.error("[cron/arbox-trial-sync] purchase class map failed", {
+          slug: business.slug,
+          status: types.status,
+        });
+      }
+    }
+    const purchaseMatch: PurchaseMatchContext = {
+      trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+      classByProductId,
+    };
     const membershipScope = resolvePurchaseSaleMembershipScope({
       trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
       purchaseRules,
+      classByProductId,
     });
 
     const firstPaidOn = await hasEnabledFirstPaidPurchaseTrigger(admin, business.id);
@@ -435,6 +466,8 @@ export async function GET(req: NextRequest) {
               businessId: business.id,
               businessSlug: business.slug,
               row: rawRow as ArboxSalesReportRow,
+              trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+              purchaseMatch,
             });
 
             if (!result.ok) {

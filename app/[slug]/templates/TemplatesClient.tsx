@@ -342,6 +342,14 @@ export default function TemplatesClient({
   const [newProductFilter, setNewProductFilter] = useState<number[]>([]);
   const [newProductFilterQuery, setNewProductFilterQuery] = useState("");
   const [newItemTypeFilter, setNewItemTypeFilter] = useState<PurchaseItemType[]>([]);
+  const [classProductIds, setClassProductIds] = useState<Record<"plan" | "session" | "service", number[]>>({
+    plan: [],
+    session: [],
+    service: [],
+  });
+  const [classProductQuery, setClassProductQuery] = useState<
+    Record<"plan" | "session" | "service", string>
+  >({ plan: "", session: "", service: "" });
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newLookbackDays, setNewLookbackDays] = useState(defaultLookbackDays());
@@ -465,11 +473,13 @@ export default function TemplatesClient({
     }
     if (!showsItemTypeFilter(newTriggerType)) {
       setNewItemTypeFilter([]);
+      setClassProductIds({ plan: [], session: [], service: [] });
+      setClassProductQuery({ plan: "", session: "", service: "" });
     }
   }, [newTriggerType]);
 
   useEffect(() => {
-    if (!hasArbox || !showNewProductFilter) return;
+    if (!hasArbox || (!showNewProductFilter && !showNewItemTypeFilter)) return;
 
     let cancelled = false;
     setArboxMembershipTypesLoading(true);
@@ -505,7 +515,7 @@ export default function TemplatesClient({
     return () => {
       cancelled = true;
     };
-  }, [hasArbox, showNewProductFilter, slug]);
+  }, [hasArbox, showNewProductFilter, showNewItemTypeFilter, slug]);
 
   const reloadTriggers = useCallback(async () => {
     const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, { cache: "no-store" });
@@ -533,7 +543,27 @@ export default function TemplatesClient({
       const next = has ? prev.filter((x) => x !== value) : [...prev, value];
       return next.sort();
     });
+    if (value !== "trial" && newItemTypeFilter.includes(value)) {
+      setClassProductIds((prev) => ({ ...prev, [value]: [] }));
+      setClassProductQuery((prev) => ({ ...prev, [value]: "" }));
+    }
   }
+
+  function toggleClassProduct(cls: "plan" | "session" | "service", id: number) {
+    setClassProductIds((prev) => {
+      const current = prev[cls];
+      const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+      return { ...prev, [cls]: next.sort((a, b) => a - b) };
+    });
+  }
+
+  const purchaseProductIds = useMemo(() => {
+    if (newTriggerType !== "purchase") return [];
+    const ids = (["plan", "session", "service"] as const).flatMap((cls) =>
+      newItemTypeFilter.includes(cls) ? classProductIds[cls] : []
+    );
+    return [...new Set(ids)].sort((a, b) => a - b);
+  }, [newTriggerType, newItemTypeFilter, classProductIds]);
 
   function formatProductFilterLabel(ids: number[] | null): string {
     if (!ids || ids.length === 0) return "כל המוצרים";
@@ -545,9 +575,23 @@ export default function TemplatesClient({
       .join(", ");
   }
 
-  function formatItemTypeFilterLabel(types: PurchaseItemType[] | null | undefined): string {
-    if (!types || types.length === 0) return "כל הסוגים";
-    return types.map((t) => PURCHASE_ITEM_TYPE_LABELS_HE[t] ?? t).join(", ");
+  function formatPurchaseClassSummary(
+    cls: PurchaseItemType,
+    ids: number[] | null
+  ): string {
+    const label = PURCHASE_ITEM_TYPE_LABELS_HE[cls];
+    if (cls === "trial") return `${label}: לפי מוצרי הניסיון בהגדרות`;
+    const typed = arboxMembershipTypes.filter(
+      (row) => String(row.type ?? "").trim().toLowerCase() === cls
+    );
+    const ofClass = (ids ?? []).filter((id) => typed.some((row) => row.membership_type_id === id));
+    if (!ofClass.length) {
+      if ((ids?.length ?? 0) > 0 && arboxMembershipTypes.length === 0) {
+        return `${label}: ${formatProductFilterLabel(ids)}`;
+      }
+      return `${label}: כולם`;
+    }
+    return `${label}: ${formatProductFilterLabel(ofClass)}`;
   }
 
   function applyInlinePresetForType(type: TriggerType) {
@@ -568,7 +612,14 @@ export default function TemplatesClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         trigger_type: input.trigger_type,
-        product_filter: showNewProductFilter && newProductFilter.length > 0 ? newProductFilter : null,
+        product_filter:
+          newTriggerType === "purchase"
+            ? purchaseProductIds.length > 0
+              ? purchaseProductIds
+              : null
+            : showNewProductFilter && newProductFilter.length > 0
+              ? newProductFilter
+              : null,
         item_type_filter:
           showNewItemTypeFilter && newItemTypeFilter.length > 0 ? newItemTypeFilter : null,
         delay_days: isNewImmediateDelay
@@ -737,6 +788,8 @@ export default function TemplatesClient({
       setNewProductFilter([]);
       setNewProductFilterQuery("");
       setNewItemTypeFilter([]);
+      setClassProductIds({ plan: [], session: [], service: [] });
+      setClassProductQuery({ plan: "", session: "", service: "" });
       setNewDelayDays(0);
       setNewDelayDirection("after");
       setNewLookbackDays(defaultLookbackDays());
@@ -1572,14 +1625,21 @@ export default function TemplatesClient({
                       <p className="font-medium text-zinc-900">
                         {triggerTypeLabel(trigger.trigger_type)}
                       </p>
-                      {showsProductFilter(trigger.trigger_type) ? (
+                      {showsItemTypeFilter(trigger.trigger_type) ? (
+                        trigger.item_type_filter?.length ? (
+                          <div className="space-y-0.5">
+                            {trigger.item_type_filter.map((cls) => (
+                              <p key={cls} className="text-xs text-zinc-600">
+                                {formatPurchaseClassSummary(cls, trigger.product_filter)}
+                              </p>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-zinc-600">סוג רכישה: כל הסוגים</p>
+                        )
+                      ) : showsProductFilter(trigger.trigger_type) ? (
                         <p className="text-xs text-zinc-600">
                           מוצרים: {formatProductFilterLabel(trigger.product_filter)}
-                        </p>
-                      ) : null}
-                      {showsItemTypeFilter(trigger.trigger_type) ? (
-                        <p className="text-xs text-zinc-600">
-                          סוג רכישה: {formatItemTypeFilterLabel(trigger.item_type_filter)}
                         </p>
                       ) : null}
                       <p className="text-xs text-zinc-600">
@@ -1801,7 +1861,7 @@ export default function TemplatesClient({
 
                     {open ? (
                       <form className="mt-3 space-y-4 border-t border-zinc-200/80 pt-3" onSubmit={(e) => void onCreateTrigger(e)}>
-                        {showNewProductFilter ? (
+                        {showNewProductFilter && newTriggerType !== "purchase" ? (
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-zinc-800">
                               {newTriggerType === "trial_reminder" ||
@@ -1896,18 +1956,36 @@ export default function TemplatesClient({
                         {showNewItemTypeFilter ? (
                           <div className="space-y-2">
                             <label className="text-sm font-medium text-zinc-800">
-                              סוג רכישה (אופציונלי)
+                              סוג רכישה
                             </label>
                             <p className="text-xs text-zinc-500">
-                              השאירו ריק לכל הסוגים. בחרו מנוי / כרטיסייה / שירות / ניסיון כדי לפצל
-                              טמפלייטים בלי לרשום מזהי מוצר.
+                              בחרו מנוי, כרטיסייה או שירות ואז סמנו מוצרים. רשימה ריקה כוללת את כולם
+                              מהסוג הזה. אימון ניסיון משתמש במוצרים שהוגדרו כניסיון בהגדרות. בלי בחירה
+                              כלל — כל סוגי הרכישה.
                             </p>
-                            <ul className="space-y-2 rounded-xl border border-zinc-200 bg-white p-2">
+                            <ul className="space-y-3 rounded-xl border border-zinc-200 bg-white p-2">
                               {PURCHASE_ITEM_TYPE_VALUES.map((value) => {
                                 const inputId = `trigger-item-type-${type}-${value}`;
                                 const checked = newItemTypeFilter.includes(value);
+                                const classKey =
+                                  value === "plan" || value === "session" || value === "service"
+                                    ? value
+                                    : null;
+                                const classRows = classKey
+                                  ? arboxMembershipTypes.filter(
+                                      (row) =>
+                                        String(row.type ?? "").trim().toLowerCase() === classKey
+                                    )
+                                  : [];
+                                const visibleClassRows = classKey
+                                  ? filterArboxMembershipTypesByWords(
+                                      classRows,
+                                      classProductQuery[classKey],
+                                      classProductIds[classKey]
+                                    )
+                                  : [];
                                 return (
-                                  <li key={value}>
+                                  <li key={value} className="space-y-2">
                                     <label
                                       htmlFor={inputId}
                                       className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
@@ -1921,12 +1999,82 @@ export default function TemplatesClient({
                                       />
                                       <span className="text-xs text-zinc-800">
                                         {PURCHASE_ITEM_TYPE_LABELS_HE[value]}
-                                        <span className="text-zinc-400" dir="ltr">
-                                          {" "}
-                                          ({value})
-                                        </span>
                                       </span>
                                     </label>
+                                    {checked && value === "trial" ? (
+                                      <p className="px-6 text-xs text-zinc-500">
+                                        נשלח למי שרכש מוצר ניסיון כפי שהוגדר בהגדרות הסטודיו.
+                                      </p>
+                                    ) : null}
+                                    {checked && classKey ? (
+                                      <div className="space-y-2 px-6">
+                                        <p className="text-xs text-zinc-500">
+                                          השאירו ריק כדי לכלול את כל ה
+                                          {value === "plan"
+                                            ? "מנויים"
+                                            : value === "session"
+                                              ? "כרטיסיות"
+                                              : "שירותים"}
+                                          .
+                                        </p>
+                                        {arboxMembershipTypesLoading ? (
+                                          <p className="flex items-center gap-2 text-xs text-zinc-500">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            טוען מוצרים מארבוקס…
+                                          </p>
+                                        ) : classRows.length === 0 ? (
+                                          <p className="text-xs text-zinc-500">
+                                            לא נמצאו מוצרים מהסוג הזה. בלי בחירה הטריגר יחול על כל
+                                            המכירות מהסוג.
+                                          </p>
+                                        ) : (
+                                          <>
+                                            <input
+                                              type="search"
+                                              value={classProductQuery[classKey]}
+                                              onChange={(e) =>
+                                                setClassProductQuery((prev) => ({
+                                                  ...prev,
+                                                  [classKey]: e.target.value,
+                                                }))
+                                              }
+                                              placeholder="סינון לפי מילים…"
+                                              aria-label={`סינון ${PURCHASE_ITEM_TYPE_LABELS_HE[value]}`}
+                                              autoComplete="off"
+                                              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+                                            />
+                                            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-zinc-100 p-1">
+                                              {visibleClassRows.map((row) => {
+                                                const id = row.membership_type_id;
+                                                const rowId = `trigger-class-product-${type}-${classKey}-${id}`;
+                                                return (
+                                                  <li key={id}>
+                                                    <label
+                                                      htmlFor={rowId}
+                                                      className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                                                    >
+                                                      <input
+                                                        id={rowId}
+                                                        type="checkbox"
+                                                        className="mt-0.5 shrink-0"
+                                                        checked={classProductIds[classKey].includes(id)}
+                                                        onChange={() => toggleClassProduct(classKey, id)}
+                                                      />
+                                                      <span
+                                                        className="text-xs leading-snug text-zinc-800"
+                                                        dir="ltr"
+                                                      >
+                                                        {`${id} - ${row.membership_type_name}`}
+                                                      </span>
+                                                    </label>
+                                                  </li>
+                                                );
+                                              })}
+                                            </ul>
+                                          </>
+                                        )}
+                                      </div>
+                                    ) : null}
                                   </li>
                                 );
                               })}

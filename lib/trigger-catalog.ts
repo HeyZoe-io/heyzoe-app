@@ -831,7 +831,7 @@ export const PURCHASE_ITEM_TYPE_LABELS_HE: Record<PurchaseItemType, string> = {
   plan: "מנוי",
   session: "כרטיסייה",
   service: "שירות",
-  trial: "ניסיון",
+  trial: "אימון ניסיון",
 };
 
 export function isPurchaseItemType(value: string): value is PurchaseItemType {

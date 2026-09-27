@@ -567,6 +567,11 @@ import {
   type WaSchedulePickSlot,
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  loadTrialSignupNotice,
+  stampTrialSignupNotice,
+  zoeRegistrationConfirmBlockedByTrialTemplate,
+} from "@/lib/trial-signup-notice";
 import { handleMonthlyConversationQuota, planIsStarter } from "@/lib/conversation-quota";
 import {
   assistantReplyIndicatesLeadNotRelevant,
@@ -8611,7 +8616,19 @@ async function processIncoming(
         }
 
         const directionsMediaUrl = knowledge.directionsMediaUrl?.trim() ?? "";
+        const signupNotice =
+          regOfferKind === "trial"
+            ? await loadTrialSignupNotice(supabase, Number(businessId), msg.from)
+            : null;
+        const skipTrialConfirmBecauseTemplate =
+          regOfferKind === "trial" && zoeRegistrationConfirmBlockedByTrialTemplate(signupNotice);
+        if (skipTrialConfirmBecauseTemplate) {
+          console.info("[WA Webhook] skip trial registration confirm, purchase template already sent", {
+            business_slug,
+          });
+        }
         const sendDirectionsMedia =
+          !skipTrialConfirmBecauseTemplate &&
           Boolean(directionsMediaUrl) &&
           resolveAfterRegistrationDirectionsMediaEnabled(sfCfg) &&
           !starterBlocksMedia &&
@@ -8647,16 +8664,23 @@ async function processIncoming(
           });
         }
 
-        await sendWhatsAppMessage(msg.toNumber, msg.from, outText, accountSid, authToken).catch((e) =>
-          console.error("[WA Webhook] Send after-trial registration body failed:", e)
-        );
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: outText,
-          model_used: "sales_flow_after_trial_registered",
-          session_id: sessionId,
-        });
+        if (!skipTrialConfirmBecauseTemplate) {
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, outText, accountSid, authToken);
+            if (regOfferKind === "trial") {
+              await stampTrialSignupNotice(supabase, Number(businessId), msg.from, "zoe");
+            }
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: outText,
+              model_used: "sales_flow_after_trial_registered",
+              session_id: sessionId,
+            });
+          } catch (e) {
+            console.error("[WA Webhook] Send after-trial registration body failed:", e);
+          }
+        }
         if (businessId && includeIgPrompt) {
           const igUp = await supabase
             .from("contacts")

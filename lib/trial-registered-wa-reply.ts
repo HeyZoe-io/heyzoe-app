@@ -25,6 +25,11 @@ import {
 } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import {
+  loadTrialSignupNotice,
+  stampTrialSignupNotice,
+  zoeRegistrationConfirmBlockedByTrialTemplate,
+} from "@/lib/trial-signup-notice";
+import {
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
   sendWhatsAppMediaMessage,
@@ -35,7 +40,16 @@ const WA_USER_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type TrialRegisteredWaReplyResult =
   | { sent: true }
-  | { sent: false; reason: "no_channel" | "outside_24h_window" | "no_user_session" | "send_failed" | "opted_out" };
+  | {
+      sent: false;
+      reason:
+        | "no_channel"
+        | "outside_24h_window"
+        | "no_user_session"
+        | "send_failed"
+        | "opted_out"
+        | "trial_template_already_sent";
+    };
 
 function isWithinWaUserSessionWindow(lastUserAtIso: string | null): boolean {
   if (!lastUserAtIso) return false;
@@ -97,6 +111,14 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = Number(input.businessId);
   if (!businessSlug || !businessId) return { sent: false, reason: "no_channel" };
+
+  const signupNotice = await loadTrialSignupNotice(input.admin, businessId, input.phone);
+  if (zoeRegistrationConfirmBlockedByTrialTemplate(signupNotice)) {
+    console.info("[trial-registered-wa-reply] skip, trial purchase template already sent", {
+      businessSlug,
+    });
+    return { sent: false, reason: "trial_template_already_sent" };
+  }
 
   const optedOut = await evaluateSessionMessageSend({
     admin: input.admin,
@@ -307,6 +329,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     }
 
     await sendWhatsAppMessage(phoneNumberId, input.phone, outText, accountSid, authToken);
+    await stampTrialSignupNotice(input.admin, businessId, input.phone, "zoe");
     await logMessage({
       business_slug: businessSlug,
       role: "assistant",
