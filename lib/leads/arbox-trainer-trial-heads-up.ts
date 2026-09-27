@@ -5,7 +5,8 @@
  *
  * IO (10 businesses): 0 extra bookingsReport GETs when the shared future prefetch
  * already runs; +1 GET when only this rule is live. +1 /v3/membershipTypes when
- * trial ids are set. No Claude. No contacts insert. No Conversations log.
+ * trial ids are set. +1 GET /v3/users/notes per newly notified trial when the
+ * approved template includes {{4}}. No Claude. No contacts insert. No Conversations log.
  */
 import {
   fetchAllArboxMembershipTypes,
@@ -156,6 +157,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
   className: string;
   classTime: string;
   userId: number;
+  apiKey: string;
   classDateYmd: string;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
@@ -200,6 +202,8 @@ async function dispatchTrainerTrialHeadsUp(input: {
     clientFullName: input.clientFullName,
     className: input.className,
     classTime: input.classTime,
+    arboxApiKey: input.apiKey,
+    arboxUserId: input.userId,
   });
   if (send === "sent") {
     const marked = await markScheduledTemplateSendSentByDedupKey({
@@ -390,6 +394,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
         classTime,
         userId,
         classDateYmd,
+        apiKey,
         rule,
         now,
       });

@@ -4,6 +4,7 @@ import {
   isMetaTemplateContentEditable,
   isPresetAvailable,
   paramSlotsForTriggerType,
+  presetVarHint,
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
   uniqueTemplateName,
@@ -118,13 +119,19 @@ assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.trainer_trial_heads_up.body,
-  "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}} {{3}} לאימון ניסיון אז בבקשה לשים לב לדגשים הבאים:"
+  "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}} {{3}} לאימון ניסיון. בבקשה לשים לב להערות הכלליות: {{4}}."
 );
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trainer_trial_heads_up.body), 4);
 assert.deepEqual(paramSlotsForTriggerType("trainer_trial_heads_up"), [
   "class_name",
   "class_time",
   "client_full_name",
+  "client_general_notes",
 ]);
+assert.equal(
+  presetVarHint("trainer_trial_heads_up"),
+  "{{1}} = שם השיעור · {{2}} = שעת השיעור · {{3}} = שם מלא לקוח · {{4}} = הערות כלליות מארבוקס"
+);
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.button_text, undefined);
 assert.equal(

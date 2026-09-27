@@ -25,6 +25,8 @@ import {
   classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
   clientFirstNameFromStaffDedupKey,
+  templateBodyUsesSlot,
+  userIdFromTrainerTrialHeadsUpDedupKey,
   expiryYmdFromScheduledDedupKey,
   membershipTypeNameFromScheduledDedupKey,
   startDateYmdFromScheduledDedupKey,
@@ -32,6 +34,7 @@ import {
   templateSendPayload,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
+import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
 import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { materializeDueManualBulkSchedules } from "@/lib/manual-bulk/schedules";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -158,7 +161,11 @@ async function dispatchOneScheduledSend(
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
 
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
-    admin.from("businesses").select("slug, waba_id, name").eq("id", businessId).maybeSingle(),
+    admin
+      .from("businesses")
+      .select("slug, waba_id, name, crm_api_key")
+      .eq("id", businessId)
+      .maybeSingle(),
     admin
       .from("whatsapp_templates")
       .select("id, status, language, category, components")
@@ -285,11 +292,26 @@ async function dispatchOneScheduledSend(
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
+  let clientGeneralNotes: string | undefined;
+  if (templateBodyUsesSlot(triggerType, storedComponents, "client_general_notes")) {
+    const notesUserId = userIdFromTrainerTrialHeadsUpDedupKey(row.dedup_key);
+    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    if (apiKey && notesUserId) {
+      clientGeneralNotes = await fetchArboxGeneralNotesText({ apiKey, userId: notesUserId });
+    } else {
+      console.error("[cron/scheduled-template-sends] general notes skipped — missing arbox user or key", {
+        id: row.id,
+        businessId,
+        triggerType,
+      });
+    }
+  }
   const { sendComponents, bodyParams } = templateSendPayload({
     triggerType,
     storedComponents,
     firstName,
     clientFullName: staffClientFirst,
+    clientGeneralNotes,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     expiryDateYmd:
       classDateYmdFromStaffDedupKey(row.dedup_key) ?? expiryYmdFromScheduledDedupKey(row.dedup_key),

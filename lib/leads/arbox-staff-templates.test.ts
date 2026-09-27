@@ -16,6 +16,7 @@ import {
   classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
   clientFirstNameFromStaffDedupKey,
+  userIdFromTrainerTrialHeadsUpDedupKey,
 } from "@/lib/template-send-params";
 import { isStaffRecipientTriggerType } from "@/lib/trigger-catalog";
 
@@ -54,6 +55,7 @@ import { isStaffRecipientTriggerType } from "@/lib/trigger-catalog";
   assert.equal(clientFirstNameFromStaffDedupKey(key), "דנה");
   assert.equal(classNameFromScheduledDedupKey(key), "יוגה");
   assert.equal(classTimeFromScheduledDedupKey(key), "18:00");
+  assert.equal(userIdFromTrainerTrialHeadsUpDedupKey(key), 9);
   assert.equal(isStaffRecipientTriggerType("trainer_trial_heads_up"), true);
 }
 

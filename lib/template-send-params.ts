@@ -25,8 +25,12 @@ export type TemplateSendParamContext = {
   classTime?: string | null;
   /** Trainer heads-up {{3}}: full client name, not a first-name slice. */
   clientFullName?: string | null;
+  /** Trainer heads-up {{4}}: Arbox client-card general notes, already flattened. */
+  clientGeneralNotes?: string | null;
   workoutN?: number | string | null;
 };
+
+export const TEMPLATE_GENERAL_NOTES_FALLBACK = "אין הערות";
 
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
 export function formatTemplateExpiryDate(ymd: string | null | undefined): string {
@@ -109,6 +113,16 @@ export function classNameFromScheduledDedupKey(dedupKey: string): string | null 
   }
 }
 
+/** Staff B2 dedup: user id sits before the class date. */
+export function userIdFromTrainerTrialHeadsUpDedupKey(dedupKey: string): number | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("trainer_trial_heads_up:")) return null;
+  const beforeHash = raw.split("#")[0] ?? "";
+  const userId = Number((beforeHash.split(":")[4] ?? "").trim());
+  if (!Number.isFinite(userId) || userId <= 0) return null;
+  return Math.trunc(userId);
+}
+
 /** Staff B2: client name (full name on new keys) is the first hash segment. */
 export function clientFirstNameFromStaffDedupKey(dedupKey: string): string | null {
   const raw = String(dedupKey ?? "");
@@ -172,6 +186,21 @@ function slotAt(slots: TemplateParamSlot[], index: number): TemplateParamSlot {
   return slots[index] ?? (index === 0 ? "first_name" : slots[slots.length - 1] ?? "first_name");
 }
 
+/** True when the stored template body includes this positional slot. */
+export function templateBodyUsesSlot(
+  triggerType: string,
+  storedComponents: unknown,
+  slot: TemplateParamSlot
+): boolean {
+  const body = bodyTextFromTemplateComponents(storedComponents);
+  const slots = paramSlotsForTriggerType(triggerType);
+  const varCount = body ? extractBodyVarCount(body) : slots.length;
+  for (let i = 0; i < varCount; i += 1) {
+    if (slotAt(slots, i) === slot) return true;
+  }
+  return false;
+}
+
 /** True when a body parameter is filled from the personal first-name slot. */
 export function templateBodyUsesFirstNameSlot(
   triggerType: string,
@@ -215,6 +244,15 @@ export function resolveTemplateSlotValue(
     if (explicit) return explicit;
     const raw = String(ctx.firstName ?? "").trim();
     return raw || TEMPLATE_NAME_FALLBACK;
+  }
+  if (slot === "client_general_notes") {
+    const notes = String(ctx.clientGeneralNotes ?? "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/ {2,}/g, " ")
+      .trim();
+    if (!notes) return TEMPLATE_GENERAL_NOTES_FALLBACK;
+    if (notes.length <= 400) return notes;
+    return `${notes.slice(0, 399).trimEnd()}…`;
   }
   if (slot === "class_date") {
     const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);

@@ -2,8 +2,12 @@
  * Immediate Meta send for staff recipients (B2/B5).
  * Skips customer opt-out, contacts lookup, and Conversations logMessage.
  */
+import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { templateSendPayload } from "@/lib/template-send-params";
+import {
+  templateBodyUsesSlot,
+  templateSendPayload,
+} from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -20,6 +24,9 @@ export async function dispatchStaffTemplateImmediate(input: {
   className?: string | null;
   classTime?: string | null;
   expiryDateYmd?: string | null;
+  /** When the approved body includes {{4}}, one Arbox notes GET for this user. */
+  arboxApiKey?: string | null;
+  arboxUserId?: number | null;
 }): Promise<StaffTemplateDispatch> {
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return "gated";
@@ -53,11 +60,22 @@ export async function dispatchStaffTemplateImmediate(input: {
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
+  let clientGeneralNotes: string | undefined;
+  if (
+    templateBodyUsesSlot(input.triggerType, storedComponents, "client_general_notes")
+  ) {
+    const apiKey = String(input.arboxApiKey ?? "").trim();
+    const userId = Math.trunc(Number(input.arboxUserId));
+    if (apiKey && Number.isFinite(userId) && userId > 0) {
+      clientGeneralNotes = await fetchArboxGeneralNotesText({ apiKey, userId });
+    }
+  }
   const { sendComponents } = templateSendPayload({
     triggerType: input.triggerType,
     storedComponents,
     firstName: input.firstName,
     clientFullName: input.clientFullName,
+    clientGeneralNotes,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     className: input.className,
     classTime: input.classTime,

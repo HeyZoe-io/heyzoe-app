@@ -182,7 +182,7 @@ import {
     trial_reminder: ["דנה", "יוגה", "18:00"],
     milestones: ["דנה"],
     nth_workout: ["דנה", "3"],
-    trainer_trial_heads_up: ["יוגה", "18:00", "דנה כהן"],
+    trainer_trial_heads_up: ["יוגה", "18:00", "דנה כהן", "פציעה בברך"],
     class_cancelled_staff: ["יוגה", "15.09.2026", "18:00"],
     class_cancelled_customer: ["דנה", "יוגה", "15.09.2026", "18:00"],
   };
@@ -196,6 +196,7 @@ import {
       classTime: "18:00",
       startDateYmd: "2026-09-01",
       workoutN: 3,
+      clientGeneralNotes: "פציעה בברך",
     });
     assert.equal(extractBodyVarCount(preset.body), expected[type]?.length);
     assert.deepEqual(values, expected[type], type);
@@ -246,7 +247,12 @@ import {
       continue;
     }
     if (type === "trainer_trial_heads_up") {
-      assert.deepEqual(slots, ["class_name", "class_time", "client_full_name"]);
+      assert.deepEqual(slots, [
+        "class_name",
+        "class_time",
+        "client_full_name",
+        "client_general_notes",
+      ]);
       continue;
     }
     if (type === "class_cancelled_staff") {
