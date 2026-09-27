@@ -115,12 +115,55 @@ export function businessStartsSalesFlowOnHi(opts?: SalesFlowStartTriggerOpts): b
   return false;
 }
 
+/** בקשת פרטים שאפשר לזהות גם בסוף הודעה ארוכה, לא רק כשהיא כל ההודעה. */
+const DETAILS_ASK_TAILS = [
+  "אשמח לשמוע פרטים",
+  "אשמח לשמוע",
+  "אשמח לפרטים",
+  "אפשר פרטים",
+  "אשמח למידע",
+  "רוצה פרטים",
+  "id like details",
+  "i would like details",
+  "хочу подробности",
+  "можно подробности",
+] as const;
+
+/** «על האימונים/השיעורים שלכם» אחרי בקשת פרטים — עדיין פתיחת פלואו, לא סקירת סטודיו. */
+const CLASS_DETAILS_SUFFIX_RE =
+  /\s+על\s+(?:ה)?(?:אימונים|שיעורים)(?:\s+(?:של(?:כם|כן|ך)|אצל(?:כם|כן)))?$/u;
+
+function stripTrailingMessageDecor(normalized: string): string {
+  return normalized
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D()[\]/\\|]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function endsWithDetailsAsk(text: string): boolean {
+  return DETAILS_ASK_TAILS.some((trigger) => text === trigger || text.endsWith(` ${trigger}`));
+}
+
+/**
+ * «… אשמח לשמוע פרטים על האימונים שלכם» בסוף הודעת היכרות.
+ * בלי «על האימונים/השיעורים» נשאר ההתאמה המדויקת הקיימת.
+ * «אשמח לשמוע על הסטודיו» / «רק רוצה פרטים» נשארים סקירת סטודיו.
+ */
+export function messageEndsWithClassDetailsAsk(raw: string): boolean {
+  const t = stripTrailingMessageDecor(normalizeSalesFlowGreetingToken(raw));
+  if (!t || t.length > 500) return false;
+  const withoutClass = t.replace(CLASS_DETAILS_SUFFIX_RE, "").trim();
+  if (withoutClass === t) return false;
+  return endsWithDetailsAsk(withoutClass);
+}
+
 export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   if (withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting)) return true;
+  if (messageEndsWithClassDetailsAsk(text)) return true;
   return matchesSalesFlowRestartIntent(text);
 }
 

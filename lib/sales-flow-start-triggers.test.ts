@@ -33,7 +33,18 @@ assert.equal(isSalesFlowStartTrigger("אשמח לשמוע!"), true);
 assert.equal(isSalesFlowStartTrigger("היי אשמח לשמוע"), true);
 assert.equal(isSalesFlowStartTrigger("הייי אשמח לשמוע"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע על הסטודיו"), false);
+assert.equal(isSalesFlowStartTrigger("אשמח לשמוע פרטים על הסטודיו"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע פרטים"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח לשמוע פרטים על האימונים שלכם :)"), true);
+assert.equal(
+  isSalesFlowStartTrigger(
+    "היי שמי עלמה 💓\nאני מחפשת סטודיו במודיעין לשיעורי יוגה למתחילים.\nאשמח לשמוע פרטים על האימונים שלכם :)"
+  ),
+  true
+);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים על השיעורים אצלכם"), true);
+assert.equal(isSalesFlowStartTrigger("כמה עולים האימונים"), false);
+assert.equal(isSalesFlowStartTrigger("אין לי פרטים"), false);
 assert.equal(isSalesFlowStartTrigger("אפשר פרטים?"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח למידע"), true);
 assert.equal(isSalesFlowStartTrigger("פרטים"), true);
