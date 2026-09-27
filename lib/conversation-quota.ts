@@ -19,12 +19,12 @@ type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
 export function planIsStarter(plan: unknown): boolean {
   const p = String(plan ?? "").trim().toLowerCase();
-  return p !== "premium" && p !== "pro";
+  return p !== "premium" && p !== "pro" && p !== "intro";
 }
 
 export function planIsPremium(plan: unknown): boolean {
   const p = String(plan ?? "").trim().toLowerCase();
-  return p === "premium" || p === "pro";
+  return p === "premium" || p === "pro" || p === "intro";
 }
 
 function resolveBillingUrl(siteBase: string, slug: string): string {

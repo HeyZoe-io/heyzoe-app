@@ -2244,7 +2244,7 @@ section{padding:80px 6%;}
   .lp-demo-row{grid-template-columns:1fr;}
 }
 
-.pricing-inner{max-width:860px;margin:0 auto;text-align:center;}
+.pricing-inner{max-width:1140px;margin:0 auto;text-align:center;}
 .trial-badge{
   display:inline-flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;
   background:rgba(53,255,112,0.15);border:1px solid rgba(53,255,112,0.4);
@@ -2257,7 +2257,10 @@ section{padding:80px 6%;}
 .pricing-vat{font-size:12px;color:var(--muted);line-height:1.2;white-space:nowrap;}
 .pricing-price-row .pricing-vat{margin:0;align-self:baseline;}
 .pricing-card.featured .pricing-vat{color:rgba(255,255,255,0.5);}
-.pricing-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+@media(max-width:1100px){
+  .pricing-grid{grid-template-columns:1fr;}
+}
 .pricing-card{
   background:var(--bg);border:1.5px solid rgba(113,51,218,0.12);
   border-radius:20px;padding:32px 28px;text-align:right;position:relative;transition:transform 0.2s;
@@ -2271,6 +2274,8 @@ section{padding:80px 6%;}
 .pricing-period{font-size:13px;color:var(--muted);margin-bottom:6px;}
 .pricing-card.featured .pricing-period{color:rgba(255,255,255,0.5);}
 .pricing-trial{font-size:12px;color:#1d9e75;font-weight:600;margin-bottom:12px;}
+.pricing-after{font-size:12px;color:var(--muted);margin:-2px 0 12px;line-height:1.35;}
+.pricing-card.featured .pricing-after{color:rgba(255,255,255,0.55);}
 .pricing-card.featured .pricing-trial{color:rgba(255,255,255,0.55);}
 .pricing-features{list-style:none;display:flex;flex-direction:column;gap:10px;margin-bottom:24px;}
 .pricing-features li{font-size:16px;color:var(--text);display:flex;align-items:center;gap:8px;}
@@ -2984,6 +2989,25 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
         </ul>
         <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter - בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
       </div>
+      <div class="pricing-card">
+        <div class="pricing-badge">יכולות Pro</div>
+        <div class="pricing-name">חודש ראשון</div>
+        <div class="pricing-trial">רק לחודש הראשון</div>
+        <div class="pricing-price-row">
+          <div class="pricing-price">₪5</div>
+          <span class="pricing-vat">פלוס מע״מ</span>
+        </div>
+        <div class="pricing-period">לחודש הראשון</div>
+        <p class="pricing-after">לאחר מכן ₪299 או ₪429</p>
+        <ul class="pricing-features">
+          <li>כל מה שב-Starter</li>
+          <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
+          <li>עד 500 לידים בחודש</li>
+          <li>ליווי צמוד בהקמה</li>
+          <li>אנליטיקס מתקדם</li>
+        </ul>
+        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: חודש ראשון 5₪ - בואו נתחיל!" onclick="location.href='/onboarding?plan=intro'">בואו נתחיל!</button>
+      </div>
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
         <div class="pricing-name">Pro</div>
@@ -3338,7 +3362,8 @@ try{
 
   // Pricing CTAs
   document.querySelectorAll('button.pricing-btn').forEach(function(btn){
-    var plan = /plan=pro/.test(String(btn.getAttribute('onclick')||'')) ? 'pro' : /plan=starter/.test(String(btn.getAttribute('onclick')||'')) ? 'starter' : '';
+    var onclick = String(btn.getAttribute('onclick')||'');
+    var plan = /plan=intro/.test(onclick) ? 'intro' : /plan=pro/.test(onclick) ? 'pro' : /plan=starter/.test(onclick) ? 'starter' : '';
     addCta(btn, plan ? ('מחירים: '+plan) : 'מחירים');
   });
 }catch(e){}
@@ -3510,8 +3535,8 @@ try{
       try{
         // infer plan + value from text
         var href=String(btn.getAttribute('onclick')||'');
-        var plan=/plan=pro/.test(href)?'pro':/plan=starter/.test(href)?'starter':null;
-        var value = plan==='pro'?429:plan==='starter'?299:null;
+        var plan=/plan=intro/.test(href)?'intro':/plan=pro/.test(href)?'pro':/plan=starter/.test(href)?'starter':null;
+        var value = plan==='intro'?5:plan==='pro'?429:plan==='starter'?299:null;
         if(plan) sessionStorage.setItem('hz_lp_plan', plan);
         if(value) sessionStorage.setItem('hz_lp_plan_value', String(value));
         var src=hzUtmSource(); if(src) sessionStorage.setItem('hz_lp_source', src);
@@ -4084,7 +4109,7 @@ const faqs = [
   {q:"האם אני חייב מערכת כמו ארבוקס, בוסטאפ וכו'?", a:'זואי שולחת את הליד לעמוד הסליקה שלכם. במידה ויש לכם לינקים למערכת שעות, דף מנויים וסליקה - מכל תוכנה שהיא - אתם מסודרים לחלוטין.'},
   {q:'האם אני יכול לצפות בשיחות שזואי מנהלת?', a:'כמובן! דרך הדשבורד, בטאב שיחות, תוכלו לראות את כל השיחות בזמן אמת, לעצור את זואי ולהתערב בשיחה עצמאית.'},
   {q:'האם אני חייב לקרוא לבוטית שלי זואי?', a:'האמת שלא :) מרגע שזואי תהיה שלך, היא יכולה להיקרא איך שתרצה, והיא תציג את עצמה ללקוחות באיזה שם שתבחר, אפילו אם השם יהיה אמנון.'},
-  {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'לא, המחיר נשאר איתכם זהה לכל החיים. אם שילמת מחיר הנחה על החודש הראשון, הוא ישאר המחיר שלכם.'},
+  {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'ב-Starter וב-Pro המחיר נשאר זהה לכל החיים. בחבילת «חודש ראשון» המחיר של 5 ₪ הוא רק לחודש הראשון, ואחר כך 299 ₪ או 429 ₪.'},
   {q:'האם יש עלויות נוספות לשליחת הודעות?', a:'השימוש בוואטסאפ מתחלק לשני מצבים:<br><br><strong>חינם לחלוטין:</strong> כשליד פותח שיחה בעצמו דרך מודעה (click-to-whatsapp), קישור או כפתור, כל השיחה עם זואי לא עולה כלום. זה המצב הנפוץ ביותר בעבודה עם HeyZoe.<br><br><strong>עם עלות:</strong> הודעות שזואי שולחת ביוזמתה (למשל שליחת וואטסאפ מקמפיין <em>לידים</em>) דורשות טמפלייט מאושר של מטא ועולות כמה סנט לכל הודעה.<br><br>החל מ־1.10.2026, הודעות יוצאות בשיחות שלא נפתחו דרך click-to-whatsapp יעלו בין 0.02 ₪ ל־0.13 ₪, בהתאם לסוג ההודעה (שיווקית או שירותית). הודעות בשיחות שנפתחו דרך click-to-whatsapp ימשיכו להיות ללא עלות במשך החלון.'},
   {q:'מה עם ליד שלא ענה לזואי?', a:'במידה ועברו 6 שעות והליד לא ענה לזואי, הוא נשלח אליכם ל-CRM לטיפול.'},
 ];

@@ -14,7 +14,7 @@ import {
   marketingWaSessionId,
   sendMarketingWhatsApp,
 } from "@/lib/marketing-whatsapp";
-import { planPriceIls } from "@/lib/plan-prices";
+import { businessPlanFromCheckout, planPriceIls } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
 
@@ -454,7 +454,7 @@ export async function POST(req: NextRequest) {
     if (!email) return NextResponse.json({ ok: true });
 
     // Minimal observability: verify plan marker arrives from iCount
-    if (custom && custom !== "starter" && custom !== "pro") {
+    if (custom && custom !== "starter" && custom !== "pro" && custom !== "intro") {
       console.warn("[api/icount-ipn] unexpected_custom:", { email, custom });
     } else if (!custom) {
       console.warn("[api/icount-ipn] missing_custom:", { email });
@@ -496,10 +496,9 @@ export async function POST(req: NextRequest) {
         .eq("email", email)
         .maybeSingle();
       if (existingAuth?.id) {
-        const paidPlan = (String(custom || sessionRow?.plan || "").trim().toLowerCase() === "pro")
-          ? "premium"
-          : "basic";
-        const paidPlanPrice = planPriceIls(paidPlan);
+        const paidMarker = String(custom || sessionRow?.plan || "").trim().toLowerCase();
+        const paidPlan = businessPlanFromCheckout(paidMarker);
+        const paidPlanPrice = planPriceIls(paidMarker);
         // Reactivation flow: mark existing business as active + update plan tier.
         const { data: biz } = await admin
           .from("businesses")
@@ -638,9 +637,9 @@ export async function POST(req: NextRequest) {
           const baseSlug =
             toSlugBase(String(sessionRow?.studio_name ?? "").trim()) || buildUniqueSlugFromEmail(email);
           const slug = await ensureUniqueSlug(admin, baseSlug);
-          const plan =
-            (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
-          const plan_price = planPriceIls(plan);
+          const planMarker = String(sessionRow?.plan ?? "").trim().toLowerCase() || custom;
+          const plan = businessPlanFromCheckout(planMarker);
+          const plan_price = planPriceIls(planMarker);
 
           console.info("[api/icount-ipn] existing_user_creating_business:", { email, slug, plan });
 
@@ -748,9 +747,9 @@ export async function POST(req: NextRequest) {
     const baseSlug = toSlugBase(String(sessionRow?.studio_name ?? "").trim()) || buildUniqueSlugFromEmail(email);
     const slug = await ensureUniqueSlug(admin, baseSlug);
 
-    const plan =
-      (String(sessionRow?.plan ?? "").trim().toLowerCase() || custom) === "pro" ? "premium" : "basic";
-    const plan_price = planPriceIls(plan);
+    const planMarker = String(sessionRow?.plan ?? "").trim().toLowerCase() || custom;
+    const plan = businessPlanFromCheckout(planMarker);
+    const plan_price = planPriceIls(planMarker);
 
     console.info("[api/icount-ipn] creating_business:", { email, slug, plan });
 

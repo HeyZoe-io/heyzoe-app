@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { encryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
-import { planPriceIls } from "@/lib/plan-prices";
+import { normalizeCheckoutPlan, planPriceIls } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       fbc,
     } = (await req.json()) as {
       email?: string;
-      plan?: "starter" | "pro";
+      plan?: "starter" | "pro" | "intro";
       first_name?: string;
       last_name?: string;
       phone?: string;
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     const cleanEmail = String(email ?? "").trim().toLowerCase();
     if (!cleanEmail) return NextResponse.json({ error: "missing_email" }, { status: 400 });
-    const resolvedPlan = plan === "pro" ? "pro" : "starter";
+    const resolvedPlan = normalizeCheckoutPlan(plan);
 
     const pw = String(password ?? "");
     const hasLetter = /[a-zA-Zא-ת]/.test(pw);

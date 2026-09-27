@@ -3,9 +3,9 @@
 import { type CSSProperties, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { planPriceIls } from "@/lib/plan-prices";
+import { normalizeCheckoutPlan, planPriceIls, type CheckoutPlan } from "@/lib/plan-prices";
 
-type Plan = "starter" | "pro";
+type Plan = CheckoutPlan;
 type Step = 1 | 2 | 3;
 
 interface FormData {
@@ -27,6 +27,7 @@ const BUSINESS_TYPES = ["פילאטיס", "יוגה", "ג'ים", "קרוספיט
 
 const PLAN_INFO: Record<Plan, { name: string }> = {
   starter: { name: "Starter" },
+  intro: { name: "חודש ראשון · Pro" },
   pro: { name: "Pro" },
 };
 
@@ -86,7 +87,7 @@ function OnboardingContent() {
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const requestedPlan = (searchParams.get("plan") || "starter").toLowerCase();
-  const [selectedPlan, setSelectedPlan] = useState<Plan>(requestedPlan === "pro" ? "pro" : "starter");
+  const [selectedPlan, setSelectedPlan] = useState<Plan>(normalizeCheckoutPlan(requestedPlan));
   const [planMenuOpen, setPlanMenuOpen] = useState(false);
   const planPickerRef = useRef<HTMLDivElement>(null);
   const emailParam = (searchParams.get("email") || "").trim();
@@ -601,7 +602,11 @@ function OnboardingContent() {
               ? "חסרה הגדרת סליקה לחבילת Pro (ICOUNT_CID_PRO)."
               : msg === "missing_icount_paypage_id_pro"
                 ? "חסרה הגדרת סליקה לחבילת Pro (ICOUNT_PAYPAGE_ID_PRO)."
-                : msg === "missing_email"
+                : msg === "missing_icount_cid_intro"
+                  ? "חסרה הגדרת סליקה לחבילת החודש הראשון (ICOUNT_CID_INTRO)."
+                  : msg === "missing_icount_paypage_id_intro"
+                    ? "חסרה הגדרת סליקה לחבילת החודש הראשון (ICOUNT_PAYPAGE_ID_INTRO)."
+                    : msg === "missing_email"
                   ? "חסר אימייל."
                   : "שגיאה ביצירת דף תשלום, נסו שוב";
       alert(nice);
@@ -872,7 +877,7 @@ function OnboardingContent() {
                     textAlign: "right",
                   }}
                 >
-                  {(["starter", "pro"] as const).map((p) => (
+                  {(["starter", "intro", "pro"] as const).map((p) => (
                     <button
                       key={p}
                       type="button"

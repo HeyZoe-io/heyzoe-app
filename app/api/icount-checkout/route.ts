@@ -1,6 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeCheckoutPlan, type CheckoutPlan } from "@/lib/plan-prices";
 
 export const runtime = "nodejs";
+
+/** Public iCount pay page for the first-month ₪5 offer (Pro capabilities). */
+const INTRO_CID_DEFAULT = "871e3";
+const INTRO_PAYPAGE_DEFAULT = "c69175eap50u6ab8b43";
+
+function payPageFor(plan: CheckoutPlan): { cid: string; payPageId: string } {
+  if (plan === "intro") {
+    return {
+      cid: process.env.ICOUNT_CID_INTRO?.trim() || INTRO_CID_DEFAULT,
+      payPageId: process.env.ICOUNT_PAYPAGE_ID_INTRO?.trim() || INTRO_PAYPAGE_DEFAULT,
+    };
+  }
+  if (plan === "pro") {
+    return {
+      cid: process.env.ICOUNT_CID_PRO?.trim() || "",
+      payPageId: process.env.ICOUNT_PAYPAGE_ID_PRO?.trim() || "",
+    };
+  }
+  return {
+    cid: process.env.ICOUNT_CID_STARTER?.trim() || "",
+    payPageId: process.env.ICOUNT_PAYPAGE_ID_STARTER?.trim() || "",
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,21 +40,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing_email" }, { status: 400 });
     }
 
-    const resolvedPlan = plan === "pro" ? "pro" : "starter";
-    const cid =
-      (resolvedPlan === "pro"
-        ? process.env.ICOUNT_CID_PRO
-        : process.env.ICOUNT_CID_STARTER
-      )?.trim() || "";
-    const payPageId =
-      (resolvedPlan === "pro"
-        ? process.env.ICOUNT_PAYPAGE_ID_PRO
-        : process.env.ICOUNT_PAYPAGE_ID_STARTER
-      )?.trim() || "";
+    const resolvedPlan = normalizeCheckoutPlan(plan);
+    const { cid, payPageId } = payPageFor(resolvedPlan);
 
     if (!cid) {
       return NextResponse.json(
-        { error: resolvedPlan === "pro" ? "missing_icount_cid_pro" : "missing_icount_cid_starter" },
+        {
+          error:
+            resolvedPlan === "pro"
+              ? "missing_icount_cid_pro"
+              : resolvedPlan === "intro"
+                ? "missing_icount_cid_intro"
+                : "missing_icount_cid_starter",
+        },
         { status: 500 }
       );
     }
@@ -40,7 +62,9 @@ export async function POST(req: NextRequest) {
           error:
             resolvedPlan === "pro"
               ? "missing_icount_paypage_id_pro"
-              : "missing_icount_paypage_id_starter",
+              : resolvedPlan === "intro"
+                ? "missing_icount_paypage_id_intro"
+                : "missing_icount_paypage_id_starter",
         },
         { status: 500 }
       );

@@ -76,7 +76,7 @@ function parseTab(raw: string): BusinessesSubTab {
 
 function planLabel(plan: string | null): string {
   const p = String(plan ?? "").trim().toLowerCase();
-  if (p === "premium" || p === "pro") return "premium";
+  if (p === "premium" || p === "pro" || p === "intro") return "premium";
   return "basic";
 }
 

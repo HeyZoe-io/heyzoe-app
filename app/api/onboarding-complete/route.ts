@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { businessPlanFromCheckout } from "@/lib/plan-prices";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendEmail, welcomeEmail } from "@/lib/email";
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
       business_type?: string;
       description?: string;
       address?: string;
-      plan?: "starter" | "pro";
+      plan?: "starter" | "pro" | "intro";
     };
 
     if (!email?.trim() || !studio_name?.trim() || !password || password.length < 8) {
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
           tagline: description?.trim() || "",
           business_description: description?.trim() || "",
         },
-        plan: plan === "pro" ? "premium" : "basic",
+        plan: businessPlanFromCheckout(plan),
       } as any)
       .select("id, slug")
       .single();
