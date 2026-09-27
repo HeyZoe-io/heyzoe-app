@@ -542,7 +542,10 @@ export async function loadMarketingConversationSessions(): Promise<MarketingSess
     const messageAt = data.lastAt;
     const leadAtRaw = marketingLeadConversationAt(flow);
     const leadAt = leadAtRaw ? new Date(leadAtRaw) : null;
-    const displayAt = leadAt && !Number.isNaN(leadAt.getTime()) ? leadAt : messageAt;
+    const displayAt =
+      leadAt && !Number.isNaN(leadAt.getTime()) && leadAt.getTime() > messageAt.getTime()
+        ? leadAt
+        : messageAt;
     const column = resolveMarketingAdminColumn({
       phone: data.phone,
       full_name: null,

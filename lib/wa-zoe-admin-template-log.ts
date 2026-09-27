@@ -1,7 +1,11 @@
 import { logMessage } from "@/lib/analytics";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMarketingWhatsAppMessage, MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
-import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import {
+  buildWaSessionId,
+  canonicalContactPhone,
+  contactPhoneLookupVariants,
+} from "@/lib/phone-normalize";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 import {
   digitsForMarketingLineCompare,
@@ -79,8 +83,50 @@ export function renderWhatsAppTemplatePreview(input: {
   return text;
 }
 
+/** הודעה שנשמרה בלי גוף — «הודעת תבנית (שם)», ולפעמים שורות הפרמטרים מתחת. */
+const ZOE_ADMIN_TEMPLATE_PLACEHOLDER_RE = /^הודעת תבנית \(([^)]+)\)(?:\s*\n+([\s\S]*))?$/;
+
+export function parseZoeAdminTemplatePlaceholder(
+  content: string
+): { name: string; params: string[] } | null {
+  const match = String(content ?? "").trim().match(ZOE_ADMIN_TEMPLATE_PLACEHOLDER_RE);
+  const name = String(match?.[1] ?? "").trim();
+  if (!name) return null;
+  const params = String(match?.[2] ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return { name, params };
+}
+
+export function zoeAdminTemplateNameFromPlaceholder(content: string): string | null {
+  return parseZoeAdminTemplatePlaceholder(content)?.name ?? null;
+}
+
+async function loadMarketingTemplateComponents(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  templateName: string
+): Promise<unknown> {
+  const { data, error } = await admin
+    .from("marketing_whatsapp_templates")
+    .select("components")
+    .eq("name", templateName)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[wa-zoe-admin-template-log] marketing template lookup failed:", error.message);
+    return null;
+  }
+  const components = (data as { components?: unknown } | null)?.components;
+  return Array.isArray(components) && components.length ? components : null;
+}
+
 async function loadTemplateComponents(templateName: string): Promise<unknown> {
   const admin = createSupabaseAdminClient();
+  const fromMarketing = await loadMarketingTemplateComponents(admin, templateName);
+  if (fromMarketing) return fromMarketing;
+
   const { data: biz } = await admin
     .from("businesses")
     .select("id")
@@ -102,6 +148,65 @@ async function loadTemplateComponents(templateName: string): Promise<unknown> {
     return null;
   }
   return (data as { components?: unknown } | null)?.components ?? null;
+}
+
+/**
+ * מספר שזואי פתחה מולו שיחה בטמפלייט, ואין לו ליד — נוסף כליד חדש.
+ * ליד קיים לא מתעדכן: סטטוס, פלואו והערות נשארים.
+ * בלי last_user_message_at, כדי שפולואפ אוטומטי לא ייצא על שליחה שיזמה זואי.
+ * IO: חיפוש ממוקד לפי טלפון, ולכל היותר insert אחד.
+ */
+export async function ensureMarketingLeadForZoeTemplate(phoneRaw: string): Promise<"created" | "exists" | "skipped"> {
+  const phone = canonicalContactPhone(phoneRaw);
+  if (!phone) return "skipped";
+  const admin = createSupabaseAdminClient();
+  const variants = contactPhoneLookupVariants(phone);
+  const { data: existing, error } = await admin
+    .from("marketing_flow_sessions")
+    .select("phone")
+    .in("phone", variants.length ? variants : [phone])
+    .limit(1);
+  if (error) {
+    console.error("[wa-zoe-admin-template-log] lead lookup failed:", error.message);
+    return "skipped";
+  }
+  if ((existing ?? []).length > 0) return "exists";
+
+  let fullName = "";
+  const { data: businesses, error: bizErr } = await admin
+    .from("businesses")
+    .select("name")
+    .in("owner_whatsapp_phone", variants.length ? variants : [phone])
+    .limit(1);
+  if (bizErr) {
+    console.warn("[wa-zoe-admin-template-log] owner name lookup failed:", bizErr.message);
+  } else {
+    fullName = String((businesses?.[0] as { name?: string } | undefined)?.name ?? "").trim();
+  }
+
+  const now = new Date().toISOString();
+  const row: Record<string, unknown> = {
+    phone,
+    flow_completed: false,
+    updated_at: now,
+  };
+  if (fullName) row.full_name = fullName;
+  const { error: insertErr } = await admin.from("marketing_flow_sessions").insert(row);
+  if (!insertErr) {
+    console.info("[wa-zoe-admin-template-log] new lead from template", { phone });
+    return "created";
+  }
+  if (/duplicate|unique/i.test(insertErr.message)) return "exists";
+  if (fullName && /full_name|column/i.test(insertErr.message)) {
+    delete row.full_name;
+    const retry = await admin.from("marketing_flow_sessions").insert(row);
+    if (!retry.error) return "created";
+    if (retry.error && /duplicate|unique/i.test(retry.error.message)) return "exists";
+    console.error("[wa-zoe-admin-template-log] new lead insert failed:", retry.error?.message);
+    return "skipped";
+  }
+  console.error("[wa-zoe-admin-template-log] new lead insert failed:", insertErr.message);
+  return "skipped";
 }
 
 function phonesMatch(a: string, b: string): boolean {
@@ -149,6 +254,12 @@ export async function logZoeAdminTemplateToConversations(input: {
     });
   } catch (e) {
     console.error("[wa-zoe-admin-template-log] marketing log failed:", e);
+  }
+
+  try {
+    await ensureMarketingLeadForZoeTemplate(toPhone);
+  } catch (e) {
+    console.error("[wa-zoe-admin-template-log] new lead failed:", e);
   }
 
   try {
@@ -264,6 +375,58 @@ type HydrateRow = {
   error_code?: string | null;
   model_used?: string | null;
 };
+
+/**
+ * משחזר גוף טמפלייט להודעות ישנות שנשמרו כ«הודעת תבנית (שם)».
+ * IO: שאילתה אחת ל-marketing_whatsapp_templates, רק אם יש placeholder בשיחה.
+ */
+export async function enrichZoeAdminTemplatePlaceholderMessages(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  messages: HydrateRow[];
+}): Promise<HydrateRow[]> {
+  const names = [
+    ...new Set(
+      input.messages
+        .map((m) => parseZoeAdminTemplatePlaceholder(m.content)?.name ?? "")
+        .filter(Boolean)
+    ),
+  ];
+  if (!names.length) return input.messages;
+
+  const { data, error } = await input.admin
+    .from("marketing_whatsapp_templates")
+    .select("name, components")
+    .in("name", names);
+  if (error) {
+    console.warn("[wa-zoe-admin-template-log] placeholder enrich failed:", error.message);
+    return input.messages;
+  }
+
+  const componentsByName = new Map<string, unknown>();
+  for (const row of data ?? []) {
+    const name = String((row as { name?: unknown }).name ?? "").trim();
+    const components = (row as { components?: unknown }).components;
+    if (!name || !Array.isArray(components) || !components.length) continue;
+    if (!componentsByName.has(name)) componentsByName.set(name, components);
+  }
+  if (!componentsByName.size) return input.messages;
+
+  return input.messages.map((m) => {
+    const parsed = parseZoeAdminTemplatePlaceholder(m.content);
+    if (!parsed) return m;
+    const components = componentsByName.get(parsed.name);
+    if (!components) return m;
+    const rendered = renderWhatsAppTemplatePreview({
+      templateName: parsed.name,
+      metaComponents: components,
+      sendComponents: parsed.params.length
+        ? [{ type: "body", parameters: parsed.params.map((text) => ({ type: "text", text })) }]
+        : undefined,
+    }).trim();
+    if (!rendered || parseZoeAdminTemplatePlaceholder(rendered)) return m;
+    return { ...m, content: rendered, model_used: m.model_used || WA_ZOE_ADMIN_TEMPLATE_MODEL };
+  });
+}
 
 /**
  * דף שיחות: ממלא `[unsupported]` בשיחה מול מספר זואי לפי הודעות שנרשמו בקו השיווק.

@@ -197,7 +197,8 @@ export async function loadAllZoeAdminConversationSessions(
         ...s,
         phone,
         fullName,
-        lastAt: leadAt || s.lastAt,
+        lastAt:
+          leadAt && Date.parse(leadAt) > Date.parse(s.lastAt) ? leadAt : s.lastAt,
         ...(bs === MARKETING_CONVERSATIONS_SLUG
           ? { nextCallAt: call?.date ?? null, nextCallTime: call?.time ?? null }
           : {}),

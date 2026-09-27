@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { parseMetaWebhook } from "@/lib/whatsapp";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
-import { renderWhatsAppTemplatePreview } from "@/lib/wa-zoe-admin-template-log";
+import {
+  renderWhatsAppTemplatePreview,
+  zoeAdminTemplateNameFromPlaceholder,
+} from "@/lib/wa-zoe-admin-template-log";
 import {
   digitsForMarketingLineCompare,
   formatWaUnsupportedLogContent,
@@ -83,6 +86,25 @@ const preview = renderWhatsAppTemplatePreview({
 });
 assert.equal(preview.includes("ליד חדש בסטודיו אלין"), true);
 assert.equal(preview.includes("[כפתור: פתח דשבורד]"), true);
+
+assert.equal(zoeAdminTemplateNameFromPlaceholder("הודעת תבנית (feature_class_cancelled_notify)"), "feature_class_cancelled_notify");
+assert.equal(
+  zoeAdminTemplateNameFromPlaceholder("הודעת תבנית (human_agent_request)\n\n0524677850\n27/09/2026 16:45"),
+  "human_agent_request"
+);
+assert.equal(zoeAdminTemplateNameFromPlaceholder("היי, ביטול שיעור זמין עכשיו"), null);
+
+const featurePreview = renderWhatsAppTemplatePreview({
+  templateName: "feature_class_cancelled_notify",
+  metaComponents: [
+    {
+      type: "BODY",
+      text: "היי, פיצ'ר חדש: כששיעור מתבטל זואי שולחת הודעה לנרשמים.",
+    },
+  ],
+});
+assert.equal(featurePreview.includes("פיצ'ר חדש"), true);
+assert.equal(zoeAdminTemplateNameFromPlaceholder(featurePreview), null);
 
 const parsedUnsupported = parseMetaWebhook({
   object: "whatsapp_business_account",
