@@ -13,6 +13,7 @@ import {
   syncArboxNthWorkoutForBusiness,
 } from "@/lib/leads/arbox-nth-workout";
 import { fetchArboxActiveProductKeys, type ActiveProductKeys } from "@/lib/leads/arbox-active-product";
+import { syncArboxMemberFlags } from "@/lib/leads/arbox-member-flag";
 import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
   businessNeedsFreezeSync,
@@ -49,7 +50,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Steps: birthday, days-in-club (C8), membership_expiring, bookingsReport (missed_* + attendance_gap +
  * post-trial C5/C6 + nth_workout C7), freeze cluster A8/C14/C15, trial_reminder, sessions_expiring,
  * membership_cancelled, lost_lead (A7).
- * activeMembershipsReport is fetched once when birthday, C8, or C7 is live (C8/C7-only skips sessionsReport).
+ * activeMembershipsReport is fetched once when birthday, C8, or C7 is live, otherwise inside
+ * the active-product prefetch. Member flags reuse that payload (0 extra Arbox GETs).
  * Future bookings GET when freeze_ending, trial_reminder, or trainer_trial_heads_up needs it
  * (attendance_gap does not need it). trial_reminder / B2 widen the window to today…+14.
  * Staff B5: cancelledSessionsReport + classesSummaryReport (yesterday+today) when enabled.
@@ -218,6 +220,7 @@ export async function GET(req: NextRequest) {
     }
 
     let sharedActiveKeys: ActiveProductKeys | undefined;
+    let membershipRowsForFlags = prefetchedMembershipRows;
     try {
       const products = await fetchArboxActiveProductKeys({
         apiKey: business.crm_api_key,
@@ -226,8 +229,10 @@ export async function GET(req: NextRequest) {
         trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
         ...(prefetchedMembershipRows ? { prefetchedMembershipRows } : {}),
       });
-      if (products.ok) sharedActiveKeys = products.keys;
-      else {
+      if (products.ok) {
+        sharedActiveKeys = products.keys;
+        membershipRowsForFlags = products.membershipRows;
+      } else {
         console.error("[cron/arbox-daily-triggers] active product fetch failed", {
           slug: business.slug,
           error: products.error,
@@ -238,6 +243,27 @@ export async function GET(req: NextRequest) {
         slug: business.slug,
         error: e instanceof Error ? e.message : String(e),
       });
+    }
+
+    // Same activeMembershipsReport payload. No second Arbox pull when that fetch succeeded.
+    if (membershipRowsForFlags) {
+      try {
+        const flags = await syncArboxMemberFlags({
+          admin,
+          businessId: business.id,
+          membershipRows: membershipRowsForFlags,
+          now,
+        });
+        console.info("[cron/arbox-daily-triggers] member flags", {
+          slug: business.slug,
+          ...flags,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-daily-triggers] member flags threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
 
     // --- Step: birthday ---

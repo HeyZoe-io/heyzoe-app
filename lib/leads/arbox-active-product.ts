@@ -147,7 +147,10 @@ export async function fetchArboxActiveProductKeys(input: {
   fetchPage?: typeof arboxPublicFetch;
   /** Skip the memberships GET when the cron already loaded this report. */
   prefetchedMembershipRows?: Record<string, unknown>[];
-}): Promise<{ ok: true; keys: ActiveProductKeys } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; keys: ActiveProductKeys; membershipRows: Record<string, unknown>[] }
+  | { ok: false; error: string }
+> {
   const now = input.now ?? new Date();
   const todayYmd = formatDateYmdIsrael(now);
   const trialTypeIds = parseIdList(input.trialMembershipTypeIds);
@@ -208,6 +211,7 @@ export async function fetchArboxActiveProductKeys(input: {
 
   return {
     ok: true,
+    membershipRows,
     keys: collectActiveProductKeys({
       membershipRows,
       sessionRows: sessions.rows,

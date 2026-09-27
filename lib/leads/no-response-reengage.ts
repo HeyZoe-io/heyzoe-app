@@ -10,7 +10,12 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { buildWaSessionId, normalizePhone, waSessionIdLookupVariants } from "@/lib/phone-normalize";
+import {
+  buildWaSessionId,
+  contactPhoneLookupVariants,
+  normalizePhone,
+  waSessionIdLookupVariants,
+} from "@/lib/phone-normalize";
 import {
   buildNoResponseScheduledDedupKey,
   computeDueAt,
@@ -35,10 +40,29 @@ import {
 import { canUseArboxScheduleLookup } from "@/lib/crm/types";
 import { waNoResponseEligible } from "@/lib/wa-no-response";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import {
+  NO_RESPONSE_HUMAN_TOUCH_MS,
+  noResponseAudienceBlocks,
+  type NoResponseAudienceMessage,
+} from "@/lib/leads/no-response-audience";
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 const MS_24H = 24 * 60 * 60 * 1000;
 const CANDIDATE_BATCH = 200;
+
+/** Member-trigger logs. Phone is not a column; rows point at contact_id and (usually) user_id. */
+const MEMBER_SYNC_LOGS: { table: string; userIdColumn: "user_id" | null }[] = [
+  { table: "arbox_birthday_sync_log", userIdColumn: "user_id" },
+  { table: "arbox_trial_attended_sync_log", userIdColumn: "user_id" },
+  { table: "arbox_missed_class_sync_log", userIdColumn: "user_id" },
+  { table: "arbox_attendance_gap_sync_log", userIdColumn: "user_id" },
+  { table: "arbox_expiring_sync_log", userIdColumn: null },
+  { table: "arbox_sessions_expiring_sync_log", userIdColumn: "user_id" },
+  { table: "arbox_credit_refusal_sync_log", userIdColumn: null },
+];
+
+const CANDIDATE_SELECT =
+  "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, arbox_user_id";
 
 export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped";
 
@@ -119,7 +143,111 @@ type ContactCandidate = {
   trial_registered?: boolean | null;
   session_phase?: string | null;
   arbox_user_id?: string | null;
+  arbox_is_member?: boolean | null;
 };
+
+type MemberLogHits = { contactIds: Set<string>; userIds: Set<string> };
+
+function candidateQuery(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  silenceCutoffIso: string,
+  includeMemberFlag: boolean
+) {
+  const select = includeMemberFlag ? `${CANDIDATE_SELECT}, arbox_is_member` : CANDIDATE_SELECT;
+  let query = admin
+    .from("contacts")
+    .select(select)
+    .eq("business_id", businessId)
+    .eq("source", "whatsapp")
+    .or("opted_out.eq.false,opted_out.is.null")
+    .is("not_relevant_at", null)
+    .is("human_requested_at", null)
+    .or("trial_registered.eq.false,trial_registered.is.null")
+    .or("session_phase.is.null,session_phase.neq.registered")
+    .not("last_contact_at", "is", null)
+    .lte("last_contact_at", silenceCutoffIso)
+    .order("last_contact_at", { ascending: true })
+    .limit(CANDIDATE_BATCH);
+  if (includeMemberFlag) query = query.eq("arbox_is_member", false);
+  return query;
+}
+
+/** One parallel round per business: member-trigger logs for this candidate set, not per contact. */
+async function loadMemberSyncLogHits(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  contactIds: string[],
+  userIds: string[]
+): Promise<MemberLogHits> {
+  const contactIdsHit = new Set<string>();
+  const userIdsHit = new Set<string>();
+  if (!contactIds.length && !userIds.length) return { contactIds: contactIdsHit, userIds: userIdsHit };
+
+  await Promise.all(
+    MEMBER_SYNC_LOGS.map(async (log) => {
+      const columns = log.userIdColumn ? `contact_id, ${log.userIdColumn}` : "contact_id";
+      let query = admin.from(log.table).select(columns).eq("business_id", businessId);
+      if (contactIds.length && log.userIdColumn && userIds.length) {
+        query = query.or(
+          `contact_id.in.(${contactIds.join(",")}),${log.userIdColumn}.in.(${userIds.join(",")})`
+        );
+      } else if (contactIds.length) {
+        query = query.in("contact_id", contactIds);
+      } else if (log.userIdColumn && userIds.length) {
+        query = query.in(log.userIdColumn, userIds);
+      } else {
+        return;
+      }
+      const { data, error } = await query.limit(5000);
+      if (error) {
+        console.error("[no-response-reengage] member log lookup failed:", error.message, {
+          businessId,
+          table: log.table,
+        });
+        return;
+      }
+      for (const row of data ?? []) {
+        const contactId = String((row as { contact_id?: unknown }).contact_id ?? "").trim();
+        if (contactId) contactIdsHit.add(contactId);
+        if (log.userIdColumn) {
+          const userId = String((row as unknown as Record<string, unknown>)[log.userIdColumn] ?? "").trim();
+          if (userId) userIdsHit.add(userId);
+        }
+      }
+    })
+  );
+  return { contactIds: contactIdsHit, userIds: userIdsHit };
+}
+
+async function fetchAudienceMessages(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessSlug: string;
+  sessionIds: string[];
+  lastUserAtIso: string;
+  nowMs: number;
+}): Promise<NoResponseAudienceMessage[] | null> {
+  const userMs = Date.parse(input.lastUserAtIso);
+  const sinceMs = Math.min(
+    Number.isFinite(userMs) ? userMs : input.nowMs,
+    input.nowMs - NO_RESPONSE_HUMAN_TOUCH_MS
+  );
+  const { data, error } = await input.admin
+    .from("messages")
+    .select("role, model_used, created_at")
+    .eq("business_slug", input.businessSlug)
+    .in("session_id", input.sessionIds)
+    .gte("created_at", new Date(sinceMs).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error("[no-response-reengage] audience messages failed:", error.message, {
+      business_slug: input.businessSlug,
+    });
+    return null;
+  }
+  return (data ?? []) as NoResponseAudienceMessage[];
+}
 
 function bump(summary: NoResponseReengageSummary, reason: string) {
   summary.skipped += 1;
@@ -285,7 +413,11 @@ async function dispatchNoResponseTemplate(input: {
 
 /**
  * Process one business with an enabled no_response rule.
- * IO: one candidate contacts query + per-candidate message lookups + optional Meta send.
+ * IO: one candidate contacts query + one phone-alias query + 7 member-log
+ * lookups in parallel (not per contact) + per-candidate message lookups +
+ * one audience message query + optional Meta send.
+ * The within-24h layer's hours_since_user >= 24 skip stays in wa-followup-cron-eval.
+ * This cron uses the inverse (isBeyondSessionFollowupWindow) so the two do not overlap.
  * Arbox businesses with candidates: +1 activeMemberships, +1 sessions, +1 future
  * bookings once (membershipTypes only if trial product ids are set) so people
  * with a membership, punch card, or upcoming trial class are skipped.
@@ -329,22 +461,21 @@ export async function syncNoResponseReengageForBusiness(input: {
 
   const silenceCutoffIso = new Date(nowMs - rule.delay_days * MS_DAY).toISOString();
 
-  const { data: rows, error } = await input.admin
-    .from("contacts")
-    .select(
-      "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, arbox_user_id"
-    )
-    .eq("business_id", input.businessId)
-    .eq("source", "whatsapp")
-    .or("opted_out.eq.false,opted_out.is.null")
-    .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-    .or("trial_registered.eq.false,trial_registered.is.null")
-    .or("session_phase.is.null,session_phase.neq.registered")
-    .not("last_contact_at", "is", null)
-    .lte("last_contact_at", silenceCutoffIso)
-    .order("last_contact_at", { ascending: true })
-    .limit(CANDIDATE_BATCH);
+  let { data: rows, error } = await candidateQuery(
+    input.admin,
+    input.businessId,
+    silenceCutoffIso,
+    true
+  );
+  if (error && /arbox_is_member|schema cache|does not exist/i.test(error.message)) {
+    console.error(
+      "[no-response-reengage] arbox_is_member missing — run supabase/contacts_arbox_is_member.sql",
+      { businessId: input.businessId }
+    );
+    const fallback = await candidateQuery(input.admin, input.businessId, silenceCutoffIso, false);
+    rows = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("[no-response-reengage] candidates query failed:", error.message, {
@@ -389,7 +520,63 @@ export async function syncNoResponseReengageForBusiness(input: {
     }
   }
 
-  for (const row of rows ?? []) {
+  const candidateRows = (rows ?? []) as unknown as ContactCandidate[];
+  const phoneToCandidateIds = new Map<string, string[]>();
+  for (const row of candidateRows) {
+    const id = String(row.id);
+    for (const variant of contactPhoneLookupVariants(row.phone)) {
+      const list = phoneToCandidateIds.get(variant) ?? [];
+      list.push(id);
+      phoneToCandidateIds.set(variant, list);
+    }
+  }
+  const variantPhones = [...phoneToCandidateIds.keys()];
+  const aliasIds = new Set(candidateRows.map((row) => String(row.id)));
+  if (variantPhones.length) {
+    const { data: aliases, error: aliasErr } = await input.admin
+      .from("contacts")
+      .select("id, phone")
+      .eq("business_id", input.businessId)
+      .in("phone", variantPhones);
+    if (aliasErr) {
+      console.error("[no-response-reengage] phone alias lookup failed:", aliasErr.message, {
+        businessId: input.businessId,
+      });
+    } else {
+      for (const alias of aliases ?? []) {
+        const aliasId = String((alias as { id: unknown }).id);
+        aliasIds.add(aliasId);
+        for (const variant of contactPhoneLookupVariants((alias as { phone?: unknown }).phone)) {
+          const owners = phoneToCandidateIds.get(variant) ?? [];
+          for (const owner of owners) {
+            const list = phoneToCandidateIds.get(aliasId) ?? [];
+            if (!list.includes(owner)) list.push(owner);
+            phoneToCandidateIds.set(aliasId, list);
+          }
+        }
+      }
+    }
+  }
+  const userIds = [
+    ...new Set(
+      candidateRows
+        .map((row) => String(row.arbox_user_id ?? "").trim())
+        .filter((id) => /^\d+$/.test(id))
+    ),
+  ];
+  const memberLogs = await loadMemberSyncLogHits(
+    input.admin,
+    input.businessId,
+    [...aliasIds],
+    userIds
+  );
+  const memberLogCandidateIds = new Set<string>();
+  for (const contactId of memberLogs.contactIds) {
+    memberLogCandidateIds.add(contactId);
+    for (const owner of phoneToCandidateIds.get(contactId) ?? []) memberLogCandidateIds.add(owner);
+  }
+
+  for (const row of candidateRows) {
     summary.examined += 1;
     const contact = row as ContactCandidate;
     const contactId = contact.id;
@@ -480,6 +667,38 @@ export async function syncNoResponseReengageForBusiness(input: {
 
       if (isNoResponseEpisodeAlreadyReengaged(contact.wa_last_reengaged_at, lastUserAtIso)) {
         bump(summary, "already_reengaged_episode");
+        continue;
+      }
+
+      const audienceMessages = await fetchAudienceMessages({
+        admin: input.admin,
+        businessSlug,
+        sessionIds,
+        lastUserAtIso,
+        nowMs,
+      });
+      if (!audienceMessages) {
+        bump(summary, "audience_query_failed");
+        continue;
+      }
+      const arboxUserId = String(contact.arbox_user_id ?? "").trim();
+      const blocks = noResponseAudienceBlocks({
+        sessionPhase: contact.session_phase,
+        arboxIsMember: contact.arbox_is_member === true,
+        inMemberSyncLog:
+          memberLogCandidateIds.has(String(contactId)) ||
+          (arboxUserId !== "" && memberLogs.userIds.has(arboxUserId)),
+        messages: audienceMessages,
+        lastUserAtIso,
+        nowMs,
+      });
+      if (blocks.length) {
+        console.info("[no-response-reengage] skip", {
+          reason: blocks[0],
+          blocks,
+          contact_id: contactId,
+        });
+        bump(summary, blocks[0]);
         continue;
       }
 
