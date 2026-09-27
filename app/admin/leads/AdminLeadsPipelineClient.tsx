@@ -22,6 +22,7 @@ import {
   applyManualPipelineStatus,
   isMarketingPipelineDropStatus,
   isMarketingPipelineDropTarget,
+  pipelineStatusKeepsScheduledCall,
   type MarketingPipelineDropStatus,
 } from "@/lib/marketing-pipeline-status";
 import {
@@ -146,7 +147,7 @@ function sortColumnLeads(status: PipelineStatus, rows: LeadRow[]): LeadRow[] {
   return [...rows].sort((a, b) => {
     const waiting = awaitingFirst(a, b);
     if (waiting !== 0) return waiting;
-    if (status === "requires_call") {
+    if (pipelineStatusKeepsScheduledCall(status)) {
       const diff = nextCallMs(a) - nextCallMs(b);
       if (diff !== 0) return diff;
     }
@@ -302,7 +303,13 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   const filteredLeads = useMemo(() => {
     return leads.filter((c) => {
       const status = leadStatus(c);
-      if (status === "requires_call" || c.marketing_relevance || isMarketingPipelineDropStatus(c.pipeline_status)) return true;
+      if (
+        pipelineStatusKeepsScheduledCall(status) ||
+        c.marketing_relevance ||
+        isMarketingPipelineDropStatus(c.pipeline_status)
+      ) {
+        return true;
+      }
       return matchesConversationDateRange(leadConversationAt(c), dateFrom, dateTo);
     });
   }, [leads, dateFrom, dateTo]);
@@ -330,7 +337,11 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   }, [grouped, columnOrder]);
 
   const overdueHuman = useMemo(() => {
-    return (grouped.get("requires_call") ?? []).filter((c) =>
+    const scheduled = [
+      ...(grouped.get("requires_call") ?? []),
+      ...(grouped.get("setup_call") ?? []),
+    ];
+    return scheduled.filter((c) =>
       isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm)
     ).length;
   }, [grouped, todayYmd, nowHm]);
@@ -390,14 +401,12 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
             return {
               ...applied,
               human_followup_at: j.human_followup_at ?? applied.human_followup_at,
-              next_call_at:
-                patch.status === "requires_call" || patch.status === "human_followup"
-                  ? (j.next_call_at ?? patch.next_call_at ?? applied.next_call_at)
-                  : null,
-              next_call_time:
-                patch.status === "requires_call" || patch.status === "human_followup"
-                  ? (j.next_call_time ?? toPipelineTime(patch.next_call_time) ?? applied.next_call_time ?? null)
-                  : null,
+              next_call_at: pipelineStatusKeepsScheduledCall(patch.status)
+                ? (j.next_call_at ?? patch.next_call_at ?? applied.next_call_at)
+                : null,
+              next_call_time: pipelineStatusKeepsScheduledCall(patch.status)
+                ? (j.next_call_time ?? toPipelineTime(patch.next_call_time) ?? applied.next_call_time ?? null)
+                : null,
               pipeline_status: patch.status,
               marketing_relevance: crm?.relevance ?? applied.marketing_relevance,
               marketing_stage: crm?.stage ?? applied.marketing_stage,
@@ -438,8 +447,9 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   async function moveLeadToStatus(phone: string, status: MarketingPipelineDropStatus, current: LeadRow) {
     if (leadStatus(current) === status) return;
     const snapshot = leads;
-    const nextCallAt = status === "requires_call" ? current.next_call_at || tomorrowYmd() : null;
-    const nextCallTime = status === "requires_call" ? toPipelineTime(current.next_call_time) : null;
+    const keepCall = pipelineStatusKeepsScheduledCall(status);
+    const nextCallAt = keepCall ? current.next_call_at || tomorrowYmd() : null;
+    const nextCallTime = keepCall ? toPipelineTime(current.next_call_time) : null;
     const crm = isMarketingAdminColumn(status) ? crmWriteForAdminColumn(status) : null;
     setLeads((prev) =>
       prev.map((row) => {
@@ -447,8 +457,8 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
         const applied = applyManualPipelineStatus(row, status, new Date().toISOString());
         return {
           ...applied,
-          next_call_at: status === "requires_call" ? nextCallAt : null,
-          next_call_time: status === "requires_call" ? nextCallTime : null,
+          next_call_at: keepCall ? nextCallAt : null,
+          next_call_time: keepCall ? nextCallTime : null,
           pipeline_status: status,
           marketing_relevance: crm?.relevance ?? row.marketing_relevance,
           marketing_stage: crm?.stage ?? row.marketing_stage,
@@ -637,7 +647,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                   <h2 className="text-sm font-semibold">{pipelineLabel(status)}</h2>
                   <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold">{columnLeads.length}</span>
                 </div>
-                {status === "requires_call" ? (
+                {pipelineStatusKeepsScheduledCall(status) ? (
                   <p className="mt-1 text-[11px] opacity-80">תאריך ושעה לשיחה הבאה · ממוין לפי הדחוף ביותר</p>
                 ) : (
                   <p className="mt-1 text-[11px] opacity-80">גררו ליד לכאן</p>
@@ -701,7 +711,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                         </button>
                         <p className="mt-1 text-[11px] text-zinc-500">שיחה אחרונה: {formatDateTime(leadConversationAt(c))}</p>
 
-                        {status === "requires_call" ? (
+                        {pipelineStatusKeepsScheduledCall(status) ? (
                           <div className="mt-2 space-y-1.5">
                             <span className={`text-[11px] ${overdue ? "font-semibold text-red-700" : "text-zinc-500"}`}>
                               {overdue ? "שיחה באיחור" : "שיחה הבאה"}
@@ -746,8 +756,8 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                                 const ok = await savePipeline(
                                   c.phone,
                                   {
-                                    human_followup: true,
-                                    status: "requires_call",
+                                    ...(status === "requires_call" ? { human_followup: true } : {}),
+                                    status,
                                     next_call_at: draft.date || todayYmd,
                                     next_call_time: draft.time || null,
                                   },

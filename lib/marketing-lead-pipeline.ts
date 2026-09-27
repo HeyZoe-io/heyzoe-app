@@ -6,6 +6,7 @@ import { markMarketingFollowupOptedOut } from "@/lib/marketing-followups";
 import {
   applyManualPipelineStatus,
   isMarketingPipelineDropStatus,
+  pipelineStatusKeepsScheduledCall,
   pipelineStatusStopsFollowups,
   pipelineStatusToNoteStatus,
   type MarketingPipelineDropStatus,
@@ -306,10 +307,11 @@ async function applyPipelineUpdate(
     throw new Error("migration_required");
   }
   const isHuman = status === "human_followup" || status === "requires_call";
-  const nextCallAt = isHuman
+  const keepsCall = pipelineStatusKeepsScheduledCall(status);
+  const nextCallAt = keepsCall
     ? toPipelineDateOnly(patch.next_call_at) ?? toPipelineDateOnly(existing?.next_call_at)
     : null;
-  const nextCallTime = isHuman
+  const nextCallTime = keepsCall
     ? patch.next_call_time === undefined
       ? toPipelineTime(existing?.next_call_time)
       : toPipelineTime(patch.next_call_time)

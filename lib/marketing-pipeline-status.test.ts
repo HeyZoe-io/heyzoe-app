@@ -37,6 +37,16 @@ assert.equal(marketingNoteStatusToPipeline("in_process"), null);
 assert.equal(pipelineStatusToNoteStatus("setup_call"), "setup_call");
 assert.equal(pipelineStatusStopsFollowups("setup_call"), true);
 
+const setupWithCall = applyManualPipelineStatus(
+  { ...base, next_call_at: "2026-10-02", next_call_time: "11:30" },
+  "setup_call",
+  nowIso
+);
+assert.equal(setupWithCall.pipeline_status, "setup_call");
+assert.equal(setupWithCall.human_followup_at, null);
+assert.equal(setupWithCall.next_call_at, "2026-10-02");
+assert.equal(setupWithCall.next_call_time, "11:30");
+
 const elin = applyMarketingLeadStatusHints(base, {
   registeredFromMessage: false,
   noteStatus: "registered",

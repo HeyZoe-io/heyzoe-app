@@ -91,6 +91,11 @@ export function pipelineStatusStopsFollowups(status: MarketingPipelineDropStatus
   return STOP_FOLLOWUPS.has(status);
 }
 
+/** עמודות עם תאריך ושעת שיחה עתידית: דורש שיחה ושיחת הקמה. */
+export function pipelineStatusKeepsScheduledCall(status: string | null | undefined): boolean {
+  return status === "requires_call" || status === "human_followup" || status === "setup_call";
+}
+
 function sessionPhaseWithoutRegistered(row: LeadRow): string | null {
   const phase = String(row.session_phase ?? "").trim();
   if (phase === "registered") return "cta";
@@ -186,9 +191,15 @@ export function applyManualPipelineStatus(
         next_call_at: row.next_call_at,
         next_call_time: row.next_call_time ?? null,
       };
+    case "setup_call":
+      return {
+        ...cleared,
+        human_followup_at: null,
+        next_call_at: row.next_call_at,
+        next_call_time: row.next_call_time ?? null,
+      };
     case "active":
     case "followup":
-    case "setup_call":
     case "template":
     case "none":
     case "in_process":
