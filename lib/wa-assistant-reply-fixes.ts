@@ -19,6 +19,7 @@ import {
   looksLikeBotConfigMetaReply,
 } from "@/lib/wa-bot-config-meta";
 import { rewriteAcademyReceptionistIdentity } from "@/lib/wa-owner-addressed-greeting";
+import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dates";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -630,6 +631,7 @@ export function applyKnownAssistantReplyFixes(
   s = stripTrailingMeanwhileFiller(s);
   s = replaceSlangJoyOpener(s);
   s = rewriteAcademyReceptionistIdentity(s, input.knowledge?.botName ?? "זואי");
+  s = stripExpiredDatedStatusFromReply(s);
   const lang = resolveReplyFixLanguage(input);
   if (looksLikeBotConfigMetaReply(s)) {
     return buildStudioScopeRedirectReply(lang);

@@ -27,6 +27,7 @@ import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-f
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildHolidayQuestionPromptRule } from "@/lib/wa-personal-blessing";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
+import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { studioOverviewCommunityClosing } from "@/lib/wa-studio-overview-intent";
 import {
@@ -702,8 +703,13 @@ function buildBookingTruthPromptBlock(waCtx: WhatsAppPromptContext | undefined):
 - במקום «אתה/את נרשמת» — תמיד: «ההרשמה היא לשיעור ניסיון של…»${repickAddon}`;
 }
 
-function formatBusinessFactsPromptBlock(knowledge: BusinessKnowledgePack | null): string {
-  const qaItems = formatKnowledgeQaForPrompt(knowledge?.knowledgeQa ?? []);
+function formatBusinessFactsPromptBlock(knowledge: BusinessKnowledgePack | null, now: Date): string {
+  const qaItems = formatKnowledgeQaForPrompt(
+    (knowledge?.knowledgeQa ?? []).map((pair) => ({
+      ...pair,
+      answer: annotateExpiredIsraelDates(pair.answer, now),
+    }))
+  );
   if (qaItems) {
     return `עובדות על העסק (ידע רשמי מבעל העסק — מקור אמת לשאלות פתוחות):
 ${FACT_QUOTE_RULES}
@@ -715,7 +721,7 @@ ${qaItems}`;
     return `עובדות על העסק (ידע רשמי מבעל העסק — מקור אמת לשאלות פתוחות):
 ${FACT_QUOTE_RULES}
 העובדות:
-${knowledge!.traits.map((t) => `- ${t}`).join("\n")}`;
+${knowledge!.traits.map((t) => `- ${annotateExpiredIsraelDates(t, now)}`).join("\n")}`;
   }
   return "";
 }
@@ -766,6 +772,7 @@ export function buildSystemPrompt(
   platform: ZoePlatformGuidelines = DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES,
   lastUserMessage?: string
 ): string {
+  const promptNow = new Date();
   const isWhatsApp = channel === "whatsapp";
   const customerPhoneRaw = knowledge?.customerServicePhone?.trim() ?? "";
   const customerPhoneDisplay = customerPhoneRaw || "לא הוגדר";
@@ -808,7 +815,7 @@ export function buildSystemPrompt(
     isWhatsApp && waCtx?.pendingWarmupExperienceResume
       ? "- הלקוח שאל שאלה פתוחה לפני שענה על שאלת החימום (כפתורים). עני רק על השאלה הפתוחה. מותר משפט גשר קצר כמו «עכשיו, בחזרה לשאלה שלנו» — בלי לחזור על נוסח השאלה ואסור לרשום את אפשרויות הכפתורים בטקסט; המערכת תשלח את השאלה שוב עם כפתורים אמיתיים."
       : "";
-  const promotionsText = knowledge?.promotionsText?.trim() ?? "";
+  const promotionsText = annotateExpiredIsraelDates(knowledge?.promotionsText?.trim() ?? "", promptNow);
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
     : "- אם נשאלת על הנחה או מבצע ואין מידע בשדה «הנחות ומבצעים» - אל תמציאי; אמרי שאין לך מבצע מוגדר כרגע והציעי לבדוק מול העסק.";
@@ -893,17 +900,17 @@ ${waResponseShapeBlock}
 
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
-תיאור עסק: ${knowledge?.businessDescription ?? "לא הוגדר"}
-${formatBusinessFactsPromptBlock(knowledge)}
+תיאור עסק: ${annotateExpiredIsraelDates(knowledge?.businessDescription ?? "", promptNow) || "לא הוגדר"}
+${formatBusinessFactsPromptBlock(knowledge, promptNow)}
 הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
 שירותים:
-${knowledge?.servicesText ?? "לא הוגדר"}
-${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${knowledge.membershipsAndCardsText}\n` : ""}FAQ:
-${knowledge?.faqsText ?? "לא הוגדר"}
+${annotateExpiredIsraelDates(knowledge?.servicesText ?? "", promptNow) || "לא הוגדר"}
+${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${annotateExpiredIsraelDates(knowledge.membershipsAndCardsText, promptNow)}\n` : ""}FAQ:
+${annotateExpiredIsraelDates(knowledge?.faqsText ?? "", promptNow) || "לא הוגדר"}
 CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא הוגדר"}
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}
 יתרונות: ${knowledge?.benefitsText ?? "לא הוגדר"}
-שעות פעילות: ${knowledge?.scheduleText ?? "לא הוגדר"}
+שעות פעילות: ${annotateExpiredIsraelDates(knowledge?.scheduleText ?? "", promptNow) || "לא הוגדר"}
 טלפון שירות לקוחות (לפניה ישירה כשאין תשובה מדויקת בידע): ${customerPhoneDisplay}
 ${formatUnknownKnowledgeBlock(customerPhoneDisplay, platform)}
 ${platformSection}

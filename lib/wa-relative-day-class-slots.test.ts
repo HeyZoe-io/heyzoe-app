@@ -217,6 +217,7 @@ async function main() {
     assert.match(block, /ימים קרובים: שלישי 1\.9, רביעי 2\.9/);
     assert.match(block, /ראשון 6\.9/);
     assert.match(block, /ידע עם אותו תאריך/);
+    assert.match(block, /אינו בתוקף/);
   }
 
   {
