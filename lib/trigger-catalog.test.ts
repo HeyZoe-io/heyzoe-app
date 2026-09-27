@@ -175,6 +175,10 @@ function triggerCatalogAudience(type: string) {
     hasArbox: true,
   }).map((o) => o.value as string);
   assert.ok(memberTypes.includes("purchase"));
+  assert.ok(
+    memberTypes.indexOf("first_paid_purchase") < memberTypes.indexOf("purchase"),
+    "first paid purchase sits above the general purchase trigger"
+  );
   assert.ok(memberTypes.includes("birthday"));
   assert.ok(memberTypes.includes("membership_cancelled"));
   assert.ok(memberTypes.includes("missed_class"));

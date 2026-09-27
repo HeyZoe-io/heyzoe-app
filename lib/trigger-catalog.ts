@@ -61,7 +61,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "purchase",
-    uiOrder: 4,
+    uiOrder: 4.5,
     sendHintHe: SEND_HINT_FREQUENT_HE,
   },
   {
@@ -78,7 +78,7 @@ export const TRIGGER_CATALOG = [
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "first_paid_purchase",
-    uiOrder: 4.5,
+    uiOrder: 4,
     sendHintHe: "נשלח פעם אחת, ברכישה הראשונה של מנוי או כרטיסייה (לא ניסיון)",
   },
   {
