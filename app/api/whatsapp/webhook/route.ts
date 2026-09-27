@@ -380,6 +380,7 @@ import {
   inboundBlessingWithBusinessQuestion,
   inboundLooksLikePersonalBlessing,
   pickPersonalBlessingReply,
+  stripUnsolicitedHolidayTeamLine,
   WA_PERSONAL_BLESSING_ACK_MODEL,
 } from "@/lib/wa-personal-blessing";
 import {
@@ -12579,6 +12580,8 @@ async function processIncoming(
       incomingRaw,
       knowledge?.businessName ?? ""
     );
+  } else if (!isFallbackErrorReply && didCallClaude) {
+    replyCoreClean = stripUnsolicitedHolidayTeamLine(replyCoreClean, incomingRaw);
   }
 
   if (!isFallbackErrorReply && didCallClaude) {

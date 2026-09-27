@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { buildSystemPrompt } from "@/lib/business-context";
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import {
   assistantReplyDecodesPersonalMessage,
@@ -6,6 +7,7 @@ import {
   inboundBlessingWithBusinessQuestion,
   inboundLooksLikePersonalBlessing,
   pickPersonalBlessingReply,
+  stripUnsolicitedHolidayTeamLine,
 } from "@/lib/wa-personal-blessing";
 
 const YOM_KIPPUR_SHARE = `באחת התפילות של יום כיפור יש ציטוט מעניין שהמקור שלו בגמרא.
@@ -55,5 +57,24 @@ assert.equal(
   false
 );
 assert.match(buildOffTopicStudioPromptRule(""), /אל תפענחי/);
+assert.doesNotMatch(buildOffTopicStudioPromptRule(""), /גמר חתימה טובה/);
+assert.doesNotMatch(buildSystemPrompt(null, "limitless", "whatsapp"), /גמר חתימה טובה/);
+
+const GAL_INBOUND = `היי🤍
+שילמתי, קבעתי טנטטיבית אבל זה מתנה. יש לה יומולדת 30 וזה מתנה.
+תודה רבה🤍🙏`;
+const GAL_LEAK =
+  "תודה רבה! 🤍 גמר חתימה טובה מכל צוות Limitless! אני מעבירה את הפרטים של רוני לצוות.";
+assert.equal(
+  stripUnsolicitedHolidayTeamLine(GAL_LEAK, GAL_INBOUND),
+  "אני מעבירה את הפרטים של רוני לצוות."
+);
+assert.equal(
+  stripUnsolicitedHolidayTeamLine(
+    "תודה רבה! גמר חתימה טובה מכל צוות יקמה! ❤️\n\nהיום אנחנו פתוחים עד 21:00.",
+    "גמר חתימה טובה, מתי אתם פתוחים?"
+  ),
+  "תודה רבה! גמר חתימה טובה מכל צוות יקמה! ❤️\n\nהיום אנחנו פתוחים עד 21:00."
+);
 
 console.log("wa-personal-blessing.test.ts: ok");

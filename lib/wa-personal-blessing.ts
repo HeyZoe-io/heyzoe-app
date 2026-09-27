@@ -65,6 +65,24 @@ export function pickPersonalBlessingReply(raw: string, studioName: string): stri
   return `תודה רבה! ${blessing} מכל צוות ${name}! ❤️`;
 }
 
+const UNSOLICITED_TEAM_BLESSING_RE =
+  /^תודה רבה!\s*(?:[\p{Extended_Pictographic}\uFE0F\u200D\s]*)?(?:גמר חתימה טובה|צום קל|שנה טובה|חג כשר ושמח|חנוכה שמח|פורים שמח|חג סוכות שמח|חג שבועות שמח|שבת שלום|שבוע טוב|מזל טוב|חג שמח)\s*מכל צוות\s+[^!\n]{1,120}!\s*/u;
+
+/**
+ * מסיר שורת «תודה רבה! … מכל צוות …» כשהלקוח לא כתב ברכת חג.
+ * הפרומפט הקבוע הכיל דוגמה כזו, והמודל העתיק אותה גם לבקשות רגילות.
+ */
+export function stripUnsolicitedHolidayTeamLine(reply: string, inbound: string): string {
+  const body = String(reply ?? "").trim();
+  if (!body || pickHolidayBlessing(inbound)) return body;
+  return body
+    .replace(UNSOLICITED_TEAM_BLESSING_RE, "")
+    .replace(/גמר\s*חתימה\s*טובה!?/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** מוסיפה את שורת הברכה לפני מענה על שאלה שנשלחה יחד איתה. */
 export function ensureHolidayBlessingPrefix(reply: string, raw: string, studioName: string): string {
   const line = pickPersonalBlessingReply(raw, studioName);
