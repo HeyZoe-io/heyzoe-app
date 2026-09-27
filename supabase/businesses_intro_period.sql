@@ -1,5 +1,8 @@
 -- חודש ראשון ב-₪5 (מבצע לחגים). NULL = לא במבצע.
--- יש להריץ ב-Supabase לפני שהקרוון והאדמין מסתמכים על העמודות.
+-- בטוח להריץ שוב אחרי כשל. לא ממלא plan_price ישן (499/349) לכל העסקים.
+alter table public.businesses
+  add column if not exists plan_price numeric;
+
 alter table public.businesses
   add column if not exists intro_period_ends_at timestamptz;
 
@@ -22,11 +25,32 @@ create index if not exists idx_businesses_intro_reminder_due
     and intro_reminder_sent_at is null
     and intro_full_price_at is null;
 
--- לקוחות שכבר שילמו ₪5 לפני העמודה (רק premium במחיר 5, מהחודש האחרון).
-update public.businesses
-set intro_period_ends_at = created_at + interval '1 month'
-where plan_price = 5
-  and plan = 'premium'
-  and intro_period_ends_at is null
-  and intro_full_price_at is null
-  and created_at > now() - interval '40 days';
+-- מי שכבר שילם במבצע: לפי payment_sessions.plan = intro, לא לפי plan_price.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'payment_sessions'
+      and column_name = 'plan'
+  ) and exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'businesses'
+      and column_name = 'email'
+  ) then
+    update public.businesses b
+    set intro_period_ends_at = b.created_at + interval '1 month'
+    where b.intro_period_ends_at is null
+      and b.intro_full_price_at is null
+      and b.created_at > now() - interval '40 days'
+      and exists (
+        select 1
+        from public.payment_sessions ps
+        where lower(ps.plan) = 'intro'
+          and lower(ps.email) = lower(b.email)
+      );
+  end if;
+end $$;
