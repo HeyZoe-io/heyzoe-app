@@ -71,9 +71,7 @@ export async function GET(req: NextRequest) {
     model_used: ((m as { model_used?: string | null }).model_used as string | null) ?? null,
   }));
 
-  if (isMarketingConversationsSlug(slug)) {
-    out = await enrichZoeAdminTemplatePlaceholderMessages({ admin, messages: out });
-  } else {
+  if (!isMarketingConversationsSlug(slug)) {
     out = await appendLeadTemplateMessageFallback({
       admin,
       slug,
@@ -87,6 +85,7 @@ export async function GET(req: NextRequest) {
       messages: out,
     });
   }
+  out = await enrichZoeAdminTemplatePlaceholderMessages({ admin, messages: out });
 
   return NextResponse.json({ messages: out });
 }

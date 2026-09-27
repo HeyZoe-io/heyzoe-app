@@ -9,7 +9,10 @@ import {
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { appendLeadTemplateMessageFallback } from "@/lib/conversation-template-messages";
-import { hydrateUnsupportedZoeAdminMessages } from "@/lib/wa-zoe-admin-template-log";
+import {
+  enrichZoeAdminTemplatePlaceholderMessages,
+  hydrateUnsupportedZoeAdminMessages,
+} from "@/lib/wa-zoe-admin-template-log";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
 
@@ -78,6 +81,7 @@ export async function GET(req: NextRequest) {
     sessionId,
     messages: out,
   });
+  out = await enrichZoeAdminTemplatePlaceholderMessages({ admin, messages: out });
 
   return NextResponse.json({ messages: out });
 }
