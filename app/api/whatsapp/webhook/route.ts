@@ -10704,6 +10704,22 @@ async function processIncoming(
           return;
         }
 
+        if (wantsCustomLink && customLinkBtn && customLinkBtn.custom_cta_delivery === "text") {
+          const customText = String(customLinkBtn.custom_cta_text ?? "").trim();
+          if (customText) {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, customText, accountSid, authToken).catch((e) =>
+              console.error("[WA Webhook] Send custom CTA text failed:", e)
+            );
+            await logMessage({
+              business_slug,
+              role: "assistant",
+              content: customText,
+              model_used: "sales_flow_custom_text",
+              session_id: sessionId,
+            });
+            return;
+          }
+        }
         if (wantsCustomLink && customLinkUrl) {
           if (businessId) {
             try {

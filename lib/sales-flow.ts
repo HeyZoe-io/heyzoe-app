@@ -86,7 +86,7 @@ export type SalesFlowCtaKind =
   | "trial"
   | "memberships"
   | "address"
-  /** כפתור נוסף עם לינק קבוע מהדשבורד (לא מטאב מוצרים) */
+  /** כפתור נוסף מהדשבורד — לינק או טקסט חופשי (לא מטאב מוצרים) */
   | "custom_link"
   /** מוצג אחרי לחיצה על «מחירי מנויים» באותה ריצה — לא נשמר בדשבורד */
   | "human_contact"
@@ -121,6 +121,8 @@ export function membershipsPriceRangeWhatsAppText(rangeLine: string): string {
   return r ? `טווח מחירים למנויים/כרטיסיות: ${r}` : "";
 }
 
+export type CustomCtaDelivery = "link" | "text";
+
 export type SalesFlowCtaButton = {
   id: string;
   label: string;
@@ -137,9 +139,17 @@ export type SalesFlowCtaButton = {
   memberships_price_range_max?: string;
   /** workshop_purchase | course_enroll — לינק מתוך השירות או טל׳ שירות לקוחות */
   secondary_purchase_delivery?: SecondaryPurchaseCtaDelivery;
-  /** רק custom_link — לינק קבוע מהדשבורד */
+  /** רק custom_link — לינק קבוע או טקסט חופשי מהדשבורד */
+  custom_cta_delivery?: CustomCtaDelivery;
   custom_cta_url?: string;
+  custom_cta_text?: string;
 };
+
+const CUSTOM_CTA_TEXT_MAX_CHARS = 1000;
+
+function clampCustomCtaTextInput(value: string): string {
+  return String(value ?? "").slice(0, CUSTOM_CTA_TEXT_MAX_CHARS);
+}
 
 export const CUSTOM_LINK_CTA_ID = "cta-custom-link";
 
@@ -152,12 +162,14 @@ export function isValidSalesFlowHttpUrl(url: string): boolean {
   return u.startsWith("https://") || u.startsWith("http://");
 }
 
+export function customCtaDeliveryOf(b: Pick<SalesFlowCtaButton, "custom_cta_delivery">): CustomCtaDelivery {
+  return b.custom_cta_delivery === "text" ? "text" : "link";
+}
+
 export function isCustomLinkCtaEnabled(b: SalesFlowCtaButton): boolean {
-  return (
-    isCustomLinkCtaButton(b) &&
-    Boolean(String(b.label ?? "").trim()) &&
-    isValidSalesFlowHttpUrl(String(b.custom_cta_url ?? ""))
-  );
+  if (!isCustomLinkCtaButton(b) || !String(b.label ?? "").trim()) return false;
+  if (customCtaDeliveryOf(b) === "text") return Boolean(String(b.custom_cta_text ?? "").trim());
+  return isValidSalesFlowHttpUrl(String(b.custom_cta_url ?? ""));
 }
 
 export function defaultCustomLinkCtaButton(): SalesFlowCtaButton {
@@ -165,7 +177,9 @@ export function defaultCustomLinkCtaButton(): SalesFlowCtaButton {
     id: CUSTOM_LINK_CTA_ID,
     label: "",
     kind: "custom_link",
+    custom_cta_delivery: "link",
     custom_cta_url: "",
+    custom_cta_text: "",
   };
 }
 
@@ -174,29 +188,69 @@ export function normalizeCustomLinkCtaButton(button: SalesFlowCtaButton): SalesF
     id: String(button.id ?? "").trim() || CUSTOM_LINK_CTA_ID,
     label: truncateWaButtonLabel(button.label ?? ""),
     kind: "custom_link",
+    custom_cta_delivery: customCtaDeliveryOf(button),
     custom_cta_url: String(button.custom_cta_url ?? "").trim(),
+    custom_cta_text: clampCustomCtaTextInput(String(button.custom_cta_text ?? "").trim()),
   };
 }
 
 export function upsertCustomLinkCtaButton(
   buttons: SalesFlowCtaButton[],
-  patch: Partial<Pick<SalesFlowCtaButton, "label" | "custom_cta_url">>
+  patch: Partial<Pick<SalesFlowCtaButton, "label" | "custom_cta_url" | "custom_cta_text" | "custom_cta_delivery">>
 ): SalesFlowCtaButton[] {
   const idx = buttons.findIndex(isCustomLinkCtaButton);
   const merged = {
     ...(idx >= 0 ? buttons[idx]! : defaultCustomLinkCtaButton()),
     ...patch,
   };
-  // חיתוך אורך בלבד בזמן הקלדה — בלי trim, כדי שאפשר יהיה להקליד רווחים בתווית / בלינק.
+  // חיתוך אורך בלבד בזמן הקלדה — בלי trim, כדי שאפשר יהיה להקליד רווחים בתווית / בלינק / בטקסט.
   // הנרמול המלא (trim) קורה ב-serializeSalesFlowConfig / parseCtaButtons.
   const next: SalesFlowCtaButton = {
     id: String(merged.id ?? "").trim() || CUSTOM_LINK_CTA_ID,
     label: clampWaButtonLabelInput(merged.label ?? ""),
     kind: "custom_link",
+    custom_cta_delivery: customCtaDeliveryOf(merged),
     custom_cta_url: String(merged.custom_cta_url ?? ""),
+    custom_cta_text: clampCustomCtaTextInput(String(merged.custom_cta_text ?? "")),
   };
-  if (idx < 0) return [...buttons, next];
+  if (idx < 0) return insertCustomLinkCtaButton(buttons, next);
   return buttons.map((b, i) => (i === idx ? next : b));
+}
+
+/** כפתור נוסף נכנס לפני «מחירי מנויים» — אותו מקום שהיה לו לפני שאפשר היה לשנות סדר. */
+export function insertCustomLinkCtaButton(
+  buttons: SalesFlowCtaButton[],
+  button: SalesFlowCtaButton = defaultCustomLinkCtaButton()
+): SalesFlowCtaButton[] {
+  if (buttons.some(isCustomLinkCtaButton)) return buttons;
+  const memIdx = buttons.findIndex((b) => b.kind === "memberships" || b.id === "cta-memberships");
+  if (memIdx < 0) return [...buttons, button];
+  return [...buttons.slice(0, memIdx), button, ...buttons.slice(memIdx)];
+}
+
+export function removeCustomLinkCtaButton(buttons: SalesFlowCtaButton[]): SalesFlowCtaButton[] {
+  return buttons.filter((b) => !isCustomLinkCtaButton(b));
+}
+
+/** משנה סדר של הכפתורים הגלויים, ומשאיר כפתורים מוסתרים (למשל מערכת שעות) במקומם. */
+export function reorderCtaButtonsByVisibleIds(
+  buttons: SalesFlowCtaButton[],
+  visibleIdsInOrder: string[]
+): SalesFlowCtaButton[] {
+  const wanted = new Set(visibleIdsInOrder);
+  const positions: number[] = [];
+  buttons.forEach((b, i) => {
+    if (wanted.has(b.id)) positions.push(i);
+  });
+  if (positions.length !== visibleIdsInOrder.length) return buttons;
+  const byId = new Map(buttons.map((b) => [b.id, b]));
+  const next = [...buttons];
+  for (let i = 0; i < positions.length; i++) {
+    const btn = byId.get(visibleIdsInOrder[i]!);
+    if (!btn) return buttons;
+    next[positions[i]!] = btn;
+  }
+  return next;
 }
 
 export type SalesFlowConfig = {
@@ -228,6 +282,11 @@ export type SalesFlowConfig = {
   opening_extra_steps_course: SalesFlowExtraStep[];
   cta_body: string;
   cta_buttons: SalesFlowCtaButton[];
+  /**
+   * כש-true, סדר cta_buttons הוא הסדר שהמשתמש קבע.
+   * בלי הדגל — כפתור custom_link נשאר לפני מנויים (תאימות לעסקים קיימים).
+   */
+  cta_buttons_order_explicit?: boolean;
   /** סשן הנעה — סדנה (רק כשיש שירותי סדנה) */
   cta_workshop_body: string;
   cta_workshop_buttons: SalesFlowCtaButton[];
@@ -813,7 +872,7 @@ function parseExtraSteps(raw: unknown): SalesFlowExtraStep[] {
     .filter((x): x is SalesFlowExtraStep => x !== null);
 }
 
-function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
+function parseCtaButtons(raw: unknown, orderExplicit = false): SalesFlowCtaButton[] {
   if (!Array.isArray(raw)) return structuredClone(FRIENDLY.cta_buttons);
   const out: SalesFlowCtaButton[] = [];
   for (const x of raw) {
@@ -880,15 +939,24 @@ function parseCtaButtons(raw: unknown): SalesFlowCtaButton[] {
           }
         : {}),
       ...(kind === "custom_link"
-        ? { custom_cta_url: typeof o.custom_cta_url === "string" ? o.custom_cta_url.trim() : "" }
+        ? {
+            custom_cta_delivery: o.custom_cta_delivery === "text" ? "text" : "link",
+            custom_cta_url: typeof o.custom_cta_url === "string" ? o.custom_cta_url.trim() : "",
+            custom_cta_text: typeof o.custom_cta_text === "string" ? o.custom_cta_text.trim() : "",
+          }
         : {}),
     });
   }
+  if (orderExplicit) {
+    return out.map((btn, i) => normalizeCtaButtonForSlot(btn, i));
+  }
   const extras = out.filter(isCustomLinkCtaButton).map(normalizeCustomLinkCtaButton);
   const locked = out.filter((b) => !isCustomLinkCtaButton(b));
-  const base = locked.length ? locked : structuredClone(FRIENDLY.cta_buttons);
-  const extra = extras[0] ? [normalizeCustomLinkCtaButton(extras[0])] : [];
-  return [...base.map((btn, i) => normalizeCtaButtonForSlot(btn, i)), ...extra];
+  const base = (locked.length ? locked : structuredClone(FRIENDLY.cta_buttons)).map((btn, i) =>
+    normalizeCtaButtonForSlot(btn, i)
+  );
+  // שמירות ישנות שמו את הכפתור בסוף המערך; בווטסאפ הוא הוצג לפני מנויים.
+  return extras[0] ? insertCustomLinkCtaButton(base, extras[0]) : base;
 }
 
 type SalesFlowLockedCtaKind = "trial" | "schedule" | "memberships";
@@ -1138,6 +1206,7 @@ export type EffectiveSalesFlowCtaInput = {
 
 /**
  * סינון כפתורי CTA בשיחת ווטסאפ:
+ * - הסדר הוא סדר המערך (אחרי מיגרציה: כפתור נוסף ישן נשאר לפני מנויים).
  * - כפתור שנלחץ (ב־sf_clicked_cta_kinds) לא מוצג שוב באותו סשן — חוץ מ«הרשמה לניסיון» (trial לא נסגר).
  * - איפוס ב«היי» מרוקן consumed — כל הכפתורים חוזרים.
  * - פלואו בחירת מועד בצ'אט (לא הרשמה ישירה) מסיר schedule מהבנק בנפרד (filterTrialCtaButtonsAfterSchedule).
@@ -1149,60 +1218,39 @@ export function getEffectiveSalesFlowCtaButtons(
   const consumed = new Set(
     (Array.from(input.consumedNonTrialKinds) as string[]).map((k) => String(k ?? "").trim()).filter(Boolean)
   );
-  let out = [...buttons];
+  const hideTrial = input.trialRegistered === true && !input.allowTrialCta;
+  const memBtn = buttons.find((b) => b.kind === "memberships");
+  const memEnabled = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+  const replaceMemberships = memEnabled && consumed.has("memberships") && !consumed.has("human_contact");
 
-  if (input.trialRegistered === true && !input.allowTrialCta) {
-    out = out.filter((b) => b.kind !== "trial");
-  }
-  out = out.filter((b) => {
+  const visible = (b: SalesFlowCtaButton): boolean => {
     if (b.kind === "trial") {
+      if (hideTrial) return false;
       if ((b.trial_cta_delivery ?? "link") === "none") return false;
       return true;
     }
-    if (b.kind === "custom_link") {
-      return isCustomLinkCtaEnabled(b);
-    }
-    if (b.kind === "schedule") {
-      if ((b.schedule_cta_delivery ?? "link") === "none") return false;
-    }
-    if (b.kind === "memberships") {
-      if ((b.memberships_cta_delivery ?? "link") === "none") return false;
-    }
-    if (b.kind === "human_contact") {
-      return !consumed.has("human_contact");
-    }
+    if (b.kind === "custom_link") return isCustomLinkCtaEnabled(b);
+    if (b.kind === "schedule" && (b.schedule_cta_delivery ?? "link") === "none") return false;
+    if (b.kind === "memberships" && (b.memberships_cta_delivery ?? "link") === "none") return false;
+    if (b.kind === "human_contact") return !consumed.has("human_contact");
     if (b.kind === "schedule" || b.kind === "memberships" || b.kind === "address") {
       return !consumed.has(b.kind);
     }
-    if (b.kind === "workshop_purchase" || b.kind === "course_enroll") {
-      return !consumed.has(b.kind);
-    }
-    if (b.kind === "workshop_contact" || b.kind === "course_contact") {
-      return !consumed.has(b.kind);
-    }
+    if (b.kind === "workshop_purchase" || b.kind === "course_enroll") return !consumed.has(b.kind);
+    if (b.kind === "workshop_contact" || b.kind === "course_contact") return !consumed.has(b.kind);
     return true;
-  });
-
-  const memBtn = buttons.find((b) => b.kind === "memberships");
-  const memEnabled = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
-  if (memEnabled && consumed.has("memberships") && !consumed.has("human_contact")) {
-    out.push(membershipsHumanContactButton(memBtn));
-  }
-
-  const order: Record<SalesFlowCtaKind, number> = {
-    trial: 0,
-    schedule: 1,
-    // הכפתור המותאם יושב בדיוק לפני «מחירי מנויים»
-    custom_link: 2,
-    memberships: 3,
-    human_contact: 3,
-    address: 4,
-    workshop_purchase: 5,
-    workshop_contact: 6,
-    course_enroll: 7,
-    course_contact: 8,
   };
-  return [...out].sort((a, b) => (order[a.kind] ?? 99) - (order[b.kind] ?? 99));
+
+  const out: SalesFlowCtaButton[] = [];
+  for (const b of buttons) {
+    if (b.kind === "memberships" && replaceMemberships) {
+      out.push(membershipsHumanContactButton(memBtn));
+      continue;
+    }
+    if (!visible(b)) continue;
+    out.push(b);
+  }
+  return out;
 }
 
 /** סינון כפתורי CTA לסדנה/קורס (לא מסירים לפי trial_registered) */
@@ -1918,7 +1966,11 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
     cta_body: migrateCtaBodyDisplayPlaceholders(
       migrateLegacyCtaBody(typeof o.cta_body === "string" ? o.cta_body : base.cta_body, base.cta_body)
     ),
-    cta_buttons: migrateLegacyCtaButtons(parseCtaButtons(o.cta_buttons), base.cta_buttons).map((btn, i) =>
+    cta_buttons_order_explicit: o.cta_buttons_order_explicit === true,
+    cta_buttons: migrateLegacyCtaButtons(
+      parseCtaButtons(o.cta_buttons, o.cta_buttons_order_explicit === true),
+      base.cta_buttons
+    ).map((btn, i) =>
       isCustomLinkCtaButton(btn) ? normalizeCustomLinkCtaButton(btn) : normalizeCtaButtonForSlot(btn, i)
     ),
     cta_workshop_body:
@@ -2160,10 +2212,13 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
         row.memberships_price_range_max = max;
       }
       if (b.kind === "custom_link") {
+        row.custom_cta_delivery = customCtaDeliveryOf(b);
         row.custom_cta_url = String(b.custom_cta_url ?? "").trim();
+        row.custom_cta_text = clampCustomCtaTextInput(String(b.custom_cta_text ?? "").trim());
       }
       return row;
     }),
+    ...(c.cta_buttons_order_explicit ? { cta_buttons_order_explicit: true } : {}),
     cta_extra_steps: c.cta_extra_steps.map((s) => ({
       id: s.id,
       question: s.question,
@@ -3458,7 +3513,9 @@ export function formatSalesFlowForPrompt(
           : b.kind === "trial"
             ? "כשמשתמש בוחר: לינק הרשמה/תשלום משדה הקישור באימון הניסיון שנבחר (טאב אימון ניסיון)"
             : b.kind === "custom_link"
-              ? "כשמשתמש בוחר: לינק קבוע מהדשבורד בסשן הנעה לפעולה (לא מטאב מוצרים)"
+              ? customCtaDeliveryOf(b) === "text"
+                ? `כשמשתמש בוחר: שולחים את הטקסט החופשי מהדשבורד: ${String(b.custom_cta_text ?? "").trim()}`
+                : "כשמשתמש בוחר: לינק קבוע מהדשבורד בסשן הנעה לפעולה (לא מטאב מוצרים)"
             : b.kind === "address"
               ? "משיב עם הכתובת של העסק מהדשבורד"
             : b.kind === "memberships"
