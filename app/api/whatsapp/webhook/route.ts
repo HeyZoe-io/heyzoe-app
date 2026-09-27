@@ -6300,7 +6300,6 @@ async function processIncoming(
   let contactScheduleRequestedTime = "";
   let contactWaUiLang = "";
   let contactId: string | number | null = null;
-  let starterQuotaNoticeMonth: string | null = null;
   /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
   let contactInstagramFollowPromptSent = false;
   /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
@@ -6463,8 +6462,6 @@ async function processIncoming(
 
       const cid = (contactRow as any)?.id;
       contactId = cid !== undefined && cid !== null ? cid : null;
-      const sqm = (contactRow as any)?.starter_quota_notice_month;
-      starterQuotaNoticeMonth = typeof sqm === "string" && sqm.trim() ? sqm.trim() : null;
 
       const rawKinds = (contactRow as any)?.sf_clicked_cta_kinds;
       if (Array.isArray(rawKinds)) {
@@ -7046,32 +7043,9 @@ async function processIncoming(
         businessId,
         bizRow: bizQuotaRow,
         contactId,
-        starterQuotaNoticeMonth,
         phone: msg.from,
       });
       if (quotaResult.action === "silent_stop") {
-        return;
-      }
-      if (quotaResult.action === "starter_cap_message") {
-        try {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, quotaResult.message, accountSid, authToken);
-        } catch (e) {
-          console.error("[WA Webhook] starter quota cap reply failed:", e);
-          return;
-        }
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: quotaResult.message,
-          model_used: "starter_quota_cap_notice",
-          session_id: sessionId,
-        });
-        const up = await supabase
-          .from("contacts")
-          .update({ starter_quota_notice_month: quotaResult.markMonth })
-          .eq("business_id", businessId)
-          .eq("phone", msg.from);
-        if (up.error) console.warn("[WA Webhook] starter_quota_notice_month update:", up.error.message);
         return;
       }
     } catch (e) {

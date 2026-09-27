@@ -35,20 +35,6 @@ function resolveBillingUrl(siteBase: string, slug: string): string {
   return `${base}/${encodeURIComponent(cleanSlug)}/account/billing`;
 }
 
-function extractCustomerServicePhone(socialLinks: unknown): string {
-  if (!socialLinks || typeof socialLinks !== "object" || Array.isArray(socialLinks)) return "";
-  const sl = socialLinks as Record<string, unknown>;
-  return typeof sl.customer_service_phone === "string" ? sl.customer_service_phone.trim() : "";
-}
-
-export function buildStarterQuotaCapWhatsAppMessage(customerPhone: string): string {
-  const lines = ["שלום! כרגע אין באפשרותנו לענות דרך הצ'אט."];
-  const p = customerPhone.trim();
-  if (p) lines.push(`לשירות ניתן ליצור קשר בטלפון: ${p}`);
-  lines.push("נשמח לעזור 😊");
-  return lines.join("\n");
-}
-
 type BizQuotaRow = {
   id?: unknown;
   plan?: unknown;
@@ -180,23 +166,20 @@ export type MonthlyQuotaHandleInput = {
   businessId: string;
   bizRow: BizQuotaRow | null;
   contactId: number | string | null;
-  starterQuotaNoticeMonth: string | null;
   phone: string;
 };
 
-export type MonthlyQuotaResult =
-  | { action: "continue" }
-  | { action: "silent_stop" }
-  | { action: "starter_cap_message"; message: string; markMonth: string };
+export type MonthlyQuotaResult = { action: "continue" } | { action: "silent_stop" };
 
 /**
  * Starter: חסימה כשמספר חדש היה פותח שיחה מעבר למכסה.
  * נספרים רק מספרים שזואי דיברה איתם החודש (לא איש קשר שנוצר בלי מענה).
- * Starter + Pro: מיילי התראה (ב-Pro רק פנימי ב-450) לפי אותה ספירה.
+ * מעל המכסה זואי לא עונה, בלי הודעה ללקוח.
+ * Starter + Pro: מיילי התראה לבעלים (ב-Pro רק פנימי ב-450) לפי אותה ספירה.
  * IO לפנייה: COUNT ממוקד + קריאת שורה. בלי קריאות Claude/Meta נוספות. מעל המכסה אין קריאה ל-Claude.
  */
 export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleInput): Promise<MonthlyQuotaResult> {
-  const { admin, businessSlug, businessId, bizRow, contactId, starterQuotaNoticeMonth, phone } = params;
+  const { admin, businessSlug, businessId, bizRow, contactId, phone } = params;
 
   if (!bizRow || !businessId || !contactId) {
     return { action: "continue" };
@@ -208,7 +191,6 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   const businessName = String(bizRow.name ?? "").trim();
   const displayName = businessName || businessSlug || "שם";
   const bizEmail = String(bizRow.email ?? "").trim().toLowerCase();
-  const customerPhone = extractCustomerServicePhone(bizRow.social_links);
 
   const ymNow = formatIsraelYearMonth(new Date());
   const businessIdNum = Number(businessId);
@@ -247,13 +229,8 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   });
 
   if (starter && starterQuotaShouldBlock({ alreadyCounted: opened.alreadyCounted, monthlyCount })) {
-    if (starterQuotaNoticeMonth === ymNow) {
-      console.info("[conversation-quota] starter cap silence (already notified this IL month)", { cid });
-      return { action: "silent_stop" };
-    }
-    const message = buildStarterQuotaCapWhatsAppMessage(customerPhone);
-    console.warn("[conversation-quota] starter monthly cap exceeded — one notice", { monthlyCount });
-    return { action: "starter_cap_message", message, markMonth: ymNow };
+    console.warn("[conversation-quota] starter monthly cap — no customer reply", { monthlyCount, cid });
+    return { action: "silent_stop" };
   }
 
   const ownerNotificationsEligible = isBusinessEligibleForOwnerNotifications(bizRow);
