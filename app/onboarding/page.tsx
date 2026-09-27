@@ -27,7 +27,7 @@ const BUSINESS_TYPES = ["פילאטיס", "יוגה", "ג'ים", "קרוספיט
 
 const PLAN_INFO: Record<Plan, { name: string }> = {
   starter: { name: "Starter" },
-  intro: { name: "חודש ראשון · Pro" },
+  intro: { name: "מבצע לחגים · Pro" },
   pro: { name: "Pro" },
 };
 

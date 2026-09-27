@@ -2284,6 +2284,61 @@ section{padding:80px 6%;}
 .pricing-btn{width:100%;padding:13px;border-radius:30px;font-size:15px;font-weight:600;cursor:pointer;font-family:'Fredoka',sans-serif;border:none;transition:all 0.2s;}
 .pricing-btn-outline{background:transparent;color:var(--purple);border:2px solid var(--purple);}
 .pricing-btn-filled{background:linear-gradient(135deg,var(--purple),#a855f7);color:white;}
+.pricing-card.holiday{
+  background:
+    radial-gradient(circle at 8% 0%, rgba(255,224,138,0.42), transparent 34%),
+    radial-gradient(circle at 100% 100%, rgba(255,140,90,0.35), transparent 38%),
+    linear-gradient(155deg, #6e1028 0%, #c4324e 46%, #e8871a 100%);
+  border:2px solid #ffe08a;
+  box-shadow:0 18px 42px rgba(160,28,52,0.28);
+}
+.pricing-card.holiday:hover{transform:translateY(-6px);box-shadow:0 22px 48px rgba(160,28,52,0.36);}
+.pricing-card.holiday::before{
+  content:'';
+  position:absolute;inset:9px;border-radius:14px;
+  border:1px dashed rgba(255,224,138,0.55);
+  pointer-events:none;
+}
+.holiday-confetti{
+  position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background-image:
+    radial-gradient(circle, #ffe08a 1.4px, transparent 1.6px),
+    radial-gradient(circle, #fff 1.1px, transparent 1.3px),
+    radial-gradient(circle, #ffb3c7 1.3px, transparent 1.5px);
+  background-size:92px 74px, 120px 96px, 78px 68px;
+  background-position:10px 16px, 36px 6px, 18px 42px;
+  opacity:0.7;
+}
+.holiday-spark{
+  position:absolute;color:#ffe08a;line-height:1;pointer-events:none;z-index:2;
+  font-size:16px;text-shadow:0 0 10px rgba(255,224,138,0.8);
+}
+.holiday-spark--a{top:18px;left:18px;font-size:18px;}
+.holiday-spark--b{top:46px;left:34px;font-size:11px;opacity:0.85;}
+.holiday-spark--c{bottom:22px;left:16px;font-size:14px;}
+.holiday-spark--d{top:22px;right:18px;font-size:12px;opacity:0.9;}
+.pricing-card.holiday .pricing-badge{
+  background:linear-gradient(135deg,#ffe08a,#ffb703);
+  color:#6b1028;
+  z-index:2;
+}
+.pricing-card.holiday .pricing-name{color:#fff8e6;font-size:26px;position:relative;z-index:1;}
+.pricing-card.holiday .pricing-trial{color:#ffe08a;}
+.pricing-card.holiday .pricing-price{color:#ffe08a;}
+.pricing-card.holiday .pricing-vat,
+.pricing-card.holiday .pricing-period,
+.pricing-card.holiday .pricing-after{color:rgba(255,248,230,0.8);}
+.pricing-card.holiday .pricing-features li{color:rgba(255,255,255,0.94);position:relative;z-index:1;}
+.pricing-card.holiday .pricing-features li::before{
+  background:url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 8l3.5 3.5L13 4.5' stroke='%23ffe08a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.pricing-btn-holiday{
+  position:relative;z-index:1;
+  background:linear-gradient(135deg,#ffe08a,#ffb703);
+  color:#6b1028;
+  box-shadow:0 8px 18px rgba(70,8,24,0.22);
+}
+.pricing-btn-holiday:hover{transform:translateY(-1px);}
 
 /* BOT */
 .bot-section{background:var(--dark);padding:clamp(56px,8vh,72px) 6%;text-align:center;overflow-x:clip;}
@@ -2969,6 +3024,30 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
 
     <div class="trial-badge reveal" id="promoBadge">ללא דמי הקמה, ללא התחייבות.</div>
     <div class="pricing-grid reveal">
+      <div class="pricing-card holiday">
+        <span class="holiday-confetti" aria-hidden="true"></span>
+        <span class="holiday-spark holiday-spark--a" aria-hidden="true">✦</span>
+        <span class="holiday-spark holiday-spark--b" aria-hidden="true">✧</span>
+        <span class="holiday-spark holiday-spark--c" aria-hidden="true">✦</span>
+        <span class="holiday-spark holiday-spark--d" aria-hidden="true">✧</span>
+        <div class="pricing-badge">יכולות Pro</div>
+        <div class="pricing-name">מבצע לחגים!</div>
+        <div class="pricing-trial">רק לחודש הראשון</div>
+        <div class="pricing-price-row">
+          <div class="pricing-price">₪5</div>
+          <span class="pricing-vat">פלוס מע״מ</span>
+        </div>
+        <div class="pricing-period">לחודש הראשון</div>
+        <p class="pricing-after">לאחר מכן ₪299 או ₪429</p>
+        <ul class="pricing-features">
+          <li>כל מה שב-Starter</li>
+          <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
+          <li>עד 500 לידים בחודש</li>
+          <li>ליווי צמוד בהקמה</li>
+          <li>אנליטיקס מתקדם</li>
+        </ul>
+        <button class="pricing-btn pricing-btn-holiday" data-hz-label="מחירים: מבצע לחגים 5₪ - בואו נתחיל!" onclick="location.href='/onboarding?plan=intro'">בואו נתחיל!</button>
+      </div>
       <div class="pricing-card">
         <div class="pricing-name">Starter</div>
         <div class="pricing-trial" id="promoStarter">מחיר לכל החיים</div>
@@ -2988,25 +3067,6 @@ footer{background:#ffffff;padding:32px 6%;display:flex;align-items:center;justif
           <li>תמיכה בצ'אט</li>
         </ul>
         <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: Starter - בואו נתחיל!" onclick="location.href='/onboarding?plan=starter'">בואו נתחיל!</button>
-      </div>
-      <div class="pricing-card">
-        <div class="pricing-badge">יכולות Pro</div>
-        <div class="pricing-name">חודש ראשון</div>
-        <div class="pricing-trial">רק לחודש הראשון</div>
-        <div class="pricing-price-row">
-          <div class="pricing-price">₪5</div>
-          <span class="pricing-vat">פלוס מע״מ</span>
-        </div>
-        <div class="pricing-period">לחודש הראשון</div>
-        <p class="pricing-after">לאחר מכן ₪299 או ₪429</p>
-        <ul class="pricing-features">
-          <li>כל מה שב-Starter</li>
-          <li>שלבו תמונות וסרטונים בפלואו מכירה</li>
-          <li>עד 500 לידים בחודש</li>
-          <li>ליווי צמוד בהקמה</li>
-          <li>אנליטיקס מתקדם</li>
-        </ul>
-        <button class="pricing-btn pricing-btn-outline" data-hz-label="מחירים: חודש ראשון 5₪ - בואו נתחיל!" onclick="location.href='/onboarding?plan=intro'">בואו נתחיל!</button>
       </div>
       <div class="pricing-card featured">
         <div class="pricing-badge">הכי פופולרי</div>
@@ -4109,7 +4169,7 @@ const faqs = [
   {q:"האם אני חייב מערכת כמו ארבוקס, בוסטאפ וכו'?", a:'זואי שולחת את הליד לעמוד הסליקה שלכם. במידה ויש לכם לינקים למערכת שעות, דף מנויים וסליקה - מכל תוכנה שהיא - אתם מסודרים לחלוטין.'},
   {q:'האם אני יכול לצפות בשיחות שזואי מנהלת?', a:'כמובן! דרך הדשבורד, בטאב שיחות, תוכלו לראות את כל השיחות בזמן אמת, לעצור את זואי ולהתערב בשיחה עצמאית.'},
   {q:'האם אני חייב לקרוא לבוטית שלי זואי?', a:'האמת שלא :) מרגע שזואי תהיה שלך, היא יכולה להיקרא איך שתרצה, והיא תציג את עצמה ללקוחות באיזה שם שתבחר, אפילו אם השם יהיה אמנון.'},
-  {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'ב-Starter וב-Pro המחיר נשאר זהה לכל החיים. בחבילת «חודש ראשון» המחיר של 5 ₪ הוא רק לחודש הראשון, ואחר כך 299 ₪ או 429 ₪.'},
+  {q:'האם מחיר המבצע הוא רק לחודש הנוכחי?', a:'ב-Starter וב-Pro המחיר נשאר זהה לכל החיים. ב«מבצע לחגים» המחיר של 5 ₪ הוא רק לחודש הראשון, ואחר כך 299 ₪ או 429 ₪.'},
   {q:'האם יש עלויות נוספות לשליחת הודעות?', a:'השימוש בוואטסאפ מתחלק לשני מצבים:<br><br><strong>חינם לחלוטין:</strong> כשליד פותח שיחה בעצמו דרך מודעה (click-to-whatsapp), קישור או כפתור, כל השיחה עם זואי לא עולה כלום. זה המצב הנפוץ ביותר בעבודה עם HeyZoe.<br><br><strong>עם עלות:</strong> הודעות שזואי שולחת ביוזמתה (למשל שליחת וואטסאפ מקמפיין <em>לידים</em>) דורשות טמפלייט מאושר של מטא ועולות כמה סנט לכל הודעה.<br><br>החל מ־1.10.2026, הודעות יוצאות בשיחות שלא נפתחו דרך click-to-whatsapp יעלו בין 0.02 ₪ ל־0.13 ₪, בהתאם לסוג ההודעה (שיווקית או שירותית). הודעות בשיחות שנפתחו דרך click-to-whatsapp ימשיכו להיות ללא עלות במשך החלון.'},
   {q:'מה עם ליד שלא ענה לזואי?', a:'במידה ועברו 6 שעות והליד לא ענה לזואי, הוא נשלח אליכם ל-CRM לטיפול.'},
 ];
