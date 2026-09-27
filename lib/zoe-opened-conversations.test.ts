@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { STARTER_MONTHLY_CONTACT_LIMIT } from "@/lib/conversation-quota";
+import { STARTER_MONTHLY_CONTACT_LIMIT, starterQuotaShouldBlock } from "@/lib/conversation-quota";
 import {
   STARTER_MONTHLY_CONVERSATION_LIMIT,
   PRO_MONTHLY_CONVERSATION_LIMIT,
@@ -22,6 +22,12 @@ assert.equal(countsAsOpenedZoeConversation("claude-haiku-4-5"), true);
 assert.equal(countsAsOpenedZoeConversation("sales_flow"), true);
 assert.equal(countsAsOpenedZoeConversation("wa_followup_2"), true);
 assert.equal(countsAsOpenedZoeConversation("wa_outbound"), true);
+assert.equal(countsAsOpenedZoeConversation("starter_quota_cap_notice"), false);
+
+assert.equal(starterQuotaShouldBlock({ alreadyCounted: false, monthlyCount: 99 }), false);
+assert.equal(starterQuotaShouldBlock({ alreadyCounted: false, monthlyCount: 100 }), true);
+assert.equal(starterQuotaShouldBlock({ alreadyCounted: true, monthlyCount: 100 }), false);
+assert.equal(starterQuotaShouldBlock({ alreadyCounted: true, monthlyCount: 140 }), false);
 assert.equal(countsAsOpenedZoeConversation("wa_business_app"), false);
 assert.equal(countsAsOpenedZoeConversation("manual_handoff"), false);
 assert.equal(countsAsOpenedZoeConversation("lead_template"), false);

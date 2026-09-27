@@ -5,7 +5,7 @@
 -- להריץ פעם אחת ב-Supabase SQL editor. לא cron.
 -- IO חד-פעמי: אגרגציה על הודעות assistant של זואי + עדכון contacts תואמים.
 -- אחר כך הדשבורד סופר באינדקס (business_id, last_zoe_reply_at) בלי לסרוק messages.
--- מודלים שלא נספרים (כמו isZoeAssistantModel): wa_business_app, manual_handoff, lead_template.
+-- מודלים שלא נספרים: wa_business_app, manual_handoff, lead_template, starter_quota_cap_notice.
 
 alter table public.contacts
   add column if not exists last_zoe_reply_at timestamptz;
@@ -25,7 +25,7 @@ with raw as (
   from public.messages
   where role = 'assistant'
     and coalesce(model_used, '') <> ''
-    and model_used not in ('wa_business_app', 'manual_handoff', 'lead_template')
+    and model_used not in ('wa_business_app', 'manual_handoff', 'lead_template', 'starter_quota_cap_notice')
     and session_id ~ '^wa_[^_]+_.+'
 ),
 zoe_replies as (

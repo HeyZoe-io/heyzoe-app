@@ -29,8 +29,13 @@ const MESSAGE_SCAN_MAX_PAGES = 12;
 const businessIdBySlug = new Map<string, number>();
 let missingColumnLogged = false;
 
+/** הודעת «הגעתם למכסה» לא פותחת שיחה — אחרת החסימה הייתה נספרת ומתבטלת בפנייה הבאה. */
+const NOT_AN_OPENED_CONVERSATION = new Set(["starter_quota_cap_notice"]);
+
 export function countsAsOpenedZoeConversation(model: string | null | undefined): boolean {
-  return isZoeAssistantModel(model);
+  const value = String(model ?? "").trim();
+  if (NOT_AN_OPENED_CONVERSATION.has(value)) return false;
+  return isZoeAssistantModel(value);
 }
 
 export function monthlyConversationLimitForPlan(plan: unknown): number {
@@ -109,11 +114,11 @@ export async function touchContactLastZoeReply(input: {
   }
 }
 
-async function countOpenedZoeConversationsFromMessages(
+async function scanOpenedPhones(
   admin: SupabaseClient,
   businessSlug: string,
   sinceIso: string
-): Promise<number> {
+): Promise<Set<string> | null> {
   const slug = businessSlug.trim().toLowerCase();
   const phones = new Set<string>();
   for (let page = 0; page < MESSAGE_SCAN_MAX_PAGES; page += 1) {
@@ -128,7 +133,7 @@ async function countOpenedZoeConversationsFromMessages(
       .range(from, from + MESSAGE_PAGE - 1);
     if (error) {
       console.error("[zoe-opened] messages scan failed:", error.message);
-      return phones.size;
+      return phones.size ? phones : null;
     }
     const rows = data ?? [];
     for (const row of rows) {
@@ -137,10 +142,76 @@ async function countOpenedZoeConversationsFromMessages(
       const phone = openedConversationPhoneKey((row as { session_id?: string | null }).session_id);
       if (phone) phones.add(phone);
     }
-    if (rows.length < MESSAGE_PAGE) return phones.size;
+    if (rows.length < MESSAGE_PAGE) return phones;
   }
   console.warn("[zoe-opened] messages scan hit page cap; count may be low until migration runs:", slug);
-  return phones.size;
+  return phones;
+}
+
+export type OpenedQuotaSnapshot = {
+  count: number;
+  /** המספר כבר נספר החודש. המשך השיחה לא פותח שיחה חדשה ולא נחסם. */
+  alreadyCounted: boolean;
+};
+
+function phoneKeyForQuota(phone: string): string {
+  return canonicalContactPhone(phone) ?? phone.replace(/\D/g, "");
+}
+
+/**
+ * ספירת שיחות החודש + האם איש הקשר הזה כבר בתוכן.
+ * IO כשהעמודה קיימת: COUNT ממוקד + קריאת שורה אחת. לא סריקת messages.
+ * בלי העמודה: סריקה חסומה של הודעות assistant מהחודש (אותו חלון כמו הדשבורד).
+ * null = לא הצלחנו לקרוא. הקורא לא חוסם ולא שולח התראות על 0.
+ */
+export async function loadMonthlyOpenedQuota(input: {
+  admin: SupabaseClient;
+  businessId: number;
+  businessSlug: string;
+  contactId: string | number;
+  phone: string;
+  now?: Date;
+}): Promise<OpenedQuotaSnapshot | null> {
+  const since = openedConversationsSinceIso(input.now);
+  const [countRes, rowRes] = await Promise.all([
+    input.admin
+      .from("contacts")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", input.businessId)
+      .gte("last_zoe_reply_at", since),
+    input.admin
+      .from("contacts")
+      .select("last_zoe_reply_at")
+      .eq("business_id", input.businessId)
+      .eq("id", input.contactId)
+      .maybeSingle(),
+  ]);
+
+  const missingColumn =
+    (countRes.error && /last_zoe_reply_at/i.test(countRes.error.message)) ||
+    (rowRes.error && /last_zoe_reply_at/i.test(rowRes.error.message));
+
+  if (missingColumn) {
+    logMissingColumn("quota", countRes.error?.message || rowRes.error?.message || "missing column");
+    const phones = await scanOpenedPhones(input.admin, input.businessSlug, since);
+    if (!phones) return null;
+    const key = phoneKeyForQuota(input.phone);
+    return { count: phones.size, alreadyCounted: Boolean(key) && phones.has(key) };
+  }
+
+  if (countRes.error || rowRes.error) {
+    console.error(
+      "[zoe-opened] quota read failed:",
+      countRes.error?.message || rowRes.error?.message
+    );
+    return null;
+  }
+
+  const at = String((rowRes.data as { last_zoe_reply_at?: string | null } | null)?.last_zoe_reply_at ?? "");
+  return {
+    count: Number(countRes.count ?? 0) || 0,
+    alreadyCounted: Boolean(at) && at >= since,
+  };
 }
 
 export async function countOpenedZoeConversations(input: {
@@ -158,7 +229,8 @@ export async function countOpenedZoeConversations(input: {
   if (!error) return Number(count ?? 0) || 0;
   if (/last_zoe_reply_at/i.test(error.message)) {
     logMissingColumn("count", error.message);
-    return countOpenedZoeConversationsFromMessages(input.admin, input.businessSlug, since);
+    const phones = await scanOpenedPhones(input.admin, input.businessSlug, since);
+    return phones?.size ?? 0;
   }
   console.warn("[zoe-opened] count failed:", error.message);
   return 0;

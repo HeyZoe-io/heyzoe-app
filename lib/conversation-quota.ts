@@ -1,5 +1,5 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { formatIsraelYearMonth, getIsraelMonthStartUtc } from "@/lib/israel-time";
+import { formatIsraelYearMonth } from "@/lib/israel-time";
 import { isBusinessEligibleForOwnerNotifications } from "@/lib/notifications/business-notification-eligibility";
 import {
   sendEmail,
@@ -12,6 +12,7 @@ import {
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { resolveStarterQuotaWaTemplate } from "@/lib/quota-alert-template";
+import { loadMonthlyOpenedQuota } from "@/lib/zoe-opened-conversations";
 
 export const STARTER_MONTHLY_CONTACT_LIMIT = 100;
 
@@ -159,65 +160,18 @@ async function markQuotaWarningSent(
     .eq("id", bizId);
 }
 
-async function fetchMonthlyContactCount(
-  admin: AdminClient,
-  businessId: string,
-  monthStartIso: string
-): Promise<number> {
-  const { count, error } = await admin
-    .from("contacts")
-    .select("id", { count: "exact", head: true })
-    .eq("business_id", businessId)
-    .gte("created_at", monthStartIso);
-  if (error) {
-    console.warn("[conversation-quota] monthly contacts count failed:", error.message);
-    return 0;
-  }
-  return typeof count === "number" && Number.isFinite(count) ? count : 0;
-}
-
-/** מיקום contact בחודש (1-based), לפי created_at ואז id — רק כשצריך חסימת Starter */
-async function fetchContactRankInMonth(
-  admin: AdminClient,
-  businessId: string,
-  contactId: string | number,
-  monthStartIso: string
-): Promise<number | null> {
-  const { data: contact, error: contactErr } = await admin
-    .from("contacts")
-    .select("id, created_at")
-    .eq("business_id", businessId)
-    .eq("id", contactId)
-    .maybeSingle();
-  if (contactErr || !contact?.created_at) return null;
-
-  const createdAt = String(contact.created_at);
-  const id = contact.id;
-  if (createdAt < monthStartIso) return null;
-
-  const { count: strictlyBefore, error: beforeErr } = await admin
-    .from("contacts")
-    .select("id", { count: "exact", head: true })
-    .eq("business_id", businessId)
-    .gte("created_at", monthStartIso)
-    .lt("created_at", createdAt);
-  if (beforeErr) {
-    console.warn("[conversation-quota] rank before-count failed:", beforeErr.message);
-    return null;
-  }
-
-  const { count: sameTimestampNotAfter, error: sameErr } = await admin
-    .from("contacts")
-    .select("id", { count: "exact", head: true })
-    .eq("business_id", businessId)
-    .eq("created_at", createdAt)
-    .lte("id", id);
-  if (sameErr) {
-    console.warn("[conversation-quota] rank same-ts count failed:", sameErr.message);
-    return null;
-  }
-
-  return (strictlyBefore ?? 0) + (sameTimestampNotAfter ?? 0);
+/**
+ * שיחה חדשה נחסמת רק כשהמכסה כבר מלאה.
+ * מספר שזואי כבר דיברה איתו החודש ממשיך — הוא לא פותח שיחה נוספת.
+ */
+export function starterQuotaShouldBlock(input: {
+  alreadyCounted: boolean;
+  monthlyCount: number;
+  limit?: number;
+}): boolean {
+  if (input.alreadyCounted) return false;
+  const limit = input.limit ?? STARTER_MONTHLY_CONTACT_LIMIT;
+  return input.monthlyCount >= limit;
 }
 
 export type MonthlyQuotaHandleInput = {
@@ -236,8 +190,10 @@ export type MonthlyQuotaResult =
   | { action: "starter_cap_message"; message: string; markMonth: string };
 
 /**
- * Starter: חסימה כש-contact נוצר החודש והוא מעבר למכסה.
- * Starter + Pro: מיילי התראה (ב-Pro רק פנימי ב-450).
+ * Starter: חסימה כשמספר חדש היה פותח שיחה מעבר למכסה.
+ * נספרים רק מספרים שזואי דיברה איתם החודש (לא איש קשר שנוצר בלי מענה).
+ * Starter + Pro: מיילי התראה (ב-Pro רק פנימי ב-450) לפי אותה ספירה.
+ * IO לפנייה: COUNT ממוקד + קריאת שורה. בלי קריאות Claude/Meta נוספות. מעל המכסה אין קריאה ל-Claude.
  */
 export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleInput): Promise<MonthlyQuotaResult> {
   const { admin, businessSlug, businessId, bizRow, contactId, starterQuotaNoticeMonth, phone } = params;
@@ -254,39 +210,49 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
   const bizEmail = String(bizRow.email ?? "").trim().toLowerCase();
   const customerPhone = extractCustomerServicePhone(bizRow.social_links);
 
-  const monthStart = getIsraelMonthStartUtc();
-  const monthStartIso = monthStart.toISOString();
   const ymNow = formatIsraelYearMonth(new Date());
-
-  const monthlyCount = await fetchMonthlyContactCount(admin, businessId, monthStartIso);
-
-  const starter = planIsStarter(bizRow.plan);
-  const premium = planIsPremium(bizRow.plan);
-
-  let rankInMonth: number | null = null;
-  if (starter && monthlyCount > STARTER_MONTHLY_CONTACT_LIMIT) {
-    rankInMonth = await fetchContactRankInMonth(admin, businessId, contactId, monthStartIso);
+  const businessIdNum = Number(businessId);
+  if (!Number.isFinite(businessIdNum)) {
+    console.error("[conversation-quota] bad business id — not blocking", { businessSlug });
+    return { action: "continue" };
   }
 
+  const opened = await loadMonthlyOpenedQuota({
+    admin,
+    businessId: businessIdNum,
+    businessSlug,
+    contactId,
+    phone,
+  });
+  if (!opened) {
+    console.error("[conversation-quota] opened-conversation count unavailable — not blocking", {
+      businessSlug,
+    });
+    return { action: "continue" };
+  }
+
+  const monthlyCount = opened.count;
+  const starter = planIsStarter(bizRow.plan);
+  const premium = planIsPremium(bizRow.plan);
   const cid = String(contactId);
 
   console.info("[conversation-quota]", {
     businessSlug,
     monthlyCount,
-    rankInMonth,
+    alreadyCounted: opened.alreadyCounted,
     starter,
     premium,
     ymNow,
     phone_tail: phone.slice(-4),
   });
 
-  if (starter && rankInMonth !== null && rankInMonth > STARTER_MONTHLY_CONTACT_LIMIT) {
+  if (starter && starterQuotaShouldBlock({ alreadyCounted: opened.alreadyCounted, monthlyCount })) {
     if (starterQuotaNoticeMonth === ymNow) {
       console.info("[conversation-quota] starter cap silence (already notified this IL month)", { cid });
       return { action: "silent_stop" };
     }
     const message = buildStarterQuotaCapWhatsAppMessage(customerPhone);
-    console.warn("[conversation-quota] starter monthly cap exceeded — one notice", { rankInMonth, monthlyCount });
+    console.warn("[conversation-quota] starter monthly cap exceeded — one notice", { monthlyCount });
     return { action: "starter_cap_message", message, markMonth: ymNow };
   }
 
