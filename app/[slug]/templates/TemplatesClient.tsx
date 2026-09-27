@@ -1292,8 +1292,8 @@ export default function TemplatesClient({
         <h1 className="text-2xl font-semibold text-zinc-900 sm:text-3xl">אוטומציות</h1>
         <p className="text-sm leading-relaxed text-zinc-600 sm:text-[15px]">
           טמפלייטים הם הודעות מוכנות מראש שחייבות אישור של Meta כדי לשלוח בוואטסאפ מחוץ לחלון 24
-          השעות. כל טמפלייט עובר אישור במטא (לרוב כמה דקות). עלות למספר ישראלי: Utility כ-13
-          אגורות להודעה, Marketing כ-2 אגורות להודעה (נתון לשינוי ע״י Meta).
+          השעות. כל טמפלייט עובר אישור במטא (לרוב כמה דקות). עלות למספר ישראלי: Utility כ-2
+          אגורות להודעה, Marketing כ-13 אגורות להודעה (נתון לשינוי ע״י Meta).
         </p>
       </header>
 
@@ -2240,12 +2240,12 @@ export default function TemplatesClient({
             </p>
             <div className="space-y-2">
               <p>
-                <span className="font-medium text-zinc-800">UTILITY (עדכון עסקה) - 13 אגורות להודעה:</span>{" "}
+                <span className="font-medium text-zinc-800">UTILITY (עדכון עסקה) - 2 אגורות להודעה:</span>{" "}
                 הודעה שקשורה לפעולה ספציפית שהלקוח עשה - אישור רכישה, אישור ביטול, סירוב אשראי,
                 אישור הקפאה, תזכורת לאימון שנרשם אליו.
               </p>
               <p>
-                <span className="font-medium text-zinc-800">MARKETING (יוזמה של העסק) - 2 אגורות להודעה:</span>{" "}
+                <span className="font-medium text-zinc-800">MARKETING (יוזמה של העסק) - 13 אגורות להודעה:</span>{" "}
                 כל הודעה שהעסק יוזם ולא קשורה לעסקה ספציפית - מבצע, הטבה, עידוד הרשמה, ברכת יום
                 הולדת, פנייה לחזרה (win-back), הודעת שימור / «איך הולך».
               </p>

@@ -117,15 +117,15 @@ export function TemplateDraftFields({
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-right disabled:bg-zinc-50 disabled:text-zinc-500"
             dir="rtl"
           >
-            <option value="MARKETING">Marketing - 2 אגורות</option>
-            <option value="UTILITY">Utility - 13 אגורות</option>
+            <option value="MARKETING">Marketing - 13 אגורות</option>
+            <option value="UTILITY">Utility - 2 אגורות</option>
           </select>
           {categoryLocked ? (
             <p className="text-xs text-zinc-500">לא ניתן לשנות קטגוריה של טמפלייט שכבר אושר.</p>
           ) : (
             <p className="text-xs text-zinc-500">
-              Utility - עדכון על פעולה שהלקוח עשה (13 אגורות). Marketing - יוזמה של העסק כמו מבצע
-              או שימור (2 אגורות). בספק - בחרו Marketing.
+              Utility - עדכון על פעולה שהלקוח עשה (2 אגורות). Marketing - יוזמה של העסק כמו מבצע
+              או שימור (13 אגורות). בספק - בחרו Marketing.
             </p>
           )}
         </div>
