@@ -144,20 +144,20 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
   const tab = parseTab(firstSearchParam(sp.tab));
   const admin = createSupabaseAdminClient();
 
-  const businessSelect =
-    "id, slug, name, plan, is_active, whatsapp_number, intro_period_ends_at, intro_full_price_at";
-  let businessesQuery = await admin
+  const withIntro = await admin
     .from("businesses")
-    .select(businessSelect)
+    .select("id, slug, name, plan, is_active, whatsapp_number, intro_period_ends_at, intro_full_price_at")
     .order("created_at", { ascending: false })
     .limit(2000);
-  if (businessesQuery.error) {
-    console.error("[admin/businesses] intro columns unavailable — run supabase/businesses_intro_period.sql:", businessesQuery.error.message);
-    businessesQuery = await admin
+  let businessesRaw: BizRow[] = (withIntro.data ?? []) as unknown as BizRow[];
+  if (withIntro.error) {
+    console.error("[admin/businesses] intro columns unavailable — run supabase/businesses_intro_period.sql:", withIntro.error.message);
+    const fallback = await admin
       .from("businesses")
       .select("id, slug, name, plan, is_active, whatsapp_number")
       .order("created_at", { ascending: false })
       .limit(2000);
+    businessesRaw = (fallback.data ?? []) as unknown as BizRow[];
   }
 
   const [{ data: channelsRaw }, { data: surveysRaw }, { data: threadsRaw }] = await Promise.all([
@@ -177,7 +177,7 @@ export default async function AdminBusinessesPage({ searchParams }: Props) {
       .limit(200),
   ]);
 
-  const businesses = (businessesQuery.data ?? []) as unknown as BizRow[];
+  const businesses = businessesRaw;
   const channels = (channelsRaw ?? []) as unknown as ChannelRow[];
   const surveys = ((surveysRaw ?? []) as unknown as SurveyRow[]).filter(Boolean);
   const threads = ((threadsRaw ?? []) as unknown as SupportThreadRow[]).filter(Boolean);
