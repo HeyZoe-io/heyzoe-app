@@ -7,6 +7,7 @@ import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
+import { touchContactLastZoeReply } from "@/lib/zoe-opened-conversations";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
 
@@ -353,7 +354,15 @@ export async function logMessage(input: MessageLogInput) {
       return;
     }
     noteWaLogInserted(input.role, content);
-    if (input.role === "assistant") consumeWaOutboundIfLogged(content);
+    if (input.role === "assistant") {
+      consumeWaOutboundIfLogged(content);
+      await touchContactLastZoeReply({
+        admin: supabase,
+        businessSlug,
+        sessionId: input.session_id,
+        modelUsed: input.model_used,
+      });
+    }
   } catch (e) {
     console.error("[analytics] logMessage failed:", e);
   }

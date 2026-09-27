@@ -8,6 +8,8 @@ export type AnalyticsClientPayload = {
   converted: number;
   conversionRate: number;
   totalChats: number;
+  openedConversations: number;
+  conversationLimit: number | null;
   suggestions: string[];
 };
 

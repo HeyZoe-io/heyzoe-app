@@ -4,6 +4,10 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack, invalidateBusinessKnowledgePackCache } from "@/lib/business-context";
 import { computePremiumAnalytics, type PremiumRangeKey } from "@/lib/analytics-pro-metrics";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import {
+  countOpenedZoeConversations,
+  monthlyConversationLimitForPlan,
+} from "@/lib/zoe-opened-conversations";
 
 export const runtime = "nodejs";
 // Premium analytics can be heavier on larger accounts.
@@ -137,7 +141,15 @@ export async function GET(req: NextRequest) {
     .eq("trial_registered", true);
   if (startIso) convQ = convQ.gte("trial_registered_at", startIso);
 
-  const [newLeads, converted] = await Promise.all([countHead(leadsQ), countHead(convQ)]);
+  const [newLeads, converted, openedConversations] = await Promise.all([
+    countHead(leadsQ),
+    countHead(convQ),
+    countOpenedZoeConversations({
+      admin,
+      businessId: biz.id,
+      businessSlug,
+    }),
+  ]);
   const totalChats = newLeads;
   const conversionRate = totalChats ? Math.round((converted / totalChats) * 100) : 0;
 
@@ -168,6 +180,8 @@ export async function GET(req: NextRequest) {
     converted,
     conversionRate,
     totalChats,
+    openedConversations,
+    conversationLimit: monthlyConversationLimitForPlan(biz.plan),
     suggestions: await suggestions,
   };
 

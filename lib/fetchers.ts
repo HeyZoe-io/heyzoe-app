@@ -64,6 +64,8 @@ export type AnalyticsApiPayload = {
   converted?: number;
   conversionRate?: number;
   totalChats?: number;
+  openedConversations?: number;
+  conversationLimit?: number | null;
   suggestions?: string[];
 };
 

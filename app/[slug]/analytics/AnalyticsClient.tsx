@@ -58,6 +58,9 @@ const i18n = {
     emptyState: "אין כרגע מה להציג כאן :)",
     newLeads: "לידים חדשים",
     newLeadsHint: "מי שפתח פלואו מכירה מול זואי",
+    openedConversations: "שיחות שנפתחו",
+    openedConversationsHint: "מספרים שזואי דיברה איתם החודש. שיחה בלי מענה של זואי לא נספרת.",
+    openedConversationsPlan: (limit: number) => `מתוך ${limit} בחבילה`,
     conversions: "המרות (נרשמו לשיעור ניסיון)",
     conversionRate: "שיעור המרה",
     conversionSubline: (total: number) => `מתוך ${total} לידים שפתחו פלואו מכירה`,
@@ -101,6 +104,9 @@ const i18n = {
     emptyState: "Nothing to show here yet :)",
     newLeads: "New Leads",
     newLeadsHint: "Started a sales flow with Zoe",
+    openedConversations: "Conversations opened",
+    openedConversationsHint: "Numbers Zoe spoke with this month. Chats she never answered are not counted.",
+    openedConversationsPlan: (limit: number) => `of ${limit} on your plan`,
     conversions: "Conversions (trial sign-ups)",
     conversionRate: "Conversion Rate",
     conversionSubline: (total: number) => `Out of ${total} leads who started a sales flow`,
@@ -169,6 +175,27 @@ function leadsChartShim(rows: PremiumAnalyticsResult["leadsByDay"], locale: stri
 
 function hourBuckets(counts24: number[]) {
   return counts24.map((count, hour) => ({ hour: String(hour), count }));
+}
+
+function OpenedConversationsCard({
+  title,
+  count,
+  hint,
+  planHint,
+}: {
+  title: string;
+  count: number;
+  hint: string;
+  planHint: string | null;
+}) {
+  return (
+    <div className="h-full rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
+      <p className="text-xs text-zinc-500">{title}</p>
+      <p className="mt-1 text-2xl font-semibold text-zinc-900 tabular-nums">{count}</p>
+      <p className="mt-1 text-[11px] text-zinc-500 leading-snug">{hint}</p>
+      {planHint ? <p className="mt-1 text-[11px] font-medium text-zinc-600">{planHint}</p> : null}
+    </div>
+  );
 }
 
 export default function AnalyticsClient({
@@ -306,6 +333,8 @@ export default function AnalyticsClient({
         converted?: number;
         conversionRate?: number;
         totalChats?: number;
+        openedConversations?: number;
+        conversationLimit?: number | null;
         suggestions?: unknown[];
       } | null;
       if (!res.ok || !j?.ok) return;
@@ -319,6 +348,9 @@ export default function AnalyticsClient({
         converted: Number(j.converted ?? 0) || 0,
         conversionRate: Number(j.conversionRate ?? 0) || 0,
         totalChats: Number(j.totalChats ?? 0) || 0,
+        openedConversations: Number(j.openedConversations ?? 0) || 0,
+        conversationLimit:
+          j.conversationLimit == null ? null : Number(j.conversationLimit) || null,
         suggestions:
           Array.isArray(j.suggestions) && j.suggestions.length
             ? j.suggestions.map((x) => String(x ?? ""))
@@ -424,7 +456,14 @@ export default function AnalyticsClient({
   );
 
   const chartPurple = "#7133da";
-  const isEmpty = !loading && data !== null && (Number(data.totalChats ?? 0) || 0) === 0;
+  const openedPlanHint =
+    data?.conversationLimit != null ? t.openedConversationsPlan(data.conversationLimit) : null;
+  const isEmpty =
+    !loading &&
+    data !== null &&
+    (Number(data.totalChats ?? 0) || 0) === 0 &&
+    (Number(data.converted ?? 0) || 0) === 0 &&
+    (Number(data.openedConversations ?? 0) || 0) === 0;
 
   if (!data && loading) {
     return (
@@ -434,8 +473,8 @@ export default function AnalyticsClient({
         dir={dashboardDir(lang)}
       >
         <div className="h-8 w-40 rounded bg-zinc-200 mx-auto" />
-        <section className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
+        <section className={`grid gap-4 ${planIsPremium ? "md:grid-cols-3" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
+          {Array.from({ length: planIsPremium ? 3 : 4 }).map((_, i) => (
             <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 p-4">
               <div className="h-3 w-28 rounded bg-zinc-200 mx-auto" />
               <div className="mt-3 h-8 w-20 rounded bg-zinc-200 mx-auto" />
@@ -570,9 +609,9 @@ export default function AnalyticsClient({
         </section>
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-3 hz-wave hz-wave-2">
+          <section className={`grid gap-4 hz-wave hz-wave-2 ${planIsPremium ? "md:grid-cols-3" : "sm:grid-cols-2 xl:grid-cols-4"}`}>
             {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
+              Array.from({ length: planIsPremium ? 3 : 4 }).map((_, i) => (
                 <div key={i} className="rounded-2xl border border-zinc-200/70 bg-white/75 backdrop-blur p-4">
                   <div className="h-3 w-28 rounded bg-zinc-200 mx-auto animate-pulse" />
                   <div className="mt-3 h-8 w-20 rounded bg-zinc-200 mx-auto animate-pulse" />
@@ -580,6 +619,14 @@ export default function AnalyticsClient({
               ))
             ) : (
               <>
+                {!planIsPremium ? (
+                  <OpenedConversationsCard
+                    title={t.openedConversations}
+                    count={data.openedConversations}
+                    hint={t.openedConversationsHint}
+                    planHint={openedPlanHint}
+                  />
+                ) : null}
                 <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
                   <p className="text-xs text-zinc-500">{t.newLeads}</p>
                   <p className="mt-1 text-2xl font-semibold text-zinc-900">{data.newLeads}</p>
@@ -680,8 +727,8 @@ export default function AnalyticsClient({
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center lg:col-span-1">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur p-4 text-center">
               <p className="text-xs text-zinc-500">{t.followupReturn}</p>
               <p className="mt-2 text-[11px] text-zinc-500 leading-snug">{t.followupReturnHint}</p>
               {loading ? (
@@ -692,6 +739,12 @@ export default function AnalyticsClient({
                 </p>
               )}
             </div>
+            <OpenedConversationsCard
+              title={t.openedConversations}
+              count={data.openedConversations}
+              hint={t.openedConversationsHint}
+              planHint={openedPlanHint}
+            />
           </div>
 
           <div className="rounded-2xl border border-zinc-200/70 bg-white/80 backdrop-blur overflow-hidden">
