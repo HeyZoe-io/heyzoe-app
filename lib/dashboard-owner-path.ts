@@ -52,3 +52,23 @@ export function preferredDashboardHref(ownSlug: string, rest: string): string {
   const suffix = rest.startsWith("/") ? rest : `/${rest}`;
   return `/${encodeURIComponent(slug)}${suffix}`;
 }
+
+/** Keep `utm_*` (and any other query) on a same-origin path such as `/templates`. */
+export function appendPageSearch(
+  path: string,
+  searchParams: Record<string, string | string[] | undefined>
+): string {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (typeof value === "string") {
+      sp.append(key, value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string") sp.append(key, item);
+      }
+    }
+  }
+  const q = sp.toString();
+  if (!q) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}${q}`;
+}
