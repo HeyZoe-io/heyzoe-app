@@ -6,6 +6,7 @@ import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@
 import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
+import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
 
 export const runtime = "nodejs";
 
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
     }
   }
 
-  const [{ data: templates, error: listErr }, { data: bizMeta }] = await Promise.all([
+  const [{ data: templates, error: listErr }, { data: bizMeta }, categoryNotices] = await Promise.all([
     admin
       .from("whatsapp_templates")
       .select(
@@ -95,6 +96,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
       .select("lead_template_name")
       .eq("id", businessId)
       .maybeSingle(),
+    listOpenUtilityRecategoryNotices(admin, businessId),
   ]);
 
   if (listErr) {
@@ -104,6 +106,7 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
 
   return NextResponse.json({
     templates: templates ?? [],
+    category_notices: categoryNotices,
     lead_template_name: String(
       (bizMeta as { lead_template_name?: unknown } | null)?.lead_template_name ?? ""
     ).trim() || null,

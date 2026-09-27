@@ -32,6 +32,8 @@ import {
   type TemplateDraftValue,
 } from "@/app/[slug]/templates/TemplateDraftFields";
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
+import type { UtilityRecategoryNotice as CategoryNotice } from "@/lib/template-category-notice";
+import UtilityRecategoryNotice from "@/app/[slug]/templates/UtilityRecategoryNotice";
 import {
   filterArboxMembershipTypesByWords,
   type ArboxMembershipTypeRow,
@@ -141,6 +143,7 @@ function AutomationConnectLink({ onClick }: { onClick: () => void }) {
 type Props = {
   slug: string;
   initialTemplates: TemplateRow[];
+  initialCategoryNotices: CategoryNotice[];
   initialLeadTemplateName: string | null;
   initialTriggers: TriggerRow[];
   leadsWebhookSecret: string;
@@ -298,6 +301,7 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
 export default function TemplatesClient({
   slug,
   initialTemplates,
+  initialCategoryNotices,
   initialLeadTemplateName,
   initialTriggers,
   leadsWebhookSecret,
@@ -305,6 +309,7 @@ export default function TemplatesClient({
   hasArbox,
 }: Props) {
   const [templates, setTemplates] = useState<TemplateRow[]>(initialTemplates);
+  const [categoryNotices, setCategoryNotices] = useState<CategoryNotice[]>(initialCategoryNotices);
   const [leadTemplateName, setLeadTemplateName] = useState<string | null>(
     initialLeadTemplateName
   );
@@ -991,6 +996,7 @@ export default function TemplatesClient({
       });
       const j = (await res.json().catch(() => ({}))) as {
         templates?: TemplateRow[];
+        category_notices?: CategoryNotice[];
         lead_template_name?: string | null;
         error?: string;
         detail?: string;
@@ -999,6 +1005,7 @@ export default function TemplatesClient({
         throw new Error(j.detail || j.error || `http_${res.status}`);
       }
       setTemplates(Array.isArray(j.templates) ? j.templates : []);
+      if (Array.isArray(j.category_notices)) setCategoryNotices(j.category_notices);
       if (j.lead_template_name !== undefined) {
         setLeadTemplateName(j.lead_template_name ? String(j.lead_template_name) : null);
       }
@@ -1258,12 +1265,29 @@ export default function TemplatesClient({
     }, 50);
   }
 
+  function editRecategorizedTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (!template) {
+      setError("הטמפלייט לא נמצא ברשימה — לחצו «רענן» ונסו שוב.");
+      return;
+    }
+    openEditModal(template);
+  }
+
   return (
     <div
       className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6`}
       dir="rtl"
       style={{ fontFamily: '"Fredoka", system-ui, sans-serif' }}
     >
+      {showCreate ? null : (
+        <UtilityRecategoryNotice
+          slug={slug}
+          notices={categoryNotices}
+          onDismissed={() => setCategoryNotices([])}
+          onEdit={editRecategorizedTemplate}
+        />
+      )}
       <header className="space-y-2 text-right" dir="rtl">
         <h1 className="text-2xl font-semibold text-zinc-900 sm:text-3xl">אוטומציות</h1>
         <p className="text-sm leading-relaxed text-zinc-600 sm:text-[15px]">

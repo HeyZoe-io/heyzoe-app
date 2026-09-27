@@ -5,6 +5,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { clearStaleUtilityRecategoryNotices } from "@/lib/template-category-notice";
 
 const META_GRAPH_VERSION = "v21.0";
 const LIST_PAGE_LIMIT = 100;
@@ -293,7 +294,7 @@ export async function syncWabaTemplatesToDb(
     business_id: businessId,
     waba_template_id: t.id,
     name: t.name,
-    category: t.category,
+    category: String(t.category ?? "").trim().toUpperCase(),
     language: t.language,
     status: t.status,
     components: t.components ?? [],
@@ -306,6 +307,7 @@ export async function syncWabaTemplatesToDb(
   if (error) {
     throw new Error(`[syncWabaTemplatesToDb] upsert failed: ${error.message}`);
   }
+  await clearStaleUtilityRecategoryNotices(admin, businessId);
   return rows.length;
 }
 

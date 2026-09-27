@@ -5966,10 +5966,12 @@ export async function POST(req: NextRequest) {
           name: templateCategory.message_template_name,
           language: templateCategory.message_template_language,
           category: templateCategory.new_category,
+          previousCategory: templateCategory.previous_category,
         })
           .then((rows) =>
             console.info("[WA Webhook] template_category_update", {
               name: templateCategory.message_template_name,
+              previous: templateCategory.previous_category,
               category: templateCategory.new_category,
               rows,
             })

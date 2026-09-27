@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
+import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
 import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -27,7 +28,7 @@ export default async function TemplatesPage({ params }: Props) {
 
   const businessId = access.id;
 
-  const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }, { data: triggers, error: trigErr }] =
+  const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }, { data: triggers, error: trigErr }, categoryNotices] =
     await Promise.all([
     admin
       .from("whatsapp_templates")
@@ -48,6 +49,7 @@ export default async function TemplatesPage({ params }: Props) {
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: true }),
+    listOpenUtilityRecategoryNotices(admin, businessId),
   ]);
 
   if (tplErr) {
@@ -89,6 +91,7 @@ export default async function TemplatesPage({ params }: Props) {
     <TemplatesClient
       slug={access.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
+      initialCategoryNotices={categoryNotices}
       initialLeadTemplateName={leadTemplateName || null}
       initialTriggers={initialTriggers}
       leadsWebhookSecret={leadsWebhookSecret}

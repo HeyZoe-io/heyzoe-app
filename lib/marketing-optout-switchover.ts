@@ -5,6 +5,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { templateHasOptOutButton, originalTemplateName } from "@/lib/marketing-optout-resubmit-plan";
+import { updateBusinessTemplateCategory } from "@/lib/template-category-notice";
 
 export type OptOutSwitchResult = "switched" | "kept_original" | "skipped";
 
@@ -113,22 +114,24 @@ export async function syncTemplateCategoryFromMeta(
     name?: string | null;
     language?: string | null;
     category: string;
+    previousCategory?: string | null;
   }
 ): Promise<number> {
   const category = input.category.trim().toUpperCase();
   if (!category) return 0;
+  const previousCategory = String(input.previousCategory ?? "");
   const nowIso = new Date().toISOString();
   let updated = 0;
 
   const id = String(input.messageTemplateId ?? "").trim();
   if (id) {
-    const business = await admin
-      .from("whatsapp_templates")
-      .update({ category, updated_at: nowIso })
-      .eq("waba_template_id", id)
-      .select("id");
-    if (business.error) throw new Error(business.error.message);
-    updated += business.data?.length ?? 0;
+    updated += await updateBusinessTemplateCategory(
+      admin,
+      { wabaTemplateId: id },
+      category,
+      previousCategory,
+      nowIso
+    );
 
     const marketing = await admin
       .from("marketing_whatsapp_templates")
@@ -144,14 +147,13 @@ export async function syncTemplateCategoryFromMeta(
   const name = String(input.name ?? "").trim();
   const language = String(input.language ?? "").trim();
   if (updated === 0 && name && language) {
-    const business = await admin
-      .from("whatsapp_templates")
-      .update({ category, updated_at: nowIso })
-      .eq("name", name)
-      .eq("language", language)
-      .select("id");
-    if (business.error) throw new Error(business.error.message);
-    updated += business.data?.length ?? 0;
+    updated += await updateBusinessTemplateCategory(
+      admin,
+      { name, language },
+      category,
+      previousCategory,
+      nowIso
+    );
 
     const marketing = await admin
       .from("marketing_whatsapp_templates")
@@ -177,7 +179,7 @@ export type TemplateCategoryUpdateEvent = {
   previous_category: string;
 };
 
-/** Meta field `template_category_update`. No-op until that field is subscribed. */
+/** Meta field `template_category_update`. Requires that field on the app webhook subscription. */
 export function parseTemplateCategoryUpdate(payload: unknown): TemplateCategoryUpdateEvent | null {
   if (!payload || typeof payload !== "object") return null;
   const root = payload as Record<string, unknown>;
