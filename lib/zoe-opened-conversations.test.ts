@@ -24,10 +24,11 @@ assert.equal(countsAsOpenedZoeConversation("wa_followup_2"), true);
 assert.equal(countsAsOpenedZoeConversation("wa_outbound"), true);
 assert.equal(countsAsOpenedZoeConversation("starter_quota_cap_notice"), false);
 
-assert.equal(starterQuotaShouldBlock({ alreadyCounted: false, monthlyCount: 99 }), false);
-assert.equal(starterQuotaShouldBlock({ alreadyCounted: false, monthlyCount: 100 }), true);
-assert.equal(starterQuotaShouldBlock({ alreadyCounted: true, monthlyCount: 100 }), false);
-assert.equal(starterQuotaShouldBlock({ alreadyCounted: true, monthlyCount: 140 }), false);
+assert.equal(starterQuotaShouldBlock({ monthlyCount: 99 }), false);
+assert.equal(starterQuotaShouldBlock({ monthlyCount: 100 }), true);
+assert.equal(starterQuotaShouldBlock({ monthlyCount: 140 }), true);
+assert.equal(starterQuotaShouldBlock({ monthlyCount: 499, limit: 500 }), false);
+assert.equal(starterQuotaShouldBlock({ monthlyCount: 500, limit: 500 }), true);
 assert.equal(countsAsOpenedZoeConversation("wa_business_app"), false);
 assert.equal(countsAsOpenedZoeConversation("manual_handoff"), false);
 assert.equal(countsAsOpenedZoeConversation("lead_template"), false);

@@ -12,7 +12,7 @@ import {
 import { sendOwnerNotification } from "@/lib/notifications/sendOwnerNotification";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { resolveStarterQuotaWaTemplate } from "@/lib/quota-alert-template";
-import { loadMonthlyOpenedQuota } from "@/lib/zoe-opened-conversations";
+import { loadMonthlyOpenedQuota, monthlyConversationLimitForPlan } from "@/lib/zoe-opened-conversations";
 
 export const STARTER_MONTHLY_CONTACT_LIMIT = 100;
 
@@ -147,15 +147,10 @@ async function markQuotaWarningSent(
 }
 
 /**
- * שיחה חדשה נחסמת רק כשהמכסה כבר מלאה.
- * מספר שזואי כבר דיברה איתו החודש ממשיך — הוא לא פותח שיחה נוספת.
+ * מעל מכסת החבילה זואי לא עונה לאף אחד, כולל מספרים שכבר דיברה איתם.
+ * האיפוס הוא תחילת החודש הקלנדרי בישראל, כשהספירה מתחילה מחדש.
  */
-export function starterQuotaShouldBlock(input: {
-  alreadyCounted: boolean;
-  monthlyCount: number;
-  limit?: number;
-}): boolean {
-  if (input.alreadyCounted) return false;
+export function starterQuotaShouldBlock(input: { monthlyCount: number; limit?: number }): boolean {
   const limit = input.limit ?? STARTER_MONTHLY_CONTACT_LIMIT;
   return input.monthlyCount >= limit;
 }
@@ -172,9 +167,9 @@ export type MonthlyQuotaHandleInput = {
 export type MonthlyQuotaResult = { action: "continue" } | { action: "silent_stop" };
 
 /**
- * Starter: חסימה כשמספר חדש היה פותח שיחה מעבר למכסה.
+ * Starter ו-Pro: מעל מכסת החבילה זואי לא עונה לאף אחד עד תחילת החודש הבא.
  * נספרים רק מספרים שזואי דיברה איתם החודש (לא איש קשר שנוצר בלי מענה).
- * מעל המכסה זואי לא עונה, בלי הודעה ללקוח.
+ * מעל המכסה אין הודעה ללקוח.
  * Starter + Pro: מיילי התראה לבעלים (ב-Pro רק פנימי ב-450) לפי אותה ספירה.
  * IO לפנייה: COUNT ממוקד + קריאת שורה. בלי קריאות Claude/Meta נוספות. מעל המכסה אין קריאה ל-Claude.
  */
@@ -227,11 +222,6 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
     ymNow,
     phone_tail: phone.slice(-4),
   });
-
-  if (starter && starterQuotaShouldBlock({ alreadyCounted: opened.alreadyCounted, monthlyCount })) {
-    console.warn("[conversation-quota] starter monthly cap — no customer reply", { monthlyCount, cid });
-    return { action: "silent_stop" };
-  }
 
   const ownerNotificationsEligible = isBusinessEligibleForOwnerNotifications(bizRow);
 
@@ -326,6 +316,16 @@ export async function handleMonthlyConversationQuota(params: MonthlyQuotaHandleI
     } catch (e) {
       console.error("[conversation-quota] pro ops email failed:", e);
     }
+  }
+
+  const limit = monthlyConversationLimitForPlan(bizRow.plan);
+  if (starterQuotaShouldBlock({ monthlyCount, limit })) {
+    console.warn("[conversation-quota] monthly cap — no replies until next IL month", {
+      monthlyCount,
+      limit,
+      cid,
+    });
+    return { action: "silent_stop" };
   }
 
   return { action: "continue" };
