@@ -9,6 +9,8 @@ import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { TEMPLATE_GENERAL_NOTES_FALLBACK } from "@/lib/template-send-params";
 
 const NOTES_LIMIT = 3;
+/** Arbox 500s when `sort` is set on this route. Page locally after a capped GET. */
+const NOTES_FETCH_LIMIT = 100;
 const NOTES_MAX_CHARS = 400;
 
 /** Meta body params reject newlines, tabs, and long runs of spaces. */
@@ -22,16 +24,30 @@ export function flattenMetaTemplateParam(raw: string, maxChars = NOTES_MAX_CHARS
   return `${flat.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
-export function commentsFromGeneralNotesPayload(json: unknown): string[] {
+type GeneralNoteRow = { comment: string; createdAt: string };
+
+export function generalNoteRowsFromPayload(json: unknown): GeneralNoteRow[] {
   const data = (json as { data?: unknown } | null)?.data;
   const rows = Array.isArray(data) ? data : [];
-  const comments: string[] = [];
+  const notes: GeneralNoteRow[] = [];
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const comment = String((row as { comment?: unknown }).comment ?? "").trim();
-    if (comment) comments.push(comment);
+    if (!comment) continue;
+    notes.push({
+      comment,
+      createdAt: String((row as { created_at?: unknown }).created_at ?? "").trim(),
+    });
   }
-  return comments;
+  return notes;
+}
+
+/** Newest first. `sort` on the Arbox query 500s, so order is applied here. */
+export function newestGeneralNoteComments(json: unknown, limit = NOTES_LIMIT): string[] {
+  return generalNoteRowsFromPayload(json)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit)
+    .map((row) => row.comment);
 }
 
 /** Newest notes first, joined for a single WhatsApp template parameter. */
@@ -55,8 +71,7 @@ export async function fetchArboxGeneralNotesText(input: {
 
   const qs = new URLSearchParams({
     user_id: String(userId),
-    sort: "desc",
-    limit: String(NOTES_LIMIT),
+    limit: String(NOTES_FETCH_LIMIT),
     page: "1",
   });
   const res = await arboxPublicFetch(`/v3/users/notes?${qs.toString()}`, {
@@ -71,5 +86,5 @@ export async function fetchArboxGeneralNotesText(input: {
     });
     return TEMPLATE_GENERAL_NOTES_FALLBACK;
   }
-  return formatArboxGeneralNotesForTemplate(commentsFromGeneralNotesPayload(res.json));
+  return formatArboxGeneralNotesForTemplate(newestGeneralNoteComments(res.json));
 }

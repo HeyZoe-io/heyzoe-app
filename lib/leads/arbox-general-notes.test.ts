@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
-  commentsFromGeneralNotesPayload,
   formatArboxGeneralNotesForTemplate,
+  newestGeneralNoteComments,
 } from "@/lib/leads/arbox-general-notes";
 import { TEMPLATE_GENERAL_NOTES_FALLBACK } from "@/lib/template-send-params";
 
@@ -21,10 +21,16 @@ assert.ok(formatted.length <= 400);
 assert.ok(formatted.endsWith("…"));
 
 assert.deepEqual(
-  commentsFromGeneralNotesPayload({
-    data: [{ comment: "אחת" }, { comment: "  " }, { comment: null }, { action_by: "מאמן" }],
+  newestGeneralNoteComments({
+    data: [
+      { comment: "ישן", created_at: "2026-01-01 00:00:00" },
+      { comment: "  " },
+      { comment: null },
+      { comment: "טסט", created_at: "2026-09-27 12:22:29" },
+      { action_by: "מאמן" },
+    ],
   }),
-  ["אחת"]
+  ["טסט", "ישן"]
 );
 
 console.log("arbox-general-notes.test.ts: ok");
