@@ -23,17 +23,19 @@ export default async function SlugLayout({ children, params }: Props) {
   let zoeActivated = false;
   let businessId: number | null = null;
   let businessName = "";
+  let hasConnectedWaba = false;
 
   // Opt-in / Zoe flags — isolated try/catch. Ack lookup must never throw into this block.
   try {
     const admin = createSupabaseAdminClient();
     const { data: biz } = await admin
       .from("businesses")
-      .select("id, name, owner_whatsapp_opted_in, zoe_activated")
+      .select("id, name, owner_whatsapp_opted_in, zoe_activated, waba_id")
       .eq("slug", normSlug)
       .maybeSingle();
     showOwnerWhatsappOptIn = biz?.owner_whatsapp_opted_in !== true;
     zoeActivated = biz?.zoe_activated === true;
+    hasConnectedWaba = Boolean(String((biz as { waba_id?: unknown } | null)?.waba_id ?? "").replace(/\s+/g, ""));
     const idNum = biz?.id != null ? Number(biz.id) : NaN;
     if (Number.isFinite(idNum)) {
       businessId = idNum;
@@ -42,13 +44,15 @@ export default async function SlugLayout({ children, params }: Props) {
   } catch {
     showOwnerWhatsappOptIn = false;
     zoeActivated = false;
+    hasConnectedWaba = false;
   }
 
   let metaPricingNotice: MetaPricingNoticeData | null = null;
   // Ack is per business, not per user. Service-role SELECT so we see any member's ack
   // (authenticated SELECT used to be user-scoped and re-showed the modal to everyone else).
   // Failures degrade to "not acknowledged" / null — never re-enter the opt-in catch above.
-  if (businessId != null) {
+  // No Meta account yet (e.g. a studio still in setup) — the pricing notice blocks every page and cannot be about their number.
+  if (businessId != null && hasConnectedWaba) {
     try {
       const supabase = await createSupabaseServerClient();
       const {

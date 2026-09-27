@@ -123,19 +123,47 @@ function MetaPricingFlowDiagram() {
   );
 }
 
+function dismissStorageKey(slug: string) {
+  return `hz_meta_pricing_dismissed:${slug}:${META_PRICING_NOTICE_KEY}`;
+}
+
+function readDismissed(slug: string): boolean {
+  try {
+    return window.sessionStorage.getItem(dismissStorageKey(slug)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberDismissed(slug: string) {
+  try {
+    window.sessionStorage.setItem(dismissStorageKey(slug), "1");
+  } catch {
+    // ignore private mode
+  }
+}
+
 export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricingNoticeData }) {
   const [acknowledged, setAcknowledged] = useState(notice.acknowledged);
   const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Admin-only escape hatch: session-local, never written to notice_acknowledgments.
-  // Reappears on next load since it's plain component state, not persisted anywhere.
+  // Admin close is not an acknowledgment. Remember it for this tab so route changes do not reopen the dialog.
   const [adminDismissed, setAdminDismissed] = useState(false);
+
+  useEffect(() => {
+    if (notice.acknowledged || readDismissed(notice.businessSlug)) setAcknowledged(true);
+  }, [notice.acknowledged, notice.businessSlug]);
+
+  function dismissForAdmin() {
+    rememberDismissed(notice.businessSlug);
+    setAdminDismissed(true);
+  }
 
   useEffect(() => {
     if (!notice.isPlatformAdmin) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setAdminDismissed(true);
+      if (e.key === "Escape") dismissForAdmin();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -164,6 +192,7 @@ export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricing
         }),
       });
       if (!res.ok) throw new Error(`request_failed (${res.status})`);
+      rememberDismissed(notice.businessSlug);
       setAcknowledged(true);
     } catch (e) {
       console.error("[MetaPricingNoticeModal] ack failed:", e);
@@ -179,7 +208,7 @@ export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricing
       aria-modal="true"
       aria-labelledby="meta-pricing-notice-title"
       dir="rtl"
-      onClick={notice.isPlatformAdmin ? () => setAdminDismissed(true) : undefined}
+      onClick={notice.isPlatformAdmin ? dismissForAdmin : undefined}
     >
       <div
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-fuchsia-200 bg-white shadow-xl"
@@ -194,7 +223,7 @@ export default function MetaPricingNoticeModal({ notice }: { notice: MetaPricing
               <button
                 type="button"
                 aria-label="סגור"
-                onClick={() => setAdminDismissed(true)}
+                onClick={dismissForAdmin}
                 className="shrink-0 rounded-full p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
               >
                 ✕
