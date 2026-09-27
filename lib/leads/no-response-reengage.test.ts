@@ -3,11 +3,14 @@ import { waNoResponseEligible } from "@/lib/wa-no-response";
 import {
   computeNoResponseDueAt,
   isBeyondSessionFollowupWindow,
+  isMissingNoResponseCandidatesRpc,
+  isNoResponseCandidateOpen,
   isNoResponseEpisodeAlreadyReengaged,
   isSilentLongEnough,
   isValidNoResponseDelayDays,
   shouldCloseNoResponseEpisode,
   silenceEpisodeKeyFromLastUserAt,
+  takeOpenNoResponseCandidates,
 } from "@/lib/leads/no-response-reengage";
 import { buildNoResponseScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
@@ -105,6 +108,69 @@ import {
 {
   assert.equal(isTriggerType("no_response"), true);
   assert.equal(isArboxDependentTriggerType("no_response"), false);
+}
+
+/** Open-episode filter: closed rows stay out; older or null markers stay in. */
+{
+  const lastContact = "2026-09-23T14:29:25.975Z";
+  const sentAfter = "2026-09-26T08:00:30.293Z";
+  const olderMarker = "2026-09-01T08:00:00.000Z";
+  assert.equal(isNoResponseCandidateOpen(sentAfter, lastContact), false);
+  assert.equal(isNoResponseCandidateOpen(lastContact, lastContact), false);
+  assert.equal(isNoResponseCandidateOpen(olderMarker, lastContact), true);
+  assert.equal(isNoResponseCandidateOpen(null, lastContact), true);
+  assert.equal(isNoResponseCandidateOpen(undefined, lastContact), true);
+
+  const page = [
+    { id: "closed", wa_last_reengaged_at: sentAfter, last_contact_at: lastContact },
+    { id: "reopened", wa_last_reengaged_at: olderMarker, last_contact_at: lastContact },
+    { id: "fresh", wa_last_reengaged_at: null, last_contact_at: lastContact },
+  ];
+  const kept = takeOpenNoResponseCandidates(page, 200);
+  assert.deepEqual(
+    kept.map((row) => row.id),
+    ["reopened", "fresh"]
+  );
+  // A closed row in the page is skipped. Nothing past this page is read.
+  assert.equal(kept.length, 2);
+}
+
+/** A newer inbound (last_contact_at after the marker) is a candidate again. */
+{
+  const marker = "2026-09-26T08:00:30.293Z";
+  const nextInbound = "2026-09-28T09:00:00.000Z";
+  assert.equal(isNoResponseCandidateOpen(marker, nextInbound), true);
+}
+
+/** Fallback when the RPC is not deployed yet: one page, in-code skip, no second page. */
+{
+  assert.equal(
+    isMissingNoResponseCandidatesRpc({
+      code: "PGRST202",
+      message: "Could not find the function public.no_response_open_candidates in the schema cache",
+    }),
+    true
+  );
+  assert.equal(
+    isMissingNoResponseCandidatesRpc({
+      message: "function no_response_open_candidates does not exist",
+    }),
+    true
+  );
+  assert.equal(
+    isMissingNoResponseCandidatesRpc({ message: "column arbox_is_member does not exist" }),
+    false
+  );
+
+  const onlyPage = [
+    { id: "closed", wa_last_reengaged_at: "2026-09-26T00:00:00.000Z", last_contact_at: "2026-09-20T00:00:00.000Z" },
+    { id: "open", wa_last_reengaged_at: null, last_contact_at: "2026-09-20T00:00:00.000Z" },
+  ];
+  const fallback = takeOpenNoResponseCandidates(onlyPage, 200);
+  assert.deepEqual(
+    fallback.map((row) => row.id),
+    ["open"]
+  );
 }
 
 console.log("no-response-reengage.test.ts: ok");

@@ -49,8 +49,6 @@ import {
 const MS_DAY = 24 * 60 * 60 * 1000;
 const MS_24H = 24 * 60 * 60 * 1000;
 const CANDIDATE_BATCH = 200;
-/** Closed episodes sit at the front of last_contact_at ASC. Scan past them, then stop. */
-const CANDIDATE_PAGE_CAP = 20;
 
 /** Failures that will not change until the lead writes again. */
 const NO_RESPONSE_TERMINAL_SKIP_REASONS = new Set([
@@ -62,6 +60,45 @@ const NO_RESPONSE_TERMINAL_SKIP_REASONS = new Set([
 
 export function shouldCloseNoResponseEpisode(reason: string): boolean {
   return NO_RESPONSE_TERMINAL_SKIP_REASONS.has(reason);
+}
+
+/**
+ * SQL open-episode predicate:
+ * wa_last_reengaged_at IS NULL OR wa_last_reengaged_at < last_contact_at.
+ */
+export function isNoResponseCandidateOpen(
+  waLastReengagedAt: string | null | undefined,
+  lastContactAt: string | null | undefined
+): boolean {
+  const contactMs = Date.parse(String(lastContactAt ?? "").trim());
+  if (!Number.isFinite(contactMs)) return false;
+  return !isNoResponseEpisodeAlreadyReengaged(waLastReengagedAt, String(lastContactAt));
+}
+
+/** One page only. Closed rows are dropped and not replaced from a later page. */
+export function takeOpenNoResponseCandidates<T extends {
+  wa_last_reengaged_at?: string | null;
+  last_contact_at?: string | null;
+}>(rows: readonly T[], cap: number = CANDIDATE_BATCH): T[] {
+  const open: T[] = [];
+  const limit = Math.max(0, Math.trunc(cap));
+  for (const row of rows) {
+    if (!isNoResponseCandidateOpen(row.wa_last_reengaged_at, row.last_contact_at)) continue;
+    open.push(row);
+    if (open.length >= limit) break;
+  }
+  return open;
+}
+
+/** PostgREST schema-cache miss for no_response_open_candidates. */
+export function isMissingNoResponseCandidatesRpc(error: {
+  message?: string;
+  code?: string;
+} | null | undefined): boolean {
+  if (!error) return false;
+  if (String(error.code ?? "") === "PGRST202") return true;
+  const message = String(error.message ?? "");
+  return /no_response_open_candidates/i.test(message) && /does not exist|could not find|schema cache/i.test(message);
 }
 
 /** Member-trigger logs. Phone is not a column; rows point at contact_id and (usually) user_id. */
@@ -189,42 +226,50 @@ function candidateQuery(
 }
 
 /**
- * Oldest silent contacts, skipping episodes already closed
- * (wa_last_reengaged_at on or after last_contact_at). A newer
- * last_contact_at — a new inbound — puts the contact back in the batch.
+ * One indexed read of up to 200 open episodes.
+ * PostgREST cannot compare wa_last_reengaged_at to last_contact_at, so the
+ * filter lives in no_response_open_candidates. Until that function exists,
+ * fall back to one unfiltered page and drop closed rows in memory.
  */
 async function loadCandidateBatch(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
-  silenceCutoffIso: string,
-  includeMemberFlag: boolean
+  silenceCutoffIso: string
 ): Promise<{ rows: ContactCandidate[]; error: { message: string } | null }> {
-  const open: ContactCandidate[] = [];
-  for (let page = 0; page < CANDIDATE_PAGE_CAP && open.length < CANDIDATE_BATCH; page += 1) {
-    const from = page * CANDIDATE_BATCH;
-    const { data, error } = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).range(
-      from,
-      from + CANDIDATE_BATCH - 1
-    );
-    if (error) return { rows: open, error };
-    const pageRows = (data ?? []) as unknown as ContactCandidate[];
-    for (const row of pageRows) {
-      if (isNoResponseEpisodeAlreadyReengaged(row.wa_last_reengaged_at, String(row.last_contact_at ?? ""))) {
-        continue;
-      }
-      open.push(row);
-      if (open.length >= CANDIDATE_BATCH) break;
-    }
-    if (pageRows.length < CANDIDATE_BATCH) break;
-    if (page === CANDIDATE_PAGE_CAP - 1 && open.length < CANDIDATE_BATCH) {
-      console.error("[no-response-reengage] candidate scan hit page cap", {
-        businessId,
-        pages: CANDIDATE_PAGE_CAP,
-        open: open.length,
-      });
-    }
+  const { data, error } = await admin.rpc("no_response_open_candidates", {
+    p_business_id: businessId,
+    p_silence_cutoff: silenceCutoffIso,
+    p_limit: CANDIDATE_BATCH,
+  });
+  if (!error) {
+    return {
+      rows: takeOpenNoResponseCandidates((data ?? []) as ContactCandidate[], CANDIDATE_BATCH),
+      error: null,
+    };
   }
-  return { rows: open, error: null };
+  if (!isMissingNoResponseCandidatesRpc(error)) {
+    return { rows: [], error: { message: error.message } };
+  }
+  console.error(
+    "[no-response-reengage] no_response_open_candidates missing — run supabase/contacts_no_response_open_candidates.sql",
+    { businessId }
+  );
+
+  let includeMemberFlag = true;
+  let page = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).limit(CANDIDATE_BATCH);
+  if (page.error && /arbox_is_member|schema cache|does not exist/i.test(page.error.message)) {
+    console.error(
+      "[no-response-reengage] arbox_is_member missing — run supabase/contacts_arbox_is_member.sql",
+      { businessId }
+    );
+    includeMemberFlag = false;
+    page = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).limit(CANDIDATE_BATCH);
+  }
+  if (page.error) return { rows: [], error: { message: page.error.message } };
+  return {
+    rows: takeOpenNoResponseCandidates((page.data ?? []) as unknown as ContactCandidate[], CANDIDATE_BATCH),
+    error: null,
+  };
 }
 
 /** One parallel round per business: member-trigger logs for this candidate set, not per contact. */
@@ -468,13 +513,13 @@ async function dispatchNoResponseTemplate(input: {
 
 /**
  * Process one business with an enabled no_response rule.
- * IO: one candidate contacts query per 200-row page (up to 20 pages, skipping
- * episodes already closed via wa_last_reengaged_at) + one phone-alias query +
- * 7 member-log lookups in parallel (not per contact) + per-candidate message
- * lookups + one audience message query (window covers the silence episode and
- * the 72h template cooldown; the 48h human cooldown sits inside that) +
+ * IO: one candidate read of at most 200 open episodes (RPC + partial index;
+ * closed rows are not scanned) + one phone-alias query + 7 member-log
+ * lookups in parallel (not per contact) + per-candidate message lookups +
+ * one audience message query (window covers the silence episode and the
+ * 72h template cooldown; the 48h human cooldown sits inside that) +
  * optional Meta send. Terminal skips write wa_last_reengaged_at once per
- * episode so the next run does not read their messages.
+ * episode. Until the RPC exists, one unfiltered page of 200 is filtered in memory.
  * The within-24h layer's hours_since_user >= 24 skip stays in wa-followup-cron-eval.
  * This cron uses the inverse (isBeyondSessionFollowupWindow) so the two do not overlap.
  * Arbox businesses with candidates: +1 activeMemberships, +1 sessions, +1 future
@@ -520,14 +565,7 @@ export async function syncNoResponseReengageForBusiness(input: {
 
   const silenceCutoffIso = new Date(nowMs - rule.delay_days * MS_DAY).toISOString();
 
-  let loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso, true);
-  if (loaded.error && /arbox_is_member|schema cache|does not exist/i.test(loaded.error.message)) {
-    console.error(
-      "[no-response-reengage] arbox_is_member missing — run supabase/contacts_arbox_is_member.sql",
-      { businessId: input.businessId }
-    );
-    loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso, false);
-  }
+  const loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso);
   const rows = loaded.rows;
   const error = loaded.error;
 
