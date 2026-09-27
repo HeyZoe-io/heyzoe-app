@@ -347,7 +347,7 @@ async function dispatchGapTemplate(input: {
   tier: number;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -405,7 +405,7 @@ async function dispatchGapTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("attendance_gap", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-attendance-gap] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -730,7 +730,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
               ? ("deferred" as const)
               : send.dispatch === "gated"
                 ? ("gated" as const)
-                : send.dispatch === "send_failed"
+                : send.dispatch === "skipped"
+                  ? ("skipped" as const)
+                  : send.dispatch === "send_failed"
                   ? ("send_failed" as const)
                   : ("gated" as const);
 

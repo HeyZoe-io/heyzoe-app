@@ -1,25 +1,18 @@
 /**
  * Extra no_response audience rules. Existing silence / opt-out / episode
- * checks stay in no-response-reengage.ts. These only decide whether the
- * silent contact is a sales lead Zoe actually spoke with.
+ * checks stay in no-response-reengage.ts. registered stays excluded there
+ * (waNoResponseEligible). opening is eligible.
  */
 
-export const NO_RESPONSE_HUMAN_TOUCH_DAYS = 7;
-export const NO_RESPONSE_HUMAN_TOUCH_MS = NO_RESPONSE_HUMAN_TOUCH_DAYS * 24 * 60 * 60 * 1000;
+/** Block only when a human outbound is this recent. Order does not matter. */
+export const NO_RESPONSE_HUMAN_COOLDOWN_HOURS = 48;
+export const NO_RESPONSE_HUMAN_COOLDOWN_MS =
+  NO_RESPONSE_HUMAN_COOLDOWN_HOURS * 60 * 60 * 1000;
 
-/**
- * Phases where Zoe is inside the sales flow.
- * opening = inbound chat before the flow starts (support / greeting / other).
- * registered = already converted (also excluded by waNoResponseEligible).
- */
-export const NO_RESPONSE_SALES_PHASES = [
-  "warmup",
-  "schedule_date",
-  "schedule_time",
-  "call_schedule_day",
-  "call_schedule_time",
-  "cta",
-] as const;
+/** Block when any lead_template was sent inside this window. Any trigger counts. */
+export const NO_RESPONSE_RECENT_TEMPLATE_HOURS = 72;
+export const NO_RESPONSE_RECENT_TEMPLATE_MS =
+  NO_RESPONSE_RECENT_TEMPLATE_HOURS * 60 * 60 * 1000;
 
 const HUMAN_OUTBOUND_MODELS = new Set(["wa_business_app", "manual_handoff"]);
 
@@ -31,15 +24,10 @@ export type NoResponseAudienceMessage = {
 
 export type NoResponseAudienceBlock =
   | "no_zoe_conversation"
-  | "not_sales_phase"
   | "arbox_member"
   | "member_sync_log"
-  | "human_touch";
-
-export function isNoResponseSalesPhase(phase: string | null | undefined): boolean {
-  const value = String(phase ?? "").trim();
-  return (NO_RESPONSE_SALES_PHASES as readonly string[]).includes(value);
-}
+  | "human_cooldown"
+  | "recent_template";
 
 /** Dashboard manual send or a WhatsApp Business app echo. */
 export function isHumanOutboundModel(model: string | null | undefined): boolean {
@@ -59,12 +47,17 @@ export function isZoeAssistantModel(model: string | null | undefined): boolean {
   return true;
 }
 
+function withinPast(createdAt: string, nowMs: number, windowMs: number): boolean {
+  const ms = Date.parse(createdAt);
+  if (!Number.isFinite(ms) || ms > nowMs) return false;
+  return ms >= nowMs - windowMs;
+}
+
 /**
  * Rules that fail for this silence episode. Empty means the audience checks pass.
- * Order is R1, R2, R3a, R3b, R4.
+ * Order is R1, R3a, R3b, R4, R5.
  */
 export function noResponseAudienceBlocks(input: {
-  sessionPhase: string | null | undefined;
   arboxIsMember: boolean;
   inMemberSyncLog: boolean;
   messages: NoResponseAudienceMessage[];
@@ -82,19 +75,23 @@ export function noResponseAudienceBlocks(input: {
     (m) => m.role === "assistant" && isZoeAssistantModel(m.model_used) && inEpisode(m.created_at)
   ).length;
   if (userCount < 1 || zoeCount < 1) blocks.push("no_zoe_conversation");
-  if (!isNoResponseSalesPhase(input.sessionPhase)) blocks.push("not_sales_phase");
   if (input.arboxIsMember) blocks.push("arbox_member");
   if (input.inMemberSyncLog) blocks.push("member_sync_log");
 
-  const touchFromMs = input.nowMs - NO_RESPONSE_HUMAN_TOUCH_MS;
-  const human = input.messages.some((m) => {
-    if (m.role !== "assistant" || !isHumanOutboundModel(m.model_used)) return false;
-    const ms = Date.parse(m.created_at);
-    if (!Number.isFinite(ms) || ms > input.nowMs) return false;
-    const afterUser = Number.isFinite(userMs) && ms > userMs;
-    const withinWindow = ms >= touchFromMs;
-    return afterUser || withinWindow;
-  });
-  if (human) blocks.push("human_touch");
+  const human = input.messages.some(
+    (m) =>
+      m.role === "assistant" &&
+      isHumanOutboundModel(m.model_used) &&
+      withinPast(m.created_at, input.nowMs, NO_RESPONSE_HUMAN_COOLDOWN_MS)
+  );
+  if (human) blocks.push("human_cooldown");
+
+  const recentTemplate = input.messages.some(
+    (m) =>
+      m.role === "assistant" &&
+      isTemplateOutboundModel(m.model_used) &&
+      withinPast(m.created_at, input.nowMs, NO_RESPONSE_RECENT_TEMPLATE_MS)
+  );
+  if (recentTemplate) blocks.push("recent_template");
   return blocks;
 }

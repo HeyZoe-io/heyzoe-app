@@ -22,25 +22,36 @@ const BLOCKED_NAME_WORDS = [
   "fitness",
   "gym",
   "official",
+  "חברה",
+  "inc",
+  "llc",
 ];
 
+/** ASCII quotes, Hebrew geresh/gershayim, and curly quotes. Dots so ltd. matches ltd. */
+const QUOTE_OR_DOT = /["'״׳`´.\u05F3\u05F4\u2018\u2019\u201A\u201B\u201C\u201D\u201E\u201F\u2032\u2033\uFF07\u00B4]/g;
+
+function nameTokens(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 function firstToken(raw: string | null | undefined): string {
-  return (
-    String(raw ?? "")
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)[0] ?? ""
-  );
+  return nameTokens(raw)[0] ?? "";
 }
 
 function normalizedToken(token: string): string {
-  return token.toLowerCase().replace(/["'״׳`.]/g, "");
+  return token.toLowerCase().replace(QUOTE_OR_DOT, "");
 }
 
 function isBusinessLikeToken(token: string): boolean {
   const n = normalizedToken(token);
   if (!n) return true;
-  return BLOCKED_NAME_WORDS.some((word) => n === word || n.includes(word));
+  return BLOCKED_NAME_WORDS.some((word) => {
+    if (word.length <= 3) return n === word;
+    return n === word || n.includes(word);
+  });
 }
 
 /** Stored-name token only. Arbox names are not run through this filter. */
@@ -55,8 +66,9 @@ export function isUsableStoredFirstName(token: string): boolean {
 }
 
 /**
- * 1. First token of `arboxFirstName` when that string is non-empty.
- * 2. Else the first token of `contact.full_name` if it passes the name filter.
+ * 1. First token of `arboxFirstName` when that string is non-empty (unfiltered).
+ * 2. Else the first token of `contact.full_name`, unless any token of that
+ *    full stored name is a business word.
  * 3. Else null — caller skips the send (`no_valid_name`).
  */
 export function resolveTemplateFirstName(
@@ -65,7 +77,9 @@ export function resolveTemplateFirstName(
 ): string | null {
   const fromArbox = firstToken(arboxFirstName);
   if (fromArbox) return fromArbox;
-  const stored = firstToken(contact?.full_name);
+  const tokens = nameTokens(contact?.full_name);
+  if (tokens.some((token) => isBusinessLikeToken(token))) return null;
+  const stored = tokens[0] ?? "";
   if (!isUsableStoredFirstName(stored)) return null;
   return stored;
 }

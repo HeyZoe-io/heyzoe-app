@@ -50,6 +50,7 @@ export type CreditRefusalDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "throttled"
   | "no_rule"
   | "seeded"
@@ -425,7 +426,7 @@ async function sendCreditRefusalTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("credit_refusal", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-credit-refusal] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -693,7 +694,10 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         dispatch: send.dispatch,
       });
 
-      if (send.ok && (send.dispatch === "immediate" || send.dispatch === "deferred")) {
+      if (
+        send.dispatch === "skipped" ||
+        (send.ok && (send.dispatch === "immediate" || send.dispatch === "deferred"))
+      ) {
         const { error: throttleErr } = await input.admin
           .from("contacts")
           .update({ credit_refusal_last_notified_at: nowIso })

@@ -78,6 +78,7 @@ export type BirthdayDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "dedup"
   | "no_rule"
   | "no_phone"
@@ -449,7 +450,7 @@ async function sendBirthdayTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot(input.triggerType, (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-birthday] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -776,7 +777,10 @@ export async function syncArboxBirthdaysForBusiness(input: {
         dispatch: send.dispatch,
       });
 
-      if (send.ok && (send.dispatch === "immediate" || send.dispatch === "deferred")) {
+      if (
+        send.dispatch === "skipped" ||
+        (send.ok && (send.dispatch === "immediate" || send.dispatch === "deferred"))
+      ) {
         const { error: logErr } = await input.admin.from("arbox_birthday_sync_log").upsert(
           {
             business_id: businessId,

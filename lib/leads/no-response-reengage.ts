@@ -41,7 +41,7 @@ import { canUseArboxScheduleLookup } from "@/lib/crm/types";
 import { waNoResponseEligible } from "@/lib/wa-no-response";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import {
-  NO_RESPONSE_HUMAN_TOUCH_MS,
+  NO_RESPONSE_RECENT_TEMPLATE_MS,
   noResponseAudienceBlocks,
   type NoResponseAudienceMessage,
 } from "@/lib/leads/no-response-audience";
@@ -230,7 +230,7 @@ async function fetchAudienceMessages(input: {
   const userMs = Date.parse(input.lastUserAtIso);
   const sinceMs = Math.min(
     Number.isFinite(userMs) ? userMs : input.nowMs,
-    input.nowMs - NO_RESPONSE_HUMAN_TOUCH_MS
+    input.nowMs - NO_RESPONSE_RECENT_TEMPLATE_MS
   );
   const { data, error } = await input.admin
     .from("messages")
@@ -415,7 +415,9 @@ async function dispatchNoResponseTemplate(input: {
  * Process one business with an enabled no_response rule.
  * IO: one candidate contacts query + one phone-alias query + 7 member-log
  * lookups in parallel (not per contact) + per-candidate message lookups +
- * one audience message query + optional Meta send.
+ * one audience message query (window covers the silence episode and the
+ * 72h template cooldown; the 48h human cooldown sits inside that) +
+ * optional Meta send.
  * The within-24h layer's hours_since_user >= 24 skip stays in wa-followup-cron-eval.
  * This cron uses the inverse (isBeyondSessionFollowupWindow) so the two do not overlap.
  * Arbox businesses with candidates: +1 activeMemberships, +1 sessions, +1 future
@@ -683,7 +685,6 @@ export async function syncNoResponseReengageForBusiness(input: {
       }
       const arboxUserId = String(contact.arbox_user_id ?? "").trim();
       const blocks = noResponseAudienceBlocks({
-        sessionPhase: contact.session_phase,
         arboxIsMember: contact.arbox_is_member === true,
         inMemberSyncLog:
           memberLogCandidateIds.has(String(contactId)) ||

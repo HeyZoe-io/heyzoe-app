@@ -64,6 +64,7 @@ export type TrialReminderDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -365,7 +366,7 @@ async function dispatchTrialReminderTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("trial_reminder", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-trial-reminder] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -776,6 +777,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         send.dispatch === "immediate" ||
         send.dispatch === "deferred" ||
         send.dispatch === "gated" ||
+        send.dispatch === "skipped" ||
         send.dispatch === "send_failed"
       ) {
         const next = nextCancellationSyncLogAfterDispatch({

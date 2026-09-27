@@ -54,6 +54,7 @@ export const NTH_WORKOUT_SOFT_SEED_SENTINEL_USER_ID = 0;
 export type NthWorkoutDispatch =
   | "immediate"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -342,7 +343,7 @@ async function dispatchNthWorkoutTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("nth_workout", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-nth-workout] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -746,6 +747,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
         if (
           send.dispatch === "immediate" ||
           send.dispatch === "gated" ||
+          send.dispatch === "skipped" ||
           send.dispatch === "send_failed"
         ) {
           const next = nextCancellationSyncLogAfterDispatch({

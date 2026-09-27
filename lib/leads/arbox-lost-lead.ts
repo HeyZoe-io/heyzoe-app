@@ -64,6 +64,7 @@ export type LostLeadDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -312,7 +313,7 @@ async function dispatchLostLeadTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("lost_lead", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-lost-lead] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -725,6 +726,7 @@ export async function syncArboxLostLeadForBusiness(input: {
           send.dispatch === "immediate" ||
           send.dispatch === "deferred" ||
           send.dispatch === "gated" ||
+          send.dispatch === "skipped" ||
           send.dispatch === "send_failed"
         ) {
           const next = nextCancellationSyncLogAfterDispatch({

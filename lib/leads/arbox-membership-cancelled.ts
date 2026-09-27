@@ -88,13 +88,15 @@ export type CancellationSyncLogStatus =
   | "seeded"
   | "sent"
   | "abandoned"
-  | "no_phone";
+  | "no_phone"
+  | "skipped";
 
 const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] = [
   "seeded",
   "sent",
   "abandoned",
   "no_phone",
+  "skipped",
 ];
 
 export function isCancellationSyncLogTerminal(status: string | null | undefined): boolean {
@@ -119,15 +121,17 @@ export function parseCancellationSyncAttempts(raw: unknown): number {
  * Next sync_log grain after a dispatch.
  * Only `send_failed` increments attempts. `gated` stays pending at the same count
  * so a trigger enabled before Meta approval is not abandoned.
+ * `skipped` is terminal for this dedup key (no_valid_name). It does not increment attempts.
  */
 export function nextCancellationSyncLogAfterDispatch(input: {
-  dispatch: "gated" | "send_failed" | "immediate" | "deferred" | "no_phone" | "seeded";
+  dispatch: "gated" | "send_failed" | "immediate" | "deferred" | "no_phone" | "seeded" | "skipped";
   attemptsSoFar: number;
   cap?: number;
 }): { attempts: number; status: CancellationSyncLogStatus; hitCap: boolean } {
   const soFar = parseCancellationSyncAttempts(input.attemptsSoFar);
   if (input.dispatch === "seeded") return { attempts: soFar, status: "seeded", hitCap: false };
   if (input.dispatch === "no_phone") return { attempts: soFar, status: "no_phone", hitCap: false };
+  if (input.dispatch === "skipped") return { attempts: soFar, status: "skipped", hitCap: false };
   if (input.dispatch === "immediate" || input.dispatch === "deferred") {
     return { attempts: soFar, status: "sent", hitCap: false };
   }
@@ -173,6 +177,7 @@ export type MembershipCancelledDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -438,7 +443,7 @@ async function dispatchMembershipCancelledTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("membership_cancelled", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-membership-cancelled] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -867,6 +872,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           send.dispatch === "immediate" ||
           send.dispatch === "deferred" ||
           send.dispatch === "gated" ||
+          send.dispatch === "skipped" ||
           send.dispatch === "send_failed"
         ) {
           const next = nextCancellationSyncLogAfterDispatch({

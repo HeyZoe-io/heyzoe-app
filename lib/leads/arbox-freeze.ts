@@ -397,7 +397,7 @@ async function dispatchFreezeTemplate(input: {
   rule: PurchaseTemplateTriggerRule;
   dedupKey: string;
   now: Date;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -447,7 +447,7 @@ async function dispatchFreezeTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot(input.triggerType, (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-freeze] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -490,10 +490,11 @@ async function dispatchFreezeTemplate(input: {
   return { dispatch: "immediate", ok: true };
 }
 
-function mapDispatch(d: string): "immediate" | "deferred" | "gated" | "send_failed" {
+function mapDispatch(d: string): "immediate" | "deferred" | "gated" | "send_failed" | "skipped" {
   if (d === "immediate") return "immediate";
   if (d === "deferred") return "deferred";
   if (d === "gated") return "gated";
+  if (d === "skipped") return "skipped";
   return "send_failed";
 }
 

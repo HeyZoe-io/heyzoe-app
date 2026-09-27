@@ -68,6 +68,7 @@ export type DaysInClubMember = {
 export type DaysInClubDispatch =
   | "immediate"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -347,7 +348,7 @@ async function dispatchDaysInClubTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("milestones", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-days-in-club] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -685,6 +686,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
         if (
           send.dispatch === "immediate" ||
           send.dispatch === "gated" ||
+          send.dispatch === "skipped" ||
           send.dispatch === "send_failed"
         ) {
           const next = nextCancellationSyncLogAfterDispatch({

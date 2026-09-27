@@ -227,6 +227,15 @@ function rule(
   assert.equal(isCancellationSyncLogTerminal("abandoned"), true);
   assert.equal(isCancellationSyncLogTerminal("pending"), false);
 
+  const nameSkip = nextCancellationSyncLogAfterDispatch({ dispatch: "skipped", attemptsSoFar: 0 });
+  assert.deepEqual(nameSkip, { attempts: 0, status: "skipped", hitCap: false });
+  assert.equal(shouldRetryCancellationSyncLog(nameSkip.status), false);
+  const nameSkipAgain = nextCancellationSyncLogAfterDispatch({
+    dispatch: "skipped",
+    attemptsSoFar: 2,
+  });
+  assert.deepEqual(nameSkipAgain, { attempts: 2, status: "skipped", hitCap: false });
+
   const gated = nextCancellationSyncLogAfterDispatch({ dispatch: "gated", attemptsSoFar: 0 });
   assert.deepEqual(gated, { attempts: 0, status: "pending", hitCap: false });
   const gatedAgain = nextCancellationSyncLogAfterDispatch({

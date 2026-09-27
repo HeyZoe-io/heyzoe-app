@@ -63,6 +63,7 @@ export type SessionsExpiringDispatch =
   | "enqueued"
   | "immediate"
   | "gated"
+  | "skipped"
   | "dedup"
   | "skipped_renewed"
   | "skipped_cancelled"
@@ -369,7 +370,7 @@ async function dispatchSessionsExpiringTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("sessions_expiring", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-sessions-expiring] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -622,7 +623,10 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
         dispatch: send.dispatch,
       });
 
-      if (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued")) {
+      if (
+        send.dispatch === "skipped" ||
+        (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued"))
+      ) {
         const { error: logErr } = await input.admin.from("arbox_sessions_expiring_sync_log").upsert(
           {
             business_id: businessId,

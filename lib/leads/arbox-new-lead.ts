@@ -66,6 +66,7 @@ export type ArboxNewLeadDispatch =
   | "immediate"
   | "deferred"
   | "gated"
+  | "skipped"
   | "no_rule"
   | "seeded"
   | "already"
@@ -456,7 +457,7 @@ async function sendArboxNewLeadTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("arbox_new_lead", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-new-lead] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -812,6 +813,28 @@ export async function syncArboxNewLeadsForBusiness(input: {
         createdAt: row.created_at,
         rule,
       });
+
+      if (send.dispatch === "skipped") {
+        summary.processed += 1;
+        await markArboxNewLeadSeen({
+          admin: input.admin,
+          businessId,
+          leadId,
+          contactId: null,
+          nowIso,
+        });
+        console.info("[leads/arbox-new-lead] dispatch", {
+          businessId,
+          lead_id: leadId,
+          user_id: userId,
+          lead_source: row.lead_source ?? null,
+          campaign: row.campaign ?? null,
+          contact: maskPhoneForLog(phone),
+          dispatch: send.dispatch,
+          reason: "no_valid_name",
+        });
+        continue;
+      }
 
       if (send.dispatch === "gated" || send.dispatch === "send_failed") {
         summary.processed += 1;

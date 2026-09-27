@@ -324,7 +324,7 @@ async function sendWelcome(input: {
   phone: string;
   fullName: string | null;
   templateName: string;
-}): Promise<"sent" | "gated" | "send_failed"> {
+}): Promise<"sent" | "gated" | "skipped" | "send_failed"> {
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   if (!phoneNumberId) return "gated";
@@ -349,7 +349,7 @@ async function sendWelcome(input: {
   const firstName = resolveTemplateFirstName(null, input.fullName);
   if (!firstName && templateBodyUsesFirstNameSlot("first_paid_purchase", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-first-paid-purchase] skip", { reason: "no_valid_name" });
-    return "gated";
+    return "skipped";
   }
   const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
@@ -499,6 +499,27 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
       fullName: reportFullName(row),
       templateName: String(rule.template_name ?? "").trim(),
     });
+    if (outcome === "skipped") {
+      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
+        business_id: input.businessId,
+        user_id: userId,
+        sale_id: saleId,
+        seeded: false,
+      });
+      if (claimErr) {
+        const duplicate = String(claimErr.code ?? "") === "23505" || /duplicate/i.test(claimErr.message);
+        if (!duplicate) {
+          console.error(`${LOG} log insert failed after no_valid_name:`, claimErr.message, {
+            user_id: userId,
+            sale_id: saleId,
+          });
+          summary.errors += 1;
+          known.delete(userId);
+        }
+      }
+      console.info(`${LOG} skip`, { reason: "no_valid_name", user_id: userId, sale_id: saleId });
+      continue;
+    }
     if (outcome !== "sent") {
       if (outcome === "gated") summary.gated += 1;
       else summary.errors += 1;

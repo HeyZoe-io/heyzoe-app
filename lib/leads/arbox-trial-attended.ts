@@ -64,6 +64,7 @@ export type TrialAttendedDispatch =
   | "immediate"
   | "enqueued"
   | "gated"
+  | "skipped"
   | "dedup"
   | "no_rule"
   | "not_attended"
@@ -419,7 +420,7 @@ async function dispatchTrialAttendedTemplate(input: {
   );
   if (!firstName && templateBodyUsesFirstNameSlot("trial_attended", (approvedTpl as { components?: unknown }).components)) {
     console.info("[leads/arbox-trial-attended] skip", { reason: "no_valid_name" });
-    return { dispatch: "gated", ok: false };
+    return { dispatch: "skipped", ok: false };
   }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
@@ -693,7 +694,10 @@ export async function syncArboxTrialAttendedForBusiness(input: {
         dispatch: send.dispatch,
       });
 
-      if (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued")) {
+      if (
+        send.dispatch === "skipped" ||
+        (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued"))
+      ) {
         const { error: logErr } = await input.admin.from("arbox_trial_attended_sync_log").upsert(
           {
             business_id: businessId,
