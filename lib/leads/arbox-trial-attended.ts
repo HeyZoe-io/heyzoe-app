@@ -1,5 +1,6 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -190,6 +191,39 @@ export function buildBookingsReportPath(input: {
 }
 
 /** Shared Arbox GET /v3/reports/bookingsReport (paginated). Read-only. */
+type SharedFutureBookings =
+  | {
+      ok: true;
+      rows: ArboxBookingReportRow[];
+      pagesFetched: number;
+      fromDate: string;
+      toDate: string;
+    }
+  | {
+      ok: false;
+      error: string;
+      pagesFetched: number;
+      fromDate: string;
+      toDate: string;
+    };
+
+const sharedFutureByContext = new WeakMap<object, SharedFutureBookings>();
+
+/** Remember one future bookingsReport for this daily-triggers run. Later GETs inside the window reuse it. */
+export function rememberSharedFutureBookings(entry: SharedFutureBookings): void {
+  const ctx = arboxDailyContext();
+  if (ctx) sharedFutureByContext.set(ctx, entry);
+}
+
+function sharedFutureCovering(fromDate: string, toDate: string): SharedFutureBookings | null {
+  const ctx = arboxDailyContext();
+  if (!ctx) return null;
+  const cached = sharedFutureByContext.get(ctx);
+  if (!cached) return null;
+  if (fromDate < cached.fromDate || toDate > cached.toDate) return null;
+  return cached;
+}
+
 export async function fetchArboxBookingsReport(input: {
   apiKey: string;
   fromDate: string;
@@ -199,6 +233,15 @@ export async function fetchArboxBookingsReport(input: {
   | { ok: true; rows: ArboxBookingReportRow[]; pagesFetched: number }
   | { ok: false; error: string; pagesFetched: number }
 > {
+  const shared = sharedFutureCovering(input.fromDate, input.toDate);
+  if (shared) {
+    if (!shared.ok) return { ok: false, error: shared.error, pagesFetched: shared.pagesFetched };
+    const rows = shared.rows.filter((row) => {
+      const ymd = parseClassDateYmd(row.date);
+      return Boolean(ymd && ymd >= input.fromDate && ymd <= input.toDate);
+    });
+    return { ok: true, rows, pagesFetched: shared.pagesFetched };
+  }
   const rows: ArboxBookingReportRow[] = [];
   let pagesFetched = 0;
   let page = 1;

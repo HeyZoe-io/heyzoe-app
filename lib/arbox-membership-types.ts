@@ -1,4 +1,5 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import { shouldFetchNextArboxReportPage } from "@/lib/leads/arbox-sales-report";
 
 /** Arbox OpenAPI max for GET /v3/membershipTypes. Default page without ?limit= is 200. */
@@ -66,16 +67,38 @@ function sortMembershipTypes(types: ArboxMembershipTypeRow[]): ArboxMembershipTy
   });
 }
 
+type MembershipTypesResult =
+  | { ok: true; types: ArboxMembershipTypeRow[]; pagesFetched: number; hitPageCap: boolean }
+  | { ok: false; status: number; rawText: string; pagesFetched: number };
+
 export async function fetchAllArboxMembershipTypes(input: {
   apiKey: string;
   fetchPage?: typeof arboxPublicFetch;
   logLabel: string;
   maxPages?: number;
   pageSize?: number;
-}): Promise<
-  | { ok: true; types: ArboxMembershipTypeRow[]; pagesFetched: number; hitPageCap: boolean }
-  | { ok: false; status: number; rawText: string; pagesFetched: number }
-> {
+}): Promise<MembershipTypesResult> {
+  const ctx = arboxDailyContext();
+  // Opt-in: only the daily-triggers worker sets this context. Other callers fetch every time.
+  if (ctx && !input.fetchPage) {
+    const key = input.apiKey;
+    let pending = ctx.membershipTypesByKey.get(key) as Promise<MembershipTypesResult> | undefined;
+    if (!pending) {
+      pending = fetchAllArboxMembershipTypesUncached(input);
+      ctx.membershipTypesByKey.set(key, pending);
+    }
+    return pending;
+  }
+  return fetchAllArboxMembershipTypesUncached(input);
+}
+
+async function fetchAllArboxMembershipTypesUncached(input: {
+  apiKey: string;
+  fetchPage?: typeof arboxPublicFetch;
+  logLabel: string;
+  maxPages?: number;
+  pageSize?: number;
+}): Promise<MembershipTypesResult> {
   const fetchPage = input.fetchPage ?? arboxPublicFetch;
   const maxPages = input.maxPages ?? MAX_ARBOX_MEMBERSHIP_TYPE_PAGES;
   const pageSize = input.pageSize ?? ARBOX_MEMBERSHIP_TYPES_PAGE_SIZE;

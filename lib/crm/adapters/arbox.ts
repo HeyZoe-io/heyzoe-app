@@ -2,6 +2,7 @@ import { extractArboxProfileIdFromLink } from "@/lib/arbox-profile-url";
 import type { CrmEventKind } from "@/lib/crm/types";
 import { formatLeadPhoneDisplay } from "@/lib/notifications/owner-email-context";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /** OpenAPI: https://arboxserver.arboxapp.com/docs/api */
@@ -166,23 +167,62 @@ function extractProfileIdFromSearchPayload(payload: unknown): string | null {
   return extractArboxProfileIdFromLink(row.profile_link);
 }
 
-/** GET/POST to Arbox public API (`api-key` header). `pathOrUrl` may be a path or absolute URL (pagination). */
+function arboxReportName(pathOrUrl: string): string {
+  const path = pathOrUrl.startsWith("http")
+    ? pathOrUrl.replace(/^https?:\/\/[^/]+/, "")
+    : pathOrUrl;
+  const match = path.match(/\/v3\/(?:reports\/)?([^?/]+)/);
+  return match?.[1] ?? path.split("?")[0] ?? pathOrUrl;
+}
+
+/**
+ * GET/POST to Arbox public API (`api-key` header). `pathOrUrl` may be a path or absolute URL (pagination).
+ * `timeoutMs` / `signal` are opt-in. With neither, and outside the daily-triggers
+ * run context, this is the original fetch (no AbortSignal).
+ */
 export async function arboxPublicFetch(
   pathOrUrl: string,
-  input: { apiKey: string; method?: string; body?: Record<string, unknown> }
+  input: {
+    apiKey: string;
+    method?: string;
+    body?: Record<string, unknown>;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  }
 ): Promise<{ ok: boolean; status: number; json: unknown; rawText: string }> {
   const url = pathOrUrl.startsWith("http")
     ? pathOrUrl
     : `${ARBOX_API_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
-  const res = await fetch(url, {
-    method: input.method ?? "GET",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "api-key": input.apiKey,
-    },
-    body: input.body ? JSON.stringify(input.body) : undefined,
-  });
+  const ctx = arboxDailyContext();
+  if (ctx) {
+    ctx.arboxCalls += 1;
+    ctx.arboxReports.push(arboxReportName(pathOrUrl));
+  }
+  const timeoutMs = input.timeoutMs ?? ctx?.timeoutMs;
+  const signal = input.signal ?? (timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: input.method ?? "GET",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "api-key": input.apiKey,
+      },
+      body: input.body ? JSON.stringify(input.body) : undefined,
+      signal,
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    const aborted = name === "AbortError" || name === "TimeoutError";
+    if (!aborted) throw e;
+    console.error("[cron/arbox-daily-triggers/business] report timeout", {
+      business_id: ctx?.businessId ?? null,
+      report: arboxReportName(pathOrUrl),
+      timeout_ms: timeoutMs ?? null,
+    });
+    return { ok: false, status: 0, json: null, rawText: "timeout" };
+  }
   const rawText = await res.text();
   let json: unknown = null;
   try {

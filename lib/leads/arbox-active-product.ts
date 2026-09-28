@@ -147,6 +147,11 @@ export async function fetchArboxActiveProductKeys(input: {
   fetchPage?: typeof arboxPublicFetch;
   /** Skip the memberships GET when the cron already loaded this report. */
   prefetchedMembershipRows?: Record<string, unknown>[];
+  /**
+   * Skip the future bookings GET when the cron already loaded today…+14.
+   * Pass the array even when it is empty. Omit to fetch.
+   */
+  prefetchedFutureRows?: ArboxBookingReportRow[];
 }): Promise<
   | { ok: true; keys: ActiveProductKeys; membershipRows: Record<string, unknown>[] }
   | { ok: false; error: string }
@@ -185,14 +190,20 @@ export async function fetchArboxActiveProductKeys(input: {
   });
   if (!sessions.ok) return { ok: false, error: "arbox_sessions_report_fetch_failed" };
 
-  const future = sharedFutureBookingsWindow(now, { includeToday: true });
-  const bookings = await fetchArboxBookingsReport({
-    apiKey: input.apiKey,
-    fromDate: future.fromDate,
-    toDate: future.toDate,
-    locationId: input.boxId,
-  });
-  if (!bookings.ok) return { ok: false, error: bookings.error };
+  let bookingRows: ArboxBookingReportRow[];
+  if (input.prefetchedFutureRows) {
+    bookingRows = input.prefetchedFutureRows;
+  } else {
+    const future = sharedFutureBookingsWindow(now, { includeToday: true });
+    const bookings = await fetchArboxBookingsReport({
+      apiKey: input.apiKey,
+      fromDate: future.fromDate,
+      toDate: future.toDate,
+      locationId: input.boxId,
+    });
+    if (!bookings.ok) return { ok: false, error: bookings.error };
+    bookingRows = bookings.rows;
+  }
 
   const trialTypeNamesNormalized = new Set<string>();
   if (trialTypeIds.length) {
@@ -215,7 +226,7 @@ export async function fetchArboxActiveProductKeys(input: {
     keys: collectActiveProductKeys({
       membershipRows,
       sessionRows: sessions.rows,
-      bookingRows: bookings.rows,
+      bookingRows,
       todayYmd,
       trialTypeIds,
       trialTypeNamesNormalized,

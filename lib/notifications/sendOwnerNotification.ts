@@ -1,4 +1,5 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
 import {
   evaluateLeadTemplateSendByPhoneNumberId,
   SUPPRESSED_OPT_OUT_ERROR,
@@ -131,6 +132,8 @@ export async function sendBusinessTemplate(input: {
       return { ok: false, error: SUPPRESSED_OPT_OUT_ERROR };
     }
   }
+
+  if (isArboxDailyDryRun()) return { ok: true };
 
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`;
   const body: Record<string, unknown> = {

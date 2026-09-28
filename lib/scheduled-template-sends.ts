@@ -1,4 +1,5 @@
 import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
@@ -410,6 +411,8 @@ export async function enqueueScheduledTemplateSend(input: {
       return { ok: true, inserted: false };
     }
   }
+
+  if (isArboxDailyDryRun()) return { ok: true, inserted: true };
 
   const nowIso = new Date().toISOString();
   const row = {
