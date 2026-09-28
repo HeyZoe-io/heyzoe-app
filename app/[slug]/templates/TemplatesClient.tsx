@@ -1872,7 +1872,7 @@ export default function TemplatesClient({
                             <p className="text-xs text-zinc-500">
                               {newTriggerType === "trial_reminder" ||
                               newTriggerType === "trainer_trial_heads_up"
-                                ? "חייבים לבחור מוצרי ניסיון (אותם מוצרים כמו באי־הגעה לניסיון), או להגדיר אותם בהגדרות. בלי זה ההתראה לא תישלח."
+                                ? "השאירו ריק לבחירת כל השיעורים."
                                 : "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM."}
                             </p>
                             {arboxMembershipTypesLoading ? (
