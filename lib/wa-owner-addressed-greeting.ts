@@ -65,6 +65,38 @@ const ACADEMY_RECEPTIONIST_RE =
  * תשובת מודל שמציגה את זואי כנציגת אקדמיה נפרדת.
  * האקדמיה רק לנושאים מנהלתיים — לא בברכת זהות.
  */
+const OWNER_CHANNEL_DENIAL_FALLBACK = "אני כאן ואשמח לעזור.";
+
+function clauseDeniesOwnerOnThisChannel(part: string): boolean {
+  const t = part.trim();
+  if (!t) return false;
+  if (/זה\s+לא\s+הערוץ|לא\s+הערוץ\s+שלי/u.test(t)) return true;
+  if (/לא\s+יכול(?:ה|ים)?\s+לענות/u.test(t) && /ערוץ/u.test(t)) return true;
+  if (/can(?:not|'t)\s+answer/i.test(t) && /channel/i.test(t)) return true;
+  return false;
+}
+
+function clauseDeflectsOwnerWillRecreate(part: string): boolean {
+  return /ישמח\s+לשחזר\s+את\s+זה/u.test(part);
+}
+
+/** «מאסטר יגאל לא יכול לענות דרך הערוץ הזה» — זואי על המספר ועונה. */
+export function stripOwnerChannelDenial(text: string): string {
+  const raw = String(text ?? "").trim();
+  if (!raw) return raw;
+  const parts = raw.split(/(?<=[.!?])\s+|,\s+/u);
+  const denies = parts.some(clauseDeniesOwnerOnThisChannel);
+  if (!denies) return raw;
+  const kept = parts
+    .filter((part) => !clauseDeniesOwnerOnThisChannel(part))
+    .filter((part) => !clauseDeflectsOwnerWillRecreate(part))
+    .map((part) => part.replace(/^(?:אבל|ובטוח)\s+/u, "").trim())
+    .filter((part) => part.length > 1);
+  const joined = kept.join(" ").replace(/\s+/g, " ").trim();
+  if (joined.length < 8) return OWNER_CHANNEL_DENIAL_FALLBACK;
+  return joined;
+}
+
 export function rewriteAcademyReceptionistIdentity(
   text: string,
   botName: string,

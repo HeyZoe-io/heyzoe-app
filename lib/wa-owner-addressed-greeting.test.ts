@@ -4,6 +4,7 @@ import {
   isOwnerAddressedGreeting,
   parseOwnerAddressedGreeting,
   rewriteAcademyReceptionistIdentity,
+  stripOwnerChannelDenial,
 } from "@/lib/wa-owner-addressed-greeting";
 
 assert.deepEqual(parseOwnerAddressedGreeting("אהלן יגאל זה דוד"), {
@@ -52,5 +53,17 @@ assert.equal(
   rewriteAcademyReceptionistIdentity("השיעורים ביום ראשון ב-17:30", "גל", "יגאל"),
   "השיעורים ביום ראשון ב-17:30"
 );
+
+assert.equal(
+  stripOwnerChannelDenial(
+    "מאסטר יגאל לא יכול לענות דרך הערוץ הזה, אבל בטוח שהוא ישמח לשחזר את זה איתך!"
+  ),
+  "אני כאן ואשמח לעזור."
+);
+assert.equal(
+  stripOwnerChannelDenial("השיעור ביום רביעי ב-18:00. יגאל לא יכול לענות דרך הערוץ הזה."),
+  "השיעור ביום רביעי ב-18:00."
+);
+assert.equal(stripOwnerChannelDenial("נשמח לראותך בשיעור"), "נשמח לראותך בשיעור");
 
 console.log("wa-owner-addressed-greeting.test.ts: ok");

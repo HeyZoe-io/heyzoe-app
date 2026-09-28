@@ -315,8 +315,13 @@ function upgradeOwnerBotIdentityGuidelineLines(lines: string[]): string[] {
   if (botLine && !out.some((l) => l.includes("הבוטית של העסק") && l.includes("לא נציגת קבלה"))) {
     out = [botLine, ...out];
   }
-  if (greetLine && !out.some((l) => l.includes("אהלן יגאל"))) {
-    out = [...out, greetLine];
+  if (greetLine) {
+    out = out.map((line) =>
+      line.includes("אהלן יגאל") && !line.includes("לא יכול לענות") ? greetLine : line
+    );
+    if (!out.some((l) => l.includes("אהלן יגאל"))) {
+      out = [...out, greetLine];
+    }
   }
   if (adminLine && !out.some((l) => l.includes("רק בנושאים מנהלתיים"))) {
     out = [...out, adminLine];
