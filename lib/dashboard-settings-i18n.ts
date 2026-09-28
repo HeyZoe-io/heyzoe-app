@@ -176,8 +176,7 @@ export const dashboardSettingsI18n = {
       offerTrial: "אימון ניסיון",
       offerWorkshop: "סדנה",
       offerCourse: "קורס",
-      productCard: (index: number, name?: string) =>
-        name?.trim() ? `מוצר ${index + 1} - ${name.trim()}` : `מוצר ${index + 1}`,
+      productCard: (index: number, name?: string) => name?.trim() || `מוצר ${index + 1}`,
       attachMedia: "צירוף מדיה",
       uploadMedia: "העלאת תמונה או סרטון",
       uploadLimits: "עד 16MB · JPG, PNG, GIF, MP4",
@@ -192,7 +191,7 @@ export const dashboardSettingsI18n = {
       scanScheduleMissing: "חסר לינק/תמונה למערכת שעות בטאב לינקים.",
       scanScheduleDirect:
         "כש״הרשמה ישירות מהמערכת״ מופעלת — אין צורך במועדי לוח. כבו את האפשרות בטאב «לינקים» כדי לסרוק מועדים.",
-      scanArboxOverwriteNote: "סריקת מערכות שעות תתווסף למוצרים קיימים במידה והוזנו",
+      scanArboxOverwriteNote: "הסריקה לא דורסת מוצרים קיימים — רק מוסיפה אימונים חדשים מארבוקס.",
       arboxSystemClassName: "שם אימון במערכת",
       arboxRemovedNotice: (name: string) =>
         `מצאנו סוג אימון שירד ממערכת השעות בארבוקס - «${name}», בואו נעדכן אותו`,
@@ -694,8 +693,7 @@ export const dashboardSettingsI18n = {
       offerTrial: "Trial class",
       offerWorkshop: "Workshop",
       offerCourse: "Course",
-      productCard: (index: number, name?: string) =>
-        name?.trim() ? `Product ${index + 1} - ${name.trim()}` : `Product ${index + 1}`,
+      productCard: (index: number, name?: string) => name?.trim() || `Product ${index + 1}`,
       attachMedia: "Attach media",
       uploadMedia: "Upload image or video",
       uploadLimits: "Up to 16MB · JPG, PNG, GIF, MP4",
@@ -710,7 +708,7 @@ export const dashboardSettingsI18n = {
       scanScheduleMissing: "Missing schedule link/image in the Links tab.",
       scanScheduleDirect:
         "When direct registration is on, schedule times aren't needed. Turn it off in Links to scan times.",
-      scanArboxOverwriteNote: "Schedule scan will be added to existing products if they were already entered",
+      scanArboxOverwriteNote: "Scan won't overwrite existing products — only adds new classes from Arbox.",
       arboxSystemClassName: "Class name in the system",
       arboxRemovedNotice: (name: string) =>
         `We found a class type that dropped off the Arbox timetable — «${name}». Let's update it`,

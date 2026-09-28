@@ -645,10 +645,10 @@ export default function Step3Trial(props: {
             )}
           >
             <div
-              className="flex flex-wrap items-center justify-between gap-2 bg-zinc-50/60 px-2 py-2 sm:px-3 sm:py-2.5"
+              className="flex flex-col gap-2 bg-zinc-50/60 px-2 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-3 sm:py-2.5"
               dir="rtl"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
+              <div className="flex min-w-0 w-full items-center gap-1 sm:w-auto sm:flex-1 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => toggleProductOpen(s)}
@@ -682,7 +682,8 @@ export default function Step3Trial(props: {
                 <button
                   type="button"
                   onClick={() => toggleProductOpen(s)}
-                  className="min-w-0 flex-1 truncate text-right text-sm font-semibold text-zinc-900 hover:text-[#2d1a6e]"
+                  title={productCardTitle(i, s.name, t)}
+                  className="min-w-0 flex-1 whitespace-normal break-words text-right text-[15px] font-semibold leading-snug text-zinc-900 hover:text-[#2d1a6e] sm:truncate sm:whitespace-nowrap sm:text-sm"
                 >
                   {productCardTitle(i, s.name, t)}
                 </button>
