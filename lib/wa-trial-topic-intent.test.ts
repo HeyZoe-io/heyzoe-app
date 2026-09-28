@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { lookupKnowledgeQaAnswerForInbound, relatedPhrasingsForQuestion } from "@/lib/knowledge-qa";
 import {
   isExistingTrialEnrollmentMention,
+  matchesCantAttendScheduledClass,
   matchesTrialTopicAdvanceIntent,
   matchesTrialTopicIntent,
 } from "@/lib/wa-trial-topic-intent";
@@ -37,6 +38,18 @@ const apexPostponeTrial =
 assert.equal(isExistingTrialEnrollmentMention(apexPostponeTrial), true, "scheduled trial today is existing enrollment");
 assert.equal(matchesTrialTopicIntent(apexPostponeTrial), false, "postpone must not restart trial topic");
 assert.equal(matchesTrialTopicAdvanceIntent(apexPostponeTrial), false);
+
+const apexCantAttendTrial =
+  "לגבי האימון ניסיון היום בקרוספיט משולב ב17:30 אני לא אוכל להגיע אז אם אפשר לקבוע למועד אחר זה יהיה מעולה";
+assert.equal(matchesCantAttendScheduledClass(apexCantAttendTrial), true);
+assert.equal(matchesTrialTopicIntent(apexCantAttendTrial), false, "can't attend booked trial is not a new signup");
+assert.equal(matchesTrialTopicAdvanceIntent(apexCantAttendTrial), false);
+assert.equal(
+  matchesTrialTopicIntent("אשמח לאימון ניסיון אבל היום לא אוכל להגיע, אפשר לקבוע למועד אחר?"),
+  true,
+  "fresh trial desire still opens the topic"
+);
+assert.equal(matchesCantAttendScheduledClass("היום לא אוכל להגיע מחר אשמח"), false);
 
 assert.equal(matchesTrialTopicAdvanceIntent("רוצה אימון הכרות"), true);
 assert.equal(matchesTrialTopicAdvanceIntent("מה זה אימון היכרות"), false);

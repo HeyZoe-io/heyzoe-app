@@ -115,6 +115,17 @@ assert.equal(resolveBookedClassMoveBranch("יש לי כרטיסיה, אפשר ל
 
 const apexPostponeTrial =
   "הי\n\nהיינו אמורים לעשות אימון נסיון היום ב 19:00\nזה לא מסתדר\nאפשרי בבקשה לדחות בשבוע - ליום ד הבא לשעה 19:30 ?\nתודה";
+const apexCantAttendTrial =
+  "לגבי האימון ניסיון היום בקרוספיט משולב ב17:30 אני לא אוכל להגיע אז אם אפשר לקבוע למועד אחר זה יהיה מעולה";
+assert.equal(matchesBookedClassMoveIntent(apexCantAttendTrial), true, "can't attend booked trial");
+assert.equal(resolveBookedClassMoveBranch(apexCantAttendTrial), "app");
+assert.equal(matchesBookedClassMoveIntent("היום לא אוכל להגיע מחר אשמח"), false);
+assert.equal(
+  matchesBookedClassMoveIntent("אשמח לאימון ניסיון אבל היום לא אוכל להגיע, אפשר לקבוע למועד אחר?"),
+  true,
+  "explicit other-slot still a move, trial-topic handler runs first when desire is present"
+);
+
 assert.equal(matchesBookedClassMoveIntent(apexPostponeTrial), true, "postpone existing trial");
 assert.equal(
   resolveBookedClassMoveBranch(apexPostponeTrial, { salesFlowStarted: true, sessionPhase: "opening" }),

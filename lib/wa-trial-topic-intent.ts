@@ -58,12 +58,37 @@ export function isExistingTrialEnrollmentMention(raw: string): boolean {
   return false;
 }
 
+const CANT_ATTEND_RE =
+  /לא\s+(?:אוכל|יכול(?:ה|ים)?|נוכל)\s+להגיע|לא\s+(?:אגיע|נגיע|יגיע)(?!ו)/u;
+
+/** Asking to move an existing slot — not «מחר אשמח» inside the schedule picker. */
+const OTHER_SLOT_RE =
+  /מועד\s+אחר|יום\s+אחר|שבוע\s+אחר|לקבוע\s+ל(?:יום|מועד)\s+אחר|לתאם\s+ל(?:יום|מועד)\s+אחר/u;
+
+/**
+ * Already has a class and can't attend it.
+ * «לגבי האימון ניסיון היום ב17:30 אני לא אוכל להגיע … לקבוע למועד אחר»
+ * A fresh «אשמח/רוצה … אימון ניסיון» stays a signup (composable desire).
+ */
+export function matchesCantAttendScheduledClass(raw: string): boolean {
+  const t = stripLeadingCasualGreeting(normalizeTrialTopicText(raw)).replace(/\s+/g, " ").trim();
+  if (!t || t.length > 500 || !CANT_ATTEND_RE.test(t)) return false;
+  if (matchesComposableTrialSignupIntent(raw)) return false;
+  if (OTHER_SLOT_RE.test(t)) return true;
+  if (/לגבי\s+(?:ה)?(?:אימון|שיעור)/u.test(t)) return true;
+  return (
+    /(?:אימון|שיעור|ניסיון|נסיון|היכרות|הכרות)/u.test(t) &&
+    /(?:היום|מחר).{0,48}\d{1,2}:\d{2}|\d{1,2}:\d{2}.{0,48}(?:היום|מחר)/u.test(t)
+  );
+}
+
 /** Lead asks about or wants trial / intro training — incl. «אימון הכרות» typo. */
 export function matchesTrialTopicIntent(raw: string): boolean {
   const normalized = normalizeTrialTopicText(raw);
   const t = stripLeadingCasualGreeting(normalized);
   if (!t || t.length > 400) return false;
   if (isExistingTrialEnrollmentMention(raw)) return false;
+  if (matchesCantAttendScheduledClass(raw)) return false;
   if (!TRIAL_TOPIC_MARKERS.test(t)) return false;
   if (TRIAL_CLASS_PHRASE.test(t)) return true;
   if (/אימוני\s+(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) return true;

@@ -1,4 +1,8 @@
-import { isExistingTrialEnrollmentMention, matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
+import {
+  isExistingTrialEnrollmentMention,
+  matchesCantAttendScheduledClass,
+  matchesTrialTopicIntent,
+} from "@/lib/wa-trial-topic-intent";
 
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
@@ -51,7 +55,7 @@ const MOVE_SLOT_CUE =
   /יום\s+אחר|מועד\s+אחר|שבוע\s+אחר|לתאם\s+(?:מחדש|ל(?:יום|מועד))|לקבוע\s+מחדש|לדחות|להעביר|להחליף|לשנות\s+(?:את\s+)?(?:ה)?(?:מועד|שיעור|אימון)|another\s+day|reschedule|postpone/iu;
 
 const EXPLICIT_CLASS_MOVE =
-  /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|לתאם\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
+  /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|ל(?:תאם|קבוע)\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
 
 /**
  * Already booked + wants another slot (or explicit swap/postpone).
@@ -64,6 +68,7 @@ export function matchesBookedClassMoveIntent(raw: string): boolean {
   if (EXPLICIT_CLASS_MOVE.test(t)) return true;
   if (EXISTING_BOOKING_CUE.test(t) && MOVE_SLOT_CUE.test(t)) return true;
   if (isExistingTrialEnrollmentMention(raw) && MOVE_SLOT_CUE.test(t)) return true;
+  if (matchesCantAttendScheduledClass(raw)) return true;
   return false;
 }
 
