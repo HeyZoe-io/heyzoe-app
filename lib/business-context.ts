@@ -824,6 +824,10 @@ export function buildSystemPrompt(
     isWhatsApp && waCtx?.pendingWarmupExperienceResume
       ? "- הלקוח שאל שאלה פתוחה לפני שענה על שאלת החימום (כפתורים). עני רק על השאלה הפתוחה. מותר משפט גשר קצר כמו «עכשיו, בחזרה לשאלה שלנו» — בלי לחזור על נוסח השאלה ואסור לרשום את אפשרויות הכפתורים בטקסט; המערכת תשלח את השאלה שוב עם כפתורים אמיתיים."
       : "";
+  const callScheduleOpenAnswerRule =
+    isWhatsApp && (phase === "call_schedule_day" || phase === "call_schedule_time")
+      ? "- הליד באמצע קביעת מועד לשיחה וכתב טקסט חופשי (שאלה או עדכון), לא בחירת כפתור. עני קודם על מה שכתבו: אם יש שאלה — מהידע; אם זה עדכון — התייחסות קצרה לתוכן. אל תחזרי על «באיזה יום נוח» / «באיזה טווח שעות» ואל תרשמי כפתורים. המערכת שולחת את שאלת המועד שוב מיד אחרייך."
+      : "";
   const promotionsText = annotateExpiredIsraelDates(knowledge?.promotionsText?.trim() ?? "", promptNow);
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
@@ -908,6 +912,7 @@ ${optionListingNoCountRule}
 ${directAnswerRule}
 ${holidayQuestionRule ? `${holidayQuestionRule}\n` : ""}${waSpellingPhrasingRule}
 ${warmupResumeRule}
+${callScheduleOpenAnswerRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}

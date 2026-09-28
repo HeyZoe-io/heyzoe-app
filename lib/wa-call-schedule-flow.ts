@@ -38,6 +38,23 @@ export function buildCallScheduleDayQuestion(): string {
   return "באיזה יום נוח לכם לשיחה קצרה? בחרו מהכפתורים למטה.";
 }
 
+/** מוריד משאלת המועד שהמודל העתיק — התפריט נשלח שוב בנפרד. */
+export function stripCallScheduleMenuEcho(text: string): string {
+  const dayQuestion = buildCallScheduleDayQuestion().replace(/\s+/g, " ").trim();
+  const lines = String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      const n = line.replace(/\s+/g, " ").trim();
+      if (!n) return true;
+      if (n === dayQuestion) return false;
+      if (/באיזה יום נוח לכם לשיחה/u.test(n)) return false;
+      if (/באיזה טווח שעות נוח/u.test(n)) return false;
+      return true;
+    });
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function buildCallScheduleTimeQuestion(dayOfWeek: number): string {
   const dayLabel = callScheduleDayButtonLabel(dayOfWeek);
   return dayLabel

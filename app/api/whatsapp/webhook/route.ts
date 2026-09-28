@@ -119,6 +119,7 @@ import {
   buildCallScheduleDayQuestion,
   buildCallScheduleNoSlotsLeadMessage,
   buildCallScheduleTimeQuestion,
+  stripCallScheduleMenuEcho,
   dayButtonLabelsForSlots,
   fetchBusinessCallSlots,
   ownerSlotLine,
@@ -5103,6 +5104,11 @@ async function resendUnansweredSalesFlowPrompt(
         sessionId,
       });
     }
+    return;
+  }
+
+  if (phase === "call_schedule_day" || phase === "call_schedule_time") {
+    await sendFlowContinuation(input);
   }
 }
 
@@ -9726,12 +9732,15 @@ async function processIncoming(
       const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
       const menuFooter = salesFlowMenuFooter(knowledge);
 
+      const openTextDuringCallSchedule = isSalesFlowFreeTextInbound(msg);
+
       if (contactSessionPhase === "call_schedule_day") {
         const days = uniqueDaysWithSlots(slots);
         const labels = dayButtonLabelsForSlots(slots);
         const picked = resolveCallScheduleDayChoice(msg.text.trim(), msg.metaInteractiveReplyId, days);
         if (picked == null) {
-          if (labels.length) {
+          // טקסט חופשי (שאלה/עדכון) — עונים בקלוד, והתפריט נשלח שוב אחרי התשובה.
+          if (!openTextDuringCallSchedule && labels.length) {
             const body = buildCallScheduleDayQuestion();
             await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, labels, accountSid, authToken, {
               footerHint: menuFooter,
@@ -9744,9 +9753,10 @@ async function processIncoming(
               model_used: "sales_flow_call_schedule_day_invalid",
               session_id: sessionId,
             });
+            return;
           }
-          return;
-        }
+          if (!openTextDuringCallSchedule) return;
+        } else {
         await persistCallScheduleDay({
           supabase,
           businessId,
@@ -9791,8 +9801,8 @@ async function processIncoming(
           session_id: sessionId,
         });
         return;
-      }
-
+        }
+      } else {
       // call_schedule_time
       const phoneVariants = contactPhoneLookupVariants(msg.from);
       const { data: dayRows } = await supabase
@@ -9807,7 +9817,7 @@ async function processIncoming(
       const timeLabels = timeButtonLabelsForDay(slots, dayOfWeek);
       const pickedBlock = resolveCallScheduleTimeChoice(msg.text.trim(), msg.metaInteractiveReplyId, timeLabels);
       if (!pickedBlock) {
-        if (timeLabels.length) {
+        if (!openTextDuringCallSchedule && timeLabels.length) {
           const body = buildCallScheduleTimeQuestion(dayOfWeek);
           await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, body, timeLabels, accountSid, authToken, {
             footerHint: menuFooter,
@@ -9820,9 +9830,10 @@ async function processIncoming(
             model_used: "sales_flow_call_schedule_time_invalid",
             session_id: sessionId,
           });
+          return;
         }
-        return;
-      }
+        if (!openTextDuringCallSchedule) return;
+      } else {
       await persistCallScheduleTimeComplete({
         supabase,
         businessId,
@@ -9854,6 +9865,8 @@ async function processIncoming(
         callScheduleSlot: slotLine || null,
       });
       return;
+      }
+    }
     } catch (e) {
       console.warn("[WA Webhook] call schedule selection failed (continuing):", e);
     }
@@ -13107,6 +13120,12 @@ async function processIncoming(
         const menuLabels = shouldReaskServiceSelection ? serviceSelectionLabels : buttons;
         const menuQuestion = shouldReaskServiceSelection ? serviceSelectionQuestion : ctaPromptQuestion;
         let answerBody = softenWebsiteAttribution(dedupeConsecutiveDuplicateLines(replyCoreClean));
+        if (
+          contactSessionPhase === "call_schedule_day" ||
+          contactSessionPhase === "call_schedule_time"
+        ) {
+          answerBody = stripCallScheduleMenuEcho(answerBody);
+        }
         if (knowledge?.salesFlowConfig) {
           const pendingWarmup = await isWarmupExperienceQuestionPending({
             admin: supabase,

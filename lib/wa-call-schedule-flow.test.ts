@@ -4,6 +4,7 @@ import {
   dayButtonLabelsForSlots,
   resolveCallScheduleDayChoice,
   resolveCallScheduleTimeChoice,
+  stripCallScheduleMenuEcho,
 } from "@/lib/wa-call-schedule-flow";
 import { callScheduleDayButtonLabel } from "@/lib/call-schedule-slots";
 
@@ -35,5 +36,9 @@ assert.deepEqual(dayButtonLabelsForSlots(days.map((day_of_week) => ({ day_of_wee
   "יום חמישי",
   "יום שישי",
 ]);
+
+const echoed =
+  "שיעור ניסיון עולה 50 ש״ח.\nבאיזה יום נוח לכם לשיחה קצרה? בחרו מהכפתורים למטה.\nמעולה — יום רביעי. באיזה טווח שעות נוח לכם?";
+assert.equal(stripCallScheduleMenuEcho(echoed), "שיעור ניסיון עולה 50 ש״ח.");
 
 console.log("wa-call-schedule-flow.test.ts: ok");
