@@ -16,8 +16,15 @@ import {
 } from "@/lib/leads/arbox-membership-expiring";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  hasAnotherActiveMembership,
+  isIntroWorkoutProductName,
+  loadActiveMembershipIndex,
+} from "@/lib/leads/arbox-expiry-suppress";
 import {
   buildSessionsExpiringScheduledDedupKey,
+  cancelPendingScheduledTemplateSendByDedupKey,
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
@@ -66,6 +73,8 @@ export type SessionsExpiringDispatch =
   | "skipped"
   | "dedup"
   | "skipped_renewed"
+  | "skipped_intro"
+  | "skipped_active_membership"
   | "skipped_cancelled"
   | "skipped_past_due"
   | "skipped_expired_end"
@@ -86,6 +95,8 @@ export type SessionsExpiringSyncSummary = {
   deferred: number;
   gated: number;
   skipped_renewed: number;
+  skipped_intro: number;
+  skipped_active_membership: number;
   skipped_cancelled: number;
   skipped_past_due: number;
   skipped_expired_end: number;
@@ -415,6 +426,8 @@ async function dispatchSessionsExpiringTemplate(input: {
  * Daily sessions_expiring step for one Arbox business (punch-card / session pack).
  * Report requires fromDate/toDate (max 31 days) but does NOT filter by end_date —
  * client filters end_date into [today, today+30], skips null end_date / renewed / cancelled.
+ * Also skips אימון היכרות, and a punch card when another מנוי is still in force.
+ * activeMembershipRows: pass the shared cron prefetch. null = fetch already failed.
  */
 export async function syncArboxSessionsExpiringForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -423,6 +436,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
   apiKey: string;
   boxId: string;
   now?: Date;
+  activeMembershipRows?: Record<string, unknown>[] | null;
 }): Promise<SessionsExpiringSyncSummary> {
   const summary: SessionsExpiringSyncSummary = {
     fetched: 0,
@@ -433,6 +447,8 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     deferred: 0,
     gated: 0,
     skipped_renewed: 0,
+    skipped_intro: 0,
+    skipped_active_membership: 0,
     skipped_cancelled: 0,
     skipped_past_due: 0,
     skipped_expired_end: 0,
@@ -481,6 +497,19 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
   }
   summary.fetched = report.rows.length;
 
+  const activeIndex = await loadActiveMembershipIndex({
+    apiKey,
+    boxId,
+    now,
+    rows: input.activeMembershipRows,
+  });
+  if (!activeIndex) {
+    console.error("[leads/arbox-sessions-expiring] active membership index unavailable", {
+      businessId,
+      businessSlug,
+    });
+  }
+
   for (const row of report.rows) {
     const userIdRaw = Number(row.user_id);
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
@@ -511,6 +540,54 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     }
     if (!startDateYmd) {
       summary.errors += 1;
+      continue;
+    }
+
+    const expiryDedupKey = buildSessionsExpiringScheduledDedupKey(
+      businessId,
+      rule.id,
+      userId,
+      startDateYmd,
+      endDateYmd
+    );
+
+    if (isIntroWorkoutProductName(row.membership_type_name)) {
+      summary.skipped_intro += 1;
+      await cancelPendingScheduledTemplateSendByDedupKey({
+        admin: input.admin,
+        dedupKey: expiryDedupKey,
+        reason: "intro_workout",
+      });
+      console.info("[leads/arbox-sessions-expiring] dispatch", {
+        ...logBase,
+        dispatch: "skipped_intro",
+      });
+      continue;
+    }
+
+    if (activeIndex && hasAnotherActiveMembership(activeIndex, userId, null)) {
+      summary.skipped_active_membership += 1;
+      await cancelPendingScheduledTemplateSendByDedupKey({
+        admin: input.admin,
+        dedupKey: expiryDedupKey,
+        reason: "active_membership",
+      });
+      if (!isArboxDailyDryRun()) {
+        const { error: clearErr } = await input.admin
+          .from("arbox_sessions_expiring_sync_log")
+          .delete()
+          .eq("business_id", businessId)
+          .eq("user_id", userId)
+          .eq("start_date", startDateYmd)
+          .eq("end_date", endDateYmd);
+        if (clearErr) {
+          console.error("[leads/arbox-sessions-expiring] sync_log clear failed:", clearErr.message);
+        }
+      }
+      console.info("[leads/arbox-sessions-expiring] dispatch", {
+        ...logBase,
+        dispatch: "skipped_active_membership",
+      });
       continue;
     }
 

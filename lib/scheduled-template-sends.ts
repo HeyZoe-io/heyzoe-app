@@ -266,6 +266,33 @@ export async function markScheduledTemplateSendSentByDedupKey(input: {
   return { ok: true };
 }
 
+/** Drop a not-yet-sent expiry alert (intro workout or another active membership). */
+export async function cancelPendingScheduledTemplateSendByDedupKey(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  dedupKey: string;
+  reason: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const dedupKey = String(input.dedupKey ?? "").trim();
+  if (!dedupKey) return { ok: false, error: "missing_dedup_key" };
+  if (isArboxDailyDryRun()) return { ok: true };
+  const { error } = await input.admin
+    .from("scheduled_template_sends")
+    .update({
+      status: "canceled",
+      last_error: String(input.reason ?? "").trim() || "canceled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("dedup_key", dedupKey)
+    .eq("status", "pending");
+  if (error) {
+    console.error("[scheduled-template-sends] cancel pending failed:", error.message, {
+      dedup_key: dedupKey,
+    });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
 /** A7 lost_lead enqueue key: once per business+trigger+lead_id+lost_date (text grain). */
 export function buildLostLeadScheduledDedupKey(
   businessId: number,

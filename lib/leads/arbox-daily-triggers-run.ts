@@ -562,6 +562,46 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
 
+  // One activeMembershipsReport for both expiry steps when a rule is on.
+  // Reuse the birthday/C8/C7 prefetch when it already ran. Not per lead.
+  let expiryActiveRows: Record<string, unknown>[] | null | undefined = prefetchedMembershipRows;
+  try {
+    const { data: expiryRules, error: expiryRulesErr } = await admin
+      .from("template_triggers")
+      .select("trigger_type, template_name")
+      .eq("business_id", business.id)
+      .eq("enabled", true)
+      .in("trigger_type", ["membership_expiring", "sessions_expiring"]);
+    const needsExpiryIndex =
+      !expiryRulesErr &&
+      (expiryRules ?? []).some((row) => String((row as { template_name?: unknown }).template_name ?? "").trim());
+    if (expiryRulesErr) {
+      console.error("[cron/arbox-daily-triggers] expiry rule lookup failed", {
+        slug: business.slug,
+        error: expiryRulesErr.message,
+      });
+    }
+    if (needsExpiryIndex && expiryActiveRows === undefined) {
+      const memberships = await fetchArboxActiveMembershipsReport({
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        now,
+      });
+      expiryActiveRows = memberships.ok ? memberships.rows : null;
+      if (!memberships.ok) {
+        console.error("[cron/arbox-daily-triggers] expiry activeMembershipsReport failed", {
+          slug: business.slug,
+          error: memberships.error,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[cron/arbox-daily-triggers] expiry membership prefetch threw", {
+      slug: business.slug,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
   // --- Step: membership_expiring ---
   try {
     entry.membership_expiring = await timeStep(timings, business.id, "membership_expiring", () => syncArboxMembershipExpiringForBusiness({
@@ -571,6 +611,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       apiKey: business.crm_api_key,
       boxId: business.crm_box_id,
       now,
+      activeMembershipRows: expiryActiveRows,
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -986,6 +1027,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       apiKey: business.crm_api_key,
       boxId: business.crm_box_id,
       now,
+      activeMembershipRows: expiryActiveRows,
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

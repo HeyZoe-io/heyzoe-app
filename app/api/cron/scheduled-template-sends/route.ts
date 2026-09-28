@@ -45,6 +45,11 @@ import {
   triggerSuppressesActiveProduct,
   type ActiveProductKeys,
 } from "@/lib/leads/arbox-active-product";
+import {
+  decideScheduledExpirySuppression,
+  emptyExpirySuppressCache,
+  type ExpirySuppressCache,
+} from "@/lib/leads/arbox-expiry-suppress";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET + Authorization: Bearer CRON_SECRET.
  *  גם שוטף scheduled_marketing_template_sends ו-manual_bulk_queued_sends.
@@ -52,7 +57,9 @@ import {
  *  חלון שליחה: isAllowedWhatsAppSendTimeIsrael (כמו wa-followups) — מחוץ לחלון לא
  *  שולחים; השורות נשארות pending. due_at לא משתנה.
  *  IO: מחוץ לחלון — מימוש schedules (שאילתה לפי next_run_at) בלי drain.
- *  בתוך החלון — שאילתה לפי אינדקס (status, due_at). */
+ *  בתוך החלון — שאילתה לפי אינדקס (status, due_at).
+ *  פקיעת מנוי/כרטיסייה: דוח מנויים פעילים אחד לעסק בטיק (לא לכל ליד).
+ *  כרטיסייה בלי מנוי פעיל: עוד קריאת memberships אחת לזיהוי אימון היכרות. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -120,6 +127,7 @@ async function lookupContactFullName(
 }
 
 const activeProductCache = new Map<number, ActiveProductKeys | null | "failed">();
+let expirySuppressCache: ExpirySuppressCache = emptyExpirySuppressCache();
 
 async function cachedActiveProductKeys(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -163,7 +171,7 @@ async function dispatchOneScheduledSend(
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
     admin
       .from("businesses")
-      .select("slug, waba_id, name, crm_api_key")
+      .select("slug, waba_id, name, crm_api_key, crm_box_id")
       .eq("id", businessId)
       .maybeSingle(),
     admin
@@ -214,6 +222,32 @@ async function dispatchOneScheduledSend(
       last_error: gate.last_error,
     });
     return "canceled";
+  }
+
+  if (triggerType === "sessions_expiring" || triggerType === "membership_expiring") {
+    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const boxId = String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
+    const expiryGate = await decideScheduledExpirySuppression({
+      apiKey,
+      boxId,
+      triggerType,
+      dedupKey: row.dedup_key,
+      now,
+      cache: expirySuppressCache,
+    });
+    if (expiryGate.action === "cancel") {
+      console.info("[cron/scheduled-template-sends] suppressed expiry", {
+        id: row.id,
+        businessId,
+        triggerType,
+        reason: expiryGate.reason,
+      });
+      await markScheduledSend(admin, row.id, {
+        status: "canceled",
+        last_error: expiryGate.reason,
+      });
+      return "canceled";
+    }
   }
 
   if (!isStaffRecipient && triggerSuppressesActiveProduct(triggerType || "")) {
@@ -391,6 +425,7 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const ranAt = now.toISOString();
   activeProductCache.clear();
+  expirySuppressCache = emptyExpirySuppressCache();
   const nowIso = ranAt;
   const admin = createSupabaseAdminClient();
 
