@@ -582,9 +582,12 @@ export function shouldHandoffUnknownClassSlot(input: {
 
   const timeQuestion = looksLikeClassTimeQuestion(text);
 
-  // «יש רק פעם בשבוע?» / «אמרו לי שיש גם ביום אחר» — עונים מכל מועדי הלוח, לא מעבירים
-  // כי אחד הימים שהוזכרו לא קיים (למשל שני, כשיש ראשון ושלישי).
-  if (looksLikeWeeklyScheduleScopeAsk(text) && service && (service.scheduleSlots ?? []).length > 0) {
+  // שיעור עם מועדי לוח — עונים מכל המועדים שלו, גם אם היום או השעה שצוינו לא קיימים.
+  if (
+    service &&
+    (service.scheduleSlots ?? []).some((s) => String(s.day ?? "").trim() && String(s.time ?? "").trim()) &&
+    (days.length > 0 || times.length > 0 || timeQuestion || looksLikeWeeklyScheduleScopeAsk(text))
+  ) {
     return false;
   }
 

@@ -422,17 +422,23 @@ export function formatWeeklyScheduleScopeReply(
   return `${name} מתקיים ${freq}: ${list}.`;
 }
 
-/** תשובה שטוענת «רק פעם / המועד היחיד» כשלשיעור יש כמה מועדים — מוחלפת בלוח המלא. */
+/** תשובה על שיעור שמציינת רק חלק ממועדי הלוח — מוחלפת ברשימה המלאה. */
 export function rewriteFalseSingleWeeklySlotClaim(text: string, services: SfServiceRow[]): string {
   const raw = String(text ?? "").trim();
-  if (!raw || !/פעם\s+(?:אחת\s+)?בשבוע|המועד\s+היחיד|רק\s+פעם/u.test(raw)) return raw;
-  if (parseRequestedClassDays(raw).length >= 2) return raw;
+  if (!raw || /נרשמ|ההרשמה|נתראה|שיריינ/u.test(raw)) return raw;
   const name = matchCatalogServiceFromFreeText(raw, services);
   if (!name) return raw;
   const service = services.find((s) => s.name === name);
   if (!service) return raw;
   const slots = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
   if (slots.length < 2) return raw;
+  const slotDays = new Set(slots.map((s) => s.day));
+  const mentioned = parseRequestedClassDays(raw).filter((d) => slotDays.has(d));
+  if (mentioned.length >= slotDays.size) return raw;
+  const statesSchedule =
+    /פעם\s+(?:אחת\s+)?בשבוע|המועד\s+היחיד|רק\s+פעם|מתקיים|השבוע|בשעה|ב-\d{1,2}:\d{2}/u.test(raw);
+  if (!statesSchedule) return raw;
+  if (mentioned.length === 0 && raw.length > 220) return raw;
   return formatWeeklyScheduleScopeReply(name, slots);
 }
 
@@ -547,7 +553,7 @@ export function buildIsraelNowSchedulePromptBlock(services: SfServiceRow[], now:
 ${formatDaySlotLines(services, today, now)}
 מועדים למחר (${DAY_NAME[tomorrow]}) בלבד:
 ${formatDaySlotLines(services, tomorrow, now)}
-כששואלים על שיעור ספציפי היום/הערב/מחר — רק השורות של אותו אימון ביום ששאלו. אם אין שורה: אמרי שאין, בלי לקחת שעה מיום אחר.
+הבלוק הזה הוא רק «אילו שיעורים היום/מחר». שאלה על שיעור מסוים — כל מועדי הלוח השבועיים של אותו שיעור, לא רק היום או המחר.
 ניסוח ללקוח — יום ושעה תמיד צמודים (לא «שעה + שם + יום»):
 - לפי שם שיעור: «פילאטיס מכשירים | מחר (חמישי) ב-19:30». כמה מועדים: «שם | יום א ב-שעה | יום ב ב-שעה».
 - אילו שיעורים ביום: «היום ב-18:30, פילאטיס מזרן». שורה לכל מועד.
@@ -752,6 +758,12 @@ export async function tryBuildRelativeDayClassSlotsReply(
 
   const service = input.services.find((s) => s.name === serviceName);
   if (!service) return null;
+
+  const weeklySlots = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
+  if (weeklySlots.length > 0) {
+    const weeklyText = formatWeeklyScheduleScopeReply(service.name, weeklySlots);
+    if (weeklyText) return { kind: "list", text: weeklyText, modelUsed: "weekly_schedule_scope" };
+  }
 
   // כמה ימים באותה הודעה («היום ומחר») — שם | יום שעה | יום שעה
   type DayGroup = { day: IsraelDayLetter; phrase: string; slots: { time: string; dateYmd: string }[] };

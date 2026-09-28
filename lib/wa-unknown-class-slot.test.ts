@@ -115,8 +115,8 @@ assert.equal(
     text: "רוצה להצטרף בשבת לפוואר אנד הייט",
     services: limitlessLike,
   }),
-  true,
-  "Saturday Power & HIIT is not in catalog slots"
+  false,
+  "Saturday is missing, but Power has other weekly slots — answer from those"
 );
 
 assert.equal(
@@ -152,8 +152,8 @@ assert.equal(
     services: limitlessLike,
     committedServiceName: "POWER & HIIT",
   }),
-  true,
-  "committed Power & HIIT has no Saturday"
+  false,
+  "committed Power has other slots — list them instead of handing off Saturday"
 );
 
 assert.equal(
@@ -179,7 +179,8 @@ assert.equal(
     text: "יש פילאטיס ב-11:30?",
     services: [svc("פילאטיס מכשירים", [{ day: "ג", time: "18:30" }])],
   }),
-  true
+  false,
+  "wrong hour still answers from the class slots that exist"
 );
 
 assert.equal(
