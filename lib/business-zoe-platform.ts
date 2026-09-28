@@ -349,6 +349,27 @@ function ensureWantConjugationGuidelineLines(lines: string[]): string[] {
   return lines;
 }
 
+/** שורת הנחיה שמלמדת ביטול שיעור דרך אפליקציה — רק לעסק עם ארבוקס. */
+export function isArboxClassCancelHowToGuidelineLine(line: string): boolean {
+  const t = line.trim();
+  if (!/אפליקצי/u.test(t)) return false;
+  if (/אל תפני לאפליקציה|אסור להפנות לאפליקציה/u.test(t)) return false;
+  return /מבטלים|נכנסים|לבטל את ההרשמה|לבטל את השיעור/u.test(t);
+}
+
+export function omitArboxClassCancelHowToGuidelines(
+  guidelines: ZoePlatformGuidelines
+): ZoePlatformGuidelines {
+  const drop = (lines: string[]) => lines.filter((line) => !isArboxClassCancelHowToGuidelineLine(line));
+  return {
+    categories: guidelines.categories.map((category) => ({
+      ...category,
+      lines: drop(category.lines),
+      sections: category.sections?.map((section) => ({ ...section, lines: drop(section.lines) })),
+    })),
+  };
+}
+
 /** ביטול/החלפת שיעור מהאפליקציה — מזריקים בלי שמירה מחדש באדמין. */
 function ensureNeutralCancelHowToGuidelineLines(lines: string[]): string[] {
   if (lines.some((l) => l.includes("נכנסים, מבטלים את ההרשמה"))) return lines;

@@ -1,5 +1,6 @@
 import type { ClosedPlaybookCategory } from "@/lib/wa-closed-playbook-types";
 import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
+import { detectMessageLanguage } from "@/lib/language-detect";
 
 export const CLOSED_PLAYBOOK_CANCELLATION_REPLY =
   "אני מבינה, אני אעביר את הבקשה לביטול לצוות שלנו והם יחזרו אלייך בהקדם 💜";
@@ -30,6 +31,61 @@ export const CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY =
   "אין לי ממש יכולת לעזור כאן אבל אני יכולה להעביר את זה לצוות שיצרו איתך קשר ✨";
 
 export const CLOSED_PLAYBOOK_COACH_OWNER_REPLY = "בשמחה, אני מעבירה את זה ישירות אליהם 💜";
+
+/**
+ * ביטול/החלפת שיעור בלי ארבוקס ובלי עובדה בידע — העברה לצוות שמזכירה את הבקשה.
+ */
+export function buildNonArboxClassChangeTeamHandoffReply(inbound: string): string {
+  const lang = detectMessageLanguage(inbound);
+  const ref = classChangeRequestReference(inbound);
+  if (lang === "en") {
+    const quoted = clipInboundQuote(inbound);
+    return quoted
+      ? `I'm passing your request to the team («${quoted}»). They'll get back to you.`
+      : "I'm passing your request to the team. They'll get back to you.";
+  }
+  if (lang === "ru") {
+    const quoted = clipInboundQuote(inbound);
+    return quoted
+      ? `Передаю ваш запрос команде («${quoted}»). Они свяжутся с вами.`
+      : "Передаю ваш запрос команде. Они свяжутся с вами.";
+  }
+  const empathy = /לצערי|חולה|לא\s+מרגיש|לא\s+בטוב|לא\s+יכול(?:ה|ים)?\s+להגיע|מצטער/u.test(inbound);
+  const open = empathy ? "מצטערת לשמוע! " : "";
+  const about = ref ? `את הבקשה ${ref}` : "את הבקשה";
+  return `${open}אני מעבירה לצוות ${about}. הם יחזרו אלייך בהקדם 💜`;
+}
+
+function classChangeRequestReference(raw: string): string {
+  const t = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const day = /היום/u.test(t) ? "של היום" : /מחר/u.test(t) ? "של מחר" : "";
+  const wantsSwitch = /להחליף|להעביר|לדחות/u.test(t);
+  const wantsCancel = /לבטל|תבטל|בטל(?:י|ו)|ביטול|צריכ(?:ה|ים)?\s+לבטל/u.test(t);
+  if (wantsSwitch && wantsCancel) {
+    return day ? `לבטל או להחליף את השיעור ${day}` : "לבטל או להחליף את השיעור";
+  }
+  if (wantsSwitch) return day ? `להחליף את השיעור ${day}` : "להחליף את השיעור";
+  if (wantsCancel) return day ? `לבטל את ההרשמה ${day}` : "לבטל את ההרשמה לשיעור";
+  const quoted = clipInboundQuote(t);
+  return quoted ? `«${quoted}»` : "";
+}
+
+function clipInboundQuote(raw: string): string {
+  return String(raw ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/[💜🙂()]+/gu, "")
+    .trim()
+    .slice(0, 70)
+    .trim();
+}
+
+/** נוסח גנרי של «נכנסים לאפליקציה ומבטלים» — לא תשובה מידע עסקי. */
+export function replyGivesGenericClassCancelAppHowTo(text: string): boolean {
+  const t = String(text ?? "").replace(/\s+/g, " ");
+  if (!/אפליקצי/u.test(t)) return false;
+  return /נכנסים/u.test(t) && /(?:מבטלים|בוטלים|מוצאים את השיעור)/u.test(t);
+}
 
 export function buildClosedPlaybookDefaultReply(
   category: ClosedPlaybookCategory,

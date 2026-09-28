@@ -215,6 +215,9 @@ import {
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
   CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+  buildNonArboxClassChangeTeamHandoffReply,
+  knowledgeInstructsClassCancelViaApp,
+  replyGivesGenericClassCancelAppHowTo,
 } from "@/lib/wa-closed-playbook";
 import {
   matchesTrialTopicAdvanceIntent,
@@ -7630,26 +7633,32 @@ async function processIncoming(
         }
         return;
       }
-      const appReply = buildBookedClassMoveAppReply(msg.text);
-      try {
-        await sendWhatsAppMessage(msg.toNumber, msg.from, appReply, accountSid, authToken);
-      } catch (e) {
-        console.error("[WA Webhook] Send booked-class-move app failed:", e);
+      if (knowledge?.hasArboxConnection === true) {
+        const appReply = buildBookedClassMoveAppReply(msg.text);
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, appReply, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] Send booked-class-move app failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: appReply,
+          model_used: BOOKED_CLASS_MOVE_APP_MODEL,
+          session_id: sessionId,
+        });
+        return;
       }
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: appReply,
-        model_used: BOOKED_CLASS_MOVE_APP_MODEL,
-        session_id: sessionId,
-      });
-      return;
     }
   }
 
   // Closed playbook:
   if (msg.type === "text" && businessId && knowledge) {
-    const playbook = resolveClosedPlaybook({ inbound: msg.text.trim(), knowledge });
+    const playbook = resolveClosedPlaybook({
+      inbound: msg.text.trim(),
+      knowledge,
+      hasArbox: knowledge.hasArboxConnection === true,
+    });
     if (playbook) {
       if (
         playbook.source === "catalog" &&
@@ -12377,6 +12386,49 @@ async function processIncoming(
     const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
     replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
     console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    businessId &&
+    knowledge?.hasArboxConnection !== true &&
+    !knowledgeInstructsClassCancelViaApp(knowledge) &&
+    replyGivesGenericClassCancelAppHowTo(replyCoreClean)
+  ) {
+    const handoffTxt = buildNonArboxClassChangeTeamHandoffReply(
+      msg.type === "text" ? msg.text : incomingRaw
+    );
+    console.warn("[WA Webhook] blocked Arbox class-cancel how-to for non-Arbox business", {
+      business_slug,
+      sessionId,
+    });
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase,
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        nowIso,
+        sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] non-arbox class-cancel human_requested failed:", e);
+    }
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send non-arbox class-cancel handoff failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: handoffTxt,
+      model_used: "class_cancel_non_arbox_team_handoff",
+      session_id: sessionId,
+    });
+    return;
   }
 
   if (

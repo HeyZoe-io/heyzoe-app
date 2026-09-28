@@ -1,5 +1,6 @@
 import {
   buildClosedPlaybookDefaultReply,
+  buildNonArboxClassChangeTeamHandoffReply,
   closedPlaybookModelUsed,
 } from "@/lib/wa-closed-playbook-copy";
 import { findRelevantActivePromo, findMatchingGroupCatalogProduct, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
@@ -23,6 +24,8 @@ export {
   CLOSED_PLAYBOOK_MEDICAL_REPLY,
   CLOSED_PLAYBOOK_REFUND_REPLY,
   buildClosedPlaybookDefaultReply,
+  buildNonArboxClassChangeTeamHandoffReply,
+  replyGivesGenericClassCancelAppHowTo,
 } from "@/lib/wa-closed-playbook-copy";
 
 /**
@@ -30,14 +33,44 @@ export {
  * Group: unique catalog product → source catalog (webhook re-sends product pick);
  * else fact; else default. notifyHumanRequested is the webhook notify flag.
  *
- * Class-cancel (action or policy) → app how-to fact or default; action also notifies the team.
+ * Class-cancel: knowledge fact if one exists. Arbox with no fact → app how-to.
+ * Any other business with no fact → team handoff that names the request.
  * Group + unique catalog product → catalog (webhook: product-pick menu), no notify.
  * Discount + relevant promo → promo text, no notify.
  * Coach/owner → default, notify (no facts-check).
  */
+
+/** ידע העסק עצמו אומר לבטל/להחליף דרך אפליקציה — אז מותר לצטט אותו. */
+export function knowledgeInstructsClassCancelViaApp(
+  knowledge:
+    | {
+        knowledgeQa?: Array<{ question?: string | null; answer?: string | null }> | null;
+        traits?: string[] | null;
+        faqsText?: string | null;
+        membershipsAndCardsText?: string | null;
+        businessDescription?: string | null;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!knowledge) return false;
+  const blob = [
+    ...(knowledge.knowledgeQa ?? []).flatMap((pair) => [pair.question, pair.answer]),
+    ...(knowledge.traits ?? []),
+    knowledge.faqsText,
+    knowledge.membershipsAndCardsText,
+    knowledge.businessDescription,
+  ]
+    .map((part) => String(part ?? ""))
+    .join("\n");
+  return /אפליקצי/u.test(blob) && /(?:לבטל|ביטול|מבטלים|הרשמ)/u.test(blob);
+}
+
 export function resolveClosedPlaybook(opts: {
   inbound: string;
   knowledge: ClosedPlaybookKnowledge | null | undefined;
+  /** crm_type=arbox ו-api key. בלי זה אין הוראות ביטול באפליקציה. */
+  hasArbox?: boolean;
 }): ClosedPlaybookResolution | null {
   const intent = detectClosedPlaybookIntent(opts.inbound);
   if (!intent) return null;
@@ -94,6 +127,16 @@ export function resolveClosedPlaybook(opts: {
   }
 
   const fact = lookupPlaybookFact(intent.category, knowledge);
+  if (intent.category === "class_cancel" && !fact && opts.hasArbox !== true) {
+    return {
+      category: "class_cancel",
+      shape: intent.shape,
+      reply: buildNonArboxClassChangeTeamHandoffReply(opts.inbound),
+      modelUsed: "closed_playbook_class_cancel_team_handoff",
+      notifyHumanRequested: true,
+      source: "default",
+    };
+  }
   const notifyHumanRequested = intent.shape === "action";
   if (fact) {
     return {

@@ -18,6 +18,8 @@ import {
 } from "@/lib/wa-closed-playbook";
 import { findMatchingGroupCatalogProduct, findRelevantActivePromo, leadFacingFactText, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
+import { buildSystemPrompt, type BusinessKnowledgePack } from "@/lib/business-context";
+import { replyGivesGenericClassCancelAppHowTo } from "@/lib/wa-closed-playbook";
 
 function cat(raw: string) {
   return detectClosedPlaybookIntent(raw);
@@ -301,25 +303,45 @@ const classCancelDefault = resolveClosedPlaybook({
   inbound: "לבטל את האימון של היום",
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
-assert.equal(classCancelDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
+assert.match(classCancelDefault?.reply ?? "", /מעבירה לצוות/);
+assert.match(classCancelDefault?.reply ?? "", /לבטל את ההרשמה של היום/);
+assert.doesNotMatch(classCancelDefault?.reply ?? "", /אפליקצי/);
+assert.equal(classCancelDefault?.notifyHumanRequested, true);
+assert.equal(classCancelDefault?.modelUsed, "closed_playbook_class_cancel_team_handoff");
+
+const classCancelArbox = resolveClosedPlaybook({
+  inbound: "לבטל את האימון של היום",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+  hasArbox: true,
+});
+assert.equal(classCancelArbox?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
 assert.match(CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY, /ומבטלים את ההרשמה/);
 assert.equal(/ובוטלים/.test(CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY), false);
+assert.equal(classCancelArbox?.modelUsed, "closed_playbook_class_cancel");
 
 const karenNeedCancelToday = resolveClosedPlaybook({
   inbound: "היי! אני צריכה לבטל היום לצערי: (",
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
 assert.equal(karenNeedCancelToday?.category, "class_cancel");
-assert.equal(karenNeedCancelToday?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
-assert.equal(classCancelDefault?.notifyHumanRequested, true);
-assert.equal(classCancelDefault?.modelUsed, "closed_playbook_class_cancel");
+assert.match(karenNeedCancelToday?.reply ?? "", /מצטערת לשמוע/);
+assert.match(karenNeedCancelToday?.reply ?? "", /לבטל את ההרשמה של היום/);
+assert.doesNotMatch(karenNeedCancelToday?.reply ?? "", /אפליקצי/);
 
 const classCancelPolicyDefault = resolveClosedPlaybook({
   inbound: "אפשר לבטל הרשמה לשיעור?",
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
-assert.equal(classCancelPolicyDefault?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
-assert.equal(classCancelPolicyDefault?.notifyHumanRequested, false);
+assert.match(classCancelPolicyDefault?.reply ?? "", /לבטל את ההרשמה לשיעור/);
+assert.equal(classCancelPolicyDefault?.notifyHumanRequested, true);
+
+const classCancelPolicyArbox = resolveClosedPlaybook({
+  inbound: "אפשר לבטל הרשמה לשיעור?",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+  hasArbox: true,
+});
+assert.equal(classCancelPolicyArbox?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
+assert.equal(classCancelPolicyArbox?.notifyHumanRequested, false);
 
 const shirCancel = `היוש, וולקאם באק 🙂 תבטלי את השיעור עם שיר בבקשה. היא חולה.
 היה לי רק שיעןר עם ליאת היום`;
@@ -380,5 +402,28 @@ assert.equal(
   resolveClosedPlaybook({ inbound: "אני רוצה החזר", knowledge: {} })?.reply,
   CLOSED_PLAYBOOK_REFUND_REPLY
 );
+
+const inventedAppHowTo =
+  "היי 💜 מצטערת לשמוע! אם ברצונך לבטל את ההרשמה של היום או להחליף אותה לשיעור אחר - אפשר לעשות את זה ישירות דרך האפליקציה: נכנסים, מוצאים את השיעור ומבטלים את ההרשמה.";
+assert.equal(replyGivesGenericClassCancelAppHowTo(inventedAppHowTo), true);
+assert.equal(replyGivesGenericClassCancelAppHowTo("ניתן לבטל עד 12 שעות מראש"), false);
+
+const nonArboxPrompt = buildSystemPrompt(
+  { hasArboxConnection: false } as BusinessKnowledgePack,
+  "studio",
+  "whatsapp"
+);
+assert.doesNotMatch(nonArboxPrompt, /מהאפליקציה/);
+assert.doesNotMatch(nonArboxPrompt, /נכנסים, מבטלים את ההרשמה/);
+assert.match(nonArboxPrompt, /אל תפני לאפליקציה/);
+assert.match(nonArboxPrompt, /התייחסות קצרה למה שכתבו/);
+
+const arboxPrompt = buildSystemPrompt(
+  { hasArboxConnection: true } as BusinessKnowledgePack,
+  "studio",
+  "whatsapp"
+);
+assert.match(arboxPrompt, /מהאפליקציה Arbox/);
+assert.match(arboxPrompt, /נכנסים, מוצאים את השיעור ומבטלים/);
 
 console.log("wa-closed-playbook.test.ts: ok");
