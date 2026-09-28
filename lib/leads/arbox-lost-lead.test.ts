@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  buildLostLeadRecentCheckInIndex,
   LOST_LEAD_LOOKBACK_DAYS,
+  LOST_LEAD_RECENT_CHECKIN_DAYS,
   LOST_LEAD_SEED_SPAN_DAYS,
   lostLeadNeedsSoftSeed,
+  lostLeadRecentCheckInYmd,
   lostLeadReportDateRange,
   normalizeLostDatePk,
   parseLostEventDate,
@@ -121,6 +124,35 @@ import {
     isExactDaysAfterEvent({ eventYmd: "2026-09-07", todayYmd: "2026-09-07", delayDays: 0 }),
     true
   );
+}
+
+{
+  assert.equal(LOST_LEAD_RECENT_CHECKIN_DAYS, 30);
+  const todayYmd = "2026-09-28";
+  const index = buildLostLeadRecentCheckInIndex({
+    todayYmd,
+    rows: [
+      { user_id: 11448880, phone: "058-423-9185", date: "2026-09-14", check_in: "Yes" },
+      { user_id: 11448880, phone: "0584239185", date: "2026-09-01", check_in: "No" },
+      { user_id: 20, phone: "0501111111", date: "2026-08-29", check_in: "Yes" },
+      { user_id: 21, phone: "0502222222", date: "2026-08-28", check_in: "Yes" },
+      { user_id: 22, phone: "+972503333333", date: "2026-09-28", check_in: "yes" },
+      { user_id: 23, date: "2026-09-20", check_in: "Yes" },
+    ],
+  });
+  assert.equal(
+    lostLeadRecentCheckInYmd({ index, userId: 11448880, phone: "972584239185" }),
+    "2026-09-14"
+  );
+  assert.equal(
+    lostLeadRecentCheckInYmd({ index, userId: 999, phone: "972584239185" }),
+    "2026-09-14"
+  );
+  assert.equal(lostLeadRecentCheckInYmd({ index, userId: 20, phone: null }), "2026-08-29");
+  assert.equal(lostLeadRecentCheckInYmd({ index, userId: 21, phone: "972502222222" }), null);
+  assert.equal(lostLeadRecentCheckInYmd({ index, userId: 22, phone: null }), "2026-09-28");
+  assert.equal(lostLeadRecentCheckInYmd({ index, userId: 23, phone: null }), "2026-09-20");
+  assert.equal(lostLeadRecentCheckInYmd({ index: null, userId: 11448880, phone: "972584239185" }), null);
 }
 
 console.log("arbox-lost-lead.test.ts: ok");

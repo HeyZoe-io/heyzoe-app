@@ -92,6 +92,7 @@ const SKIP_KEYS = [
   "skipped_filter",
   "skipped_rejoined",
   "skipped_active",
+  "skipped_recent_checkin",
   "abandoned",
 ] as const;
 
@@ -1059,6 +1060,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       lostLeadSeeded: business.arbox_lost_lead_seeded,
       now,
       ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
+      ...(prefetchedRows ? { recentCheckInRows: prefetchedRows } : {}),
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -1074,6 +1076,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       processed: 0,
       already: 0,
       skipped_active: 0,
+      skipped_recent_checkin: 0,
       notified: 0,
       deferred: 0,
       gated: 0,

@@ -2,6 +2,8 @@
  * A7 lost_lead win-back: lostLeadsReport → MARKETING template on the exact due day
  * (delay_days after lost_date). Multiple rules (day 1 / 7 / 21) replace a D3 state machine.
  * Re-fetch each cron run: if the lead left the report (came back / joined), later steps do not send.
+ * A check-in=Yes within LOST_LEAD_RECENT_CHECKIN_DAYS on the shared bookingsReport prefetch
+ * belongs to attendance_gap — lost_lead writes a terminal skip and does not send.
  * Seed 30d without WhatsApp; after seed lookback = max(3, max delay) capped at 30.
  */
 import { logMessage } from "@/lib/analytics";
@@ -26,7 +28,13 @@ import {
   matchesActiveProduct,
   type ActiveProductKeys,
 } from "@/lib/leads/arbox-active-product";
+import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
 import { fetchLostLeadsReportRows } from "@/lib/leads/arbox-lost-leads-report";
+import {
+  isBookingCheckedIn,
+  parseClassDateYmd,
+  type ArboxBookingReportRow,
+} from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
@@ -43,9 +51,76 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export const LOST_LEAD_SEED_SPAN_DAYS = 30;
 /** After seed: fromDate = today − this many days (late rows still appear). */
 export const LOST_LEAD_LOOKBACK_DAYS = 3;
+/**
+ * Check-in=Yes this many days back (inclusive of today) → attendance_gap owns the
+ * contact and lost_lead skips. Same for every business; not a per-business setting.
+ * Matched against the daily cron's existing bookingsReport rows (no extra Arbox call).
+ */
+export const LOST_LEAD_RECENT_CHECKIN_DAYS = 30;
 
 export const LOST_LEAD_SOFT_SEED_SENTINEL_LEAD_ID = 0;
 export const LOST_LEAD_SOFT_SEED_SENTINEL_LOST_DATE = "1970-01-01";
+
+/**
+ * Latest check-in=Yes inside the shared bookings window.
+ * Join key: bookingsReport.user_id (same id as lostLeadsReport.lead_id / user_id).
+ * Phone is only a fallback, via contactPhoneLookupVariants, when the user id misses.
+ */
+export type LostLeadRecentCheckInIndex = {
+  byUserId: Map<number, string>;
+  byPhone: Map<string, string>;
+};
+
+function rememberLatestYmd<K>(map: Map<K, string>, key: K, ymd: string): void {
+  const prev = map.get(key);
+  if (!prev || ymd > prev) map.set(key, ymd);
+}
+
+export function buildLostLeadRecentCheckInIndex(input: {
+  rows: readonly Pick<ArboxBookingReportRow, "user_id" | "phone" | "date" | "check_in">[];
+  todayYmd: string;
+  withinDays?: number;
+}): LostLeadRecentCheckInIndex {
+  const within = input.withinDays ?? LOST_LEAD_RECENT_CHECKIN_DAYS;
+  const byUserId = new Map<number, string>();
+  const byPhone = new Map<string, string>();
+  for (const row of input.rows) {
+    if (!isBookingCheckedIn(row.check_in)) continue;
+    const ymd = parseClassDateYmd(row.date);
+    if (!ymd) continue;
+    const diff = ymdDiffDays(input.todayYmd, ymd);
+    if (diff == null || diff < 0 || diff > within) continue;
+    const userId = parseLostLeadId({ user_id: row.user_id });
+    if (userId != null) rememberLatestYmd(byUserId, userId, ymd);
+    const phone = normalizePhone(row.phone);
+    if (!phone) continue;
+    for (const variant of contactPhoneLookupVariants(phone)) {
+      rememberLatestYmd(byPhone, variant, ymd);
+    }
+  }
+  return { byUserId, byPhone };
+}
+
+/** Latest check-in YMD within the index window, or null. User id wins over phone. */
+export function lostLeadRecentCheckInYmd(input: {
+  index: LostLeadRecentCheckInIndex | null | undefined;
+  userId: number | null;
+  phone: string | null;
+}): string | null {
+  const index = input.index;
+  if (!index) return null;
+  if (input.userId != null) {
+    const byUser = index.byUserId.get(input.userId);
+    if (byUser) return byUser;
+  }
+  const phone = normalizePhone(input.phone);
+  if (!phone) return null;
+  for (const variant of contactPhoneLookupVariants(phone)) {
+    const byPhone = index.byPhone.get(variant);
+    if (byPhone) return byPhone;
+  }
+  return null;
+}
 
 export type ArboxLostLeadRow = {
   lead_id?: unknown;
@@ -70,6 +145,7 @@ export type LostLeadDispatch =
   | "already"
   | "no_phone"
   | "skipped_active"
+  | "skipped_recent_checkin"
   | "send_failed";
 
 export type LostLeadSyncSummary = {
@@ -82,6 +158,7 @@ export type LostLeadSyncSummary = {
   processed: number;
   already: number;
   skipped_active: number;
+  skipped_recent_checkin: number;
   notified: number;
   deferred: number;
   gated: number;
@@ -357,10 +434,12 @@ async function dispatchLostLeadTemplate(input: {
  * Daily lost_lead step for one Arbox business.
  *
  * IO (10 businesses): 1 lostLeadsReport GET each when an enabled rule with
- * template_name exists (paginated; typically 1 page after seed). When a row is
- * due to send: +1 activeMemberships, +1 sessions, +1 future bookings (and
- * membershipTypes only if trial product ids are set) — once per business, not
+ * template_name exists (paginated; typically 1 page after seed). Recent check-in
+ * uses bookingsReport rows the daily cron already fetched (0 extra Arbox calls).
+ * When a row is due to send: +1 activeMemberships, +1 sessions, +1 future bookings
+ * (and membershipTypes only if trial product ids are set) — once per business, not
  * per lead. WhatsApp/Meta: one immediate send per matching rule on its due day.
+ * A recent check-in skips before that active-product fetch when keys are not shared.
  *
  * Seed (arbox_lost_lead_seeded=false): mark the 30-day window seen, no WhatsApp.
  * Soft-seed: flag true + empty log for that trigger_id → same 30-day mark, no WhatsApp.
@@ -375,6 +454,11 @@ export async function syncArboxLostLeadForBusiness(input: {
   now?: Date;
   /** Shared daily-cron read. When set, this step does not fetch again. */
   activeProductKeys?: ActiveProductKeys;
+  /**
+   * bookingsReport rows already pulled this run (past window, ≤31 days).
+   * Absent → no check-in gate (same as before this skip existed).
+   */
+  recentCheckInRows?: readonly Pick<ArboxBookingReportRow, "user_id" | "phone" | "date" | "check_in">[];
 }): Promise<LostLeadSyncSummary> {
   const summary: LostLeadSyncSummary = {
     fetched: 0,
@@ -384,6 +468,7 @@ export async function syncArboxLostLeadForBusiness(input: {
     processed: 0,
     already: 0,
     skipped_active: 0,
+    skipped_recent_checkin: 0,
     notified: 0,
     deferred: 0,
     gated: 0,
@@ -557,6 +642,13 @@ export async function syncArboxLostLeadForBusiness(input: {
     return summary;
   }
 
+  const recentCheckInIndex = input.recentCheckInRows
+    ? buildLostLeadRecentCheckInIndex({
+        rows: input.recentCheckInRows,
+        todayYmd,
+      })
+    : null;
+
   const seededThisRun = new Set<string>();
   for (const rule of rulesWithTemplate) {
     const { count, error } = await input.admin
@@ -638,6 +730,36 @@ export async function syncArboxLostLeadForBusiness(input: {
             leadId,
           });
         }
+        const matchPhone = resolved.phone ?? normalizePhone(row.phone);
+        const recentCheckInYmd = lostLeadRecentCheckInYmd({
+          index: recentCheckInIndex,
+          userId: leadId,
+          phone: matchPhone,
+        });
+        if (recentCheckInYmd) {
+          summary.skipped_recent_checkin += 1;
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "skipped",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            contact: resolved.contact?.id ?? null,
+            phone: matchPhone ? maskPhoneForLog(matchPhone) : null,
+            last_check_in: recentCheckInYmd,
+            dispatch: "skipped_recent_checkin" satisfies LostLeadDispatch,
+          });
+          continue;
+        }
+
         const phone = resolved.phone;
         if (!phone) {
           summary.no_phone += 1;
