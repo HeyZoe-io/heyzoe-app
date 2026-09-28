@@ -16,6 +16,7 @@ import {
   resolveNextOccurrence,
   type IsraelDayLetter,
 } from "@/lib/israel-time";
+import { looksLikeScheduleBoardAsk } from "@/lib/wa-schedule-intent";
 import {
   isCatalogWideClassDayAsk,
   looksLikeClassTimeQuestion,
@@ -553,7 +554,7 @@ export function buildIsraelNowSchedulePromptBlock(services: SfServiceRow[], now:
 ${formatDaySlotLines(services, today, now)}
 מועדים למחר (${DAY_NAME[tomorrow]}) בלבד:
 ${formatDaySlotLines(services, tomorrow, now)}
-הבלוק הזה הוא רק «אילו שיעורים היום/מחר». שאלה על שיעור מסוים — כל מועדי הלוח השבועיים של אותו שיעור, לא רק היום או המחר.
+הבלוק הזה הוא רק «אילו שיעורים היום/מחר». שאלה על שיעור מסוים ביום ספציפי (היום/הערב/מחר/יום בשבוע) — רק המועדים של אותו שיעור באותו יום. שאלה מתי השיעור מתקיים בלי יום, או על היקף שבועי — כל מועדי הלוח השבועיים של אותו שיעור.
 ניסוח ללקוח — יום ושעה תמיד צמודים (לא «שעה + שם + יום»):
 - לפי שם שיעור: «פילאטיס מכשירים | מחר (חמישי) ב-19:30». כמה מועדים: «שם | יום א ב-שעה | יום ב ב-שעה».
 - אילו שיעורים ביום: «היום ב-18:30, פילאטיס מזרן». שורה לכל מועד.
@@ -688,7 +689,23 @@ export async function tryBuildRelativeDayClassSlotsReply(
     ? parseRequestedClassDays(prev, now).filter((d) => !declined.has(d))
     : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
-  if (!days.length) return null;
+  if (!days.length) {
+    // «מתי יש אימון X?» בלי יום — מועדי המוצר מהעמוד, גם בלי לינק/תמונה של מערכת שעות.
+    // בקשת מערכת שעות עצמה → נתיב הלוח/חסר (לא מועדי מוצר).
+    // רק כשהשם בהודעה הנוכחית (לא committed/היסטוריה) — אחרת זה מועדים לא קשורים.
+    if (!shouldAnswerFromClassTimetable(current, now)) return null;
+    if (!looksLikeDayOrClassAsk(current)) return null;
+    if (asksWhichClassesOnDay(current)) return null;
+    if (looksLikeScheduleBoardAsk(current)) return null;
+    const namedNoDay = matchCatalogServiceFromFreeText(current, input.services);
+    if (!namedNoDay) return null;
+    const namedSvc = input.services.find((s) => s.name === namedNoDay);
+    const namedSlots = filterConfiguredProductScheduleSlots(namedSvc?.scheduleSlots ?? []);
+    if (!namedSvc || namedSlots.length === 0) return null;
+    const namedText = formatWeeklyScheduleScopeReply(namedSvc.name, namedSlots);
+    if (!namedText) return null;
+    return { kind: "list", text: namedText, modelUsed: "weekly_schedule_scope" };
+  }
   if (!shouldAnswerFromClassTimetable(current, now)) return null;
 
   if (looksLikeMissedOrMakeupClassAsk(current)) {
@@ -759,13 +776,8 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const service = input.services.find((s) => s.name === serviceName);
   if (!service) return null;
 
-  const weeklySlots = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
-  if (weeklySlots.length > 0) {
-    const weeklyText = formatWeeklyScheduleScopeReply(service.name, weeklySlots);
-    if (weeklyText) return { kind: "list", text: weeklyText, modelUsed: "weekly_schedule_scope" };
-  }
-
   // כמה ימים באותה הודעה («היום ומחר») — שם | יום שעה | יום שעה
+  // שאלה על יום ספציפי → רק המועדים של אותו יום (לא כל הלוח השבועי).
   type DayGroup = { day: IsraelDayLetter; phrase: string; slots: { time: string; dateYmd: string }[] };
   const dayGroups: DayGroup[] = [];
   const missing: string[] = [];

@@ -208,7 +208,7 @@ import {
   parseOwnerAddressedGreeting,
 } from "@/lib/wa-owner-addressed-greeting";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
-import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import { isScheduleIntent, looksLikeScheduleBoardAsk } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
   resolveUnauthorizedBookingHandoff,
@@ -259,6 +259,7 @@ import {
   annotateScheduleSlotsByOccurrenceState,
   buildIsraelNowSchedulePromptBlock,
   buildScheduleSlotPickMenuLabels,
+  formatWeeklyScheduleScopeReply,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
   isRelativeDayCatalogAllFullReply,
@@ -572,6 +573,7 @@ import {
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
   formatYomForContactSlotDate,
+  filterConfiguredProductScheduleSlots,
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
   syncCourseLegacyDatesFromCycles,
@@ -10554,9 +10556,24 @@ async function processIncoming(
         const customLinkUrl = String(customLinkBtn?.custom_cta_url ?? "").trim();
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+        // שאלה על שיעור ספציפי עם מועדי מוצר — לא לינק/תמונה של מערכת שעות ולא «תתעדכן בקרוב».
+        // בקשת מערכת שעות עצמה (גם בלי לוח מוגדר) נשארת בנתיב הלוח/חסר.
+        const boardAsk = looksLikeScheduleBoardAsk(incomingResolved);
+        const namedScheduleAsk = matchCatalogServiceFromFreeText(incomingResolved, salesFlowServices);
+        const namedScheduleRow = namedScheduleAsk
+          ? salesFlowServices.find((s) => s.name === namedScheduleAsk)
+          : undefined;
+        const namedClassWeeklyReply =
+          !boardAsk && namedScheduleRow
+            ? formatWeeklyScheduleScopeReply(
+                namedScheduleRow.name,
+                filterConfiguredProductScheduleSlots(namedScheduleRow.scheduleSlots ?? [])
+              )
+            : "";
         const wantsScheduleByIntent =
           isScheduleIntent(incomingResolved) &&
-          (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage);
+          !namedClassWeeklyReply &&
+          (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage || boardAsk);
         const wantsTrialByFollow =
           trialCtaOn &&
           Boolean(
@@ -11057,6 +11074,33 @@ async function processIncoming(
           });
           contactSessionPhase = "opening";
           contactFlowStep = 0;
+          return;
+        }
+
+        if (
+          namedClassWeeklyReply &&
+          !boardAsk &&
+          isScheduleIntent(incomingResolved) &&
+          parseRequestedClassDays(incomingResolved).length === 0
+        ) {
+          try {
+            await sendWhatsAppMessage(
+              msg.toNumber,
+              msg.from,
+              namedClassWeeklyReply,
+              accountSid,
+              authToken
+            );
+          } catch (e) {
+            console.error("[WA Webhook] Send named-class weekly slots (no schedule board) failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: namedClassWeeklyReply,
+            model_used: "weekly_schedule_scope",
+            session_id: sessionId,
+          });
           return;
         }
 

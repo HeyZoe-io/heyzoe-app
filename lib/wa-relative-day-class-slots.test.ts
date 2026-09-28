@@ -132,12 +132,11 @@ async function main() {
       now: tueMorning,
     });
     assert.ok(reply);
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
-    assert.match(reply!.text, /פילאטיס מכשירים \(כסא\)/);
-    assert.match(reply!.text, /ראשון ב-18:00/);
-    assert.match(reply!.text, /שלישי ב-18:30/);
-    assert.match(reply!.text, /חמישי ב-18:00/);
+    assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(reply!.text, /פילאטיס מכשירים \(כסא\) \| שלישי 18:30, שלישי 19:30/);
     assert.doesNotMatch(reply!.text, /הערב יש/);
+    assert.doesNotMatch(reply!.text, /ראשון ב-18:00/, "day ask must not dump unrelated weekly slots");
+    assert.doesNotMatch(reply!.text, /חמישי ב-18:00/);
   }
 
   {
@@ -147,10 +146,9 @@ async function main() {
       now: tueMorning,
     });
     assert.ok(reply);
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
-    assert.match(reply!.text, /שלישי ב-18:30/);
-    assert.match(reply!.text, /חמישי ב-18:00/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.match(reply!.text, /מחר/);
+    assert.match(reply!.text, /אין/);
+    assert.doesNotMatch(reply!.text, /ראשון ב-18:00/, "no-Wednesday must not list Sunday instead");
   }
 
   {
@@ -161,9 +159,8 @@ async function main() {
       now: tueMorning,
     });
     assert.ok(reply);
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
-    assert.match(reply!.text, /שלישי ב-18:30/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.match(reply!.text, /מחר/);
+    assert.match(reply!.text, /אין/);
   }
 
   assert.equal(
@@ -364,10 +361,10 @@ async function main() {
       services: catalog,
       now: tueEvening,
     });
-    assert.ok(reply, "a named class lists every weekly slot, including one that already passed today");
-    assert.match(reply!.text, /18:30/);
-    assert.match(reply!.text, /19:30/);
-    assert.match(reply!.text, /ראשון ב-18:00/);
+    assert.ok(reply, "19:30 is still ahead — a reply should still be built");
+    assert.doesNotMatch(reply!.text, /18:30/, "already-passed 18:30 must not be offered");
+    assert.match(reply!.text, /19:30/, "19:30 hasn't passed yet — still offered");
+    assert.doesNotMatch(reply!.text, /ראשון ב-18:00/, "tonight ask must not list Sunday");
   }
 
   {
@@ -378,10 +375,10 @@ async function main() {
       services: catalog,
       now: tueLate,
     });
-    assert.ok(reply, "slots that passed today are still part of the weekly timetable");
-    assert.match(reply!.text, /18:30/);
-    assert.match(reply!.text, /19:30/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.ok(reply, "no slots left today should still produce the 'none today' reply");
+    assert.match(reply!.text, /אין/);
+    assert.doesNotMatch(reply!.text, /18:30/);
+    assert.doesNotMatch(reply!.text, /19:30/);
   }
 
   {
@@ -419,10 +416,11 @@ async function main() {
     });
     assert.ok(reply);
     assert.equal(reply!.kind, "list");
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
-    assert.match(reply!.text, /שלישי ב-18:30/);
-    assert.match(reply!.text, /שלישי ב-19:30/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.match(reply!.text, /18:30 \(מלא\)/, "the full time is listed with the full suffix");
+    assert.match(reply!.text, /19:30/, "the open time is kept");
+    assert.doesNotMatch(reply!.text, /19:30 \(מלא\)/, "open time must not get a full suffix");
+    assert.doesNotMatch(reply!.text, /19:30 \(מבוטל\)/);
+    assert.doesNotMatch(reply!.text, /אין/, "full slots are shown, not turned into a 'none' reply");
   }
 
   // All times on a day are cancelled, and that day is NOT the only day requested ->
@@ -439,11 +437,11 @@ async function main() {
       ...arboxCtx,
       rawDataFetcherImpl: impl,
     });
-    assert.ok(reply, "named class lists every weekly slot, not only today");
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
-    assert.match(reply!.text, /שלישי ב-19:30/);
-    assert.match(reply!.text, /רביעי ב-18:30/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.ok(reply, "both days still produce a list reply");
+    assert.match(reply!.text, /19:30 \(מבוטל\)/, "cancelled Tuesday slot is shown with suffix");
+    assert.match(reply!.text, /18:30/, "Wednesday's open slot is still offered");
+    assert.doesNotMatch(reply!.text, /18:30 \(מבוטל\)/);
+    assert.doesNotMatch(reply!.text, /אין/, "cancelled is shown, not replaced by 'none'");
   }
 
   // Same, but it's the ONLY requested day -> still SHOW with suffix, not the 'none' fallback.
@@ -459,8 +457,8 @@ async function main() {
     });
     assert.ok(reply);
     assert.equal(reply!.kind, "list");
-    assert.match(reply!.text, /שלישי ב-19:30/);
-    assert.doesNotMatch(reply!.text, /אין/);
+    assert.match(reply!.text, /19:30 \(מבוטל\)/, "the only requested day's cancelled slot is shown");
+    assert.doesNotMatch(reply!.text, /אין/, "cancelled is not the 'none today' message");
   }
 
   // Unstamped product (no arbox_class_name) -> completely untouched, zero raw-data fetches.
@@ -798,10 +796,11 @@ async function main() {
       now: monMorning,
     });
     assert.ok(reply);
-    assert.equal(reply!.modelUsed, "weekly_schedule_scope");
+    assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
     assert.match(reply!.text, /נוער/);
-    assert.match(reply!.text, /שישי ב-13:00/);
-    assert.match(reply!.text, /ראשון ב-17:00/);
+    assert.match(reply!.text, /שישי/);
+    assert.match(reply!.text, /13:00/);
+    assert.doesNotMatch(reply!.text, /ראשון ב-17:00/, "Friday makeup ask must not dump Sunday");
     assert.doesNotMatch(reply!.text, /חדר כושר/);
   }
 
@@ -877,10 +876,11 @@ async function main() {
       services: [power],
       now: tueMorning,
     });
-    assert.equal(askedWednesday?.modelUsed, "weekly_schedule_scope");
-    assert.match(askedWednesday?.text ?? "", /ראשון ב-18:00/);
-    assert.match(askedWednesday?.text ?? "", /שלישי ב-19:00/);
-    assert.match(askedWednesday?.text ?? "", /רביעי ב-18:00/);
+    assert.equal(askedWednesday?.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(askedWednesday?.text ?? "", /רביעי/);
+    assert.match(askedWednesday?.text ?? "", /18:00/);
+    assert.doesNotMatch(askedWednesday?.text ?? "", /ראשון ב-18:00/);
+    assert.doesNotMatch(askedWednesday?.text ?? "", /שלישי ב-19:00/);
 
     const onlyOnce = await tryBuildRelativeDayClassSlotsReply({
       text: "יש רק פעם בשבוע",
@@ -923,6 +923,93 @@ async function main() {
       rewriteFalseSingleWeeklySlotClaim("יוגה בוקר יש פעם בשבוע ביום רביעי ב-18:00", [onceReal]),
       "יוגה בוקר יש פעם בשבוע ביום רביעי ב-18:00"
     );
+  }
+
+  {
+    // Named class schedule ask with no day — answer product weekly slots even without a schedule board.
+    const strength = svc("אימוני כוח - Strength", [
+      { day: "ב", time: "09:00" },
+      { day: "ד", time: "19:30" },
+    ]);
+    const noDayAsk = await tryBuildRelativeDayClassSlotsReply({
+      text: "מתי יש אימון כוח?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(noDayAsk, "named class without a day still lists product slots");
+    assert.equal(noDayAsk!.modelUsed, "weekly_schedule_scope");
+    assert.match(noDayAsk!.text, /שני ב-09:00/);
+    assert.match(noDayAsk!.text, /רביעי ב-19:30/);
+
+    const whenDoesItRun = await tryBuildRelativeDayClassSlotsReply({
+      text: "מתי מתקיים Strength?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(whenDoesItRun);
+    assert.equal(whenDoesItRun!.modelUsed, "weekly_schedule_scope");
+    assert.match(whenDoesItRun!.text, /פעמיים בשבוע/);
+
+    const whichDays = await tryBuildRelativeDayClassSlotsReply({
+      text: "באילו ימים יש אימוני כוח?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(whichDays);
+    assert.match(whichDays!.text, /שני ב-09:00/);
+    assert.match(whichDays!.text, /רביעי ב-19:30/);
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "מתי יש אימונים?",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "catalog-wide schedule ask without a class name is not a named weekly list"
+    );
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "אשמח מערכת שעות",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "schedule-board ask must not dump a product timetable"
+    );
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "מערכת שעות לאימון כוח",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "board ask that mentions a class still goes to the board/missing path"
+    );
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "מתי יש אימון?",
+        committedServiceName: strength.name,
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "committed class alone must not dump weekly slots for a generic ask"
+    );
+
+    const tonightOnly = await tryBuildRelativeDayClassSlotsReply({
+      text: "יש אימון כוח הערב?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(tonightOnly);
+    assert.equal(tonightOnly!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(tonightOnly!.text, /אין/, "Strength has no Tuesday slot");
+    assert.doesNotMatch(tonightOnly!.text, /שני ב-09:00/);
+    assert.doesNotMatch(tonightOnly!.text, /רביעי ב-19:30/);
   }
 
   console.log("wa-relative-day-class-slots.test.ts: ok");
