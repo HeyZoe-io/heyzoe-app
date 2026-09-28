@@ -1,4 +1,4 @@
-import { isExistingTrialEnrollmentMention, matchesTrialTopicIntent } from "@/lib/wa-trial-topic-intent";
+import { isExistingTrialEnrollmentMention, matchesTrialTopicIntent, matchesTrialTopicRejectionOrReturningClient } from "@/lib/wa-trial-topic-intent";
 
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
@@ -125,11 +125,32 @@ export function shouldAskMembershipVsTrialFirst(raw: string): boolean {
   return matchesRegistrationIntentPhrase(raw) && !matchesTrialTopicIntent(raw);
 }
 
+/**
+ * מתי לשלוח את שאלת «מנוי קיים / אימון ניסיון».
+ * חשוב: גם אחרי שהפלואו כבר התחיל (ברכה / אשמח לפרטים) — אחרת מנוי קיים
+ * שנכנס לפלואו ממשיך לניסיון בלי הבהרה.
+ * לא שואלים אם כבר נרשם / מנוי, אם כבר שאלנו, או אם דיבר במפורש על ניסיון.
+ */
+export function shouldSendRegistrationIntentClarify(input: {
+  inbound: string;
+  lastAssistModel?: string | null;
+  sessionPhase?: string | null;
+  trialRegistered?: boolean | null;
+}): boolean {
+  if (input.trialRegistered === true) return false;
+  if (String(input.sessionPhase ?? "").trim() === "registered") return false;
+  const last = String(input.lastAssistModel ?? "").trim();
+  if (last === REGISTRATION_INTENT_CLARIFY_MODEL) return false;
+  if (last === "booking_lookup_clarify") return false;
+  return shouldAskMembershipVsTrialFirst(input.inbound);
+}
+
 export const EXISTING_MEMBERSHIP_HELP_REPLY = "מעולה! איך אפשר לעזור לך?";
 export const EXISTING_MEMBERSHIP_HELP_MODEL = "existing_membership_help";
 
 /**
  * הצהרת מנוי קיים בפלואו מכירה — לא תשובת כן/לא לשאלת הבהרה, ולא «רוצה מנוי».
+ * כולל «כבר הייתי אצלכם» / תלונה שקיבלו רק אימון היכרות.
  */
 export function matchesExistingMembershipClaim(raw: string): boolean {
   const t = normalizeRegistrationIntentText(raw);
@@ -142,6 +163,8 @@ export function matchesExistingMembershipClaim(raw: string): boolean {
   if (/(?:אני|אנחנו)\s+(?:כבר\s+)?מנו[יהםות]{1,3}(?:\s|$|[.,!?])/u.test(t)) return true;
   if (/\bi(?:'m|\s+am)\s+(?:already\s+)?a\s+member\b/i.test(t)) return true;
   if (/\bi\s+(?:already\s+)?have\s+a\s+membership\b/i.test(t)) return true;
+  // Returning client / rejected trial-only link («כבר הייתי אצלכם»)
+  if (matchesTrialTopicRejectionOrReturningClient(raw)) return true;
   return false;
 }
 

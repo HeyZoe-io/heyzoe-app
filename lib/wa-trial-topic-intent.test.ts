@@ -14,6 +14,15 @@ assert.equal(matchesTrialTopicIntent("יש אימוני ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("אפשר אימון ניסיון?"), true);
 assert.equal(matchesTrialTopicIntent("כמה עולה השיעור?"), false);
 assert.equal(
+  matchesTrialTopicIntent("זה נותן לי רק אופציה של אימון היכרות אבל כבר הייתי אצלכם"),
+  false,
+  "rejecting trial-only link must not open trial_topic_flow_entry"
+);
+assert.equal(
+  matchesTrialTopicAdvanceIntent("זה נותן לי רק אופציה של אימון היכרות אבל כבר הייתי אצלכם"),
+  false
+);
+assert.equal(
   matchesTrialTopicIntent("הרשמה לשיעור ניסיון"),
   true,
   "CTA label contains trial markers — webhook must defer to CTA handler, not treat as FAQ"
