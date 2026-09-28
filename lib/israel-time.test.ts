@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import {
   formatIsraelDayMonth,
   hasWeeklySlotPassedToday,
+  isAllowedWhatsAppSendTimeIsrael,
   listUpcomingIsraelWeekdays,
+  nextAllowedWhatsAppSendTimeIsrael,
   resolveNextOccurrence,
+  shouldDropFollowupQueueIsrael,
+  activeHolidaySendBlockIsrael,
 } from "@/lib/israel-time";
 
 // 2026-09-01T07:02:00.000Z = Tuesday 10:02 Israel (see wa-relative-day-class-slots.test.ts).
@@ -73,6 +77,35 @@ assert.equal(formatIsraelDayMonth(9, 20), "20.9");
   assert.equal(week[0]!.ymd, "2026-09-01");
   const sunday = week.find((d) => d.letter === "א");
   assert.equal(sunday?.ymd, "2026-09-06");
+}
+
+// Yom Kippur 5787 — block + drop queue (erev 16:00 → מוצאי 19:00).
+{
+  // Sunday 20.9.2026 19:30 Israel (inside block)
+  const kippurEve = new Date("2026-09-20T16:30:00.000Z");
+  assert.equal(activeHolidaySendBlockIsrael(kippurEve)?.id, "yom_kippur_5787");
+  assert.equal(isAllowedWhatsAppSendTimeIsrael(kippurEve), false);
+  assert.equal(shouldDropFollowupQueueIsrael(kippurEve), true);
+  const next = nextAllowedWhatsAppSendTimeIsrael(kippurEve);
+  // Monday 21.9.2026 19:00 Israel
+  assert.equal(next.toISOString(), new Date("2026-09-21T16:00:00.000Z").toISOString());
+  assert.equal(isAllowedWhatsAppSendTimeIsrael(next), true);
+  assert.equal(shouldDropFollowupQueueIsrael(next), false);
+
+  // Monday morning still blocked
+  const kippurDay = new Date("2026-09-21T07:00:00.000Z"); // 10:00 Israel
+  assert.equal(isAllowedWhatsAppSendTimeIsrael(kippurDay), false);
+  assert.equal(shouldDropFollowupQueueIsrael(kippurDay), true);
+
+  // Before block starts — Sunday 15:00 Israel still allowed (weekday afternoon)
+  const before = new Date("2026-09-20T12:00:00.000Z");
+  assert.equal(activeHolidaySendBlockIsrael(before), null);
+  assert.equal(isAllowedWhatsAppSendTimeIsrael(before), true);
+  assert.equal(shouldDropFollowupQueueIsrael(before), false);
+
+  // Ordinary Tuesday afternoon — not a holiday; Shabbat delay still holds as before
+  assert.equal(shouldDropFollowupQueueIsrael(tueEvening), false);
+  assert.equal(isAllowedWhatsAppSendTimeIsrael(tueMorning), true);
 }
 
 console.log("israel-time.test.ts: ok");

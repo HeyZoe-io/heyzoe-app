@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isAllowedWhatsAppSendTimeIsrael, nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import {
+  isAllowedWhatsAppSendTimeIsrael,
+  nextAllowedWhatsAppSendTimeIsrael,
+  shouldDropFollowupQueueIsrael,
+} from "@/lib/israel-time";
+import { cancelDueMarketingFollowupsForHoliday } from "@/lib/followup-holiday-drop";
 import {
   markMarketingFollowupSent,
   pickMarketingFollowupSkipReason,
@@ -61,8 +66,28 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
+  const admin = createSupabaseAdminClient();
   if (!isAllowedWhatsAppSendTimeIsrael(now)) {
     const nextAt = nextAllowedWhatsAppSendTimeIsrael(now);
+    // Yom Kippur / drop-queue holidays: cancel due followups so they are not sent after.
+    if (shouldDropFollowupQueueIsrael(now)) {
+      const drop = await cancelDueMarketingFollowupsForHoliday(admin, now);
+      logMarketingFollowupSkip("time_window", {
+        next_allowed_at: nextAt.toISOString(),
+        holiday_drop_queue: true,
+        cancelled: drop.cancelled,
+        drop_error: drop.error ?? null,
+      });
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "holiday_drop_queue",
+        skip_reason: "time_window",
+        next_allowed_at: nextAt.toISOString(),
+        cancelled: drop.cancelled,
+        drop_error: drop.error ?? null,
+      });
+    }
     logMarketingFollowupSkip("time_window", { next_allowed_at: nextAt.toISOString() });
     return NextResponse.json({
       ok: true,
@@ -73,7 +98,6 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const admin = createSupabaseAdminClient();
   const nowMs = now.getTime();
 
   let rows: MarketingFlowSessionFollowupRow[] | null = null;

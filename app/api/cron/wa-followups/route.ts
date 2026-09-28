@@ -10,7 +10,8 @@ import {
   resolveTwilioAuthToken,
 } from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
-import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { nextAllowedWhatsAppSendTimeIsrael, shouldDropFollowupQueueIsrael } from "@/lib/israel-time";
+import { cancelDueWaFollowupsForHoliday } from "@/lib/followup-holiday-drop";
 import {
   resolveWaSalesFollowupTemplates,
   resolveWaSalesFollowupEnabled,
@@ -328,6 +329,25 @@ export async function GET(req: NextRequest) {
   const now = new Date();
   const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now);
   if (allowedAt.getTime() > now.getTime()) {
+    // Yom Kippur / drop-queue holidays: cancel due followups so they are not sent after.
+    if (shouldDropFollowupQueueIsrael(now)) {
+      const drop = await cancelDueWaFollowupsForHoliday(admin, now);
+      logWaFollowupSkip("time_window", {
+        next_allowed_at: allowedAt.toISOString(),
+        holiday_drop_queue: true,
+        cancelled: drop.cancelled,
+        drop_error: drop.error ?? null,
+      });
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "holiday_drop_queue",
+        skip_reason: "time_window",
+        next_allowed_at: allowedAt.toISOString(),
+        cancelled: drop.cancelled,
+        drop_error: drop.error ?? null,
+      });
+    }
     logWaFollowupSkip("time_window", { next_allowed_at: allowedAt.toISOString() });
     return NextResponse.json({
       ok: true,
