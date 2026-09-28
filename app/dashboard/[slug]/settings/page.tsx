@@ -3064,6 +3064,7 @@ export default function SlugSettingsPage({
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         services?: Record<string, unknown>[];
+        created_slugs?: unknown;
         updated_at?: unknown;
       };
       if (!res.ok || !Array.isArray(j.services)) {
@@ -3074,8 +3075,25 @@ export default function SlugSettingsPage({
       }
       const scanUpdatedAt = String(j.updated_at ?? "").trim();
       if (scanUpdatedAt) expectedUpdatedAtRef.current = scanUpdatedAt;
-      arboxScanSyncSnapshotRef.current = true;
-      setServices(dashboardApiRowsToServiceItems(j.services));
+      const createdSlugs = new Set(
+        (Array.isArray(j.created_slugs) ? j.created_slugs : [])
+          .map((slug) => String(slug ?? "").trim())
+          .filter(Boolean)
+      );
+      const incoming = dashboardApiRowsToServiceItems(j.services);
+      const known = new Set(services.map((s) => String(s.service_slug ?? "").trim()).filter(Boolean));
+      const added = incoming.filter((s) => {
+        const slug = String(s.service_slug ?? "").trim();
+        return Boolean(slug) && createdSlugs.has(slug) && !known.has(slug);
+      });
+      if (added.length) {
+        if (!hasUnsavedChanges) arboxScanSyncSnapshotRef.current = true;
+        setServices((prev) => {
+          const prevSlugs = new Set(prev.map((s) => String(s.service_slug ?? "").trim()).filter(Boolean));
+          const extra = added.filter((s) => !prevSlugs.has(String(s.service_slug ?? "").trim()));
+          return extra.length ? [...prev, ...extra] : prev;
+        });
+      }
       setServicesHydrated(true);
     } catch {
       setArboxScheduleScanError(t.products.scanArboxFailed);

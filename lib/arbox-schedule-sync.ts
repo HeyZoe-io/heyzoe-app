@@ -525,11 +525,36 @@ function defaultNewProductMeta(input: {
   };
 }
 
+/**
+ * Manual timetable scan only inserts classes that are not already products.
+ * A matched row (Arbox category id, or class name) is left untouched: schedule,
+ * description, price, and location stay as saved.
+ */
+export function arboxClassAlreadyInServices(
+  existing: Array<{ description?: string | null }>,
+  cls: { box_category_id: number | null; session_name: string }
+): boolean {
+  const key = arboxClassMatchKey({
+    box_category_id: cls.box_category_id,
+    session_name: cls.session_name,
+  });
+  if (!key) return true;
+  const nameKey = arboxClassMatchKey({ session_name: cls.session_name });
+  for (const row of existing) {
+    const stamp = parseArboxClassStamp(parseServiceDescriptionObject(String(row.description ?? "")));
+    const rowKey = arboxClassMatchKey(stamp);
+    if (!rowKey) continue;
+    if (rowKey === key) return true;
+    if (nameKey && nameKey !== key && rowKey === nameKey) return true;
+  }
+  return false;
+}
+
 export async function persistManualArboxScheduleSync(input: {
   admin: AdminClient;
   businessId: number;
   classes: ArboxWeeklyClass[];
-}): Promise<{ created: number; updated: number; services: ServiceRow[] }> {
+}): Promise<{ created: number; updated: number; createdSlugs: string[]; services: ServiceRow[] }> {
   const { data: existingRaw, error } = await input.admin
     .from("services")
     .select("id, name, description, service_slug, sort_order, location_mode, location_text, price_text")
@@ -539,48 +564,18 @@ export async function persistManualArboxScheduleSync(input: {
   if (error) throw new Error(error.message);
 
   const existing = (existingRaw ?? []) as ServiceRow[];
-  const byKey = new Map<string, ServiceRow>();
-  for (const row of existing) {
-    const stamp = parseArboxClassStamp(parseServiceDescriptionObject(String(row.description ?? "")));
-    const key = arboxClassMatchKey(stamp);
-    if (key && !byKey.has(key)) byKey.set(key, row);
-  }
-
   const usedSlugs = new Set(existing.map((r) => r.service_slug));
   let nextOrder = existing.reduce((m, r) => Math.max(m, Number(r.sort_order) || 0), -1) + 1;
   let created = 0;
-  let updated = 0;
+  const createdSlugs: string[] = [];
 
   for (const cls of input.classes) {
-    const key = arboxClassMatchKey({
-      box_category_id: cls.box_category_id,
-      session_name: cls.session_name,
-    });
-    const nameKey = arboxClassMatchKey({ session_name: cls.session_name });
-    if (!key) continue;
-    const match = byKey.get(key) ?? (nameKey && nameKey !== key ? byKey.get(nameKey) : undefined);
-    const slots = slotsToProductScheduleSlots(cls.slots, newSlotId);
-    if (match) {
-      const incomingDesc = cls.description.trim();
-      const patch: ServiceDescriptionBlob = {
-        schedule_slots: slots,
-        arbox_box_category_id: cls.box_category_id,
-        arbox_class_name: cls.session_name,
-        schedule_removed_notice: null,
-      };
-      if (incomingDesc) patch.arbox_class_description = incomingDesc;
-      if (shouldFillProductDescriptionFromArbox(String(match.description ?? ""), incomingDesc)) {
-        patch.description_text = incomingDesc;
-        patch.benefit_line = incomingDesc;
-      }
-      const { error: upErr } = await input.admin
-        .from("services")
-        .update({ description: mergeServiceDescriptionPatch(String(match.description ?? ""), patch) })
-        .eq("id", match.id)
-        .eq("business_id", input.businessId);
-      if (upErr) throw new Error(upErr.message);
-      updated += 1;
-      byKey.set(key, match);
+    if (
+      arboxClassAlreadyInServices(existing, {
+        box_category_id: cls.box_category_id,
+        session_name: cls.session_name,
+      })
+    ) {
       continue;
     }
 
@@ -606,6 +601,14 @@ export async function persistManualArboxScheduleSync(input: {
     });
     if (insErr) throw new Error(insErr.message);
     created += 1;
+    createdSlugs.push(slug);
+    existing.push({
+      id: 0,
+      name: cls.session_name,
+      description,
+      service_slug: slug,
+      sort_order: nextOrder,
+    });
     nextOrder += 1;
   }
 
@@ -616,7 +619,7 @@ export async function persistManualArboxScheduleSync(input: {
     .order("sort_order", { ascending: true })
     .order("id", { ascending: true });
   if (refErr) throw new Error(refErr.message);
-  return { created, updated, services: (refreshed ?? []) as ServiceRow[] };
+  return { created, updated: 0, createdSlugs, services: (refreshed ?? []) as ServiceRow[] };
 }
 
 export async function persistCronArboxScheduleSync(input: {

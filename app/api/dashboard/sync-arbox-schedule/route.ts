@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       created: persisted.created,
       updated: persisted.updated,
+      created_slugs: persisted.createdSlugs,
       updated_at: updatedAt,
       classes: pulled.classes.length,
       unmatched: pulled.unmatchedSessionNames,

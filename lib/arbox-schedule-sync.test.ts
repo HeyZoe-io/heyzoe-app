@@ -7,6 +7,7 @@ import {
   findWeeklyClassForStamp,
   hebrewDayLetterFromYmd,
   indexWeeklyClassesByMatchKey,
+  arboxClassAlreadyInServices,
   mergeServiceDescriptionPatch,
   normalizeHhmm,
   normalizeTimetableToWeeklyClasses,
@@ -275,6 +276,40 @@ assert.equal(sanitizeArboxClassDescription("   "), "");
       product_name: "אימון פונקציונלי",
     }),
     ""
+  );
+}
+
+{
+  const kept = JSON.stringify({
+    description_text: "טקסט שנשמר",
+    schedule_slots: [{ day: "א", time: "07:30" }],
+    arbox_box_category_id: 103880,
+    arbox_class_name: "BODY PUMP",
+  });
+  assert.equal(
+    arboxClassAlreadyInServices([{ description: kept }], {
+      box_category_id: 103880,
+      session_name: "BODY PUMP",
+    }),
+    true
+  );
+  const namedOnly = JSON.stringify({
+    description_text: "טקסט שנשמר",
+    arbox_class_name: "BODY PUMP",
+  });
+  assert.equal(
+    arboxClassAlreadyInServices([{ description: namedOnly }], {
+      box_category_id: 103880,
+      session_name: "BODY PUMP",
+    }),
+    true
+  );
+  assert.equal(
+    arboxClassAlreadyInServices([{ description: kept }], {
+      box_category_id: 136407,
+      session_name: "פונקציונאלי בייבי",
+    }),
+    false
   );
 }
 
