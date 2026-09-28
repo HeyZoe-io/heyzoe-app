@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketing-template-presets";
 import type { MarketingTriggerType } from "@/lib/marketing-template-trigger-types";
 import { marketingDelayDirectionForTrigger } from "@/lib/marketing-template-trigger-types";
+import { isMarketingStatusTriggerColumn } from "@/lib/marketing-status-trigger";
 import {
   logMarketingWhatsAppMessage,
   MARKETING_WA_PHONE_NUMBER_ID,
@@ -32,6 +33,7 @@ import {
   buildMarketingCallDayDedupKey,
   buildMarketingFlowCompletedDedupKey,
   buildMarketingNodeAnsweredDedupKey,
+  buildMarketingStatusChangedDedupKey,
   callDateYmdFromCallDayDedupKey,
   cancelStalePendingCallDaySends,
   enqueueScheduledMarketingTemplateSend,
@@ -59,6 +61,7 @@ export type MarketingTemplateTriggerRow = {
   delay_direction: string;
   template_name: string;
   enabled: boolean;
+  target_status?: string | null;
 };
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -100,6 +103,30 @@ async function loadEnabledTriggers(
   }
   return ((data ?? []) as MarketingTemplateTriggerRow[]).filter((r) =>
     Boolean(String(r.template_name ?? "").trim())
+  );
+}
+
+async function loadStatusChangedTriggers(admin: AdminClient): Promise<MarketingTemplateTriggerRow[]> {
+  const { data, error } = await admin
+    .from("marketing_template_triggers")
+    .select(
+      "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, enabled, target_status"
+    )
+    .eq("enabled", true)
+    .eq("trigger_type", "status_changed");
+  if (error) {
+    if (/target_status|schema cache|does not exist|check constraint/i.test(error.message)) {
+      console.error(
+        "[marketing-template-dispatch] status_changed migration required — run supabase/marketing_template_triggers_status_changed.sql:",
+        error.message
+      );
+    } else {
+      console.error("[marketing-template-dispatch] load status_changed triggers failed:", error.message);
+    }
+    return [];
+  }
+  return ((data ?? []) as MarketingTemplateTriggerRow[]).filter(
+    (r) => Boolean(String(r.template_name ?? "").trim()) && isMarketingStatusTriggerColumn(r.target_status)
   );
 }
 
@@ -610,6 +637,44 @@ export async function onMarketingFlowCompleted(input: { phone: string }): Promis
       phone,
       dueAt,
       dedupKey: buildMarketingFlowCompletedDedupKey(rule.id, phone, eventDay),
+      firstName,
+      now,
+    });
+  }
+}
+
+/**
+ * ליד נכנס לעמודת סטטוס. קריאת Meta אחת לכל טריגר פעיל שמתאים לעמודה (לא סריקת לידים).
+ * לא שולח למי שכבר היה באותה עמודה.
+ */
+export async function onMarketingLeadStatusChanged(input: {
+  phone: string;
+  status: string;
+}): Promise<void> {
+  const phone = phoneNorm(input.phone);
+  const status = String(input.status ?? "").trim();
+  if (!phone || !isMarketingStatusTriggerColumn(status)) return;
+
+  const admin = createSupabaseAdminClient();
+  const rules = (await loadStatusChangedTriggers(admin)).filter(
+    (rule) => String(rule.target_status ?? "") === status
+  );
+  if (rules.length === 0) return;
+
+  const firstName = await lookupLeadFirstName(admin, phone);
+  if (!firstName) return;
+
+  const now = new Date();
+  const eventIso = now.toISOString();
+  for (const rule of rules) {
+    const days = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
+    const dueAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    await dispatchOrEnqueue({
+      admin,
+      trigger: rule,
+      phone,
+      dueAt,
+      dedupKey: buildMarketingStatusChangedDedupKey(rule.id, phone, status, eventIso),
       firstName,
       now,
     });

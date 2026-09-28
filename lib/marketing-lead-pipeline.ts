@@ -14,6 +14,7 @@ import {
 import { canonicalMarketingSessionId } from "@/lib/marketing-whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
+import { marketingStatusEnteredColumn } from "@/lib/marketing-status-trigger";
 
 export { toPipelineDateOnly } from "@/lib/marketing-next-call";
 
@@ -378,6 +379,16 @@ async function applyPipelineUpdate(
       });
     } catch (e) {
       console.error("[marketing-lead-pipeline] call_day dispatch failed:", e);
+    }
+  }
+
+  const enteredStatus = marketingStatusEnteredColumn(existing?.pipeline_status, status);
+  if (enteredStatus) {
+    try {
+      const { onMarketingLeadStatusChanged } = await import("@/lib/marketing-template-dispatch");
+      await onMarketingLeadStatusChanged({ phone, status: enteredStatus });
+    } catch (e) {
+      console.error("[marketing-lead-pipeline] status trigger failed:", e);
     }
   }
 

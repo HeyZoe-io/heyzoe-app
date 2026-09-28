@@ -23,7 +23,8 @@ import {
 } from "@/lib/marketing-whatsapp";
 import { syncContactToMetaAudience } from "@/lib/ads/meta-audiences";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
-import { onMarketingCallScheduled } from "@/lib/marketing-template-dispatch";
+import { marketingStatusEnteredColumn } from "@/lib/marketing-status-trigger";
+import { onMarketingCallScheduled, onMarketingLeadStatusChanged } from "@/lib/marketing-template-dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -417,6 +418,23 @@ export async function PUT(req: NextRequest) {
       .eq("phone", phone);
     if (pipelineErr) {
       console.error("[marketing/conversation-notes] pipeline mirror failed:", pipelineErr.message);
+    }
+
+    const nextColumn = relevance === "not_relevant" ? "not_relevant" : status;
+    const previousColumn = !existing
+      ? nextColumn === "in_process"
+        ? "in_process"
+        : null
+      : stored?.relevance === "not_relevant"
+        ? "not_relevant"
+        : (stored?.stage ?? "in_process");
+    const enteredStatus = marketingStatusEnteredColumn(previousColumn, nextColumn);
+    if (enteredStatus) {
+      try {
+        await onMarketingLeadStatusChanged({ phone, status: enteredStatus });
+      } catch (e) {
+        console.error("[marketing/conversation-notes] status trigger failed:", e);
+      }
     }
 
     const prevRelevance = stored?.relevance ?? null;

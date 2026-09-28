@@ -21,7 +21,9 @@ export default async function AdminTemplatesPage() {
   if (!email || !isAdminAllowedEmail(email)) redirect("/admin/login");
 
   const admin = createSupabaseAdminClient();
-  const [{ data: templatesRaw, error: tplErr }, { data: triggers, error: trigErr }, { data: nodes, error: nodeErr }] =
+  const triggerSelect =
+    "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, target_status, enabled, created_at";
+  const [{ data: templatesRaw, error: tplErr }, triggerResult, { data: nodes, error: nodeErr }] =
     await Promise.all([
       admin
         .from("marketing_whatsapp_templates")
@@ -29,14 +31,24 @@ export default async function AdminTemplatesPage() {
           "id, waba_template_id, name, category, language, status, disabled, components, created_at, updated_at"
         )
         .order("updated_at", { ascending: false }),
-      admin
-        .from("marketing_template_triggers")
-        .select(
-          "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, enabled, created_at"
-        )
-        .order("created_at", { ascending: true }),
+      admin.from("marketing_template_triggers").select(triggerSelect).order("created_at", { ascending: true }),
       admin.from("marketing_flow_nodes").select("id, type, data"),
     ]);
+
+  let triggers = triggerResult.data;
+  let trigErr = triggerResult.error;
+  if (trigErr && /target_status/i.test(trigErr.message)) {
+    console.error(
+      "[admin/templates] target_status missing — run supabase/marketing_template_triggers_status_changed.sql:",
+      trigErr.message
+    );
+    const legacy = await admin
+      .from("marketing_template_triggers")
+      .select("id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, enabled, created_at")
+      .order("created_at", { ascending: true });
+    triggers = (legacy.data ?? []).map((row) => ({ ...row, target_status: null }));
+    trigErr = legacy.error;
+  }
 
   const migrationRequired =
     Boolean(tplErr && /does not exist|schema cache|marketing_whatsapp_templates/i.test(tplErr.message)) ||

@@ -1,4 +1,9 @@
-export const MARKETING_TRIGGER_TYPES = ["node_answered", "flow_completed", "call_day"] as const;
+export const MARKETING_TRIGGER_TYPES = [
+  "node_answered",
+  "flow_completed",
+  "call_day",
+  "status_changed",
+] as const;
 
 export type MarketingTriggerType = (typeof MARKETING_TRIGGER_TYPES)[number];
 
@@ -18,7 +23,11 @@ export function parseMarketingTriggerId(raw: unknown): string | null {
 }
 
 export function marketingForcesDelayAfter(triggerType: string): boolean {
-  return triggerType === "node_answered" || triggerType === "flow_completed";
+  return (
+    triggerType === "node_answered" ||
+    triggerType === "flow_completed" ||
+    triggerType === "status_changed"
+  );
 }
 
 export function marketingAllowsDelayBefore(triggerType: string): boolean {

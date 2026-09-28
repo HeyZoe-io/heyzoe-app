@@ -23,9 +23,14 @@ import {
 } from "@/lib/marketing-template-trigger-types";
 import {
   MARKETING_STAGE_STATUSES,
+  marketingAdminColumnLabel,
   marketingStageLabel,
   type MarketingStage,
 } from "@/lib/marketing-admin-status";
+import {
+  MARKETING_STATUS_TRIGGER_COLUMNS,
+  type MarketingStatusTriggerColumn,
+} from "@/lib/marketing-status-trigger";
 
 export type AdminTemplateRow = {
   id?: string;
@@ -47,6 +52,7 @@ export type AdminTriggerRow = {
   delay_days: number;
   delay_direction: "after" | "before";
   template_name: string;
+  target_status?: string | null;
   enabled: boolean;
   created_at: string;
 };
@@ -67,6 +73,7 @@ const TRIGGER_OPTIONS: { value: MarketingTriggerType; label: string }[] = [
   { value: "node_answered", label: "ליד ענה על נוד (בחירת שעה / שאלה)" },
   { value: "call_day", label: "ביום השיחה שנקבעה" },
   { value: "flow_completed", label: "סיום הפלואו (הנוד האחרון)" },
+  { value: "status_changed", label: "ליד עבר לסטטוס" },
 ];
 
 function statusLabel(status: string): { text: string; className: string } {
@@ -126,6 +133,13 @@ function delayLabel(t: AdminTriggerRow): string {
   return `${t.delay_days} ימים אחרי`;
 }
 
+function triggerStatusCaption(status: string | null | undefined): string {
+  if (!status) return "—";
+  return MARKETING_STATUS_TRIGGER_COLUMNS.includes(status as MarketingStatusTriggerColumn)
+    ? marketingAdminColumnLabel(status as MarketingStatusTriggerColumn)
+    : status;
+}
+
 function nodeCaption(nodes: AdminFlowNodeOption[], id: string | null): string {
   if (!id) return "—";
   const n = nodes.find((x) => x.id === id);
@@ -164,6 +178,7 @@ export default function AdminTemplatesClient({
   const [buttons, setButtons] = useState<ButtonDraft[]>([]);
 
   const [trigType, setTrigType] = useState<MarketingTriggerType>("call_day");
+  const [trigStatus, setTrigStatus] = useState<MarketingStatusTriggerColumn | "">("");
   const [trigNode, setTrigNode] = useState(flowNodes.find((n) => n.type === "question")?.id ?? "");
   const [trigDays, setTrigDays] = useState(0);
   const [trigDir, setTrigDir] = useState<"after" | "before">("before");
@@ -344,14 +359,15 @@ export default function AdminTemplatesClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           trigger_type: trigType,
-          flow_node_id: trigType === "flow_completed" ? null : trigNode || null,
+          flow_node_id: trigType === "flow_completed" || trigType === "status_changed" ? null : trigNode || null,
+          target_status: trigType === "status_changed" ? trigStatus : null,
           delay_days: trigDays,
           delay_direction: marketingAllowsDelayBefore(trigType) ? trigDir : "after",
           template_name: trigTemplate,
         }),
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string; trigger?: AdminTriggerRow };
-      if (!res.ok) throw new Error(j.error || `http_${res.status}`);
+      const j = (await res.json().catch(() => ({}))) as { error?: string; detail?: string; trigger?: AdminTriggerRow };
+      if (!res.ok) throw new Error(j.detail || j.error || `http_${res.status}`);
       if (j.trigger) setTriggers((prev) => [...prev, j.trigger!]);
       setSuccess("הטריגר נוסף");
     } catch (e) {
@@ -570,7 +586,11 @@ export default function AdminTemplatesClient({
                   {TRIGGER_OPTIONS.find((o) => o.value === t.trigger_type)?.label ?? t.trigger_type}
                 </div>
                 <div className="mt-0.5 text-xs text-zinc-500">
-                  {t.trigger_type !== "flow_completed" ? `${nodeCaption(flowNodes, t.flow_node_id)} · ` : null}
+                  {t.trigger_type === "status_changed"
+                    ? `${triggerStatusCaption(t.target_status)} · `
+                    : t.trigger_type !== "flow_completed"
+                      ? `${nodeCaption(flowNodes, t.flow_node_id)} · `
+                      : null}
                   {delayLabel(t)} · <span dir="ltr">{t.template_name}</span>
                 </div>
               </div>
@@ -603,7 +623,27 @@ export default function AdminTemplatesClient({
               </option>
             ))}
           </select>
-          {trigType !== "flow_completed" ? (
+          {trigType === "status_changed" ? (
+            <div className="space-y-1">
+              <label className="text-xs text-zinc-600">כשהסטטוס משתנה ל…</label>
+              <select
+                className={FIELD}
+                value={trigStatus}
+                onChange={(e) => setTrigStatus(e.target.value as MarketingStatusTriggerColumn | "")}
+                required
+              >
+                <option value="">בחרו סטטוס</option>
+                {MARKETING_STATUS_TRIGGER_COLUMNS.map((column) => (
+                  <option key={column} value={column}>
+                    {marketingAdminColumnLabel(column)}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-zinc-500">
+                נשלח רק לליד שעבר עכשיו לסטטוס הזה (גרירה בלידים או שמירת סטטוס בשיחה). מי שכבר בעמודה לא מקבל הודעה — בשביל זה יש «שידור ללידים קיימים». «הסר» לא ברשימה.
+              </p>
+            </div>
+          ) : trigType !== "flow_completed" ? (
             <div className="space-y-1">
               <label className="text-xs text-zinc-600">נוד בפלואו (לפי מספר בתצוגת הבילדר)</label>
               <select className={FIELD} value={trigNode} onChange={(e) => setTrigNode(e.target.value)} required={trigType === "node_answered"}>

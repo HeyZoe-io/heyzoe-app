@@ -16,6 +16,7 @@ export const MARKETING_TEMPLATE_PARAM_SLOTS: Record<
   node_answered: ["first_name"],
   flow_completed: ["first_name"],
   call_day: ["first_name", "call_time"],
+  status_changed: ["first_name"],
   broadcast: ["first_name"],
 };
 
@@ -34,6 +35,11 @@ export const MARKETING_TEMPLATE_PRESETS: Record<MarketingTriggerType, MarketingT
     name: "call_today",
     category: "UTILITY",
     body: "היי {{1}}, מזכירה שיש לנו שיחה היום{{2}} 📅\nבמידה ויש בעיה כלשהי נשמח לעדכון. אחרת - מצפים לדבר איתך :)",
+  },
+  status_changed: {
+    name: "status_update",
+    category: "MARKETING",
+    body: "היי {{1}}, יש לנו עדכון בשבילך 😊",
   },
 };
 

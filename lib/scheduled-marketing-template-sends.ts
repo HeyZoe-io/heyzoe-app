@@ -64,6 +64,16 @@ export function buildMarketingBroadcastDedupKey(batchId: string, phone: string):
   return `broadcast:${String(batchId).trim()}:${String(phone).trim()}`;
 }
 
+/** מעבר סטטוס אחד. חותמת הזמן מאפשרת שליחה חוזרת אם הליד יוצא וחוזר לאותה עמודה. */
+export function buildMarketingStatusChangedDedupKey(
+  triggerId: string,
+  phone: string,
+  status: string,
+  eventIso: string
+): string {
+  return `status_changed:${String(triggerId).trim()}:${String(phone).trim()}:${String(status).trim()}:${String(eventIso).trim()}`;
+}
+
 export async function cancelStalePendingCallDaySends(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   triggerId: string;

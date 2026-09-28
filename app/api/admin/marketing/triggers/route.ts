@@ -9,6 +9,7 @@ import {
   parseMarketingTriggerId,
   type MarketingTriggerType,
 } from "@/lib/marketing-template-trigger-types";
+import { isMarketingStatusTriggerColumn } from "@/lib/marketing-status-trigger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,9 @@ const DELAY_DIRECTIONS = ["after", "before"] as const;
 type DelayDirection = (typeof DELAY_DIRECTIONS)[number];
 
 const SELECT =
-  "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, enabled, created_at, updated_at";
+  "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, target_status, enabled, created_at, updated_at";
+
+const STATUS_MIGRATION = "supabase/marketing_template_triggers_status_changed.sql";
 
 async function requireAdmin() {
   const supabase = await createSupabaseServerClient();
@@ -78,10 +81,25 @@ async function verifyTemplate(
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
-  const { data, error } = await gate.admin
+  let { data, error } = await gate.admin
     .from("marketing_template_triggers")
     .select(SELECT)
     .order("created_at", { ascending: true });
+  if (error && /target_status/i.test(error.message)) {
+    console.error(
+      "[admin/marketing/triggers] target_status missing — run",
+      STATUS_MIGRATION,
+      error.message
+    );
+    const legacy = await gate.admin
+      .from("marketing_template_triggers")
+      .select(
+        "id, trigger_type, flow_node_id, delay_days, delay_direction, template_name, enabled, created_at, updated_at"
+      )
+      .order("created_at", { ascending: true });
+    data = (legacy.data ?? []).map((row) => ({ ...row, target_status: null }));
+    error = legacy.error;
+  }
   if (error) {
     console.error("[admin/marketing/triggers] list failed:", error.message);
     if (/does not exist|schema cache/i.test(error.message)) {
@@ -124,9 +142,16 @@ export async function POST(req: NextRequest) {
     triggerType,
     isDelayDirection(String(body.delay_direction ?? "")) ? String(body.delay_direction) : "after"
   );
-  const flowNodeId = String(body.flow_node_id ?? "").trim() || null;
+  const flowNodeId =
+    triggerType === "flow_completed" || triggerType === "status_changed"
+      ? null
+      : String(body.flow_node_id ?? "").trim() || null;
   if (triggerType === "node_answered" && !flowNodeId) {
     return NextResponse.json({ error: "missing_flow_node_id" }, { status: 400 });
+  }
+  const targetStatus = String(body.target_status ?? "").trim();
+  if (triggerType === "status_changed" && !isMarketingStatusTriggerColumn(targetStatus)) {
+    return NextResponse.json({ error: "missing_target_status" }, { status: 400 });
   }
 
   const nowIso = new Date().toISOString();
@@ -138,6 +163,7 @@ export async function POST(req: NextRequest) {
       delay_days: delayDays,
       delay_direction: marketingForcesDelayAfter(triggerType) ? "after" : delayDirection,
       template_name: templateName,
+      target_status: triggerType === "status_changed" ? targetStatus : null,
       enabled: body.enabled === false ? false : true,
       updated_at: nowIso,
     })
@@ -146,6 +172,12 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     console.error("[admin/marketing/triggers] insert failed:", error.message);
+    if (/target_status|trigger_type_check|schema cache/i.test(error.message)) {
+      return NextResponse.json(
+        { error: "migration_required", detail: `הריצו ${STATUS_MIGRATION}` },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: "trigger_create_failed" }, { status: 500 });
   }
   return NextResponse.json({ trigger: data });
