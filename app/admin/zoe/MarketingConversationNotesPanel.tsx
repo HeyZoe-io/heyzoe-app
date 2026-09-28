@@ -333,11 +333,11 @@ export default function MarketingConversationNotesPanel({
   return (
     <aside
       dir="rtl"
-      className="hidden w-[280px] shrink-0 flex-col border-s border-[#e9edef] bg-white lg:flex"
+      className="flex max-h-[48%] w-full shrink-0 flex-col border-t border-[#e9edef] bg-white lg:max-h-none lg:w-[280px] lg:border-s lg:border-t-0"
       aria-label="הערות שיחה"
     >
-      <header className="flex h-[59px] shrink-0 items-center bg-[#f0f2f5] px-4">
-        <h2 className="text-[17px] font-medium text-[#111b21]">הערות</h2>
+      <header className="flex h-[48px] shrink-0 items-center bg-[#f0f2f5] px-4 lg:h-[59px]">
+        <h2 className="text-[16px] font-medium text-[#111b21] lg:text-[17px]">סטטוס והערות</h2>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -486,11 +486,10 @@ export default function MarketingConversationNotesPanel({
                   markDirty();
                 }}
                 placeholder="כתבו הערות חופשיות…"
-                rows={8}
+                rows={5}
+                className="min-h-[100px] resize-y lg:min-h-[140px]"
                 style={{
                   ...fieldStyle,
-                  resize: "vertical",
-                  minHeight: 140,
                   lineHeight: 1.5,
                 }}
               />

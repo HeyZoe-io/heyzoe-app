@@ -1039,8 +1039,14 @@ export default function ConversationsClient({
           </aside>
         ) : null}
 
-        {showChatPanel ? (
-          <section dir={dashboardDir(lang)} className="flex min-w-0 flex-1 flex-col bg-[#f0f2f5]">
+        {showChatPanel || showMarketingNotesPanel ? (
+          <div
+            className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
+              showMarketingNotesPanel ? "lg:flex-row" : ""
+            }`}
+          >
+            {showChatPanel ? (
+              <section dir={dashboardDir(lang)} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#f0f2f5]">
             {selected ? (
               <>
                 <header className="flex min-h-[59px] shrink-0 items-center justify-between gap-3 border-b border-[#e9edef] bg-[#f0f2f5] px-3 py-1.5 md:px-4">
@@ -1251,27 +1257,29 @@ export default function ConversationsClient({
                 <p className="sr-only">{t.selectConversation}</p>
               </div>
             )}
-          </section>
-        ) : null}
+              </section>
+            ) : null}
 
-        {showMarketingNotesPanel && selected ? (
-          <MarketingConversationNotesPanel
-            key={selected.session_id}
-            phone={selected.phone}
-            sessionId={selected.session_id}
-            onStatusSaved={(noteStatus, noteRelevance) =>
-              onMarketingNoteStatusSaved(selected.session_id, noteStatus, noteRelevance)
-            }
-            onCallSaved={(date, time) => {
-              setSessions((prev) =>
-                prev.map((s) =>
-                  s.session_id === selected.session_id
-                    ? { ...s, nextCallAt: date, nextCallTime: time }
-                    : s
-                )
-              );
-            }}
-          />
+            {showMarketingNotesPanel && selected ? (
+              <MarketingConversationNotesPanel
+                key={selected.session_id}
+                phone={selected.phone}
+                sessionId={selected.session_id}
+                onStatusSaved={(noteStatus, noteRelevance) =>
+                  onMarketingNoteStatusSaved(selected.session_id, noteStatus, noteRelevance)
+                }
+                onCallSaved={(date, time) => {
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.session_id === selected.session_id
+                        ? { ...s, nextCallAt: date, nextCallTime: time }
+                        : s
+                    )
+                  );
+                }}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>
