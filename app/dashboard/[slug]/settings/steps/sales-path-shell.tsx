@@ -39,7 +39,7 @@ export function SalesPathFieldLabel({
       <div className="min-w-0 flex-1" style={textAlign ? { textAlign } : undefined}>
         <span className="block text-[13px] font-medium text-zinc-800">{children}</span>
         {hint ? (
-          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400" dir={dir}>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-500" dir={dir}>
             {hint}
           </p>
         ) : null}
@@ -98,7 +98,7 @@ export function SalesPathSectionBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center justify-between gap-3 px-4 py-3.5 transition-colors hover:bg-zinc-50/90"
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 transition-colors hover:bg-zinc-50/90 sm:gap-3 sm:px-4 sm:py-3.5"
           style={{ textAlign }}
           dir={dir}
           aria-expanded={open}
@@ -109,7 +109,7 @@ export function SalesPathSectionBlock({
                 className={cn("h-1.5 w-1.5 shrink-0 rounded-full", filled ? "bg-[#7133da]" : "bg-zinc-200")}
                 aria-hidden
               />
-              <h3 className="text-sm font-semibold tracking-[-0.01em] text-zinc-900">{title}</h3>
+              <h3 className="text-[15px] font-semibold leading-snug tracking-[-0.01em] text-zinc-900 sm:text-sm">{title}</h3>
               {titleAction ? (
                 <span className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
                   {titleAction}
@@ -117,7 +117,7 @@ export function SalesPathSectionBlock({
               ) : null}
             </div>
             {hint ? (
-              <p className={cn("mt-0.5 ps-3.5 text-xs text-zinc-500", hintClassName)} dir={dir}>
+              <p className={cn("mt-0.5 ps-3.5 text-[13px] leading-relaxed text-zinc-500", hintClassName)} dir={dir}>
                 {hint}
               </p>
             ) : null}
@@ -129,7 +129,7 @@ export function SalesPathSectionBlock({
         </button>
         {headerAction ? <div className="flex shrink-0 items-center pe-3">{headerAction}</div> : null}
       </div>
-      {open ? <div className="space-y-4 border-t border-zinc-100 px-4 pb-4 pt-3">{children}</div> : null}
+      {open ? <div className="space-y-4 border-t border-zinc-100 px-3 pb-4 pt-3 sm:px-4">{children}</div> : null}
     </section>
   );
 }
@@ -154,7 +154,12 @@ export function SalesPathSectionRow({
       <div className="min-w-0 flex-1" dir={contentDir}>
         {children}
       </div>
-      <div className="flex w-8 shrink-0 items-start justify-center pt-3.5">
+      <div
+        className={cn(
+          "flex w-8 shrink-0 items-start justify-center pt-3.5",
+          !trail && "max-sm:hidden"
+        )}
+      >
         {trail ?? <span className="block h-8 w-8" aria-hidden />}
       </div>
     </div>
@@ -250,18 +255,37 @@ export function SalesPathStepShell<T extends string>({
   const textAlign = lang === "en" ? "left" : "right";
 
   return (
-    <section className="mx-auto w-full max-w-3xl" style={{ textAlign }} dir={dir}>
-      <header className="mb-6 border-b border-zinc-200/60 pb-5">
-        <p className="text-[11px] font-medium uppercase tracking-widest text-[#7133da]/80">
+    <section className="sales-path-step mx-auto w-full min-w-0 max-w-3xl" style={{ textAlign }} dir={dir}>
+      <header className="mb-4 border-b border-zinc-200/60 pb-4 sm:mb-6 sm:pb-5">
+        <p className="text-[13px] font-medium uppercase tracking-widest text-[#7133da]/80">
           {t.stepLabel(stepNumber)}
         </p>
         <h2 className="mt-1 text-xl font-bold tracking-[-0.02em] text-zinc-900 sm:text-2xl">{title}</h2>
         {description ? (
-          <p className="mt-1.5 max-w-md text-sm leading-relaxed text-zinc-500">{description}</p>
+          <p className="mt-1.5 max-w-md text-[15px] leading-relaxed text-zinc-600 sm:text-sm">{description}</p>
         ) : null}
       </header>
 
-      <div className="flex flex-col gap-6 lg:flex-row-reverse lg:items-start">
+      <nav
+        className="sticky top-0 z-20 -mx-1 mb-4 flex min-w-0 gap-1.5 overflow-x-auto bg-[#FAFAFA]/95 px-1 py-2 backdrop-blur-sm lg:hidden"
+        aria-label={`${navAriaLabel} - ${t.navMobileSuffix}`}
+      >
+        {sections.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onNavClick(s.id)}
+            className={cn(
+              "shrink-0 rounded-full px-3 py-2 text-[13px] font-medium leading-none transition-colors",
+              activeNav === s.id ? "bg-[#7133da] text-white" : "bg-zinc-100 text-zinc-700"
+            )}
+          >
+            {s.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="flex min-w-0 flex-col gap-6 lg:flex-row-reverse lg:items-start">
         <nav className="hidden shrink-0 lg:block lg:w-[168px]" aria-label={navAriaLabel}>
           <ul className="sticky top-24 space-y-0.5">
             {sections.map((s) => (
@@ -288,25 +312,6 @@ export function SalesPathStepShell<T extends string>({
           {children}
         </div>
       </div>
-
-      <nav
-        className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:hidden"
-        aria-label={`${navAriaLabel} - ${t.navMobileSuffix}`}
-      >
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => onNavClick(s.id)}
-            className={cn(
-              "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-              activeNav === s.id ? "bg-[#7133da] text-white" : "bg-zinc-100 text-zinc-600"
-            )}
-          >
-            {s.label}
-          </button>
-        ))}
-      </nav>
     </section>
   );
 }

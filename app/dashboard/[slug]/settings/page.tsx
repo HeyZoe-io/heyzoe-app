@@ -3202,7 +3202,7 @@ export default function SlugSettingsPage({
       ) : null}
 
       <div
-        className={`py-8 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}
+        className={`min-w-0 py-4 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}
         style={{ overflowAnchor: "none" }}
       >
         <fieldset
@@ -3427,7 +3427,7 @@ export default function SlugSettingsPage({
         {saveErr ? <p className="mt-4 text-center text-sm text-red-500">{saveErr}</p> : null}
 
         {/* ── ניווט שלבים ── */}
-        <div className="mx-auto mt-8 flex w-full max-w-2xl items-center justify-between border-t border-zinc-200 pt-4">
+        <div className="mx-auto mt-6 flex w-full min-w-0 max-w-2xl flex-wrap items-center justify-between gap-3 border-t border-zinc-200 pt-4 sm:mt-8">
           <Button
             variant="outline"
             onClick={() => void requestNavigation?.(prevStep)}

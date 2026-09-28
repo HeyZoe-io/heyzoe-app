@@ -1396,8 +1396,8 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               </p>
             ) : (
               <>
-                <div className="flex w-full items-center justify-between gap-2">
-                  <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-zinc-500 text-start">
+                <div className="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="w-full min-w-0 text-[13px] leading-relaxed text-zinc-600 text-start sm:flex-1">
                     {t.salesFlow.warmupUnified}
                   </p>
                   <Button
@@ -2731,6 +2731,11 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                     );
                   })}
                 </div>
+                <p className="text-[13px] leading-relaxed text-zinc-600 sm:hidden">
+                  {resolveRegistrationConfirmationMode(salesFlowConfig) === "automatic"
+                    ? t.salesFlow.registrationConfirmAutomaticHint
+                    : t.salesFlow.registrationConfirmManualHint}
+                </p>
               </div>
             ) : null}
               </>
