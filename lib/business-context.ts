@@ -31,6 +31,7 @@ import { buildHolidayQuestionPromptRule } from "@/lib/wa-personal-blessing";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
 import { detectMessageLanguage } from "@/lib/language-detect";
+import { inboundIsCatalogServiceName } from "@/lib/lead-ui-lang";
 import { studioOverviewCommunityClosing } from "@/lib/wa-studio-overview-intent";
 import {
   DASHBOARD_MAX_PRODUCTS,
@@ -735,9 +736,12 @@ ${knowledge!.traits.map((t) => `- ${annotateExpiredIsraelDates(t, now)}`).join("
 
 function buildUserLanguagePromptBlock(
   lastUserMessage?: string,
-  leadUiLang?: import("@/lib/business-content-lang").BusinessContentLanguage
+  leadUiLang?: import("@/lib/business-content-lang").BusinessContentLanguage,
+  knowledge?: BusinessKnowledgePack | null
 ): string {
-  const detected = detectMessageLanguage(String(lastUserMessage ?? ""));
+  const raw = String(lastUserMessage ?? "");
+  const sample = inboundIsCatalogServiceName(raw, knowledge) ? "" : raw;
+  const detected = detectMessageLanguage(sample);
   const lang =
     detected === "en" || detected === "he" || detected === "ru"
       ? detected
@@ -806,9 +810,16 @@ export function buildSystemPrompt(
   const phase = waCtx?.sessionPhase;
   const waResponseShapeBlock = pickResponseShapeBlock(guidelines, isWhatsApp, waCtx);
   const legalRules = pickLegalRulesLines(guidelines);
-  const userLanguageBlock = buildUserLanguagePromptBlock(lastUserMessage, knowledge?.leadUiLang);
+  const userLanguageBlock = buildUserLanguagePromptBlock(
+    lastUserMessage,
+    knowledge?.leadUiLang,
+    knowledge
+  );
+  const overviewLangSample = inboundIsCatalogServiceName(String(lastUserMessage ?? ""), knowledge)
+    ? ""
+    : String(lastUserMessage ?? "");
   const overviewClosingExact = studioOverviewCommunityClosing(
-    detectMessageLanguage(String(lastUserMessage ?? ""))
+    detectMessageLanguage(overviewLangSample)
   );
   const platformSection = buildZoePlatformPromptSection(guidelines);
   const toneAnalysis = getZoePlatformCategoryBlock(guidelines, "tone_analysis");

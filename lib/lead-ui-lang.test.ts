@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
-import { matchesSwitchToRussianIntent, resolveLeadContentLanguage } from "@/lib/lead-ui-lang";
+import type { BusinessKnowledgePack } from "@/lib/business-context";
+import {
+  detectLeadInboundLanguage,
+  inboundIsCatalogServiceName,
+  matchesSwitchToRussianIntent,
+  resolveLeadContentLanguage,
+} from "@/lib/lead-ui-lang";
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+
+const bodyPumpKnowledge = {
+  salesFlowServices: [{ name: "BODY PUMP" }],
+  serviceNamesForOpening: ["BODY PUMP", "Reformer Pilates Advanced Level"],
+} as unknown as BusinessKnowledgePack;
 
 const shouldMatch = [
   "רוסית?",
@@ -45,6 +57,49 @@ assert.equal(resolveLeadContentLanguage({ inboundText: "Привет" }), "ru");
 assert.equal(resolveLeadContentLanguage({ inboundText: "Ok I purchased this!" }), "en");
 assert.equal(
   resolveLeadContentLanguage({ inboundText: "Thanks for your help !", persisted: "en" }),
+  "en"
+);
+
+assert.equal(inboundIsCatalogServiceName("BODY PUMP", bodyPumpKnowledge), true);
+assert.equal(inboundIsCatalogServiceName("body pump!", bodyPumpKnowledge), true);
+assert.equal(inboundIsCatalogServiceName("When is BODY PUMP?", bodyPumpKnowledge), false);
+assert.equal(
+  inboundIsCatalogServiceName(
+    truncateWaButtonLabel("Reformer Pilates Advanced Level"),
+    bodyPumpKnowledge
+  ),
+  true
+);
+assert.equal(detectLeadInboundLanguage("BODY PUMP", bodyPumpKnowledge), "unknown");
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "BODY PUMP",
+    persisted: "he",
+    knowledge: bodyPumpKnowledge,
+  }),
+  "he"
+);
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "BODY PUMP",
+    knowledge: bodyPumpKnowledge,
+  }),
+  "he"
+);
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "BODY PUMP",
+    persisted: "en",
+    knowledge: bodyPumpKnowledge,
+  }),
+  "en"
+);
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "When is BODY PUMP?",
+    persisted: "he",
+    knowledge: bodyPumpKnowledge,
+  }),
   "en"
 );
 

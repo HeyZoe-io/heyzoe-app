@@ -456,7 +456,12 @@ import {
   isSchedulePickChangeServiceLabel,
   pickScheduleSlotButtonsHint,
 } from "@/lib/business-content-lang";
-import { resolveLeadContentLanguage, parseWaUiLang, matchesSwitchToRussianIntent } from "@/lib/lead-ui-lang";
+import {
+  resolveLeadContentLanguage,
+  parseWaUiLang,
+  matchesSwitchToRussianIntent,
+  detectLeadInboundLanguage,
+} from "@/lib/lead-ui-lang";
 import { localizeKnowledgePackForLead } from "@/lib/sales-flow-localize";
 
 /** אחרי קישור תשלום לסדנה / קורס (לא אימון ניסיון). */
@@ -2968,7 +2973,7 @@ async function sendMatchedClassRegistrationLink(input: {
 }): Promise<boolean> {
   const url = input.service.paymentLink.trim();
   if (!validRegistrationHttpUrl(url)) return false;
-  const langDetected = detectMessageLanguage(input.inboundText);
+  const langDetected = detectLeadInboundLanguage(input.inboundText, input.knowledge);
   const lang =
     langDetected === "en" || langDetected === "he" || langDetected === "ru"
       ? langDetected
@@ -6821,7 +6826,7 @@ async function processIncoming(
     }
     const inboundDetected = wantsRussianFlowRestart
       ? "ru"
-      : parseWaUiLang(detectMessageLanguage(inboundForLang));
+      : parseWaUiLang(detectLeadInboundLanguage(inboundForLang, knowledge));
     if (businessId && inboundDetected && inboundDetected !== contactWaUiLang) {
       contactWaUiLang = inboundDetected;
       try {

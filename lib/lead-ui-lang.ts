@@ -8,6 +8,7 @@ import {
   normalizeSalesFlowGreetingToken,
   stripLeadingCasualGreeting,
 } from "@/lib/sales-flow-start-triggers";
+import { truncateWaButtonLabel } from "@/lib/wa-button-label";
 
 export function parseWaUiLang(raw: unknown): BusinessContentLanguage | "" {
   const t = String(raw ?? "").trim().toLowerCase();
@@ -20,6 +21,56 @@ export function detectedToContentLang(
 ): BusinessContentLanguage | null {
   if (detected === "he" || detected === "en" || detected === "ru") return detected;
   return null;
+}
+
+function catalogServiceNames(knowledge: BusinessKnowledgePack | null | undefined): string[] {
+  if (!knowledge) return [];
+  const names = [
+    ...(knowledge.serviceNamesForOpening ?? []),
+    ...(knowledge.openingServices ?? []).map((s) => s.name),
+    ...(knowledge.salesFlowServices ?? []).map((s) => String(s.name ?? "")),
+    ...(knowledge.knowledgeCatalogServices ?? []).map((s) => String(s.name ?? "")),
+  ];
+  return names.map((n) => String(n ?? "").trim()).filter(Boolean);
+}
+
+function normCatalogToken(raw: string): string {
+  return String(raw ?? "")
+    .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[׳״"']/g, "")
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** הודעה שהיא רק שם אימון מהקטלוג (כולל תווית כפתור חתוכה) — לא אות לשפת שיחה. */
+export function inboundIsCatalogServiceName(
+  inboundText: string,
+  knowledge?: BusinessKnowledgePack | null
+): boolean {
+  const incoming = normCatalogToken(inboundText);
+  if (!incoming) return false;
+  for (const name of catalogServiceNames(knowledge)) {
+    const full = normCatalogToken(name);
+    if (full && incoming === full) return true;
+    const truncated = normCatalogToken(truncateWaButtonLabel(name));
+    if (truncated && incoming === truncated) return true;
+  }
+  return false;
+}
+
+/**
+ * שפת ההודעה הנכנסת. שם אימון לבדו (BODY PUMP וכו') לא נספר — נשארת השפה השמורה.
+ */
+export function detectLeadInboundLanguage(
+  inboundText: string,
+  knowledge?: BusinessKnowledgePack | null
+): DetectedMessageLanguage {
+  if (matchesSwitchToRussianIntent(inboundText)) return "ru";
+  if (inboundIsCatalogServiceName(inboundText, knowledge)) return "unknown";
+  return detectMessageLanguage(inboundText);
 }
 
 const SWITCH_TO_RU_MAX_LEN = 64;
@@ -70,14 +121,16 @@ export function matchesSwitchToRussianIntent(raw: string): boolean {
  * Language for this lead's WhatsApp UI (flow copy + buttons).
  * Latest inbound script wins; otherwise persisted; otherwise the studio default.
  * Explicit «אפשר ברוסית?» wins over Hebrew script detection.
+ * A catalog class name alone (e.g. BODY PUMP) does not switch language.
  */
 export function resolveLeadContentLanguage(input: {
   inboundText?: string;
   persisted?: string | null;
   knowledge?: BusinessKnowledgePack | null;
 }): BusinessContentLanguage {
-  if (matchesSwitchToRussianIntent(input.inboundText ?? "")) return "ru";
-  const fromInbound = detectedToContentLang(detectMessageLanguage(input.inboundText ?? ""));
+  const fromInbound = detectedToContentLang(
+    detectLeadInboundLanguage(input.inboundText ?? "", input.knowledge)
+  );
   if (fromInbound) return fromInbound;
   const persisted = parseWaUiLang(input.persisted);
   if (persisted) return persisted;
