@@ -1,7 +1,10 @@
 import { resolveCronSecret } from "@/lib/server-env";
 
-/** Slightly above the worker maxDuration (300s) so the dispatcher cannot hang. */
-export const ARBOX_DAILY_WORKER_ABORT_MS = 310_000;
+/**
+ * Under the dispatcher maxDuration (300s) so "dispatch done" is always logged.
+ * A worker that is still running keeps going on its own invocation.
+ */
+export const ARBOX_DAILY_WORKER_ABORT_MS = 285_000;
 
 /**
  * Trigger types this cron's steps actually run.
@@ -42,11 +45,14 @@ export const ARBOX_DAILY_ACTIVE_PRODUCT_TRIGGER_TYPES = [
   "not_registered_after_trial",
 ] as const;
 
+export type WorkerDispatchOutcome = "ok" | "failed" | "timeout_unknown_outcome";
+
 export type WorkerDispatchResult = {
   business_id: number;
   http: number;
   elapsed_ms: number;
   ok: boolean;
+  outcome: WorkerDispatchOutcome;
   body: unknown;
   error?: string;
 };
@@ -94,6 +100,7 @@ export async function dispatchArboxDailyWorkers(input: {
       http: 0,
       elapsed_ms: 0,
       ok: false,
+      outcome: "failed",
       body: null,
       error: reason instanceof Error ? reason.message : String(reason),
     };
@@ -106,7 +113,7 @@ export async function dispatchArboxDailyWorkers(input: {
       business_id: row.business_id,
       http: row.http,
       elapsed_ms: row.elapsed_ms,
-      result: row.ok ? "ok" : "failed",
+      result: row.outcome,
       ...(row.error ? { error: row.error } : {}),
     })),
   });
@@ -138,16 +145,26 @@ async function callWorker(
       http: res.status,
       elapsed_ms: Date.now() - started,
       ok: res.ok,
+      outcome: res.ok ? "ok" : "failed",
       body,
     };
   } catch (e) {
+    const timedOut = isWorkerAbortTimeout(e);
     return {
       business_id: businessId,
       http: 0,
       elapsed_ms: Date.now() - started,
       ok: false,
+      outcome: timedOut ? "timeout_unknown_outcome" : "failed",
       body: null,
       error: e instanceof Error ? e.message : String(e),
     };
   }
+}
+
+/** AbortSignal.timeout rejects with TimeoutError, or AbortError on some runtimes. */
+function isWorkerAbortTimeout(e: unknown): boolean {
+  if (!e || typeof e !== "object" || !("name" in e)) return false;
+  const name = String((e as { name?: unknown }).name);
+  return name === "TimeoutError" || name === "AbortError";
 }
