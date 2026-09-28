@@ -11074,7 +11074,11 @@ async function processIncoming(
           return;
         }
 
-        if (namedClassWeeklyReply && isScheduleIntent(incomingResolved)) {
+        if (
+          namedClassWeeklyReply &&
+          isScheduleIntent(incomingResolved) &&
+          parseRequestedClassDays(incomingResolved).length === 0
+        ) {
           try {
             await sendWhatsAppMessage(
               msg.toNumber,
