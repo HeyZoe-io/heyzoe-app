@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
+import { isAdminAllowedEmail } from "@/lib/server-env";
 import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
 import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
 
@@ -92,6 +93,7 @@ export default async function TemplatesPage({ params }: Props) {
       slug={access.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
       initialCategoryNotices={categoryNotices}
+      isPlatformAdmin={isAdminAllowedEmail(user.user.email ?? "")}
       initialLeadTemplateName={leadTemplateName || null}
       initialTriggers={initialTriggers}
       leadsWebhookSecret={leadsWebhookSecret}

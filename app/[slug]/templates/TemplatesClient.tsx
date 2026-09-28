@@ -140,10 +140,34 @@ function AutomationConnectLink({ onClick }: { onClick: () => void }) {
   );
 }
 
+const ADMIN_RECATEGORY_DISMISS_PREFIX = "hz_utility_recategory_admin_dismissed:";
+
+function adminRecategoryDismissKey(slug: string): string {
+  return `${ADMIN_RECATEGORY_DISMISS_PREFIX}${slug}`;
+}
+
+function readAdminRecategoryDismissed(slug: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(adminRecategoryDismissKey(slug)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberAdminRecategoryDismissed(slug: string): void {
+  try {
+    window.sessionStorage.setItem(adminRecategoryDismissKey(slug), "1");
+  } catch {
+    // private mode
+  }
+}
+
 type Props = {
   slug: string;
   initialTemplates: TemplateRow[];
   initialCategoryNotices: CategoryNotice[];
+  isPlatformAdmin: boolean;
   initialLeadTemplateName: string | null;
   initialTriggers: TriggerRow[];
   leadsWebhookSecret: string;
@@ -302,6 +326,7 @@ export default function TemplatesClient({
   slug,
   initialTemplates,
   initialCategoryNotices,
+  isPlatformAdmin,
   initialLeadTemplateName,
   initialTriggers,
   leadsWebhookSecret,
@@ -310,6 +335,10 @@ export default function TemplatesClient({
 }: Props) {
   const [templates, setTemplates] = useState<TemplateRow[]>(initialTemplates);
   const [categoryNotices, setCategoryNotices] = useState<CategoryNotice[]>(initialCategoryNotices);
+
+  useEffect(() => {
+    if (isPlatformAdmin && readAdminRecategoryDismissed(slug)) setCategoryNotices([]);
+  }, [isPlatformAdmin, slug]);
   const [leadTemplateName, setLeadTemplateName] = useState<string | null>(
     initialLeadTemplateName
   );
@@ -1061,12 +1090,16 @@ export default function TemplatesClient({
         throw new Error(j.detail || j.error || `http_${res.status}`);
       }
       setTemplates(Array.isArray(j.templates) ? j.templates : []);
-      if (Array.isArray(j.category_notices)) setCategoryNotices(j.category_notices);
+      if (isPlatformAdmin && readAdminRecategoryDismissed(slug)) {
+        setCategoryNotices([]);
+      } else if (Array.isArray(j.category_notices)) {
+        setCategoryNotices(j.category_notices);
+      }
       if (j.lead_template_name !== undefined) {
         setLeadTemplateName(j.lead_template_name ? String(j.lead_template_name) : null);
       }
     },
-    [slug]
+    [isPlatformAdmin, slug]
   );
 
   async function onRefresh() {
@@ -1340,7 +1373,10 @@ export default function TemplatesClient({
         <UtilityRecategoryNotice
           slug={slug}
           notices={categoryNotices}
-          onDismissed={() => setCategoryNotices([])}
+          onDismissed={(persisted) => {
+            if (!persisted) rememberAdminRecategoryDismissed(slug);
+            setCategoryNotices([]);
+          }}
           onEdit={editRecategorizedTemplate}
         />
       )}

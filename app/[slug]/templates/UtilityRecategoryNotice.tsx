@@ -15,7 +15,7 @@ export default function UtilityRecategoryNotice({
 }: {
   slug: string;
   notices: Notice[];
-  onDismissed: () => void;
+  onDismissed: (persisted: boolean) => void;
   onEdit: (id: string) => void;
 }) {
   const [dismissing, setDismissing] = useState(false);
@@ -33,14 +33,14 @@ export default function UtilityRecategoryNotice({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: notices.map((n) => n.id) }),
       });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; persisted?: boolean };
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
         console.error("[UtilityRecategoryNotice] dismiss failed:", j.error || res.status);
         setError("שמירת הסגירה נכשלה, נסו שוב");
         setDismissing(false);
         return;
       }
-      onDismissed();
+      onDismissed(j.persisted !== false);
     } catch (e) {
       console.error("[UtilityRecategoryNotice] dismiss failed:", e);
       setError("שמירת הסגירה נכשלה, נסו שוב");
