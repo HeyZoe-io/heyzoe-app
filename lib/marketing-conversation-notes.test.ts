@@ -65,4 +65,24 @@ assert.deepEqual(
   ["waiting-newer", "waiting-older", "answered"]
 );
 
+const unreadFloatsAboveStatus = sortMarketingSessionsByStatusPriority([
+  { id: "setup-read", noteStatus: "setup_call" as const, lastAt: newer, lastFromUser: false },
+  { id: "not-relevant-unread-old", noteStatus: "not_relevant" as const, lastAt: older, lastFromUser: true },
+  { id: "registered-unread-new", noteStatus: "registered" as const, lastAt: newer, lastFromUser: true },
+]);
+assert.deepEqual(
+  unreadFloatsAboveStatus.map((s) => s.id),
+  ["registered-unread-new", "not-relevant-unread-old", "setup-read"]
+);
+
+const backToStatusAfterOpen = sortMarketingSessionsByStatusPriority([
+  { id: "setup-read", noteStatus: "setup_call" as const, lastAt: older, lastFromUser: false },
+  { id: "not-relevant-opened", noteStatus: "not_relevant" as const, lastAt: newer, lastFromUser: false },
+  { id: "not-relevant-older", noteStatus: "not_relevant" as const, lastAt: older, lastFromUser: false },
+]);
+assert.deepEqual(
+  backToStatusAfterOpen.map((s) => s.id),
+  ["setup-read", "not-relevant-opened", "not-relevant-older"]
+);
+
 console.log("marketing-conversation-notes.test.ts: ok");

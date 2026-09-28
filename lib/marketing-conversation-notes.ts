@@ -49,8 +49,10 @@ function sessionActivityMs(lastAt?: string | null): number {
 }
 
 /**
- * לידים לפי חשיבות: שיחת הקמה → ליד חדש → דורש שיחה → פולואפ → ללא מענה → לא מעוניין → נרשם,
- * ולא רלוונטי בסוף. באותו סטטוס — לפי פעילות אחרונה.
+ * הודעה חדשה מהליד (עדיין לא נפתחה) עולה לראש הרשימה כולה, בלי קשר לסטטוס.
+ * אחרי הפתיחה הוא חוזר למיון הסטטוס: שיחת הקמה → ליד חדש → דורש שיחה → פולואפ →
+ * ללא מענה → לא מעוניין → נרשם, ולא רלוונטי בסוף. באותו סטטוס — לפי פעילות אחרונה,
+ * כך שהשיחה שנפתחה זה עתה נשארת בראש קבוצת הסטטוס שלה.
  */
 export function sortMarketingSessionsByStatusPriority<
   T extends {
@@ -61,10 +63,12 @@ export function sortMarketingSessionsByStatusPriority<
   },
 >(sessions: T[]): T[] {
   return [...sessions].sort((a, b) => {
+    const aUnread = Boolean(a.lastFromUser);
+    const bUnread = Boolean(b.lastFromUser);
+    if (aUnread !== bUnread) return aUnread ? -1 : 1;
+    if (aUnread && bUnread) return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
     const rankDiff = sessionStatusRank(a) - sessionStatusRank(b);
     if (rankDiff !== 0) return rankDiff;
-    const waitDiff = Number(Boolean(b.lastFromUser)) - Number(Boolean(a.lastFromUser));
-    if (waitDiff !== 0) return waitDiff;
     return sessionActivityMs(b.lastAt) - sessionActivityMs(a.lastAt);
   });
 }

@@ -318,6 +318,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
     const map = new Map<PipelineStatus, LeadRow[]>();
     for (const status of MARKETING_ADMIN_COLUMNS) map.set(status, []);
     for (const c of filteredLeads) {
+      if (c.awaiting_reply) continue;
       const status = leadStatus(c);
       const list = map.get(status) ?? [];
       list.push(c);
@@ -329,6 +330,16 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
     return map;
   }, [filteredLeads]);
 
+  const inboxLeads = useMemo(() => {
+    return filteredLeads
+      .filter((c) => c.awaiting_reply)
+      .sort((a, b) => {
+        const aAt = new Date(leadConversationAt(a) ?? 0).getTime();
+        const bAt = new Date(leadConversationAt(b) ?? 0).getTime();
+        return bAt - aAt;
+      });
+  }, [filteredLeads]);
+
   const visibleColumns = useMemo(() => {
     return columnOrder.filter((status) => {
       if (ALWAYS_VISIBLE.includes(status)) return true;
@@ -337,14 +348,12 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
   }, [grouped, columnOrder]);
 
   const overdueHuman = useMemo(() => {
-    const scheduled = [
-      ...(grouped.get("requires_call") ?? []),
-      ...(grouped.get("setup_call") ?? []),
-    ];
-    return scheduled.filter((c) =>
-      isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm)
+    return filteredLeads.filter(
+      (c) =>
+        pipelineStatusKeepsScheduledCall(leadStatus(c)) &&
+        isHumanCallOverdue(c.next_call_at, c.next_call_time, todayYmd, nowHm)
     ).length;
-  }, [grouped, todayYmd, nowHm]);
+  }, [filteredLeads, todayYmd, nowHm]);
 
   async function savePipeline(
     phone: string,
@@ -574,15 +583,23 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
       </div>
 
       <div ref={boardRef} className="flex gap-3 overflow-x-auto pb-3 [scrollbar-width:thin]">
-        {visibleColumns.map((status) => {
-          const columnLeads = grouped.get(status) ?? [];
-          const droppable = isMarketingPipelineDropTarget(status);
-          const isOver = droppable && dragOverStatus === status;
+        {[
+          ...(inboxLeads.length > 0
+            ? [{ key: "inbox", columnStatus: null as PipelineStatus | null, columnLeads: inboxLeads }]
+            : []),
+          ...visibleColumns.map((columnStatus) => ({
+            key: columnStatus,
+            columnStatus: columnStatus as PipelineStatus | null,
+            columnLeads: grouped.get(columnStatus) ?? [],
+          })),
+        ].map(({ key, columnStatus, columnLeads }) => {
+          const droppable = columnStatus != null && isMarketingPipelineDropTarget(columnStatus);
+          const isOver = droppable && dragOverStatus === columnStatus;
           return (
             <section
-              key={status}
+              key={key}
               onDragOver={(e) => {
-                if (!droppable) return;
+                if (!droppable || !columnStatus) return;
                 const types = Array.from(e.dataTransfer.types);
                 const isLead = Boolean(draggingPhoneRef.current) || types.includes(LEAD_DRAG_MIME);
                 const isCol = Boolean(draggingColumnRef.current) || types.includes(COLUMN_DRAG_MIME);
@@ -590,15 +607,23 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                 if (!isLead && !isCol && !hasText) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
-                if (dragOverStatus !== status) setDragOverStatus(status);
+                if (dragOverStatus !== columnStatus) setDragOverStatus(columnStatus);
               }}
               onDragLeave={(e) => {
+                if (!columnStatus) return;
                 if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-                if (dragOverStatus === status) setDragOverStatus(null);
+                if (dragOverStatus === columnStatus) setDragOverStatus(null);
               }}
               onDrop={(e) => {
                 e.preventDefault();
                 setDragOverStatus(null);
+                if (!columnStatus) {
+                  draggingPhoneRef.current = null;
+                  draggingColumnRef.current = null;
+                  setDraggingPhone(null);
+                  setDraggingColumn(null);
+                  return;
+                }
                 const rawColumn = e.dataTransfer.getData(COLUMN_DRAG_MIME) || draggingColumnRef.current || "";
                 const columnFromText = e.dataTransfer.getData("text/plain").trim();
                 const droppedColumn = (
@@ -613,41 +638,48 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                 setDraggingPhone(null);
                 setDraggingColumn(null);
                 if (droppedColumn && isMarketingAdminColumn(droppedColumn)) {
-                  reorderColumns(droppedColumn, status);
+                  reorderColumns(droppedColumn, columnStatus);
                   return;
                 }
-                if (!phone || !isMarketingPipelineDropTarget(status)) return;
+                if (!phone || !isMarketingPipelineDropTarget(columnStatus)) return;
                 const current = leads.find((row) => row.phone === phone);
                 if (!current) return;
-                void moveLeadToStatus(phone, status, current);
+                void moveLeadToStatus(phone, columnStatus, current);
               }}
               className={`flex w-[min(100%,280px)] shrink-0 flex-col rounded-2xl border bg-white/90 shadow-[0_10px_24px_rgba(117,90,180,0.08)] ${
                 isOver ? "border-[#7133da] ring-2 ring-[#7133da]/30" : "border-zinc-200"
-              } ${draggingColumn === status ? "opacity-60" : ""}`}
+              } ${columnStatus && draggingColumn === columnStatus ? "opacity-60" : ""}`}
             >
               <header
-                draggable
+                draggable={columnStatus != null}
                 onDragStart={(e) => {
+                  if (!columnStatus) return;
                   e.stopPropagation();
-                  e.dataTransfer.setData(COLUMN_DRAG_MIME, status);
-                  e.dataTransfer.setData("text/plain", `column:${status}`);
+                  e.dataTransfer.setData(COLUMN_DRAG_MIME, columnStatus);
+                  e.dataTransfer.setData("text/plain", `column:${columnStatus}`);
                   e.dataTransfer.effectAllowed = "move";
-                  draggingColumnRef.current = status;
-                  requestAnimationFrame(() => setDraggingColumn(status));
+                  draggingColumnRef.current = columnStatus;
+                  requestAnimationFrame(() => setDraggingColumn(columnStatus));
                 }}
                 onDragEnd={() => {
                   draggingColumnRef.current = null;
                   setDraggingColumn(null);
                   setDragOverStatus(null);
                 }}
-                className={`cursor-grab rounded-t-2xl border-b px-3 py-3 active:cursor-grabbing ${pipelineHeaderClass(status)}`}
-                title="גררו כדי לשנות סדר עמודות"
+                className={`rounded-t-2xl border-b px-3 py-3 ${
+                  columnStatus
+                    ? `cursor-grab active:cursor-grabbing ${pipelineHeaderClass(columnStatus)}`
+                    : "bg-[#7133da] text-white"
+                }`}
+                title={columnStatus ? "גררו כדי לשנות סדר עמודות" : "הודעות חדשות מהליד, עד שפותחים את השיחה"}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold">{pipelineLabel(status)}</h2>
-                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold">{columnLeads.length}</span>
+                  <h2 className="text-sm font-semibold">{columnStatus ? pipelineLabel(columnStatus) : "הודעות חדשות"}</h2>
+                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold text-zinc-900">{columnLeads.length}</span>
                 </div>
-                {pipelineStatusKeepsScheduledCall(status) ? (
+                {columnStatus == null ? (
+                  <p className="mt-1 text-[11px] opacity-90">בלי קשר לסטטוס · אחרי פתיחת השיחה חוזר לעמודה</p>
+                ) : pipelineStatusKeepsScheduledCall(columnStatus) ? (
                   <p className="mt-1 text-[11px] opacity-80">תאריך ושעה לשיחה הבאה · ממוין לפי הדחוף ביותר</p>
                 ) : (
                   <p className="mt-1 text-[11px] opacity-80">גררו ליד לכאן</p>
@@ -658,6 +690,7 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                   <p className="px-2 py-8 text-center text-xs text-zinc-400">גררו ליד לכאן</p>
                 ) : (
                   columnLeads.map((c) => {
+                    const status = columnStatus ?? leadStatus(c);
                     const savedDate = c.next_call_at ?? "";
                     const savedTime = toPipelineTime(c.next_call_time) ?? "";
                     const draft = (c.phone && callDrafts[c.phone]) || { date: savedDate, time: savedTime };
@@ -709,6 +742,9 @@ export default function AdminLeadsPipelineClient({ initialContacts }: { initialC
                         >
                           {c.phone ?? "—"}
                         </button>
+                        {columnStatus == null ? (
+                          <p className="mt-1 text-[11px] font-medium text-[#7133da]">{pipelineLabel(status)}</p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-zinc-500">שיחה אחרונה: {formatDateTime(leadConversationAt(c))}</p>
 
                         {pipelineStatusKeepsScheduledCall(status) ? (
