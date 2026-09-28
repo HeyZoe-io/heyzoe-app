@@ -19,9 +19,11 @@ import {
 import {
   isCatalogWideClassDayAsk,
   looksLikeClassTimeQuestion,
+  looksLikeComingAnotherDayAsk,
   looksLikeMissedOrMakeupClassAsk,
   matchCatalogServiceFromFreeText,
   parseRequestedClassDays,
+  declinedClassDayLetters,
   asksWhichClassesOnDay,
   looksLikeHolidayClassScheduleAsk,
 } from "@/lib/wa-unknown-class-slot";
@@ -38,6 +40,9 @@ import { resolveWaMenuChoice } from "@/lib/wa-menu-choice";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
 export const EXISTING_CLASS_WHICH_CLASS_MODEL = "existing_class_which_class";
+export const COMING_ANOTHER_DAY_WHICH_CLASS_MODEL = "coming_another_day_which_class";
+export const COMING_ANOTHER_DAY_WHICH_CLASS_REPLY =
+  "בשמחה, לאיזה אימון ובאיזו שעה בא לך להגיע?";
 
 const FORGOT_CLASS_NAME_STOP = new Set([
   "הוא",
@@ -588,8 +593,19 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const act = classifyInboundSpeechAct(current, now);
   if (act === "booking_mutation" || act === "illness_only") return null;
 
-  const daysCurrent = parseRequestedClassDays(current, now);
-  const daysPrev = prev ? parseRequestedClassDays(prev, now) : [];
+  if (looksLikeComingAnotherDayAsk(current, now)) {
+    return {
+      kind: "list",
+      text: COMING_ANOTHER_DAY_WHICH_CLASS_REPLY,
+      modelUsed: COMING_ANOTHER_DAY_WHICH_CLASS_MODEL,
+    };
+  }
+
+  const declined = new Set(declinedClassDayLetters(current, now));
+  const daysCurrent = parseRequestedClassDays(current, now).filter((d) => !declined.has(d));
+  const daysPrev = prev
+    ? parseRequestedClassDays(prev, now).filter((d) => !declined.has(d))
+    : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) return null;
   if (!shouldAnswerFromClassTimetable(current, now)) return null;

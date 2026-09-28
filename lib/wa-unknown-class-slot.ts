@@ -112,6 +112,49 @@ export function parseRequestedClassDays(text: string, now: Date = new Date()): D
   return [...found];
 }
 
+const DECLINED_RELATIVE_DAYS: { word: "מחרתיים" | "היום" | "מחר"; delta: 0 | 1 | 2 }[] = [
+  { word: "מחרתיים", delta: 2 },
+  { word: "היום", delta: 0 },
+  { word: "מחר", delta: 1 },
+];
+
+function relativeDayWordPattern(word: "מחרתיים" | "היום" | "מחר"): string {
+  return word === "מחר" ? "מחר(?!תיים)" : word;
+}
+
+function dayOfferClauses(text: string): string[] {
+  return String(text ?? "")
+    .split(/\n+|(?<=[.!?؟])\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/** «היום לא אוכל» / «לא אוכל להגיע היום». «מחר אשמח» נשאר הצעה, לא שלילה. */
+function relativeDayWordDeclined(text: string, word: "מחרתיים" | "היום" | "מחר"): boolean {
+  const w = relativeDayWordPattern(word);
+  return dayOfferClauses(text).some((clause) => {
+    if (new RegExp(`(?:^|[^\\p{L}])${w}\\s+לא`, "u").test(clause)) return true;
+    if (new RegExp(`לא\\s+רק\\s+${w}`, "u").test(clause)) return false;
+    if (new RegExp(`לא\\s+${w}(?:[^\\p{L}]|$)`, "u").test(clause)) return true;
+    if (new RegExp(`${w}\\s+(?:אשמח|כן|אגיע|אבוא|אוכל|אפשר|נגיע|נבוא)`, "u").test(clause)) return false;
+    return new RegExp(
+      `לא\\s+(?:אוכל|יכולה?|נוכל|מגיע(?:ה|ים)?|אגיע|אבוא|נוחה?)(?:\\s+(?!היום|מחר|מחרתיים)\\S+){0,3}\\s+${w}`,
+      "u"
+    ).test(clause);
+  });
+}
+
+/** ימים שהליד שללה («היום לא») — לא מציעים אותם בלוח. */
+export function declinedClassDayLetters(text: string, now: Date = new Date()): DayLetter[] {
+  const today = ISRAEL_DAY_LETTERS[getIsraelWeekday(now)] as DayLetter;
+  const found = new Set<DayLetter>();
+  for (const { word, delta } of DECLINED_RELATIVE_DAYS) {
+    if (!relativeDayWordDeclined(text, word)) continue;
+    found.add(addIsraelDayLetter(today, delta) as DayLetter);
+  }
+  return [...found];
+}
+
 function parseAmPmTimes(text: string): string[] {
   const out: string[] = [];
   const re = /\b([1-9]|1[0-2])(?::([0-5]\d))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/gi;
@@ -395,6 +438,24 @@ export function asksWhichClassesOnDay(text: string): boolean {
   return /איזה\s+אימונים\s+יש|אילו\s+אימונים|איזה\s+שיעורים\s+יש|לראות\s+(?:איזה\s+)?(?:אימונים|שיעורים)|מה\s+יש\s+(?:ביום|ב)/u.test(
     t
   );
+}
+
+const SCHEDULE_BOARD_ASK_RE =
+  /מתי\s+יש|מה\s+יש|איזה\s+(?:אימונים|שיעורים)\s+יש|אילו\s+אימונים|לוח\s+(?:ה)?שיעורים|מערכת\s+ה?שעות/u;
+
+/**
+ * «היום לא אוכל להגיע, מחר אשמח» — מעבר ליום אחר, בלי לבקש את הלוח.
+ * «אילו אימונים יש מחר» נשארת בקשת לוח.
+ */
+export function looksLikeComingAnotherDayAsk(text: string, now: Date = new Date()): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 500) return false;
+  if (asksWhichClassesOnDay(t) || SCHEDULE_BOARD_ASK_RE.test(t)) return false;
+  if (looksLikeNamedClass(t)) return false;
+  const declined = declinedClassDayLetters(t, now);
+  if (!declined.length) return false;
+  const offered = parseRequestedClassDays(t, now).filter((d) => !declined.includes(d));
+  return offered.length > 0;
 }
 
 /**

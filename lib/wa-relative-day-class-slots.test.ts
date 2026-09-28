@@ -17,6 +17,8 @@ import {
   OCCURRENCE_STATUS_CANCELLED_SUFFIX,
   OCCURRENCE_STATUS_FULL_SUFFIX,
   previousUserTextFromHistory,
+  COMING_ANOTHER_DAY_WHICH_CLASS_MODEL,
+  COMING_ANOTHER_DAY_WHICH_CLASS_REPLY,
   RELATIVE_DAY_CLASS_SLOTS_MODEL,
   scheduleSlotPickAllFullFiresHandoff,
   SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
@@ -804,6 +806,54 @@ async function main() {
     }),
     /מאיה הייתה אמורה להגיע לאיזה שיעור ביום שני/
   );
+
+  const limitlessMon = new Date("2026-09-28T07:14:42.000Z");
+  const limitlessWeek = [
+    svc("אימוני כוח - Strength", [
+      { day: "ב", time: "18:30" },
+      { day: "ג", time: "08:00" },
+    ]),
+    svc("yoga", [
+      { day: "ב", time: "19:00" },
+      { day: "ג", time: "08:30" },
+    ]),
+  ];
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "היי היום לא אוכל להגיע\nמחר אשמח",
+      services: limitlessWeek,
+      now: limitlessMon,
+    });
+    assert.ok(reply);
+    assert.equal(reply!.modelUsed, COMING_ANOTHER_DAY_WHICH_CLASS_MODEL);
+    assert.equal(reply!.text, COMING_ANOTHER_DAY_WHICH_CLASS_REPLY);
+    assert.doesNotMatch(reply!.text, /שני/);
+    assert.doesNotMatch(reply!.text, /שלישי/);
+  }
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "היום לא אוכל להגיע מחר אשמח",
+      services: limitlessWeek,
+      now: limitlessMon,
+    });
+    assert.equal(reply?.text, COMING_ANOTHER_DAY_WHICH_CLASS_REPLY);
+  }
+
+  {
+    const reply = await tryBuildRelativeDayClassSlotsReply({
+      text: "אילו אימונים יש מחר? היום לא אוכל להגיע",
+      services: limitlessWeek,
+      now: limitlessMon,
+    });
+    assert.ok(reply);
+    assert.equal(reply!.modelUsed, RELATIVE_DAY_CLASS_SLOTS_MODEL);
+    assert.match(reply!.text, /שלישי 08:00/);
+    assert.match(reply!.text, /שלישי 08:30/);
+    assert.doesNotMatch(reply!.text, /שני/);
+    assert.doesNotMatch(reply!.text, /19:00/);
+  }
 
   console.log("wa-relative-day-class-slots.test.ts: ok");
 }
