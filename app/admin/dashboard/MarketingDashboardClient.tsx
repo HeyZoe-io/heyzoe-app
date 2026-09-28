@@ -3,6 +3,7 @@
 import { useCallback, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import MarketingFlowBuilder from "./MarketingFlowBuilder";
+import MarketingFollowupsTab from "./MarketingFollowupsTab";
 import MarketingLegalityTab from "./MarketingLegalityTab";
 import MarketingOpenQuestionsTab from "./MarketingOpenQuestionsTab";
 import ZoeConversationsTab, { type ZoeBusinessOption } from "../zoe/ZoeConversationsTab";
@@ -26,9 +27,10 @@ function tabPill(active: boolean): CSSProperties {
   };
 }
 
-type MarketingSubTab = "flow" | "conversations" | "questions" | "answers" | "open" | "legal";
+type MarketingSubTab = "flow" | "followups" | "conversations" | "questions" | "answers" | "open" | "legal";
 
 function parseSubTab(raw: string | null): MarketingSubTab {
+  if (raw === "followups") return "followups";
   if (raw === "conversations") return "conversations";
   if (raw === "questions") return "questions";
   if (raw === "answers") return "answers";
@@ -68,6 +70,7 @@ export default function MarketingDashboardClient({
   const sp = useSearchParams();
   const sub = parseSubTab(sp.get("sub"));
   const [flowDirty, setFlowDirty] = useState(false);
+  const [followupsDirty, setFollowupsDirty] = useState(false);
 
   const goSubTab = useCallback(
     (target: MarketingSubTab) => {
@@ -76,9 +79,13 @@ export default function MarketingDashboardClient({
         window.alert("יש שינויים שלא נשמרו בפלואו. לחצו «שמור» לפני מעבר לטאב אחר.");
         return;
       }
+      if (sub === "followups" && followupsDirty) {
+        window.alert("יש שינויים שלא נשמרו בפולואפים. לחצו «שמור» לפני מעבר לטאב אחר.");
+        return;
+      }
       router.push(marketingSubTabHref(target));
     },
-    [flowDirty, router, sub]
+    [flowDirty, followupsDirty, router, sub]
   );
 
   return (
@@ -97,6 +104,11 @@ export default function MarketingDashboardClient({
           active={sub === "flow"}
           label="בניית הפלואו"
           onClick={() => goSubTab("flow")}
+        />
+        <MarketingSubTabButton
+          active={sub === "followups"}
+          label="פולואפים"
+          onClick={() => goSubTab("followups")}
         />
         <MarketingSubTabButton
           active={sub === "conversations"}
@@ -136,6 +148,8 @@ export default function MarketingDashboardClient({
       >
         {sub === "flow" ? (
           <MarketingFlowBuilder onDirtyChange={setFlowDirty} />
+        ) : sub === "followups" ? (
+          <MarketingFollowupsTab onDirtyChange={setFollowupsDirty} />
         ) : sub === "conversations" ? (
           <ZoeConversationsTab businesses={businesses} initialAllSessions={initialAllSessions} marketingOnly />
         ) : sub === "questions" ? (

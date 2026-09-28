@@ -64,3 +64,9 @@ alter table marketing_flow_settings
   add column if not exists marketing_legal_guidelines jsonb not null default '[]'::jsonb;
 
 comment on column marketing_flow_settings.marketing_legal_guidelines is 'מערך מחרוזות: חוקיות לזואי שיווק אדמין (ריק = ברירת מחדל מהאפליקציה)';
+
+alter table marketing_flow_settings
+  add column if not exists marketing_followups jsonb not null default '{}'::jsonb;
+
+comment on column marketing_flow_settings.marketing_followups is
+  'שלושה פולואפים של זואי אדמין: delay_minutes, text, enabled. {} = ברירת מחדל מהאפליקציה. שליחה רק בחלון החוקי (lib/israel-time).';

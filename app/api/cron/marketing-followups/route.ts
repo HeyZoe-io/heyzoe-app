@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isAllowedWhatsAppSendTimeIsrael, nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import {
+  loadMarketingFollowupConfig,
   markMarketingFollowupSent,
   pickMarketingFollowupSkipReason,
   pickMarketingFollowupStage,
@@ -9,6 +10,10 @@ import {
   sessionHasMarketingRegisteredMessage,
   type MarketingFlowSessionFollowupRow,
 } from "@/lib/marketing-followups";
+import {
+  marketingFollowupDelaysMs,
+  marketingFollowupEnabled,
+} from "@/lib/marketing-followup-config";
 import { isMarketingConversationPaused, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 
@@ -28,7 +33,8 @@ type MarketingFollowupSkipReason =
   | "no_user_message_at"
   | "invalid_timestamp"
   | "send_failed"
-  | "human_followup";
+  | "human_followup"
+  | "stages_disabled";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -75,6 +81,9 @@ export async function GET(req: NextRequest) {
 
   const admin = createSupabaseAdminClient();
   const nowMs = now.getTime();
+  const followupConfig = await loadMarketingFollowupConfig();
+  const delaysMs = marketingFollowupDelaysMs(followupConfig);
+  const enabled = marketingFollowupEnabled(followupConfig);
 
   let rows: MarketingFlowSessionFollowupRow[] | null = null;
   const withHuman = await admin
@@ -172,17 +181,19 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const stage = pickMarketingFollowupStage(row, nowMs);
+      const stage = pickMarketingFollowupStage(row, nowMs, delaysMs, enabled);
       if (stage === 0) {
-        const skipReason = pickMarketingFollowupSkipReason(row, nowMs);
+        const skipReason = pickMarketingFollowupSkipReason(row, nowMs, delaysMs, enabled);
         const reason: MarketingFollowupSkipReason =
           skipReason === "all_followups_sent"
             ? "all_followups_sent"
-            : skipReason === "no_user_message_at"
-              ? "no_user_message_at"
-              : skipReason === "invalid_timestamp"
-                ? "invalid_timestamp"
-                : "not_due_yet";
+            : skipReason === "stages_disabled"
+              ? "stages_disabled"
+              : skipReason === "no_user_message_at"
+                ? "no_user_message_at"
+                : skipReason === "invalid_timestamp"
+                  ? "invalid_timestamp"
+                  : "not_due_yet";
 
         const lastAt = row.last_user_message_at ? new Date(row.last_user_message_at).getTime() : NaN;
         logMarketingFollowupSkip(reason, {
@@ -200,7 +211,21 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      await sendMarketingFollowupStage(phone, stage);
+      const sendResult = await sendMarketingFollowupStage(
+        phone,
+        stage,
+        followupConfig.stages[stage - 1].text
+      );
+      if (sendResult === "outside_window") {
+        logMarketingFollowupSkip("time_window", {
+          session_id: row.id,
+          phone: maskPhone(phone),
+          stage,
+          next_allowed_at: nextAllowedWhatsAppSendTimeIsrael(new Date()).toISOString(),
+        });
+        bumpSkip("time_window");
+        break;
+      }
       await markMarketingFollowupSent(row.id, stage);
       sent += 1;
     } catch (e) {

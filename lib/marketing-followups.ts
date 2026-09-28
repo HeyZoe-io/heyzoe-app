@@ -9,20 +9,24 @@ import {
 } from "@/lib/marketing-whatsapp";
 import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { isAllowedWhatsAppSendTimeIsrael, nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import {
+  DEFAULT_MARKETING_FOLLOWUP_CONFIG,
+  MARKETING_FOLLOWUP_1_TEXT,
+  MARKETING_FOLLOWUP_2_TEXT,
+  MARKETING_FOLLOWUP_3_TEXT,
+  marketingFollowupDelaysMs,
+  resolveMarketingFollowupConfig,
+  type MarketingFollowupConfig,
+} from "@/lib/marketing-followup-config";
 
-export const MARKETING_FOLLOWUP_1_TEXT =
-  "היי, ראיתי שעצרנו באמצע 😊\nיש משהו שעוד לא ברור?\nאני כאן לכל שאלה 🙌";
+export {
+  MARKETING_FOLLOWUP_1_TEXT,
+  MARKETING_FOLLOWUP_2_TEXT,
+  MARKETING_FOLLOWUP_3_TEXT,
+};
 
-/** בלי קישור wa.me לליד — כפתור «נציג אנושי» מפעיל template לבעלים + הודעה לליד */
-export const MARKETING_FOLLOWUP_2_TEXT =
-  "היי שוב! זואי כאן 😊\nאני מזכירה שאפשר לכתוב לי כל שאלה ואענה.\nבמידה ולא קיבלת מענה מספק ממני, אני לא נעלבת — אחרי הכל אני בוט בלי מערכת רגשות 😊\nרוצים נציג אנושי? לחצו על הכפתור למטה.";
-
-export const MARKETING_FOLLOWUP_3_TEXT =
-  "היי! זו הודעה אחרונה לפני שאני מניחה לך.\nשוב — אני כאן לכל שאלה או חשש.\nרוצים לדבר עם נציג? לחצו «נציג אנושי» למטה.";
-
-const MS_10_MIN = 10 * 60 * 1000;
-const MS_2_H = 2 * 60 * 60 * 1000;
-const MS_23_H = 23 * 60 * 60 * 1000;
+const DEFAULT_DELAYS_MS = marketingFollowupDelaysMs(DEFAULT_MARKETING_FOLLOWUP_CONFIG);
 
 export type MarketingFlowSessionFollowupRow = {
   id: string;
@@ -113,41 +117,94 @@ export async function sessionHasMarketingRegisteredMessage(sessionId: string): P
   return false;
 }
 
-export function pickMarketingFollowupStage(row: MarketingFlowSessionFollowupRow, nowMs: number): 0 | 1 | 2 | 3 {
+function followupSentFlags(row: MarketingFlowSessionFollowupRow): [boolean, boolean, boolean] {
+  return [Boolean(row.followup_1_sent_at), Boolean(row.followup_2_sent_at), Boolean(row.followup_3_sent_at)];
+}
+
+/**
+ * השלב המוקדם ביותר שעדיין לא נשלח, פעיל, וזמן ההמתנה שלו עבר.
+ * נמדד מהודעת המשתמש האחרונה. שלב כבוי לא חוסם את הבאים אחריו.
+ */
+export function pickMarketingFollowupStage(
+  row: MarketingFlowSessionFollowupRow,
+  nowMs: number,
+  delaysMs: readonly [number, number, number] = DEFAULT_DELAYS_MS,
+  enabled: readonly [boolean, boolean, boolean] = [true, true, true]
+): 0 | 1 | 2 | 3 {
   const lastAt = row.last_user_message_at ? new Date(row.last_user_message_at).getTime() : NaN;
   if (!Number.isFinite(lastAt)) return 0;
   const elapsed = nowMs - lastAt;
   if (elapsed < 0) return 0;
 
-  if (!row.followup_3_sent_at && elapsed >= MS_23_H) return 3;
-  if (!row.followup_2_sent_at && elapsed >= MS_2_H) return 2;
-  if (!row.followup_1_sent_at && elapsed >= MS_10_MIN) return 1;
+  const sent = followupSentFlags(row);
+  for (const stage of [1, 2, 3] as const) {
+    const i = stage - 1;
+    if (!enabled[i] || sent[i]) continue;
+    if (elapsed >= delaysMs[i]!) return stage;
+  }
   return 0;
 }
 
 /** סיבת דילוג כש־pickMarketingFollowupStage מחזיר 0 (ללוגי cron) */
 export function pickMarketingFollowupSkipReason(
   row: MarketingFlowSessionFollowupRow,
-  nowMs: number
+  nowMs: number,
+  delaysMs: readonly [number, number, number] = DEFAULT_DELAYS_MS,
+  enabled: readonly [boolean, boolean, boolean] = [true, true, true]
 ): string {
   const lastAt = row.last_user_message_at ? new Date(row.last_user_message_at).getTime() : NaN;
   if (!Number.isFinite(lastAt)) return "no_user_message_at";
   const elapsedMs = nowMs - lastAt;
   if (elapsedMs < 0) return "invalid_timestamp";
 
-  if (row.followup_1_sent_at && row.followup_2_sent_at && row.followup_3_sent_at) {
-    return "all_followups_sent";
+  const sent = followupSentFlags(row);
+  let pendingEnabled = false;
+  let pendingDisabled = false;
+  for (const stage of [1, 2, 3] as const) {
+    const i = stage - 1;
+    if (sent[i]) continue;
+    if (!enabled[i]) {
+      pendingDisabled = true;
+      continue;
+    }
+    pendingEnabled = true;
+    if (elapsedMs < delaysMs[i]!) return "not_due_yet";
   }
-  if (!row.followup_1_sent_at && elapsedMs < MS_10_MIN) return "not_due_yet";
-  if (!row.followup_2_sent_at && row.followup_1_sent_at && elapsedMs < MS_2_H) return "not_due_yet";
-  if (!row.followup_3_sent_at && row.followup_2_sent_at && elapsedMs < MS_23_H) return "not_due_yet";
-  return "not_due_yet";
+  if (!pendingEnabled && pendingDisabled) return "stages_disabled";
+  return "all_followups_sent";
 }
 
-export function marketingFollowupBody(stage: 1 | 2 | 3): string {
+export function marketingFollowupBody(
+  stage: 1 | 2 | 3,
+  config: MarketingFollowupConfig = DEFAULT_MARKETING_FOLLOWUP_CONFIG
+): string {
+  const custom = config.stages[stage - 1]?.text?.trim();
+  if (custom) return custom;
   if (stage === 1) return MARKETING_FOLLOWUP_1_TEXT;
   if (stage === 2) return MARKETING_FOLLOWUP_2_TEXT;
   return MARKETING_FOLLOWUP_3_TEXT;
+}
+
+/** קריאה אחת לפי id=1. עמודה חסרה או ערך ריק → ברירת מחדל, עם לוג. */
+export async function loadMarketingFollowupConfig(): Promise<MarketingFollowupConfig> {
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
+    .from("marketing_flow_settings")
+    .select("marketing_followups")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) {
+    if (/marketing_followups|column/i.test(error.message)) {
+      console.error(
+        "[marketing-followups] column marketing_followups missing — using defaults. Run supabase/marketing_flow_settings_followups.sql"
+      );
+      return DEFAULT_MARKETING_FOLLOWUP_CONFIG;
+    }
+    console.error("[marketing-followups] load config failed:", error.message);
+    throw error;
+  }
+  const row = data as { marketing_followups?: unknown } | null;
+  return resolveMarketingFollowupConfig(row?.marketing_followups).config;
 }
 
 async function sendMarketingFollowupWithHumanButton(
@@ -171,16 +228,34 @@ async function sendMarketingFollowupWithHumanButton(
   await sendMarketingWhatsApp(phone, body, { model_used: model });
 }
 
+/**
+ * שולח פולואפ רק בחלון החוקי בישראל. מחוץ לחלון מחזיר outside_window בלי לשלוח.
+ */
 export async function sendMarketingFollowupStage(
   phone: string,
-  stage: 1 | 2 | 3
-): Promise<void> {
-  const body = marketingFollowupBody(stage);
+  stage: 1 | 2 | 3,
+  bodyText?: string
+): Promise<"sent" | "outside_window"> {
+  const now = new Date();
+  if (!isAllowedWhatsAppSendTimeIsrael(now)) {
+    const nextAt = nextAllowedWhatsAppSendTimeIsrael(now);
+    console.info("[marketing-followups] blocked outside send window", {
+      stage,
+      next_allowed_at: nextAt.toISOString(),
+    });
+    return "outside_window";
+  }
+  const body = (bodyText ?? marketingFollowupBody(stage)).trim();
+  if (!body) {
+    console.error("[marketing-followups] empty body", { stage });
+    throw new Error("empty_followup_body");
+  }
   if (stage === 2 || stage === 3) {
     await sendMarketingFollowupWithHumanButton(phone, body, stage);
-    return;
+    return "sent";
   }
   await sendMarketingWhatsApp(phone, body, { model_used: `marketing_followup_${stage}` });
+  return "sent";
 }
 
 export async function markMarketingFollowupSent(

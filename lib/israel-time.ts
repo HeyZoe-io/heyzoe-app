@@ -324,21 +324,43 @@ export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
   };
 }
 
+/** דקות מחצות — שעת התחלה של שקט לילה (כולל). */
+export const WA_ISRAEL_QUIET_START_MINUTES = 23 * 60;
+/** דקות מחצות — סוף שקט לילה (לא כולל). */
+export const WA_ISRAEL_QUIET_END_MINUTES = 6 * 60 + 30;
+/** שישי: חסימה מ־16:00. */
+export const WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES = 16 * 60;
+/** שבת: מותר שוב מ־19:00. */
+export const WA_ISRAEL_SATURDAY_RESUME_MINUTES = 19 * 60;
+
+function formatIsraelMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** תיאור החלון ש־isAllowedWhatsAppSendTimeIsrael אוכף — למסכי אדמין. */
+export function whatsAppIsraelSendWindowSummaryHe(): string {
+  const quietEnd = formatIsraelMinutes(WA_ISRAEL_QUIET_END_MINUTES);
+  const quietStart = formatIsraelMinutes(WA_ISRAEL_QUIET_START_MINUTES);
+  const friday = formatIsraelMinutes(WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES);
+  const saturday = formatIsraelMinutes(WA_ISRAEL_SATURDAY_RESUME_MINUTES);
+  return `שליחה רק בחלון החוקי בישראל: א׳–ה׳ ${quietEnd}–${quietStart}, שישי ${quietEnd}–${friday}, שבת ${saturday}–${quietStart}. מחוץ לחלון (לילה ${quietStart}–${quietEnd}, ושישי מ־${friday} עד שבת ${saturday}) הפולואפ לא נשלח וממתין למועד החוקי הבא.`;
+}
+
 export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
 
   // Quiet hours: 23:00–06:30 (inclusive start, exclusive end)
   const minutes = p.hour * 60 + p.minute;
-  const quietStart = 23 * 60;
-  const quietEnd = 6 * 60 + 30;
-  const inQuiet = minutes >= quietStart || minutes < quietEnd;
+  const inQuiet = minutes >= WA_ISRAEL_QUIET_START_MINUTES || minutes < WA_ISRAEL_QUIET_END_MINUTES;
   if (inQuiet) return false;
 
   // Weekend block: Fri 16:00 → Sat 19:00 (Israel time)
   const isFri = p.weekday === 5;
   const isSat = p.weekday === 6;
-  if (isFri && minutes >= 16 * 60) return false;
-  if (isSat && minutes < 19 * 60) return false;
+  if (isFri && minutes >= WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES) return false;
+  if (isSat && minutes < WA_ISRAEL_SATURDAY_RESUME_MINUTES) return false;
 
   return true;
 }
@@ -348,23 +370,51 @@ export function nextAllowedWhatsAppSendTimeIsrael(dateUtc: Date): Date {
 
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
   const minutes = p.hour * 60 + p.minute;
+  const resumeHour = Math.floor(WA_ISRAEL_SATURDAY_RESUME_MINUTES / 60);
+  const resumeMinute = WA_ISRAEL_SATURDAY_RESUME_MINUTES % 60;
+  const quietEndHour = Math.floor(WA_ISRAEL_QUIET_END_MINUTES / 60);
+  const quietEndMinute = WA_ISRAEL_QUIET_END_MINUTES % 60;
 
   // Weekend block
-  if (p.weekday === 5 && minutes >= 16 * 60) {
+  if (p.weekday === 5 && minutes >= WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES) {
     // Friday after 16:00 → Saturday 19:00
-    return makeUtcDateFromLocalInTz({ year: p.year, month: p.month, day: p.day + 1, hour: 19, minute: 0 });
+    return makeUtcDateFromLocalInTz({
+      year: p.year,
+      month: p.month,
+      day: p.day + 1,
+      hour: resumeHour,
+      minute: resumeMinute,
+    });
   }
-  if (p.weekday === 6 && minutes < 19 * 60) {
+  if (p.weekday === 6 && minutes < WA_ISRAEL_SATURDAY_RESUME_MINUTES) {
     // Saturday before 19:00 → Saturday 19:00
-    return makeUtcDateFromLocalInTz({ year: p.year, month: p.month, day: p.day, hour: 19, minute: 0 });
+    return makeUtcDateFromLocalInTz({
+      year: p.year,
+      month: p.month,
+      day: p.day,
+      hour: resumeHour,
+      minute: resumeMinute,
+    });
   }
 
   // Quiet hours
-  if (minutes >= 23 * 60) {
+  if (minutes >= WA_ISRAEL_QUIET_START_MINUTES) {
     // After 23:00 → next day 06:30
-    return makeUtcDateFromLocalInTz({ year: p.year, month: p.month, day: p.day + 1, hour: 6, minute: 30 });
+    return makeUtcDateFromLocalInTz({
+      year: p.year,
+      month: p.month,
+      day: p.day + 1,
+      hour: quietEndHour,
+      minute: quietEndMinute,
+    });
   }
   // Before 06:30 → same day 06:30
-  return makeUtcDateFromLocalInTz({ year: p.year, month: p.month, day: p.day, hour: 6, minute: 30 });
+  return makeUtcDateFromLocalInTz({
+    year: p.year,
+    month: p.month,
+    day: p.day,
+    hour: quietEndHour,
+    minute: quietEndMinute,
+  });
 }
 
