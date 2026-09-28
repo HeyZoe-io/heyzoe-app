@@ -89,7 +89,9 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/בהחלמה\s+מהירה/gu, "החלמה מהירה")
     .replace(/כשתהיי\s+רוצה/gu, "כשתרצי")
     .replace(/אם\s+תהיי\s+רוצה/gu, "אם תרצי")
-    .replace(/(?<![\u0590-\u05FF])תהיי\s+רוצה(?![\u0590-\u05FF])/gu, "תרצי");
+    .replace(/(?<![\u0590-\u05FF])תהיי\s+רוצה(?![\u0590-\u05FF])/gu, "תרצי")
+    .replace(/בואי\s+נתחילי/gu, "בואו נתחיל")
+    .replace(hebWord("נתחילי"), "נתחיל");
 }
 
 const LEAD_PLACEHOLDER_TOKEN_RE = /\{[A-Za-z][A-Za-z0-9_]*\}/g;

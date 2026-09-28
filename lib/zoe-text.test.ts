@@ -115,4 +115,7 @@ assert.equal(
   "מצטערת לשמוע! 💜 אפשר לבטל את ההרשמה ישירות מהאפליקציה Arbox - נכנסים, מוצאים את השיעור ומבטלים את ההרשמה."
 );
 
+assert.equal(sanitizeZoeOutboundLanguage("בואי נתחילי!"), "בואו נתחיל!");
+assert.equal(sanitizeZoeOutboundLanguage("אז נתחילי עכשיו"), "אז נתחיל עכשיו");
+
 console.log("zoe-text.test.ts: ok");

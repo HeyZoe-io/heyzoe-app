@@ -177,6 +177,7 @@ import {
   wasWarmupExperienceQuestionSentSinceReset,
   WA_WARMUP_EXPERIENCE_SENT_MODEL,
 } from "@/lib/wa-warmup-pending";
+import { rewriteOutOfFlowWarmupTextDump } from "@/lib/wa-out-of-flow-warmup-dump";
 import {
   replyRefersToCustomerService,
   sendCustomerServiceRedirectWithServicePickFollowUp,
@@ -12840,6 +12841,13 @@ async function processIncoming(
   replyText = softenWebsiteAttribution(replyText);
   if (standaloneHelpClosing) {
     replyText = finalizeStandaloneHelpReply(replyText, incomingRaw);
+    if (knowledge?.salesFlowConfig && !isFallbackErrorReply) {
+      const withoutWarmupDump = rewriteOutOfFlowWarmupTextDump(replyText, knowledge.salesFlowConfig);
+      if (withoutWarmupDump) {
+        replyText = withoutWarmupDump;
+        replyModelUsed = REGISTRATION_INTENT_CLARIFY_MODEL;
+      }
+    }
   }
   let assistantReplyLogged = false;
 
@@ -13212,6 +13220,13 @@ async function processIncoming(
           }
         } else if (standaloneHelpClosing) {
           body = finalizeStandaloneHelpReply(body, incomingRaw);
+          if (knowledge?.salesFlowConfig && !isFallbackErrorReply) {
+            const withoutWarmupDump = rewriteOutOfFlowWarmupTextDump(body, knowledge.salesFlowConfig);
+            if (withoutWarmupDump) {
+              body = withoutWarmupDump;
+              replyModelUsed = REGISTRATION_INTENT_CLARIFY_MODEL;
+            }
+          }
         }
         if (menuQuestion && !hasLineNearEnd(body, menuQuestion)) {
           body += `\n\n${menuQuestion}`;
