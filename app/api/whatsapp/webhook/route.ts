@@ -8231,9 +8231,14 @@ async function processIncoming(
         currentText: inboundForDaySlots,
         userMessagesOldestFirst: recentForDaySlots.filter((m) => m.role === "user").map((m) => m.content),
       });
+      const prevAssistantForDaySlots = [...recentForDaySlots]
+        .reverse()
+        .find((m) => m.role === "assistant")?.content;
       const relativeDayReply = await tryBuildRelativeDayClassSlotsReply({
         text: inboundForDaySlots,
         previousUserText: prevUserForDaySlots,
+        previousAssistantText: prevAssistantForDaySlots,
+        committedServiceName: lastPickedForSlot,
         services: salesFlowServices,
         sessionPhase: contactSessionPhase,
         businessId,

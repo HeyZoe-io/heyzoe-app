@@ -10,6 +10,8 @@ import {
   EXISTING_CLASS_WHICH_CLASS_MODEL,
   formatDayClassScheduleLine,
   formatNamedClassScheduleLine,
+  formatWeeklyScheduleScopeReply,
+  rewriteFalseSingleWeeklySlotClaim,
   formatTimeWithOccurrenceStatus,
   isRelativeDayCatalogAllFullReply,
   isScheduleSlotPickAllFullRepickLabel,
@@ -853,6 +855,59 @@ async function main() {
     assert.match(reply!.text, /שלישי 08:30/);
     assert.doesNotMatch(reply!.text, /שני/);
     assert.doesNotMatch(reply!.text, /19:00/);
+  }
+
+  {
+    const power = svc("POWER - פילאטיס מזרן 3", [
+      { day: "א", time: "18:00" },
+      { day: "ג", time: "19:00" },
+      { day: "ד", time: "18:00" },
+    ]);
+    assert.equal(
+      formatWeeklyScheduleScopeReply(power.name, power.scheduleSlots),
+      "POWER - פילאטיס מזרן 3 מתקיים שלוש פעמים בשבוע: ביום ראשון ב-18:00, ביום שלישי ב-19:00 וביום רביעי ב-18:00."
+    );
+    const onlyOnce = await tryBuildRelativeDayClassSlotsReply({
+      text: "יש רק פעם בשבוע",
+      previousAssistantText: "השבוע הבא יש פילאטיס מזרן POWER ביום רביעי ב-18:00",
+      services: [power],
+      now: tueMorning,
+    });
+    assert.equal(onlyOnce?.modelUsed, "weekly_schedule_scope");
+    assert.match(onlyOnce?.text ?? "", /ראשון ב-18:00/);
+    assert.match(onlyOnce?.text ?? "", /שלישי ב-19:00/);
+    assert.match(onlyOnce?.text ?? "", /רביעי ב-18:00/);
+    assert.doesNotMatch(onlyOnce?.text ?? "", /המועד היחיד/);
+
+    const alsoOtherDays = await tryBuildRelativeDayClassSlotsReply({
+      text: "אבל אמרו לי שיש גם בראשון ושני בשבוע",
+      committedServiceName: power.name,
+      services: [power],
+      now: tueMorning,
+    });
+    assert.equal(alsoOtherDays?.modelUsed, "weekly_schedule_scope");
+    assert.match(alsoOtherDays?.text ?? "", /שלוש פעמים בשבוע/);
+
+    const nextWeek = await tryBuildRelativeDayClassSlotsReply({
+      text: "שבוע הבא",
+      previousAssistantText: "פילאטיס מזרן POWER ביום רביעי ב-18:00",
+      services: [power],
+      now: tueMorning,
+    });
+    assert.equal(nextWeek?.modelUsed, "weekly_schedule_scope");
+
+    const claimed = rewriteFalseSingleWeeklySlotClaim(
+      "כן, פילאטיס מזרן POWER יש פעם בשבוע - יום רביעי ב-18:00. זה המועד היחיד של השיעור הזה",
+      [power]
+    );
+    assert.match(claimed, /שלוש פעמים בשבוע/);
+    assert.doesNotMatch(claimed, /המועד היחיד/);
+
+    const onceReal = svc("יוגה בוקר", [{ day: "ד", time: "18:00" }]);
+    assert.equal(
+      rewriteFalseSingleWeeklySlotClaim("יוגה בוקר יש פעם בשבוע ביום רביעי ב-18:00", [onceReal]),
+      "יוגה בוקר יש פעם בשבוע ביום רביעי ב-18:00"
+    );
   }
 
   console.log("wa-relative-day-class-slots.test.ts: ok");

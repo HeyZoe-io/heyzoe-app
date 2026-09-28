@@ -21,6 +21,8 @@ import {
   looksLikeClassTimeQuestion,
   looksLikeComingAnotherDayAsk,
   looksLikeMissedOrMakeupClassAsk,
+  looksLikeBareNextWeekConfirm,
+  looksLikeWeeklyScheduleScopeAsk,
   matchCatalogServiceFromFreeText,
   parseRequestedClassDays,
   declinedClassDayLetters,
@@ -392,6 +394,48 @@ export function resolveScheduleSlotPickTap<
   };
 }
 
+const TIMES_PER_WEEK_HE = ["", "פעם אחת בשבוע", "פעמיים בשבוע", "שלוש פעמים בשבוע", "ארבע פעמים בשבוע", "חמש פעמים בשבוע", "שש פעמים בשבוע", "שבע פעמים בשבוע"];
+
+/** כל מועדי הלוח של שיעור אחד — «מתקיים שלוש פעמים בשבוע: ביום ראשון ב-18:00, …». */
+export function formatWeeklyScheduleScopeReply(
+  serviceName: string,
+  slots: { day: string; time: string }[]
+): string {
+  const name = String(serviceName ?? "").trim();
+  const configured = sortProductScheduleSlots(
+    filterConfiguredProductScheduleSlots(
+      slots.map((s, i) => ({ id: String(i), day: s.day, time: s.time }))
+    )
+  );
+  if (!name || !configured.length) return "";
+  const bits = configured.map((s, i) => {
+    const day = formatDayNameForScheduleDatePlaceholder(s.day);
+    const lead = i === configured.length - 1 && configured.length > 1 ? "וביום" : "ביום";
+    return `${lead} ${day} ב-${s.time}`;
+  });
+  const list =
+    bits.length <= 2 ? bits.join(" ") : `${bits.slice(0, -1).join(", ")} ${bits[bits.length - 1]}`;
+  const freq =
+    configured.length < TIMES_PER_WEEK_HE.length
+      ? TIMES_PER_WEEK_HE[configured.length]!
+      : `${configured.length} פעמים בשבוע`;
+  return `${name} מתקיים ${freq}: ${list}.`;
+}
+
+/** תשובה שטוענת «רק פעם / המועד היחיד» כשלשיעור יש כמה מועדים — מוחלפת בלוח המלא. */
+export function rewriteFalseSingleWeeklySlotClaim(text: string, services: SfServiceRow[]): string {
+  const raw = String(text ?? "").trim();
+  if (!raw || !/פעם\s+(?:אחת\s+)?בשבוע|המועד\s+היחיד|רק\s+פעם/u.test(raw)) return raw;
+  if (parseRequestedClassDays(raw).length >= 2) return raw;
+  const name = matchCatalogServiceFromFreeText(raw, services);
+  if (!name) return raw;
+  const service = services.find((s) => s.name === name);
+  if (!service) return raw;
+  const slots = filterConfiguredProductScheduleSlots(service.scheduleSlots ?? []);
+  if (slots.length < 2) return raw;
+  return formatWeeklyScheduleScopeReply(name, slots);
+}
+
 /** לפי שם שיעור: שם | {day-name} {HH:MM}, {day-name} {HH:MM} */
 export function formatNamedClassScheduleLine(serviceName: string, dayLetter: string, times: string[]): string {
   const labels = times.map((time) => formatScheduleSlotDisplayLabel({ day: dayLetter, time }));
@@ -419,6 +463,8 @@ function dayAskPhrase(input: { text: string; day: IsraelDayLetter; now: Date }):
 function resolveServiceName(input: {
   currentText: string;
   previousUserText: string;
+  previousAssistantText?: string | null;
+  committedServiceName?: string | null;
   services: SfServiceRow[];
 }): string | null {
   const fromCurrent = matchCatalogServiceFromFreeText(input.currentText, input.services);
@@ -426,7 +472,16 @@ function resolveServiceName(input: {
   const fromPrev = matchCatalogServiceFromFreeText(input.previousUserText, input.services);
   if (fromPrev) return fromPrev;
   const combined = `${input.previousUserText} ${input.currentText}`.trim();
-  return matchCatalogServiceFromFreeText(combined, input.services);
+  const fromCombined = matchCatalogServiceFromFreeText(combined, input.services);
+  if (fromCombined) return fromCombined;
+  const fromAssistant = matchCatalogServiceFromFreeText(
+    String(input.previousAssistantText ?? ""),
+    input.services
+  );
+  if (fromAssistant) return fromAssistant;
+  const committed = String(input.committedServiceName ?? "").trim();
+  if (committed && input.services.some((s) => s.name === committed)) return committed;
+  return null;
 }
 
 function looksLikeDayOrClassAsk(text: string): boolean {
@@ -577,6 +632,8 @@ export async function tryBuildRelativeDayClassSlotsReply(
   input: {
     text: string;
     previousUserText?: string | null;
+    previousAssistantText?: string | null;
+    committedServiceName?: string | null;
     services: SfServiceRow[];
     sessionPhase?: string | null;
     now?: Date;
@@ -599,6 +656,24 @@ export async function tryBuildRelativeDayClassSlotsReply(
       text: COMING_ANOTHER_DAY_WHICH_CLASS_REPLY,
       modelUsed: COMING_ANOTHER_DAY_WHICH_CLASS_MODEL,
     };
+  }
+
+  const scopeAsk = looksLikeWeeklyScheduleScopeAsk(current);
+  const nextWeekAsk = looksLikeBareNextWeekConfirm(current);
+  if (scopeAsk || nextWeekAsk) {
+    const scopedName = resolveServiceName({
+      currentText: current,
+      previousUserText: prev,
+      previousAssistantText: input.previousAssistantText,
+      committedServiceName: input.committedServiceName,
+      services: input.services,
+    });
+    const scoped = scopedName ? input.services.find((s) => s.name === scopedName) ?? null : null;
+    const scopedSlots = filterConfiguredProductScheduleSlots(scoped?.scheduleSlots ?? []);
+    if (scoped && scopedSlots.length > 0 && (scopeAsk || scopedSlots.length >= 2)) {
+      const text = formatWeeklyScheduleScopeReply(scoped.name, scopedSlots);
+      if (text) return { kind: "list", text, modelUsed: "weekly_schedule_scope" };
+    }
   }
 
   const declined = new Set(declinedClassDayLetters(current, now));

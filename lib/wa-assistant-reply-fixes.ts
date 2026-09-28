@@ -23,6 +23,7 @@ import {
   stripOwnerChannelDenial,
 } from "@/lib/wa-owner-addressed-greeting";
 import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dates";
+import { rewriteFalseSingleWeeklySlotClaim } from "@/lib/wa-relative-day-class-slots";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -634,6 +635,12 @@ export function applyKnownAssistantReplyFixes(
   if ((input.scheduleDayLabels?.length ?? 0) > 0) {
     s = applyScheduleDayGarbleFixes(s, input.scheduleDayLabels!);
   }
+
+  const catalogForSlots = resolveKnowledgeCatalogServices({
+    knowledgeCatalog: input.knowledge?.knowledgeCatalogServices,
+    salesFlow: input.knowledge?.salesFlowServices,
+  });
+  s = rewriteFalseSingleWeeklySlotClaim(s, catalogForSlots);
 
   s = stripFakeScheduleImagePlaceholders(s);
   s = stripFillerAfterSeeYouInClass(s);

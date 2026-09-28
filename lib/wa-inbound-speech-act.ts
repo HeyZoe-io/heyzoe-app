@@ -6,7 +6,9 @@ import {
 import { matchesBookedClassMoveIntent } from "@/lib/wa-registration-intent";
 import {
   asksWhichClassesOnDay,
+  looksLikeBareNextWeekConfirm,
   looksLikeClassTimeQuestion,
+  looksLikeWeeklyScheduleScopeAsk,
   parseRequestedClassDays,
 } from "@/lib/wa-unknown-class-slot";
 
@@ -35,6 +37,7 @@ export function isScheduleAsk(raw: string, now: Date = new Date()): boolean {
   const t = normalizeActText(raw);
   if (!t) return false;
   if (looksLikeClassTimeQuestion(t) || asksWhichClassesOnDay(t)) return true;
+  if (looksLikeWeeklyScheduleScopeAsk(t) || looksLikeBareNextWeekConfirm(t)) return true;
   if (parseRequestedClassDays(t, now).length === 0) return false;
   return /מתי|יש\s+(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|להגיע|להצטרף|לבוא|מועד|[?؟]/u.test(t);
 }

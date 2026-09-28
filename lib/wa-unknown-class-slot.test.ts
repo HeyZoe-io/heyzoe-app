@@ -366,4 +366,28 @@ assert.equal(
   "unknown missed class asks which class — does not handoff before clarify"
 );
 
+const powerMat = svc("POWER - פילאטיס מזרן 3", [
+  { day: "א", time: "18:00" },
+  { day: "ג", time: "19:00" },
+  { day: "ד", time: "18:00" },
+]);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "אבל אמרו לי שיש גם בראשון ושני בשבוע",
+    services: [powerMat],
+    committedServiceName: powerMat.name,
+  }),
+  false,
+  "extra-day correction lists the real weekly slots instead of team handoff"
+);
+assert.equal(
+  shouldHandoffUnknownClassSlot({
+    text: "יש רק פעם בשבוע",
+    services: [powerMat],
+    committedServiceName: powerMat.name,
+  }),
+  false,
+  "once-a-week question is answered from the full timetable"
+);
+
 console.log("wa-unknown-class-slot.test.ts: ok");

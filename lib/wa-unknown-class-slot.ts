@@ -240,6 +240,27 @@ export function looksLikeClassSpaceQuestion(text: string): boolean {
   return parseRequestedTimes(t).length > 0;
 }
 
+/**
+ * «יש רק פעם בשבוע?» / «אמרו לי שיש גם בראשון» — שאלה על כל המועדים השבועיים,
+ * לא בקשה להגיע ליום שאין בלוח.
+ */
+export function looksLikeWeeklyScheduleScopeAsk(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 400) return false;
+  return /רק\s+פעם|פעם\s+(?:אחת\s+)?בשבוע|המועד\s+היחיד|אמרו\s+לי\s+שיש|יש\s+גם\s+ב(?:יום|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)|יש\s+עוד\s+(?:מועד|ימים|שיעורים|אימונים)/u.test(
+    t
+  );
+}
+
+/** «שבוע הבא» לבד — אישור חלון, לא בחירת יום אחד. */
+export function looksLikeBareNextWeekConfirm(text: string): boolean {
+  const t = String(text ?? "")
+    .trim()
+    .replace(/[.!?؟]+$/u, "")
+    .trim();
+  return /^(?:השבוע הבא|שבוע הבא|בשבוע הבא)$/u.test(t);
+}
+
 export function looksLikeClassTimeQuestion(text: string): boolean {
   return /להצטרף|להגיע|לבוא|נרשמ|מתי\s+(?:יש\s+)?(?:ה)?(?:שיעור|אימון)|יש\s+(?:שיעור|אימון)|יהיה\s+(?:ה)?(?:שיעור|אימון)|האם\s+יהיה.{0,24}(?:שיעור|אימון)|יש\s+במקרה|איזה\s+(?:אימונים|שיעורים)|אילו\s+אימונים|אם\s+יש.{0,24}(?:אימון|שיעור)|עוד\s+אימון|רוצה.{0,40}(?:שיעור|אימון)|אשמח.{0,40}(?:שיעור|אימון)|באיזו\s+שעה|באיזה\s+שעה|מועד/u.test(
     text
@@ -560,6 +581,12 @@ export function shouldHandoffUnknownClassSlot(input: {
   }
 
   const timeQuestion = looksLikeClassTimeQuestion(text);
+
+  // «יש רק פעם בשבוע?» / «אמרו לי שיש גם ביום אחר» — עונים מכל מועדי הלוח, לא מעבירים
+  // כי אחד הימים שהוזכרו לא קיים (למשל שני, כשיש ראשון ושלישי).
+  if (looksLikeWeeklyScheduleScopeAsk(text) && service && (service.scheduleSlots ?? []).length > 0) {
+    return false;
+  }
 
   if (service && days.length) {
     for (const day of days) {
