@@ -1,5 +1,5 @@
 import { offerKindFromServiceMeta } from "@/lib/sales-flow";
-import { parseArboxClassStamp } from "@/lib/arbox-schedule-sync";
+import { parseArboxClassStamp } from "@/lib/arbox-class-stamp";
 import {
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,

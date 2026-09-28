@@ -74,7 +74,7 @@ import { sortServiceRowsBySortOrder } from "@/lib/service-sort-order";
 import {
   parseArboxClassStamp,
   type ArboxScheduleRemovedNotice,
-} from "@/lib/arbox-schedule-sync";
+} from "@/lib/arbox-class-stamp";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,

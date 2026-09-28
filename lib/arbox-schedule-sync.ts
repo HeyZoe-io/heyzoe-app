@@ -1,24 +1,26 @@
+import {
+  parseArboxClassStamp,
+  type ArboxClassStamp,
+  type ArboxScheduleRemovedNotice,
+  type ServiceDescriptionBlob,
+} from "@/lib/arbox-class-stamp";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { sortProductScheduleSlots, type ProductScheduleSlot } from "@/lib/product-schedule-slots";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+export {
+  parseArboxClassStamp,
+  type ArboxClassStamp,
+  type ArboxScheduleRemovedNotice,
+  type ServiceDescriptionBlob,
+};
 
 const IL_TZ = "Asia/Jerusalem";
 const HEBREW_DAY_BY_SUNDAY_INDEX = ["א", "ב", "ג", "ד", "ה", "ו", "ש"] as const;
 const MAX_SCHEDULE_PAGES = 20;
 /** Inclusive rolling week: today through +6 = 7 calendar days, each weekday once. */
 const WINDOW_DAYS = 6;
-
-export type ArboxScheduleRemovedNotice = {
-  detected_at: string;
-  dismissed: boolean;
-};
-
-export type ArboxClassStamp = {
-  arbox_box_category_id: number | null;
-  arbox_class_name: string;
-  schedule_removed_notice: ArboxScheduleRemovedNotice | null;
-};
 
 export type ArboxWeeklyClass = {
   session_name: string;
@@ -35,8 +37,6 @@ export type ArboxBoxCategoryCatalog = {
   descriptionByName: Map<string, string>;
   fetchFailed: boolean;
 };
-
-export type ServiceDescriptionBlob = Record<string, unknown>;
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -148,22 +148,6 @@ export function parseServiceDescriptionObject(raw: string): ServiceDescriptionBl
 
 export function mergeServiceDescriptionPatch(raw: string, patch: ServiceDescriptionBlob): string {
   return JSON.stringify({ ...parseServiceDescriptionObject(raw), ...patch });
-}
-
-export function parseArboxClassStamp(meta: ServiceDescriptionBlob): ArboxClassStamp {
-  const idRaw = meta.arbox_box_category_id;
-  const idNum = typeof idRaw === "number" ? idRaw : Number.parseInt(String(idRaw ?? "").trim(), 10);
-  const arbox_box_category_id = Number.isFinite(idNum) && idNum > 0 ? idNum : null;
-  const arbox_class_name = String(meta.arbox_class_name ?? "").trim();
-  const noticeRaw = asRecord(meta.schedule_removed_notice);
-  let schedule_removed_notice: ArboxScheduleRemovedNotice | null = null;
-  if (noticeRaw) {
-    const detected_at = String(noticeRaw.detected_at ?? "").trim();
-    if (detected_at) {
-      schedule_removed_notice = { detected_at, dismissed: noticeRaw.dismissed === true };
-    }
-  }
-  return { arbox_box_category_id, arbox_class_name, schedule_removed_notice };
 }
 
 export function arboxClassMatchKey(stamp: {
