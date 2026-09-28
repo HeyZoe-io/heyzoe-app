@@ -13,6 +13,7 @@ import {
   enrichZoeAdminTemplatePlaceholderMessages,
   hydrateUnsupportedZoeAdminMessages,
 } from "@/lib/wa-zoe-admin-template-log";
+import { resolveArboxProfileIdForConversation } from "@/lib/arbox-profile-ensure";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
 
@@ -83,5 +84,14 @@ export async function GET(req: NextRequest) {
   });
   out = await enrichZoeAdminTemplatePlaceholderMessages({ admin, messages: out });
 
-  return NextResponse.json({ messages: out });
+  const arboxProfileId = await resolveArboxProfileIdForConversation({
+    admin,
+    slug,
+    sessionId,
+  });
+
+  return NextResponse.json({
+    messages: out,
+    ...(arboxProfileId ? { arboxProfileId } : {}),
+  });
 }
