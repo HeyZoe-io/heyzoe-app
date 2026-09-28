@@ -229,9 +229,11 @@ import {
 } from "@/lib/wa-trial-topic-intent";
 import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
+import { ARBOX_CLASS_SPACE_MODEL, tryBuildArboxClassSpaceReply } from "@/lib/wa-arbox-class-space";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
+  looksLikeClassSpaceQuestion,
   assistantReplyIsUnknownClassSlotHandoff,
   matchCatalogServiceFromFreeText,
   matchCatalogServicesFromFreeText,
@@ -8126,6 +8128,40 @@ async function processIncoming(
         session_id: sessionId,
       });
       return;
+    }
+
+    if (crmApiKey && crmBoxId && looksLikeClassSpaceQuestion(msg.text.trim())) {
+      const spaceCatalog =
+        (knowledge.knowledgeCatalogServices?.length
+          ? knowledge.knowledgeCatalogServices
+          : salesFlowServices) ?? [];
+      try {
+        const spaceReply = await tryBuildArboxClassSpaceReply({
+          text: msg.text.trim(),
+          services: spaceCatalog,
+          now: new Date(nowIso),
+          businessId,
+          arboxApiKey: crmApiKey,
+          arboxBoxId: crmBoxId,
+        });
+        if (spaceReply) {
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, spaceReply, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] Send arbox class-space reply failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: spaceReply,
+            model_used: ARBOX_CLASS_SPACE_MODEL,
+            session_id: sessionId,
+          });
+          return;
+        }
+      } catch (e) {
+        console.error("[WA Webhook] arbox class-space lookup failed:", e);
+      }
     }
 
     const lastPickedForSlot =

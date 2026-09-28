@@ -173,7 +173,7 @@ function parseAmPmTimes(text: string): string[] {
   return out;
 }
 
-function parseRequestedTimes(text: string): string[] {
+export function parseRequestedTimes(text: string): string[] {
   const out: string[] = [...parseAmPmTimes(text)];
   const re = /(?:^|[^\d])([01]?\d|2[0-3]):([0-5]\d)(?!\d)/g;
   let m: RegExpExecArray | null;
@@ -222,6 +222,22 @@ function looksLikeNamedClass(text: string): boolean {
   return /(?:^|[^\p{L}])(?:power|hiit|pilates|yoga|יוגה|פילאטיס|כוח|מוביליטי|mobility|פונקציונלי|אשטנגה|ויניאסה)(?:[^\p{L}]|$)/u.test(
     t
   );
+}
+
+/**
+ * «יש מקום לאימון היום ב-18:00?» — שאלת תפוסה לשיעור מסוים, לא העברה לצוות.
+ * בלי שעה ובלי אזכור שיעור/אימון לא תופסים («יש מקום בחניה»).
+ */
+export function looksLikeClassSpaceQuestion(text: string): boolean {
+  const t = String(text ?? "").trim();
+  if (!t || t.length > 400) return false;
+  const asksSpace =
+    /יש\s+מקום|נשאר(?:ו)?\s+מקום|יש\s+עוד\s+מקום|מקום\s+פנוי|is\s+there\s+(?:any\s+)?(?:space|room|a\s+spot)|(?:spots?|space)\s+(?:left|available)/iu.test(
+      t
+    );
+  if (!asksSpace) return false;
+  if (/אימון|שיעור|class|session|lesson/iu.test(t)) return true;
+  return parseRequestedTimes(t).length > 0;
 }
 
 export function looksLikeClassTimeQuestion(text: string): boolean {
@@ -512,6 +528,7 @@ export function shouldHandoffUnknownClassSlot(input: {
 
   const text = String(input.text ?? "").trim();
   if (!text || text.length > 500) return false;
+  if (looksLikeClassSpaceQuestion(text)) return false;
   if (looksLikeHolidayClassScheduleAsk(text)) return true;
 
   const now = input.now ?? new Date();
