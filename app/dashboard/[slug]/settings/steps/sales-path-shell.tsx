@@ -7,10 +7,10 @@ import { dashboardDir, dashboardTextAlign, type DashboardLang } from "@/lib/dash
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 
 export const SALES_PATH_INPUT =
-  "h-10 rounded-lg border-zinc-200/90 bg-zinc-50/40 text-right text-sm text-zinc-800 shadow-none hover:bg-white focus-visible:ring-1 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-0";
+  "h-10 min-w-0 rounded-lg border-zinc-200/90 bg-zinc-50/40 text-right text-base text-zinc-800 shadow-none hover:bg-white focus-visible:ring-1 focus-visible:ring-[#7133da]/30 focus-visible:ring-offset-0 sm:text-sm";
 
 export const SALES_PATH_TEXTAREA =
-  "hz-rtl-text w-full resize-none rounded-lg border border-zinc-200/90 bg-zinc-50/40 px-3 py-2.5 text-right text-sm leading-relaxed text-zinc-800 shadow-none outline-none transition-colors placeholder:text-zinc-400 hover:bg-white focus:border-[#7133da]/35 focus:ring-1 focus:ring-[#7133da]/25";
+  "hz-rtl-text w-full resize-none rounded-lg border border-zinc-200/90 bg-zinc-50/40 px-2.5 py-2.5 text-right text-base leading-relaxed text-zinc-800 shadow-none outline-none transition-colors placeholder:text-zinc-400 hover:bg-white focus:border-[#7133da]/35 focus:ring-1 focus:ring-[#7133da]/25 sm:px-3 sm:text-sm";
 
 export type SalesPathNavSection<T extends string> = {
   id: T;
@@ -98,7 +98,7 @@ export function SalesPathSectionBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center justify-between gap-2 px-3 py-3 transition-colors hover:bg-zinc-50/90 sm:gap-3 sm:px-4 sm:py-3.5"
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-3 transition-colors hover:bg-zinc-50/90 sm:gap-3 sm:px-4 sm:py-3.5"
           style={{ textAlign }}
           dir={dir}
           aria-expanded={open}
@@ -129,7 +129,7 @@ export function SalesPathSectionBlock({
         </button>
         {headerAction ? <div className="flex shrink-0 items-center pe-3">{headerAction}</div> : null}
       </div>
-      {open ? <div className="space-y-4 border-t border-zinc-100 px-3 pb-4 pt-3 sm:px-4">{children}</div> : null}
+      {open ? <div className="space-y-4 border-t border-zinc-100 px-2.5 pb-4 pt-3 sm:px-4">{children}</div> : null}
     </section>
   );
 }
@@ -255,7 +255,11 @@ export function SalesPathStepShell<T extends string>({
   const textAlign = lang === "en" ? "left" : "right";
 
   return (
-    <section className="sales-path-step mx-auto w-full min-w-0 max-w-3xl" style={{ textAlign }} dir={dir}>
+    <section
+      className="sales-path-step mx-auto w-full min-w-0 max-w-3xl overflow-x-clip"
+      style={{ textAlign }}
+      dir={dir}
+    >
       <header className="mb-4 border-b border-zinc-200/60 pb-4 sm:mb-6 sm:pb-5">
         <p className="text-[13px] font-medium uppercase tracking-widest text-[#7133da]/80">
           {t.stepLabel(stepNumber)}
@@ -266,8 +270,9 @@ export function SalesPathStepShell<T extends string>({
         ) : null}
       </header>
 
+      {/* במובייל: עטיפה במקום גלילה אופקית — כל הסשנים גלויים בלי לחתוך תוויות */}
       <nav
-        className="sticky top-0 z-20 -mx-1 mb-4 flex min-w-0 gap-1.5 overflow-x-auto bg-[#FAFAFA]/95 px-1 py-2 backdrop-blur-sm lg:hidden"
+        className="sticky top-0 z-20 mb-4 flex min-w-0 flex-wrap justify-start gap-1.5 bg-[#FAFAFA]/95 py-2 backdrop-blur-sm lg:hidden"
         aria-label={`${navAriaLabel} - ${t.navMobileSuffix}`}
       >
         {sections.map((s) => (
@@ -276,7 +281,7 @@ export function SalesPathStepShell<T extends string>({
             type="button"
             onClick={() => onNavClick(s.id)}
             className={cn(
-              "shrink-0 rounded-full px-3 py-2 text-[13px] font-medium leading-none transition-colors",
+              "rounded-full px-2.5 py-2 text-[13px] font-medium leading-none transition-colors",
               activeNav === s.id ? "bg-[#7133da] text-white" : "bg-zinc-100 text-zinc-700"
             )}
           >

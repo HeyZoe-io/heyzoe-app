@@ -150,7 +150,7 @@ function SlugDashboardNavInner({ slug }: { slug: string }) {
         </div>
 
         <nav
-          className="absolute left-1/2 top-1/2 z-[2] flex w-max max-w-[calc(100vw-5rem)] sm:max-w-[min(100%,calc(100vw-14rem))] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-x-auto px-1 sm:gap-8"
+          className="absolute left-1/2 top-1/2 z-[2] flex w-max max-w-[calc(100%-4.5rem)] sm:max-w-[min(100%,calc(100%-14rem))] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-x-auto overscroll-x-contain px-1 sm:gap-8"
           aria-label={t.navAria}
         >
           {items.map((item) => {

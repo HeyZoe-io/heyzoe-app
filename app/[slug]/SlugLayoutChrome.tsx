@@ -118,8 +118,8 @@ export default function SlugLayoutChrome({
             </div>
           </div>
         ) : null}
-        <div className="px-4 py-6 sm:px-6 sm:py-8">
-          <div className="mx-auto max-w-6xl space-y-5">
+        <div className="px-3 py-6 sm:px-6 sm:py-8">
+          <div className="mx-auto max-w-6xl min-w-0 space-y-5 overflow-x-clip">
             <div className="relative pt-1">
               <SlugDashboardNav slug={slug} />
             </div>

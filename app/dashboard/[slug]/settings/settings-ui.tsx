@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   dashboardDir,
@@ -11,7 +12,7 @@ import {
 import { dashboardSettingsT, settingsStepHref } from "@/lib/dashboard-settings-i18n";
 import { useSettingsGuardedLinkClick } from "@/app/[slug]/settings/settings-unsaved-context";
 
-export const DASHBOARD_SETTINGS_SHELL = "mx-auto w-full min-w-0 max-w-4xl px-0 sm:px-6";
+export const DASHBOARD_SETTINGS_SHELL = "mx-auto w-full min-w-0 max-w-4xl overflow-x-clip px-0 sm:px-6";
 export const DASHBOARD_CENTERED_CONTENT =
   "text-center [&_input]:text-center [&_textarea]:text-center";
 
@@ -33,18 +34,30 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
   const steps = [...t.salesPathSteps];
   const base = `/${slug}/settings`;
   const guardedLinkClick = useSettingsGuardedLinkClick();
-  if (!pathname?.endsWith("/settings")) return null;
+  const navRef = useRef<HTMLElement | null>(null);
+  const onSettings = Boolean(pathname?.endsWith("/settings"));
   const step = salesPathStepFromSearchParams(searchParams.get("step"));
+
+  useEffect(() => {
+    if (!onSettings) return;
+    const root = navRef.current;
+    if (!root) return;
+    const active = root.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [onSettings, step]);
+
+  if (!onSettings) return null;
 
   return (
     <div className="w-full border-t border-zinc-200/70 mt-3 pt-4 pb-1">
       <div className={`${DASHBOARD_SETTINGS_SHELL} flex flex-col items-stretch gap-3`}>
         <nav
-          className="flex min-w-0 max-w-full justify-start overflow-x-auto pb-0.5 sm:justify-center"
+          ref={navRef}
+          className="sales-path-subnav-scroll flex min-w-0 max-w-full justify-start overflow-x-auto overscroll-x-contain pb-0.5 sm:justify-center"
           aria-label={t.salesPathNavAria}
           dir={dashboardDir(lang)}
         >
-          <div className="inline-flex w-max items-center gap-0.5 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1">
+          <div className="inline-flex w-max items-center gap-1 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1">
             {steps.map((label, i) => {
               const n = i + 1;
               const active = step === n;
@@ -57,7 +70,7 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
                   onClick={(e) => guardedLinkClick(e, href)}
                   className={[
                     dashboardStepTabClass(active),
-                    "inline-flex items-center rounded-xl px-3 py-2 sm:px-4",
+                    "inline-flex min-h-10 items-center rounded-xl px-2.5 py-2 sm:min-h-0 sm:px-4",
                     active ? "bg-white shadow-sm ring-1 ring-[#7133da]/15" : "hover:bg-white/60",
                   ].join(" ")}
                   aria-current={active ? "page" : undefined}
@@ -166,14 +179,14 @@ export function Field({
 
   return (
     <div className={`w-full space-y-2 ${className}`}>
-      <div className="flex w-full flex-wrap items-center justify-between gap-2">
+      <div className="flex w-full flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div
           className="min-w-0 flex-1 text-[0.95rem] font-semibold tracking-[-0.01em] text-zinc-800"
           style={{ textAlign }}
         >
           {label}
         </div>
-        {labelAction ? <div className="shrink-0">{labelAction}</div> : null}
+        {labelAction ? <div className="shrink-0 self-start sm:self-auto">{labelAction}</div> : null}
       </div>
       {description ? (
         <p className="text-xs leading-6 text-zinc-500" style={{ textAlign }}>
@@ -198,14 +211,16 @@ export function Textarea({
   rows?: number;
   lang?: DashboardLang;
 }) {
+  const dir = lang ? dashboardDir(lang) : "rtl";
+  const alignClass = dir === "ltr" ? "text-left" : "hz-rtl-text text-right";
   return (
     <textarea
-      dir={lang ? dashboardDir(lang) : "rtl"}
+      dir={dir}
       rows={rows}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full resize-none rounded-2xl border border-[rgba(124,96,202,0.18)] bg-white/88 px-3 py-3 text-center text-base leading-7 text-zinc-800 shadow-[0_12px_28px_rgba(110,78,176,0.08)] backdrop-blur-sm transition-all duration-200 [overflow-wrap:anywhere] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/30 focus:ring-offset-2 focus:ring-offset-white focus:border-[rgba(113,51,218,0.35)] hover:border-[rgba(113,51,218,0.24)] sm:px-4 sm:text-sm sm:leading-6"
+      className={`w-full resize-none rounded-2xl border border-[rgba(124,96,202,0.18)] bg-white/88 px-2.5 py-3 text-base leading-7 text-zinc-800 shadow-[0_12px_28px_rgba(110,78,176,0.08)] backdrop-blur-sm transition-all duration-200 [overflow-wrap:anywhere] placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#7133da]/30 focus:ring-offset-2 focus:ring-offset-white focus:border-[rgba(113,51,218,0.35)] hover:border-[rgba(113,51,218,0.24)] sm:px-4 sm:text-sm sm:leading-6 ${alignClass}`}
     />
   );
 }

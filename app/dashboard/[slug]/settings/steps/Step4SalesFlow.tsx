@@ -2138,13 +2138,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                               <p className="text-center text-[11px] font-medium text-zinc-700">
                                 {t.salesFlow.priceRange}
                               </p>
-                              <div className="flex flex-row-reverse flex-wrap items-center justify-center gap-x-4 gap-y-2">
-                                <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
+                              <div className="flex flex-col items-stretch gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center sm:justify-center sm:gap-x-4 sm:gap-y-2">
+                                <div className="flex flex-row-reverse items-center justify-center gap-1.5">
                                   <span className="shrink-0 text-xs text-zinc-600">₪</span>
                                   <Input
                                     dir={dashboardDir(lang)}
                                     inputMode="decimal"
-                                    className="w-24 shrink-0"
+                                    className="w-full max-w-[9rem] shrink-0 sm:w-24"
                                     placeholder={t.salesFlow.number}
                                     value={String(b.memberships_price_range_min ?? "")}
                                     onChange={(e) => {
@@ -2159,12 +2159,12 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                                   />
                                   <span className="shrink-0 text-xs font-medium text-zinc-700">{t.salesFlow.between}</span>
                                 </div>
-                                <div className="flex shrink-0 flex-row-reverse items-center gap-1.5">
+                                <div className="flex flex-row-reverse items-center justify-center gap-1.5">
                                   <span className="shrink-0 text-xs text-zinc-600">₪</span>
                                   <Input
                                     dir={dashboardDir(lang)}
                                     inputMode="decimal"
-                                    className="w-24 shrink-0"
+                                    className="w-full max-w-[9rem] shrink-0 sm:w-24"
                                     placeholder={t.salesFlow.number}
                                     value={String(b.memberships_price_range_max ?? "")}
                                     onChange={(e) => {

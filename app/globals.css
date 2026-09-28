@@ -249,6 +249,10 @@ select {
 
 /* שלב «שיחה» במסלול מכירה: במובייל שדות מתחת ל-16px מזיזים את הוויפורט באייפון */
 @media (max-width: 767px) {
+  .sales-path-step {
+    overflow-x: clip;
+  }
+
   .sales-path-step input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
   .sales-path-step textarea,
   .sales-path-step select {
@@ -266,6 +270,12 @@ select {
   .sales-path-step .whitespace-pre-wrap {
     font-size: 16px;
     line-height: 1.65;
+  }
+
+  /* גלילה חלקה לטאבי שלבי מסלול המכירה במובייל */
+  .sales-path-subnav-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
   }
 }
 
