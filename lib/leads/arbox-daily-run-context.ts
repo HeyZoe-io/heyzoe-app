@@ -17,12 +17,24 @@ export type ArboxDailyRunContext = {
 
 const storage = new AsyncLocalStorage<ArboxDailyRunContext>();
 
+type ArboxDailyBridge = {
+  context: () => ArboxDailyRunContext | undefined;
+  isDryRun: () => boolean;
+};
+
+const bridge: ArboxDailyBridge = {
+  context: () => storage.getStore(),
+  isDryRun: () => storage.getStore()?.dryRun === true,
+};
+
+(globalThis as { __hzArboxDaily?: ArboxDailyBridge }).__hzArboxDaily = bridge;
+
 export function arboxDailyContext(): ArboxDailyRunContext | undefined {
-  return storage.getStore();
+  return bridge.context();
 }
 
 export function isArboxDailyDryRun(): boolean {
-  return storage.getStore()?.dryRun === true;
+  return bridge.isDryRun();
 }
 
 export function runArboxDailyContext<T>(

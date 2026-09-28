@@ -1,5 +1,5 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
-import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { shouldFetchNextArboxReportPage } from "@/lib/leads/arbox-sales-report";
 
 /** Arbox OpenAPI max for GET /v3/membershipTypes. Default page without ?limit= is 200. */

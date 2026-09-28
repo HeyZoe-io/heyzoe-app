@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   isOpeningServicePickMenuModel,
   salesFlowGreetingMarkerCountsAsStarted,

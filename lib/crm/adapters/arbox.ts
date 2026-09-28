@@ -2,7 +2,7 @@ import { extractArboxProfileIdFromLink } from "@/lib/arbox-profile-url";
 import type { CrmEventKind } from "@/lib/crm/types";
 import { formatLeadPhoneDisplay } from "@/lib/notifications/owner-email-context";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
-import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /** OpenAPI: https://arboxserver.arboxapp.com/docs/api */

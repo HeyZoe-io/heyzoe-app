@@ -1,5 +1,5 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   evaluateLeadTemplateSendByPhoneNumberId,
   SUPPRESSED_OPT_OUT_ERROR,

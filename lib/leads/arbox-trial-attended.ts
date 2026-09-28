@@ -1,6 +1,6 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
-import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
+import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,

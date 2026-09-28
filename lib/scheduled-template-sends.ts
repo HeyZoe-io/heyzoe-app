@@ -1,5 +1,5 @@
 import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
