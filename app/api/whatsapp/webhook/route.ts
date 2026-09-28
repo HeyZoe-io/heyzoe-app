@@ -259,6 +259,7 @@ import {
   annotateScheduleSlotsByOccurrenceState,
   buildIsraelNowSchedulePromptBlock,
   buildScheduleSlotPickMenuLabels,
+  formatWeeklyScheduleScopeReply,
   isScheduleSlotPickAllFullRepickLabel,
   isScheduleSlotPickAllFullResult,
   isRelativeDayCatalogAllFullReply,
@@ -572,6 +573,7 @@ import {
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
   formatYomForContactSlotDate,
+  filterConfiguredProductScheduleSlots,
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
   syncCourseLegacyDatesFromCycles,
@@ -10554,8 +10556,20 @@ async function processIncoming(
         const customLinkUrl = String(customLinkBtn?.custom_cta_url ?? "").trim();
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
+        // שאלה על שיעור ספציפי עם מועדי מוצר — לא לינק/תמונה של מערכת שעות ולא «תתעדכן בקרוב».
+        const namedScheduleAsk = matchCatalogServiceFromFreeText(incomingResolved, salesFlowServices);
+        const namedScheduleRow = namedScheduleAsk
+          ? salesFlowServices.find((s) => s.name === namedScheduleAsk)
+          : undefined;
+        const namedClassWeeklyReply = namedScheduleRow
+          ? formatWeeklyScheduleScopeReply(
+              namedScheduleRow.name,
+              filterConfiguredProductScheduleSlots(namedScheduleRow.scheduleSlots ?? [])
+            )
+          : "";
         const wantsScheduleByIntent =
           isScheduleIntent(incomingResolved) &&
+          !namedClassWeeklyReply &&
           (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage);
         const wantsTrialByFollow =
           trialCtaOn &&
@@ -11057,6 +11071,28 @@ async function processIncoming(
           });
           contactSessionPhase = "opening";
           contactFlowStep = 0;
+          return;
+        }
+
+        if (namedClassWeeklyReply && isScheduleIntent(incomingResolved)) {
+          try {
+            await sendWhatsAppMessage(
+              msg.toNumber,
+              msg.from,
+              namedClassWeeklyReply,
+              accountSid,
+              authToken
+            );
+          } catch (e) {
+            console.error("[WA Webhook] Send named-class weekly slots (no schedule board) failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: namedClassWeeklyReply,
+            model_used: "weekly_schedule_scope",
+            session_id: sessionId,
+          });
           return;
         }
 

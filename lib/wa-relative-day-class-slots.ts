@@ -688,7 +688,26 @@ export async function tryBuildRelativeDayClassSlotsReply(
     ? parseRequestedClassDays(prev, now).filter((d) => !declined.has(d))
     : [];
   const days = daysCurrent.length ? daysCurrent : daysPrev;
-  if (!days.length) return null;
+  if (!days.length) {
+    // «מתי יש אימון X?» בלי יום — מועדי המוצר מהעמוד, גם בלי לינק/תמונה של מערכת שעות.
+    if (!shouldAnswerFromClassTimetable(current, now)) return null;
+    if (!looksLikeDayOrClassAsk(current)) return null;
+    if (asksWhichClassesOnDay(current)) return null;
+    const namedNoDay = resolveServiceName({
+      currentText: current,
+      previousUserText: prev,
+      previousAssistantText: input.previousAssistantText,
+      committedServiceName: input.committedServiceName,
+      services: input.services,
+    });
+    if (!namedNoDay) return null;
+    const namedSvc = input.services.find((s) => s.name === namedNoDay);
+    const namedSlots = filterConfiguredProductScheduleSlots(namedSvc?.scheduleSlots ?? []);
+    if (!namedSvc || namedSlots.length === 0) return null;
+    const namedText = formatWeeklyScheduleScopeReply(namedSvc.name, namedSlots);
+    if (!namedText) return null;
+    return { kind: "list", text: namedText, modelUsed: "weekly_schedule_scope" };
+  }
   if (!shouldAnswerFromClassTimetable(current, now)) return null;
 
   if (looksLikeMissedOrMakeupClassAsk(current)) {

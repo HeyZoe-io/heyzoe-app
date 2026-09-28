@@ -925,6 +925,51 @@ async function main() {
     );
   }
 
+  {
+    // Named class schedule ask with no day — answer product weekly slots even without a schedule board.
+    const strength = svc("אימוני כוח - Strength", [
+      { day: "ב", time: "09:00" },
+      { day: "ד", time: "19:30" },
+    ]);
+    const noDayAsk = await tryBuildRelativeDayClassSlotsReply({
+      text: "מתי יש אימון כוח?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(noDayAsk, "named class without a day still lists product slots");
+    assert.equal(noDayAsk!.modelUsed, "weekly_schedule_scope");
+    assert.match(noDayAsk!.text, /שני ב-09:00/);
+    assert.match(noDayAsk!.text, /רביעי ב-19:30/);
+
+    const whenDoesItRun = await tryBuildRelativeDayClassSlotsReply({
+      text: "מתי מתקיים Strength?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(whenDoesItRun);
+    assert.equal(whenDoesItRun!.modelUsed, "weekly_schedule_scope");
+    assert.match(whenDoesItRun!.text, /פעמיים בשבוע/);
+
+    const whichDays = await tryBuildRelativeDayClassSlotsReply({
+      text: "באילו ימים יש אימוני כוח?",
+      services: [strength],
+      now: tueMorning,
+    });
+    assert.ok(whichDays);
+    assert.match(whichDays!.text, /שני ב-09:00/);
+    assert.match(whichDays!.text, /רביעי ב-19:30/);
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "מתי יש אימונים?",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "catalog-wide schedule ask without a class name is not a named weekly list"
+    );
+  }
+
   console.log("wa-relative-day-class-slots.test.ts: ok");
 }
 
