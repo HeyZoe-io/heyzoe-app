@@ -16,6 +16,7 @@ import {
   resolveNextOccurrence,
   type IsraelDayLetter,
 } from "@/lib/israel-time";
+import { looksLikeScheduleBoardAsk } from "@/lib/wa-schedule-intent";
 import {
   isCatalogWideClassDayAsk,
   looksLikeClassTimeQuestion,
@@ -690,10 +691,12 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const days = daysCurrent.length ? daysCurrent : daysPrev;
   if (!days.length) {
     // «מתי יש אימון X?» בלי יום — מועדי המוצר מהעמוד, גם בלי לינק/תמונה של מערכת שעות.
+    // בקשת מערכת שעות עצמה → נתיב הלוח/חסר (לא מועדי מוצר).
     // רק כשהשם בהודעה הנוכחית (לא committed/היסטוריה) — אחרת זה מועדים לא קשורים.
     if (!shouldAnswerFromClassTimetable(current, now)) return null;
     if (!looksLikeDayOrClassAsk(current)) return null;
     if (asksWhichClassesOnDay(current)) return null;
+    if (looksLikeScheduleBoardAsk(current)) return null;
     const namedNoDay = matchCatalogServiceFromFreeText(current, input.services);
     if (!namedNoDay) return null;
     const namedSvc = input.services.find((s) => s.name === namedNoDay);

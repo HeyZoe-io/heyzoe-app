@@ -971,6 +971,26 @@ async function main() {
 
     assert.equal(
       await tryBuildRelativeDayClassSlotsReply({
+        text: "אשמח מערכת שעות",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "schedule-board ask must not dump a product timetable"
+    );
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
+        text: "מערכת שעות לאימון כוח",
+        services: [strength],
+        now: tueMorning,
+      }),
+      null,
+      "board ask that mentions a class still goes to the board/missing path"
+    );
+
+    assert.equal(
+      await tryBuildRelativeDayClassSlotsReply({
         text: "מתי יש אימון?",
         committedServiceName: strength.name,
         services: [strength],

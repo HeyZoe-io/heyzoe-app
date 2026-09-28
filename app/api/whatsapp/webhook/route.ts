@@ -208,7 +208,7 @@ import {
   parseOwnerAddressedGreeting,
 } from "@/lib/wa-owner-addressed-greeting";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
-import { isScheduleIntent } from "@/lib/wa-schedule-intent";
+import { isScheduleIntent, looksLikeScheduleBoardAsk } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
   resolveUnauthorizedBookingHandoff,
@@ -10557,20 +10557,23 @@ async function processIncoming(
         const scheduleCtaOn = Boolean(schedBtn && (schedBtn.schedule_cta_delivery ?? "link") !== "none");
         const memCtaOn = Boolean(memBtn && (memBtn.memberships_cta_delivery ?? "link") !== "none");
         // שאלה על שיעור ספציפי עם מועדי מוצר — לא לינק/תמונה של מערכת שעות ולא «תתעדכן בקרוב».
+        // בקשת מערכת שעות עצמה (גם בלי לוח מוגדר) נשארת בנתיב הלוח/חסר.
+        const boardAsk = looksLikeScheduleBoardAsk(incomingResolved);
         const namedScheduleAsk = matchCatalogServiceFromFreeText(incomingResolved, salesFlowServices);
         const namedScheduleRow = namedScheduleAsk
           ? salesFlowServices.find((s) => s.name === namedScheduleAsk)
           : undefined;
-        const namedClassWeeklyReply = namedScheduleRow
-          ? formatWeeklyScheduleScopeReply(
-              namedScheduleRow.name,
-              filterConfiguredProductScheduleSlots(namedScheduleRow.scheduleSlots ?? [])
-            )
-          : "";
+        const namedClassWeeklyReply =
+          !boardAsk && namedScheduleRow
+            ? formatWeeklyScheduleScopeReply(
+                namedScheduleRow.name,
+                filterConfiguredProductScheduleSlots(namedScheduleRow.scheduleSlots ?? [])
+              )
+            : "";
         const wantsScheduleByIntent =
           isScheduleIntent(incomingResolved) &&
           !namedClassWeeklyReply &&
-          (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage);
+          (scheduleCtaOn || scheduleBoardAssets.canSendScheduleImage || boardAsk);
         const wantsTrialByFollow =
           trialCtaOn &&
           Boolean(
@@ -11076,6 +11079,7 @@ async function processIncoming(
 
         if (
           namedClassWeeklyReply &&
+          !boardAsk &&
           isScheduleIntent(incomingResolved) &&
           parseRequestedClassDays(incomingResolved).length === 0
         ) {
