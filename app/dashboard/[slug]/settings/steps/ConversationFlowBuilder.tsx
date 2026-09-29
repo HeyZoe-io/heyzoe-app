@@ -66,6 +66,7 @@ function newId() {
 }
 
 const deleteNodeContext = createContext<(id: string) => void>(() => {});
+const productsContext = createContext<ProductOption[]>([]);
 
 function cardStyle(selected: boolean): CSSProperties {
   return {
@@ -85,6 +86,9 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
   const d = data ?? {};
   const buttons = (Array.isArray(d.buttons) ? d.buttons : []).slice(0, MAX_NODE_BUTTONS);
   const deleteNode = useContext(deleteNodeContext);
+  const products = useContext(productsContext);
+  const chosenProduct = products.find((product) => product.slug === String(d.product_slug ?? ""));
+  const chosenProductName = String(chosenProduct?.name || d.product_slug || "").trim();
   return (
     <div style={cardStyle(Boolean(selected))}>
       <button
@@ -141,7 +145,19 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       </div>
       )}
       {type === "product" ? (
-        <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{d.product_slug ? "מוצר נבחר" : "בחרי מוצר"}</div>
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            color: "#18181b",
+            lineHeight: 1.35,
+            whiteSpace: "pre-wrap",
+            overflowWrap: "anywhere",
+          }}
+        >
+          {chosenProductName || "בחרי מוצר"}
+        </div>
       ) : null}
       {type === "question"
         ? buttons.map((label, i) => (
@@ -529,6 +545,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 טוען את השיחה…
               </div>
             ) : (
+              <productsContext.Provider value={products}>
               <deleteNodeContext.Provider value={deleteNode}>
               <ReactFlow
                 nodes={nodes}
@@ -564,6 +581,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 <Controls showInteractive={false} />
               </ReactFlow>
               </deleteNodeContext.Provider>
+              </productsContext.Provider>
             )}
           </div>
           <aside className="border-t border-zinc-100 p-4 lg:border-s lg:border-t-0">
