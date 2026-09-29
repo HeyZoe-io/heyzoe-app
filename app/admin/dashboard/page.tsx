@@ -8,6 +8,8 @@ import { AdminNav } from "@/app/admin/AdminNav";
 import MarketingDashboardClient from "./MarketingDashboardClient";
 import type { ZoeBusinessOption } from "@/app/admin/zoe/ZoeConversationsTab";
 import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
+import { resolveAdminPackage, type AdminPackageKind } from "@/lib/admin-package";
+import { getIsraelMonthStartUtc } from "@/lib/israel-time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +34,78 @@ function daysAgo(n: number) {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d;
+}
+
+type BizRow = {
+  id: number;
+  slug: string | null;
+  name: string | null;
+  plan: string | null;
+  plan_price: number | string | null;
+  is_active: boolean | null;
+  updated_at: string | null;
+  cancellation_effective_at: string | null;
+  intro_period_ends_at?: string | null;
+  intro_full_price_at?: string | null;
+};
+
+type InquiryRow = {
+  id: number;
+  business_id: number | null;
+  message: string;
+  created_at: string;
+  is_read: boolean;
+};
+
+const OPENED_PAGE = 1000;
+/** 40k שורות = תקרת בטיחות. מעבר לזה הדשבורד מסמן שהספירה נחתכה. */
+const OPENED_MAX_PAGES = 40;
+
+/** שיחות שנפתחו = אנשי קשר שזואי דיברה איתם (last_zoe_reply_at), לא שורות הודעות. */
+async function loadOpenedReplyRows(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  sinceIso: string
+): Promise<{ rows: Array<{ businessId: number; at: string }>; truncated: boolean }> {
+  const rows: Array<{ businessId: number; at: string }> = [];
+  for (let page = 0; page < OPENED_MAX_PAGES; page++) {
+    const from = page * OPENED_PAGE;
+    const { data, error } = await admin
+      .from("contacts")
+      .select("id, business_id, last_zoe_reply_at")
+      .gte("last_zoe_reply_at", sinceIso)
+      .order("last_zoe_reply_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + OPENED_PAGE - 1);
+    if (error) {
+      console.error(
+        "[admin/dashboard] opened conversations failed — if the column is missing run supabase/contacts_last_zoe_reply_at.sql:",
+        error.message
+      );
+      return { rows, truncated: false };
+    }
+    const batch = data ?? [];
+    for (const r of batch) {
+      const businessId = Number((r as { business_id?: unknown }).business_id);
+      const at = String((r as { last_zoe_reply_at?: unknown }).last_zoe_reply_at ?? "");
+      if (!Number.isFinite(businessId) || !at) continue;
+      rows.push({ businessId, at });
+    }
+    if (batch.length < OPENED_PAGE) return { rows, truncated: false };
+  }
+  console.error("[admin/dashboard] opened conversations truncated at", OPENED_MAX_PAGES * OPENED_PAGE);
+  return { rows, truncated: true };
+}
+
+function countByBusiness(
+  rows: Array<{ businessId: number; at: string }>,
+  include: (at: string) => boolean
+): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const row of rows) {
+    if (!include(row.at)) continue;
+    counts.set(row.businessId, (counts.get(row.businessId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export default async function AdminDashboardPage({ searchParams }: Props) {
@@ -63,7 +137,6 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
         churn={0}
         leadingBusiness="—"
         inquiries={[]}
-        waNumbers={[]}
         businessOverview={[]}
         health={[]}
         marketingBusinesses={[]}
@@ -72,75 +145,89 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     );
   }
 
-  const [{ data: bizRows }, { data: msgRows }, { data: inquiries }, { data: waChannels }, { data: msgWeek }] = await Promise.all([
-    admin
-      .from("businesses")
-      .select("id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at")
-      .order("created_at", { ascending: true })
-      .limit(5000),
-    admin
-      .from("messages")
-      .select("business_slug, created_at")
-      .gte("created_at", fromTs)
-      .lte("created_at", toTs)
-      .order("created_at", { ascending: false })
-      .limit(120000),
+  const bizSelectWithIntro =
+    "id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at, intro_period_ends_at, intro_full_price_at";
+  const monthStartIso = getIsraelMonthStartUtc(new Date()).toISOString();
+  const openedSinceIso = fromTs < monthStartIso ? fromTs : monthStartIso;
+
+  const [bizQuery, inquiriesQuery, opened] = await Promise.all([
+    admin.from("businesses").select(bizSelectWithIntro).order("created_at", { ascending: true }).limit(5000),
     admin
       .from("business_inquiries")
       .select("id, business_id, message, created_at, is_read")
       .order("created_at", { ascending: false })
       .limit(3),
-    admin.from("whatsapp_channels").select("business_slug, phone_display, is_active, provisioning_status").limit(200),
-    admin
-      .from("messages")
-      .select("business_slug, session_id, created_at, role")
-      .gte("created_at", fromTs)
-      .lte("created_at", toTs)
-      .order("created_at", { ascending: true })
-      .limit(80000),
+    loadOpenedReplyRows(admin, openedSinceIso),
   ]);
 
-  const businesses = (bizRows ?? []) as any[];
-  const activeBusinesses = businesses.filter((b) => Boolean((b as any).is_active));
-  const activeCustomers = activeBusinesses.length;
-  const mrr = activeBusinesses.reduce((sum, b) => {
-    const v = (b as any).plan_price;
-    const n = typeof v === "number" ? v : v != null ? Number(v) : 0;
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
-  const mrrDisplay = mrr;
+  let bizRows = bizQuery.data;
+  if (bizQuery.error) {
+    console.error(
+      "[admin/dashboard] intro columns unavailable — run supabase/businesses_intro_period.sql:",
+      bizQuery.error.message
+    );
+    const fallback = await admin
+      .from("businesses")
+      .select("id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at")
+      .order("created_at", { ascending: true })
+      .limit(5000);
+    bizRows = fallback.data;
+    if (fallback.error) console.error("[admin/dashboard] businesses query failed:", fallback.error.message);
+  }
+  const inquiries = inquiriesQuery.data;
+
+  const businesses = (bizRows ?? []) as BizRow[];
+  const fromMs = new Date(fromTs).getTime();
+  const toMs = new Date(toTs).getTime();
+  const monthMs = new Date(monthStartIso).getTime();
+  const monthCounts = countByBusiness(opened.rows, (at) => {
+    const ms = new Date(at).getTime();
+    return Number.isFinite(ms) && ms >= monthMs;
+  });
+  const rangeCounts = countByBusiness(opened.rows, (at) => {
+    const ms = new Date(at).getTime();
+    return Number.isFinite(ms) && ms >= fromMs && ms <= toMs;
+  });
+
+  const businessOverview = businesses.map((b) => {
+    const id = Number(b.id);
+    const pkg = resolveAdminPackage({
+      plan: b.plan,
+      planPrice: b.plan_price,
+      introPeriodEndsAt: b.intro_period_ends_at,
+      introFullPriceAt: b.intro_full_price_at,
+    });
+    return {
+      slug: String(b.slug ?? ""),
+      name: String(b.name ?? ""),
+      packageKind: pkg.kind,
+      packageLabel: pkg.label,
+      packageDetail: pkg.detail,
+      billedIls: pkg.billedIls,
+      conversationLimit: pkg.conversationLimit,
+      active: Boolean(b.is_active),
+      conversations_month: Number.isFinite(id) ? (monthCounts.get(id) ?? 0) : 0,
+      conversations_range: Number.isFinite(id) ? (rangeCounts.get(id) ?? 0) : 0,
+    };
+  });
+
+  const activeOverview = businessOverview.filter((b) => b.active);
+  const activeCustomers = activeOverview.length;
+  const mrrDisplay = activeOverview.reduce((sum, b) => sum + b.billedIls, 0);
+  const leading = [...businessOverview].sort((a, b) => b.conversations_range - a.conversations_range)[0];
+  const leadingBusiness = leading && leading.conversations_range > 0 ? leading.name || leading.slug : "—";
 
   // Churn: businesses that became inactive in selected range (best-effort).
   const churn = businesses.filter((b) => {
-    const inactive = !Boolean((b as any).is_active);
+    const inactive = !Boolean(b.is_active);
     if (!inactive) return false;
-    const eff = (b as any).cancellation_effective_at ? new Date(String((b as any).cancellation_effective_at)) : null;
-    const upd = (b as any).updated_at ? new Date(String((b as any).updated_at)) : null;
+    const eff = b.cancellation_effective_at ? new Date(String(b.cancellation_effective_at)) : null;
+    const upd = b.updated_at ? new Date(String(b.updated_at)) : null;
     const at = eff && !Number.isNaN(eff.getTime()) ? eff : upd && !Number.isNaN(upd.getTime()) ? upd : null;
     if (!at) return false;
     const ms = at.getTime();
     return ms >= new Date(fromTs).getTime() && ms <= new Date(toTs).getTime();
   }).length;
-
-  const bySlug = new Map<string, number>();
-  for (const r of msgRows ?? []) {
-    const slug = String((r as any).business_slug ?? "").trim().toLowerCase();
-    if (!slug) continue;
-    bySlug.set(slug, (bySlug.get(slug) ?? 0) + 1);
-  }
-  const leadingBusiness = [...bySlug.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
-
-  const incomingSessionsBySlug = new Map<string, Set<string>>();
-  for (const m of msgWeek ?? []) {
-    const slug = String((m as any).business_slug ?? "").trim().toLowerCase();
-    const sid = String((m as any).session_id ?? "").trim() || "";
-    const role = String((m as any).role ?? "");
-    if (!slug || !sid) continue;
-    if (role !== "user") continue;
-    const set = incomingSessionsBySlug.get(slug) ?? new Set<string>();
-    set.add(sid);
-    incomingSessionsBySlug.set(slug, set);
-  }
 
   const health = (
     await Promise.all([
@@ -211,21 +298,9 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       mrr={mrrDisplay}
       churn={churn}
       leadingBusiness={leadingBusiness}
-      inquiries={(inquiries ?? []) as any[]}
-      waNumbers={(waChannels ?? []).map((c: any) => ({
-        phone: String(c.phone_display ?? "") || "—",
-        business_slug: String(c.business_slug ?? "").trim().toLowerCase(),
-        incoming_7d: incomingSessionsBySlug.get(String(c.business_slug ?? "").trim().toLowerCase())?.size ?? 0,
-        provisioning_status: String((c as any).provisioning_status ?? "").trim() || "active",
-      }))}
-      businessOverview={businesses.map((b) => ({
-        slug: String((b as any).slug ?? ""),
-        name: String((b as any).name ?? ""),
-        plan: (String((b as any).plan ?? "basic") === "premium" ? "premium" : "basic") as "basic" | "premium",
-        active: Boolean((b as any).is_active),
-        conversations_total: bySlug.get(String((b as any).slug ?? "").trim().toLowerCase()) ?? 0,
-        conversations_week: incomingSessionsBySlug.get(String((b as any).slug ?? "").trim().toLowerCase())?.size ?? 0,
-      }))}
+      countsTruncated={opened.truncated}
+      inquiries={(inquiries ?? []) as InquiryRow[]}
+      businessOverview={businessOverview}
       health={health}
     />
   );
@@ -264,15 +339,19 @@ function DashboardV2(props: {
   mrr: number;
   churn: number;
   leadingBusiness: string;
+  countsTruncated?: boolean;
   inquiries: Array<{ id: number; business_id: number | null; message: string; created_at: string; is_read: boolean }>;
-  waNumbers: Array<{ phone: string; business_slug: string; incoming_7d: number; provisioning_status: string }>;
   businessOverview: Array<{
     slug: string;
     name: string;
-    plan: "basic" | "premium";
+    packageKind: AdminPackageKind;
+    packageLabel: string;
+    packageDetail: string;
+    billedIls: number;
+    conversationLimit: number;
     active: boolean;
-    conversations_total: number;
-    conversations_week: number;
+    conversations_month: number;
+    conversations_range: number;
   }>;
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
   marketingBusinesses?: ZoeBusinessOption[];
@@ -413,12 +492,12 @@ function DashboardV2(props: {
           <div style={{ fontSize: 12, color: "#6b5b9a" }}>ברירת מחדל: חודש אחרון</div>
         </section>
 
-        <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
           {[
             { label: "לקוחות פעילים", value: String(props.activeCustomers) },
-            { label: "הכנסה (MRR)", value: moneyIls(props.mrr) },
-            { label: "ביטולים החודש (Churn)", value: String(props.churn) },
-            { label: "עסק מוביל", value: props.leadingBusiness },
+            { label: "חיוב חודשי בפועל", value: moneyIls(props.mrr) },
+            { label: "ביטולים בטווח", value: String(props.churn) },
+            { label: "עסק מוביל בטווח", value: props.leadingBusiness },
           ].map((m) => (
             <div
               key={m.label}
@@ -553,21 +632,29 @@ function DashboardV2(props: {
           }}
         >
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>Business Overview</h2>
-          <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>לחיצה על שורה → /admin/businesses/[slug]</p>
+          <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
+            חבילה וסכום לפי מה שנגבה בפועל, לפני מע״מ (חודש ראשון ב־₪5). שיחות החודש = מספרים שזואי דיברה איתם מתחילת החודש בישראל, מול מכסת החבילה.
+          </p>
+          {props.countsTruncated ? (
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#8a1c1c" }}>
+              הספירה נחתכה אחרי 40,000 אנשי קשר. יש להריץ את האינדקס ולבדוק שוב.
+            </p>
+          ) : null}
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
               <thead>
                 <tr style={{ textAlign: "right", fontSize: 12, color: "#6b5b9a" }}>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>עסק</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>חבילה</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות כלל</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות שבוע</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>נגבה</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות החודש</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות בטווח</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>סטטוס</th>
                 </tr>
               </thead>
               <tbody>
-                {props.businessOverview
-                  .sort((a, b) => Number(b.active) - Number(a.active) || b.conversations_total - a.conversations_total)
+                {[...props.businessOverview]
+                  .sort((a, b) => Number(b.active) - Number(a.active) || b.conversations_month - a.conversations_month)
                   .slice(0, 200)
                   .map((b) => (
                     <tr key={b.slug} style={{ borderBottom: "1px solid rgba(113,51,218,0.08)" }}>
@@ -587,18 +674,31 @@ function DashboardV2(props: {
                             display: "inline-block",
                             padding: "4px 10px",
                             borderRadius: 999,
-                            background: "rgba(113,51,218,0.10)",
-                            color: "#7133da",
+                            background:
+                              b.packageKind === "intro_ended"
+                                ? "rgba(245,158,11,0.16)"
+                                : "rgba(113,51,218,0.10)",
+                            color: b.packageKind === "intro_ended" ? "#92400e" : "#7133da",
                             fontSize: 12,
                             fontWeight: 400,
-                            border: "1px solid rgba(113,51,218,0.18)",
+                            border:
+                              b.packageKind === "intro_ended"
+                                ? "1px solid rgba(245,158,11,0.35)"
+                                : "1px solid rgba(113,51,218,0.18)",
                           }}
                         >
-                          {b.plan === "premium" ? "premium" : "basic"}
+                          {b.packageLabel}
                         </span>
+                        {b.packageDetail ? (
+                          <div style={{ marginTop: 4, fontSize: 11, color: "#6b5b9a" }}>{b.packageDetail}</div>
+                        ) : null}
                       </td>
-                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>{b.conversations_total}</td>
-                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>{b.conversations_week}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{moneyIls(b.billedIls)}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>
+                        {b.conversations_month}
+                        <span style={{ color: "#6b5b9a", fontWeight: 400 }}> / {b.conversationLimit}</span>
+                      </td>
+                      <td style={{ padding: "10px 8px", fontWeight: 400 }}>{b.conversations_range}</td>
                       <td style={{ padding: "10px 8px" }}>
                         <span
                           style={{
