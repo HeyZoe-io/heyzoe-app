@@ -725,9 +725,6 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                     {"{מוצר}"} נמשך מנוד המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מנוד יום ושעה שאחריו. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
                   </p>
                 ) : null}
-                <button type="button" onClick={() => deleteNode(selected.id)} className="text-sm text-rose-600">
-                  מחקי נוד
-                </button>
               </div>
             )}
             <p className="mt-4 text-xs text-zinc-400">
