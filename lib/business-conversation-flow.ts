@@ -46,15 +46,17 @@ function nodeText(node: FlowNode): string {
   return String(node.data.text ?? "").trim();
 }
 
+const MAX_NODE_BUTTONS = 10;
+
 function questionButtons(node: FlowNode): string[] {
   const raw = node.data.buttons;
   if (!Array.isArray(raw)) return [];
-  return raw.map((b) => String(b ?? "").trim()).filter(Boolean);
+  return raw.map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
 }
 
 function buttonList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((b) => String(b ?? "").trim()).filter(Boolean);
+  return raw.map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
 }
 
 function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {

@@ -44,6 +44,21 @@ const TYPE_LABEL: Record<FlowType, string> = {
 };
 
 const ADD_TYPES: FlowType[] = ["message", "question", "product", "register"];
+const MAX_NODE_BUTTONS = 10;
+
+function capButtonList(list: string[] | undefined): string[] | undefined {
+  if (!list || list.length <= MAX_NODE_BUTTONS) return list;
+  return list.slice(0, MAX_NODE_BUTTONS);
+}
+
+function capFlowData(data: FlowData): FlowData {
+  return {
+    ...data,
+    buttons: capButtonList(data.buttons),
+    day_buttons: capButtonList(data.day_buttons),
+    time_buttons: capButtonList(data.time_buttons),
+  };
+}
 
 function newId() {
   return crypto.randomUUID();
@@ -67,7 +82,7 @@ function cardStyle(selected: boolean): CSSProperties {
 
 function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, FlowType>>) {
   const d = data ?? {};
-  const buttons = Array.isArray(d.buttons) ? d.buttons : [];
+  const buttons = (Array.isArray(d.buttons) ? d.buttons : []).slice(0, MAX_NODE_BUTTONS);
   const deleteNode = useContext(deleteNodeContext);
   return (
     <div style={cardStyle(Boolean(selected))}>
@@ -103,11 +118,11 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       {type === "daytime" ? (
         <div style={{ fontSize: 10, color: "#3f3f46", lineHeight: 1.35 }}>
           <div style={{ whiteSpace: "pre-wrap" }}>{String(d.day_text || "").trim() || "שאלה על היום"}</div>
-          {(d.day_buttons ?? []).filter((label) => label.trim()).map((label, i) => (
+          {(d.day_buttons ?? []).slice(0, MAX_NODE_BUTTONS).filter((label) => label.trim()).map((label, i) => (
             <div key={`d-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
           ))}
           <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{String(d.time_text || "").trim() || "שאלה על השעה"}</div>
-          {(d.time_buttons ?? []).filter((label) => label.trim()).map((label, i) => (
+          {(d.time_buttons ?? []).slice(0, MAX_NODE_BUTTONS).filter((label) => label.trim()).map((label, i) => (
             <div key={`t-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
           ))}
         </div>
@@ -268,7 +283,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
         id: n.id,
         type: n.type,
         position: { x: n.position_x, y: n.position_y },
-        data: n.data ?? {},
+        data: capFlowData(n.data ?? {}),
       }));
       const opened = withDefaultOpening(loadedNodes, loadedEdges, String(json.openingText ?? ""));
       const withSchedule = ensureDaytimeAfterProducts(opened, loadedEdges);
@@ -478,12 +493,12 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 {selected.type === "question" ? (
                   <div className="space-y-2">
                     <div className="text-sm text-zinc-700">כפתורים</div>
-                    {(selected.data.buttons ?? [""]).map((label, i) => (
+                    {(selected.data.buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={i}
                         value={label}
                         onChange={(e) => {
-                          const buttons = [...(selected.data.buttons ?? [])];
+                          const buttons = [...(selected.data.buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
                           buttons[i] = e.target.value;
                           patchSelected({ buttons });
                         }}
@@ -491,13 +506,17 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => patchSelected({ buttons: [...(selected.data.buttons ?? []), ""] })}
-                      className="text-sm font-medium text-[#7133da]"
-                    >
-                      הוסיפי כפתור
-                    </button>
+                    {(selected.data.buttons ?? []).length < MAX_NODE_BUTTONS ? (
+                      <button
+                        type="button"
+                        onClick={() => patchSelected({ buttons: [...(selected.data.buttons ?? []), ""].slice(0, MAX_NODE_BUTTONS) })}
+                        className="text-sm font-medium text-[#7133da]"
+                      >
+                        הוסיפי כפתור
+                      </button>
+                    ) : (
+                      <p className="text-xs text-zinc-400">עד 10 כפתורים</p>
+                    )}
                   </div>
                 ) : null}
                 {selected.type === "daytime" ? (
@@ -512,12 +531,12 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
                       />
                     </label>
-                    {(selected.data.day_buttons ?? [""]).map((label, i) => (
+                    {(selected.data.day_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={`day-${i}`}
                         value={label}
                         onChange={(e) => {
-                          const day_buttons = [...(selected.data.day_buttons ?? [])];
+                          const day_buttons = [...(selected.data.day_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
                           day_buttons[i] = e.target.value;
                           patchSelected({ day_buttons });
                         }}
@@ -525,13 +544,17 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => patchSelected({ day_buttons: [...(selected.data.day_buttons ?? []), ""] })}
-                      className="text-sm font-medium text-[#7133da]"
-                    >
-                      הוסיפי יום
-                    </button>
+                    {(selected.data.day_buttons ?? []).length < MAX_NODE_BUTTONS ? (
+                      <button
+                        type="button"
+                        onClick={() => patchSelected({ day_buttons: [...(selected.data.day_buttons ?? []), ""].slice(0, MAX_NODE_BUTTONS) })}
+                        className="text-sm font-medium text-[#7133da]"
+                      >
+                        הוסיפי יום
+                      </button>
+                    ) : (
+                      <p className="text-xs text-zinc-400">עד 10 כפתורים</p>
+                    )}
                     <label className="block text-sm text-zinc-700">
                       שאלה על השעה
                       <textarea
@@ -542,12 +565,12 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
                       />
                     </label>
-                    {(selected.data.time_buttons ?? [""]).map((label, i) => (
+                    {(selected.data.time_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={`time-${i}`}
                         value={label}
                         onChange={(e) => {
-                          const time_buttons = [...(selected.data.time_buttons ?? [])];
+                          const time_buttons = [...(selected.data.time_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
                           time_buttons[i] = e.target.value;
                           patchSelected({ time_buttons });
                         }}
@@ -555,13 +578,17 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       />
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => patchSelected({ time_buttons: [...(selected.data.time_buttons ?? []), ""] })}
-                      className="text-sm font-medium text-[#7133da]"
-                    >
-                      הוסיפי שעה
-                    </button>
+                    {(selected.data.time_buttons ?? []).length < MAX_NODE_BUTTONS ? (
+                      <button
+                        type="button"
+                        onClick={() => patchSelected({ time_buttons: [...(selected.data.time_buttons ?? []), ""].slice(0, MAX_NODE_BUTTONS) })}
+                        className="text-sm font-medium text-[#7133da]"
+                      >
+                        הוסיפי שעה
+                      </button>
+                    ) : (
+                      <p className="text-xs text-zinc-400">עד 10 כפתורים</p>
+                    )}
                   </div>
                 ) : null}
                 {selected.type === "product" ? (

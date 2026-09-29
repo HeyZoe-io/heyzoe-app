@@ -8,6 +8,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const NODE_TYPES = new Set(["message", "question", "product", "daytime", "register"]);
+const MAX_NODE_BUTTONS = 10;
+
+function capNodeData(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== "object") return {};
+  const next = { ...(data as Record<string, unknown>) };
+  for (const key of ["buttons", "day_buttons", "time_buttons"]) {
+    const list = next[key];
+    if (Array.isArray(list) && list.length > MAX_NODE_BUTTONS) next[key] = list.slice(0, MAX_NODE_BUTTONS);
+  }
+  return next;
+}
 
 async function authorizedBusiness(slugRaw: string) {
   const slug = normDashboardSlug(slugRaw);
@@ -88,7 +99,7 @@ export async function POST(req: NextRequest) {
         id: String(n.id),
         business_id: businessId,
         type: String(n.type),
-        data: n.data && typeof n.data === "object" ? n.data : {},
+        data: capNodeData(n.data),
         position_x: Number(n.position_x) || 0,
         position_y: Number(n.position_y) || 0,
       })),
