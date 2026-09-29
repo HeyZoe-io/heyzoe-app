@@ -70,7 +70,11 @@ function questionButtons(node: FlowNode): string[] {
 function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {
   const targeted = new Set(edges.map((e) => e.target_node_id));
   const roots = nodes.filter((n) => !targeted.has(n.id));
-  return roots[0] ?? nodes[0] ?? null;
+  const continues = roots.filter((node) =>
+    edges.some((edge) => edge.source_node_id === node.id && edge.source_handle !== "silence")
+  );
+  const withText = continues.filter((node) => String(node.data.text ?? "").trim());
+  return withText[0] ?? continues[0] ?? roots.find((node) => String(node.data.text ?? "").trim()) ?? roots[0] ?? nodes[0] ?? null;
 }
 
 function edgeFrom(edges: FlowEdge[], sourceId: string, handle: string): FlowEdge | null {
