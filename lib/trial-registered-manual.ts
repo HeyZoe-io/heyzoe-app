@@ -83,6 +83,8 @@ export async function markContactTrialRegisteredManually(input: {
   businessSlug: string;
   phone: string;
   fullName?: string | null;
+  /** false = תבנית בעלים עם מוצר, יום ושעה */
+  scheduleDirectRegistration?: boolean;
 }): Promise<{ ok: true; trial_registered_at: string } | { ok: false; error: string }> {
   const businessId = Number(input.businessId);
   const phoneVariants = contactPhoneLookupVariants(input.phone);
@@ -150,7 +152,8 @@ export async function markContactTrialRegisteredManually(input: {
         businessSlug: slug,
         sessionId,
         registeredAtIso: nowIso,
-        scheduleDirectRegistration: pack?.scheduleDirectRegistration !== false,
+        scheduleDirectRegistration:
+          input.scheduleDirectRegistration ?? (pack?.scheduleDirectRegistration !== false),
         requestedDate: registration.requestedDate,
         requestedTime: registration.requestedTime,
       });

@@ -6691,6 +6691,23 @@ async function processIncoming(
     console.error("[WA Webhook] pause-check (early) failed (continuing):", e);
   }
 
+  if (!sessionPausedNow && businessId && msg.type === "text") {
+    try {
+      const { handleBusinessConversationFlowInbound } = await import("@/lib/business-conversation-flow");
+      const nodeFlow = await handleBusinessConversationFlowInbound({
+        businessId: Number(businessId),
+        businessSlug: business_slug,
+        phone: msg.from,
+        text: String(msg.text ?? ""),
+        phoneNumberId: msg.toNumber,
+        sessionId: earlySessionId,
+      });
+      if (nodeFlow.handled) return;
+    } catch (e) {
+      console.error("[WA Webhook] business conversation flow failed:", e);
+    }
+  }
+
   const wantsRussianFlowRestart =
     isSalesFlowFreeTextInbound(msg) && matchesSwitchToRussianIntent(msg.text);
 

@@ -1229,6 +1229,15 @@ const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ),
 });
 
+const ConversationFlowBuilder = dynamic(() => import("./steps/ConversationFlowBuilder"), {
+  ssr: false,
+  loading: () => (
+    <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-zinc-500">טוען את השיחה…</div>
+  ),
+});
+
+const NODE_CONVERSATION_SLUGS = new Set(["pipman-team"]);
+
 const Step4SalesFlow = dynamic(() => import("./steps/Step4SalesFlow"), {
   ssr: false,
   loading: () => (
@@ -3354,7 +3363,10 @@ export default function SlugSettingsPage({
         )}
 
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
-        {step === 4 && (
+        {step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) ? (
+          <ConversationFlowBuilder slug={slug} />
+        ) : null}
+        {step === 4 && !NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) ? (
           <Step4SalesFlow
             lang={lang}
             planIsStarter={plan === "basic"}
@@ -3416,7 +3428,7 @@ export default function SlugSettingsPage({
             directionsMediaUrl={directionsMediaUrl}
             directionsMediaType={directionsMediaType}
           />
-        )}
+        ) : null}
 
         {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
         {step === 5 && (
