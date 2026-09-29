@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { assertBusinessAccess, normDashboardSlug } from "@/lib/dashboard-business-access";
 import { buildDefaultConversationOpening, taglineFromSocialLinks } from "@/lib/business-conversation-opening";
+import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,9 @@ function capNodeData(data: unknown): Record<string, unknown> {
   const next = { ...(data as Record<string, unknown>) };
   for (const key of ["buttons", "day_buttons", "time_buttons"]) {
     const list = next[key];
-    if (Array.isArray(list) && list.length > MAX_NODE_BUTTONS) next[key] = list.slice(0, MAX_NODE_BUTTONS);
+    if (Array.isArray(list)) {
+      next[key] = list.slice(0, MAX_NODE_BUTTONS).map((item) => clampWaReplyButtonTitle(String(item ?? "")));
+    }
   }
   return next;
 }

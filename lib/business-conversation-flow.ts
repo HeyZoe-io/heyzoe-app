@@ -12,6 +12,7 @@ import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conver
 import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
 
 export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register";
 
@@ -48,15 +49,19 @@ function nodeText(node: FlowNode): string {
 
 const MAX_NODE_BUTTONS = 10;
 
+function fitButtonLabel(raw: unknown): string {
+  return clampWaReplyButtonTitle(String(raw ?? "").trim());
+}
+
 function questionButtons(node: FlowNode): string[] {
   const raw = node.data.buttons;
   if (!Array.isArray(raw)) return [];
-  return raw.map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
+  return raw.map(fitButtonLabel).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
 }
 
 function buttonList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((b) => String(b ?? "").trim()).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
+  return raw.map(fitButtonLabel).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
 }
 
 function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {

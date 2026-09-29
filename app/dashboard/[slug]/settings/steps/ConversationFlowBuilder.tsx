@@ -20,6 +20,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Loader2, Undo2 } from "lucide-react";
+import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/wa-button-label";
 
 type FlowType = "message" | "question" | "product" | "daytime" | "register";
 
@@ -47,8 +48,8 @@ const ADD_TYPES: FlowType[] = ["message", "question", "product", "register"];
 const MAX_NODE_BUTTONS = 10;
 
 function capButtonList(list: string[] | undefined): string[] | undefined {
-  if (!list || list.length <= MAX_NODE_BUTTONS) return list;
-  return list.slice(0, MAX_NODE_BUTTONS);
+  if (!list) return list;
+  return list.slice(0, MAX_NODE_BUTTONS).map((label) => clampWaReplyButtonTitle(label));
 }
 
 function capFlowData(data: FlowData): FlowData {
@@ -598,15 +599,18 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 ) : null}
                 {selected.type === "question" ? (
                   <div className="space-y-2">
-                    <div className="text-sm text-zinc-700">כפתורים</div>
+                    <div className="text-sm text-zinc-700">
+                      כפתורים <span className="text-xs font-normal text-zinc-400">עד {WA_REPLY_BUTTON_TITLE_MAX_CHARS} תווים</span>
+                    </div>
                     {(selected.data.buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={i}
                         value={label}
                         onFocus={armEditGesture}
+                        maxLength={WA_REPLY_BUTTON_TITLE_MAX_CHARS}
                         onChange={(e) => {
                           const buttons = [...(selected.data.buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
-                          buttons[i] = e.target.value;
+                          buttons[i] = clampWaReplyButtonTitle(e.target.value);
                           patchSelected({ buttons }, true);
                         }}
                         placeholder={`כפתור ${i + 1}`}
@@ -639,14 +643,16 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
                       />
                     </label>
+                    <p className="text-xs text-zinc-400">עד {WA_REPLY_BUTTON_TITLE_MAX_CHARS} תווים לכפתור</p>
                     {(selected.data.day_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={`day-${i}`}
                         value={label}
                         onFocus={armEditGesture}
+                        maxLength={WA_REPLY_BUTTON_TITLE_MAX_CHARS}
                         onChange={(e) => {
                           const day_buttons = [...(selected.data.day_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
-                          day_buttons[i] = e.target.value;
+                          day_buttons[i] = clampWaReplyButtonTitle(e.target.value);
                           patchSelected({ day_buttons }, true);
                         }}
                         placeholder={`יום ${i + 1}`}
@@ -675,14 +681,16 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                         className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
                       />
                     </label>
+                    <p className="text-xs text-zinc-400">עד {WA_REPLY_BUTTON_TITLE_MAX_CHARS} תווים לכפתור</p>
                     {(selected.data.time_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
                       <input
                         key={`time-${i}`}
                         value={label}
                         onFocus={armEditGesture}
+                        maxLength={WA_REPLY_BUTTON_TITLE_MAX_CHARS}
                         onChange={(e) => {
                           const time_buttons = [...(selected.data.time_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
-                          time_buttons[i] = e.target.value;
+                          time_buttons[i] = clampWaReplyButtonTitle(e.target.value);
                           patchSelected({ time_buttons }, true);
                         }}
                         placeholder={`שעה ${i + 1}`}
