@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -12,6 +12,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   type Connection,
   type Edge,
   type Node,
@@ -43,8 +44,11 @@ function newId() {
   return crypto.randomUUID();
 }
 
+const deleteNodeContext = createContext<(id: string) => void>(() => {});
+
 function cardStyle(selected: boolean): CSSProperties {
   return {
+    position: "relative",
     width: 132,
     borderRadius: 10,
     border: selected ? "1.5px solid #7133da" : "1px solid rgba(24,24,27,0.1)",
@@ -56,11 +60,39 @@ function cardStyle(selected: boolean): CSSProperties {
   };
 }
 
-function FlowNodeCard({ data, selected, type }: NodeProps<Node<FlowData, FlowType>>) {
+function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, FlowType>>) {
   const d = data ?? {};
   const buttons = Array.isArray(d.buttons) ? d.buttons : [];
+  const deleteNode = useContext(deleteNodeContext);
   return (
     <div style={cardStyle(Boolean(selected))}>
+      <button
+        type="button"
+        className="nodrag nopan"
+        aria-label="מחיקת נוד"
+        onClick={(event) => {
+          event.stopPropagation();
+          deleteNode(id);
+        }}
+        style={{
+          position: "absolute",
+          top: -7,
+          left: -7,
+          zIndex: 2,
+          width: 18,
+          height: 18,
+          borderRadius: 999,
+          border: "1px solid rgba(24,24,27,0.14)",
+          background: "#fff",
+          color: "#71717a",
+          fontSize: 13,
+          lineHeight: "14px",
+          cursor: "pointer",
+          padding: 0,
+        }}
+      >
+        ×
+      </button>
       <Handle type="target" position={Position.Right} style={{ background: "#7133da" }} />
       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>{TYPE_LABEL[type]}</div>
       <div
@@ -155,6 +187,8 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   const [error, setError] = useState("");
   const saveTimer = useRef<number | null>(null);
   const ready = useRef(false);
+  const flowWrapRef = useRef<HTMLDivElement>(null);
+  const { screenToFlowPosition } = useReactFlow();
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
@@ -248,6 +282,15 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
     [setEdges]
   );
 
+  const deleteNode = useCallback(
+    (id: string) => {
+      setNodes((current) => current.filter((node) => node.id !== id));
+      setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id));
+      setSelectedId((current) => (current === id ? null : current));
+    },
+    [setEdges, setNodes]
+  );
+
   function addNode(type: FlowType) {
     const id = newId();
     const data: FlowData =
@@ -258,10 +301,19 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
           : type === "product"
             ? { text: "", product_slug: "" }
             : { text: "" };
-    setNodes((current) => [
-      ...current,
-      { id, type, position: { x: 80 + current.length * 24, y: 80 + current.length * 28 }, data },
-    ]);
+    setNodes((current) => {
+      const wrap = flowWrapRef.current?.getBoundingClientRect();
+      const center =
+        wrap && status !== "loading"
+          ? screenToFlowPosition({ x: wrap.left + wrap.width / 2, y: wrap.top + wrap.height / 2 })
+          : { x: 240, y: 180 };
+      let x = center.x - 66;
+      let y = center.y - 28;
+      const stacked = current.filter((node) => Math.abs(node.position.x - x) < 36 && Math.abs(node.position.y - y) < 36).length;
+      x += stacked * 22;
+      y += stacked * 18;
+      return [...current, { id, type, position: { x, y }, data }];
+    });
     setSelectedId(id);
   }
 
@@ -297,13 +349,14 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
           </div>
         </div>
         <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="relative h-[520px] min-h-0 overflow-hidden bg-[#fafafa] lg:h-full">
+          <div ref={flowWrapRef} className="relative h-[520px] min-h-0 overflow-hidden bg-[#fafafa] lg:h-full">
             {status === "loading" ? (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
                 <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 טוען את השיחה…
               </div>
             ) : (
+              <deleteNodeContext.Provider value={deleteNode}>
               <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -323,6 +376,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#e4e4e7" />
                 <Controls showInteractive={false} />
               </ReactFlow>
+              </deleteNodeContext.Provider>
             )}
           </div>
           <aside className="border-t border-zinc-100 p-4 lg:border-s lg:border-t-0">
@@ -414,15 +468,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                     {"{מוצר}"} נמשך מנוד המוצר ומטאב מוצרים. {"{יום}"} ו{"{שעה}"} נמשכים משאלות שסימנת כיום או כשעה. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
                   </p>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNodes((current) => current.filter((n) => n.id !== selected.id));
-                    setEdges((current) => current.filter((e) => e.source !== selected.id && e.target !== selected.id));
-                    setSelectedId(null);
-                  }}
-                  className="text-sm text-rose-600"
-                >
+                <button type="button" onClick={() => deleteNode(selected.id)} className="text-sm text-rose-600">
                   מחקי נוד
                 </button>
               </div>
