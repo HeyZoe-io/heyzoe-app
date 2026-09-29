@@ -1,6 +1,8 @@
 /** Meta WhatsApp Cloud API — max asset size when sending image/video messages */
 export const WHATSAPP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const WHATSAPP_VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+/** Caption on an image or video message. Longer text must go out as a separate message. */
+export const WHATSAPP_MEDIA_CAPTION_MAX_CHARS = 1024;
 /** דשבורד: העלאת תמונה (כיווץ אוטומטי לפני שליחה אם מעל 5MB) */
 export const DASHBOARD_IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 

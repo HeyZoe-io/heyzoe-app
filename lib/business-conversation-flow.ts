@@ -5,7 +5,8 @@ import { CLAUDE_WHATSAPP_MODEL } from "@/lib/claude";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { HEYZOE_SF_SERVICE_PREFIX, logMessage } from "@/lib/analytics";
-import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/whatsapp";
+import { buildMetaInteractivePayload, sendMetaWhatsAppMessage, sendWhatsAppMediaMessage } from "@/lib/whatsapp";
+import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
@@ -135,6 +136,47 @@ async function sendText(phoneNumberId: string, phone: string, businessSlug: stri
     model_used: "business_conversation_flow",
     session_id: sessionId,
   });
+}
+
+function messageMedia(data: Record<string, unknown>): { url: string; kind: "image" | "video" } | null {
+  const url = String(data.media_url ?? "").trim();
+  if (!url.startsWith("https://")) return null;
+  if (data.media_kind === "video") return { url, kind: "video" };
+  if (data.media_kind === "image") return { url, kind: "image" };
+  return null;
+}
+
+async function sendMessageNode(
+  phoneNumberId: string,
+  phone: string,
+  businessSlug: string,
+  sessionId: string,
+  node: FlowNode
+) {
+  const text = nodeText(node);
+  const media = messageMedia(node.data);
+  if (!media) {
+    if (text) await sendText(phoneNumberId, phone, businessSlug, sessionId, text);
+    return;
+  }
+  const caption = text.length <= WHATSAPP_MEDIA_CAPTION_MAX_CHARS ? text : "";
+  try {
+    await sendWhatsAppMediaMessage(phoneNumberId, phone, media.url, "", "", caption || undefined, media.kind);
+    await logMessage({
+      business_slug: businessSlug,
+      role: "assistant",
+      content: caption ? `[${media.kind}] ${caption}` : `[${media.kind}]`,
+      model_used: "business_conversation_flow",
+      session_id: sessionId,
+    });
+  } catch (error) {
+    console.error("[business-conversation-flow] media send failed:", error);
+    if (text) await sendText(phoneNumberId, phone, businessSlug, sessionId, text);
+    return;
+  }
+  if (text.length > WHATSAPP_MEDIA_CAPTION_MAX_CHARS) {
+    await sendText(phoneNumberId, phone, businessSlug, sessionId, text);
+  }
 }
 
 async function sendChoices(
@@ -518,8 +560,12 @@ async function deliverFrom(input: {
     }
 
     silenceAnchor = node.id;
-    const text = nodeText(node);
-    if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
+    if (node.type === "message") {
+      await sendMessageNode(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, node);
+    } else {
+      const text = nodeText(node);
+      if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
+    }
     const next = edgeFrom(input.edges, node.id, "out");
     nodeId = next?.target_node_id ?? null;
   }

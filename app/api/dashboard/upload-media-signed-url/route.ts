@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   const contentType =
     typeof body.contentType === "string" ? body.contentType.trim().toLowerCase() : "";
   const isVideo =
-    contentType.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(filename);
+    contentType.startsWith("video/") || /\.(mp4|mov|webm|3gp|3gpp)$/i.test(filename);
   const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
 
   const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;

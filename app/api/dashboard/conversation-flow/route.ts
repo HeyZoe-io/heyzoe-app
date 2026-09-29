@@ -21,6 +21,15 @@ function capNodeData(data: unknown): Record<string, unknown> {
       next[key] = list.slice(0, MAX_NODE_BUTTONS).map((item) => clampWaReplyButtonTitle(String(item ?? "")));
     }
   }
+  const mediaUrl = typeof next.media_url === "string" ? next.media_url.trim() : "";
+  const mediaKind = next.media_kind === "video" ? "video" : next.media_kind === "image" ? "image" : "";
+  if (mediaUrl.startsWith("https://") && mediaKind) {
+    next.media_url = mediaUrl;
+    next.media_kind = mediaKind;
+  } else {
+    delete next.media_url;
+    delete next.media_kind;
+  }
   return next;
 }
 

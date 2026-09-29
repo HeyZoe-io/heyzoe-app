@@ -21,6 +21,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Loader2, Undo2 } from "lucide-react";
 import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/wa-button-label";
+import { uploadDashboardWhatsAppMedia } from "@/lib/upload-dashboard-media-client";
+import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
 
 type FlowType = "message" | "question" | "product" | "daytime" | "register" | "followup" | "details";
 
@@ -33,6 +35,8 @@ type FlowData = {
   time_text?: string;
   time_buttons?: string[];
   delay_minutes?: number;
+  media_url?: string;
+  media_kind?: "image" | "video" | "";
 };
 
 type ProductOption = { slug: string; name: string; slots: string[] };
@@ -163,6 +167,11 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
         {String(d.text || "").trim() || "טקסט ריק"}
       </div>
       )}
+      {type === "message" && String(d.media_url ?? "").trim() ? (
+        <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>
+          {d.media_kind === "video" ? "סרטון" : "תמונה"}
+        </div>
+      ) : null}
       {type === "followup" ? (
         <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{delayLabel(delayMinutesOf(d))}</div>
       ) : null}
@@ -329,6 +338,9 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [mediaUploading, setMediaUploading] = useState(false);
+  const [mediaError, setMediaError] = useState("");
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [canUndo, setCanUndo] = useState(false);
   const historyRef = useRef<GraphSnapshot[]>([]);
   const savedKey = useRef("");
@@ -341,6 +353,10 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   const { screenToFlowPosition } = useReactFlow();
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
+
+  useEffect(() => {
+    setMediaError("");
+  }, [selectedId]);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -677,6 +693,83 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
                   </label>
+                ) : null}
+                {selected.type === "message" ? (
+                  <div className="space-y-2">
+                    <div className="text-sm text-zinc-700">תמונה או סרטון</div>
+                    <input
+                      ref={mediaInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,.jpg,.jpeg,.png,video/mp4,video/3gpp,.mp4,.3gp,.3gpp"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file || !selected) return;
+                        const nodeId = selected.id;
+                        setMediaError("");
+                        setMediaUploading(true);
+                        void uploadDashboardWhatsAppMedia(file)
+                          .then((uploaded) => {
+                            remember();
+                            setDirty(true);
+                            setNodes((current) =>
+                              current.map((node) =>
+                                node.id === nodeId
+                                  ? { ...node, data: { ...node.data, media_url: uploaded.url, media_kind: uploaded.kind } }
+                                  : node
+                              )
+                            );
+                          })
+                          .catch((uploadError: unknown) => {
+                            setMediaError(uploadError instanceof Error ? uploadError.message : "ההעלאה נכשלה.");
+                          })
+                          .finally(() => setMediaUploading(false));
+                      }}
+                    />
+                    {String(selected.data.media_url ?? "").trim() ? (
+                      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                        {selected.data.media_kind === "video" ? (
+                          <video
+                            src={`${String(selected.data.media_url).split("#")[0]}#t=0.001`}
+                            className="max-h-36 w-full bg-black object-contain"
+                            muted
+                            playsInline
+                          />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={String(selected.data.media_url)} alt="" className="max-h-36 w-full object-contain" />
+                        )}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={mediaUploading}
+                        onClick={() => mediaInputRef.current?.click()}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 disabled:opacity-50"
+                      >
+                        {mediaUploading ? "מעלה…" : String(selected.data.media_url ?? "").trim() ? "החלפת קובץ" : "הוספת קובץ"}
+                      </button>
+                      {String(selected.data.media_url ?? "").trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => patchSelected({ media_url: "", media_kind: "" })}
+                          className="rounded-full px-3 py-1.5 text-sm text-zinc-500"
+                        >
+                          הסרה
+                        </button>
+                      ) : null}
+                    </div>
+                    {mediaError ? <p className="text-xs text-red-600">{mediaError}</p> : null}
+                    <p className="text-xs leading-relaxed text-zinc-500">
+                      JPG או PNG עד 5MB. סרטון MP4 או 3GP עד 16MB, עם קידוד H.264 ושמע AAC. הטקסט נשלח ככיתוב על הקובץ
+                      {selected.data.text && [...String(selected.data.text)].length > WHATSAPP_MEDIA_CAPTION_MAX_CHARS
+                        ? ", ומעל 1024 תווים הוא נשלח גם כהודעה נפרדת"
+                        : ""}
+                      .
+                    </p>
+                  </div>
                 ) : null}
                 {selected.type === "question" ? (
                   <div className="space-y-2">
