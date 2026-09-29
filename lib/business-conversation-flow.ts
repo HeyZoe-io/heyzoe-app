@@ -6,6 +6,7 @@ import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { HEYZOE_SF_SERVICE_PREFIX, logMessage } from "@/lib/analytics";
 import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/whatsapp";
+import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import {
   fillRegistrationText,
@@ -167,7 +168,7 @@ async function productName(admin: SupabaseClient, businessId: number, slug: stri
   return String((data as { name?: unknown } | null)?.name ?? "").trim();
 }
 
-async function answerFreeQuestion(businessSlug: string, question: string): Promise<string> {
+async function answerFreeQuestion(businessSlug: string, sessionId: string, question: string): Promise<string> {
   const pack = await getBusinessKnowledgePack(businessSlug);
   const knowledge = [pack?.faqsText, pack?.servicesText, pack?.benefitsText, pack?.vibeText, pack?.targetAudienceText]
     .filter(Boolean)
@@ -195,7 +196,12 @@ ${knowledge || "אין ידע נוסף."}
       .map((c) => ("text" in c ? String(c.text ?? "") : ""))
       .join("\n")
       .trim();
-    return text || "אני כאן, אפשר לשאול אותי עוד.";
+    const fallback = "אני כאן, אפשר לשאול אותי עוד.";
+    const stripped = stripModelThoughtLeak(text || fallback, {
+      businessSlug,
+      conversationId: sessionId,
+    });
+    return stripped.trim() || fallback;
   } catch (e) {
     console.error("[business-conversation-flow] free question failed:", e);
     return "אני כאן לכל שאלה על האימונים.";
@@ -363,7 +369,7 @@ export async function handleBusinessConversationFlowInbound(input: {
 
   if (session?.flow_completed) {
     if (!text) return { handled: true };
-    const answer = await answerFreeQuestion(input.businessSlug, text);
+    const answer = await answerFreeQuestion(input.businessSlug, input.sessionId, text);
     await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, answer);
     return { handled: true };
   }

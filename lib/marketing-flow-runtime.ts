@@ -14,6 +14,7 @@ import {
 } from "@/lib/marketing-support-wa";
 import { fixNeutralLeadPluralAddressing } from "@/lib/wa-assistant-reply-fixes";
 import { sanitizeZoeDashes } from "@/lib/zoe-text";
+import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import {
   MARKETING_CONVERSATIONS_SLUG,
   MARKETING_WA_PHONE_NUMBER_ID,
@@ -1821,7 +1822,13 @@ ${supportWaUrl}
       });
 
       const textBlock = response.content.find((b) => b.type === "text");
-      let out = sanitizeZoeDashes(textBlock?.text?.trim() || "תודה על ההודעה! נחזור אליך בהקדם.");
+      const marketingFallback = "תודה על ההודעה! נחזור אליך בהקדם.";
+      let out = sanitizeZoeDashes(textBlock?.text?.trim() || marketingFallback);
+      out = stripModelThoughtLeak(out, {
+        businessSlug: MARKETING_CONVERSATIONS_SLUG,
+        conversationId: leadPhone ? marketingWaSessionId(leadPhone) : "",
+      });
+      if (!out.trim()) out = marketingFallback;
       if (
         (isNegativeFitnessScopeClarifyReply(userText) &&
           assistantAskedFitnessScopeClarify(chatHistory)) ||

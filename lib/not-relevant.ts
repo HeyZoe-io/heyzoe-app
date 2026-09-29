@@ -264,15 +264,27 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
     }
   }
 
-  const answerOnly = isFallbackErrorReply
+  let answerOnly = isFallbackErrorReply
     ? replyCore
     : stripTrailingFollowUpQuestion(
         applyKnownAssistantReplyFixes(replyCore, {
           knowledge,
           phase: "opening",
           multiServiceAwaitingPick: false,
+          businessSlug,
+          conversationId: input.sessionId,
         })
       );
+
+  if (!isFallbackErrorReply && !answerOnly.trim()) {
+    const { detectMessageLanguage } = await import("@/lib/language-detect");
+    const { pickUnclearIntentReply } = await import("@/lib/wa-unclear-intent");
+    answerOnly = pickUnclearIntentReply("clarify", detectMessageLanguage(userText));
+    console.error("[not-relevant] model reply empty after thought-strip; using unclear fallback", {
+      business_slug: businessSlug,
+      conversation_id: input.sessionId,
+    });
+  }
 
   try {
     await sendWhatsAppMessage(

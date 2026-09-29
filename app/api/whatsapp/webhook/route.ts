@@ -12518,6 +12518,8 @@ async function processIncoming(
       selectedServiceName: lastPickedServiceName ?? "",
       scheduleDayLabels: pickedServiceScheduleDayLabels,
       trialRegistered: contactTrialRegistered === true,
+      businessSlug: business_slug,
+      conversationId: sessionId,
     }
   );
 

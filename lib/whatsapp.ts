@@ -14,6 +14,7 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { stripModelThoughtLeak, type ThoughtStripLog } from "@/lib/wa-model-thought-strip";
 import { applyStudioPurpleHeartPolicy, applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
 function noteWaOutboundSent(content: string): void {
@@ -951,6 +952,39 @@ export async function sendWhatsAppIdleFollowupMessage(
   await sendWhatsAppMessage(fromNumber, to, text, accountSid, authToken);
 }
 
+function freeTextAfterThoughtStrip(text: string, log?: ThoughtStripLog): string | null {
+  const original = String(text ?? "").trim();
+  const stripped = stripModelThoughtLeak(original, log).trim();
+  if (stripped) return stripped;
+  if (!original) return "";
+  console.error("[WhatsApp] skipped empty send after THOUGHT strip", {
+    business_slug: log?.businessSlug ?? "",
+    conversation_id: log?.conversationId ?? "",
+  });
+  return null;
+}
+
+function outgoingAfterThoughtStrip(outgoing: MetaWhatsAppOutgoing): MetaWhatsAppOutgoing | null {
+  if (outgoing.type === "text") {
+    const text = freeTextAfterThoughtStrip(outgoing.text);
+    if (text === null) return null;
+    return { ...outgoing, text };
+  }
+  const body = outgoing.interactive.body;
+  if (!body || typeof body !== "object" || typeof (body as { text?: unknown }).text !== "string") {
+    return outgoing;
+  }
+  const text = freeTextAfterThoughtStrip((body as { text: string }).text);
+  if (text === null) return null;
+  return {
+    ...outgoing,
+    interactive: {
+      ...outgoing.interactive,
+      body: { ...(body as Record<string, unknown>), text },
+    },
+  };
+}
+
 /**
  * Sends a WhatsApp Cloud API message (plain text or interactive) from a phone_number_id.
  */
@@ -965,7 +999,10 @@ export async function sendMetaWhatsAppMessage(
   }
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const to = toE164.replace(/^\+/, "");
-  const prepared = applyStudioPurpleHeartPolicyDeep(outgoing, { fromNumber: phoneNumberId });
+  const prepared = outgoingAfterThoughtStrip(
+    applyStudioPurpleHeartPolicyDeep(outgoing, { fromNumber: phoneNumberId })
+  );
+  if (!prepared) return;
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -1075,6 +1112,9 @@ export async function sendWhatsAppMessage(
   authToken: string
 ): Promise<void> {
   text = applyStudioPurpleHeartPolicy(text, { fromNumber });
+  const stripped = freeTextAfterThoughtStrip(text);
+  if (stripped === null) return;
+  text = stripped;
   const bodyText = formatWhatsAppRtlBody(sanitizeZoeDashes(text));
 
   const metaToken = resolveMetaAccessToken();

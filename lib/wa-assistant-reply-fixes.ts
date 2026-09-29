@@ -24,6 +24,7 @@ import {
 } from "@/lib/wa-owner-addressed-greeting";
 import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dates";
 import { rewriteFalseSingleWeeklySlotClaim } from "@/lib/wa-relative-day-class-slots";
+import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -40,6 +41,9 @@ export type ApplyAssistantReplyFixesInput = {
   /** true אחרי הרשמה אמיתית — לא לחתוך תבנית אחרי-הרשמה */
   trialRegistered?: boolean;
   language?: BusinessContentLanguage;
+  /** לוג כשמורידים שורת THOUGHT — בלי תוכן ההודעה */
+  businessSlug?: string;
+  conversationId?: string;
 };
 
 export function getScheduleDayLabelsFromSlots(slots: { day: string }[]): string[] {
@@ -659,5 +663,8 @@ export function applyKnownAssistantReplyFixes(
     s = stripPrematureAfterRegistration(s);
     s = ensureScheduleWhenConvenientQuestion(s, lang);
   }
-  return s;
+  return stripModelThoughtLeak(s, {
+    businessSlug: input.businessSlug ?? "",
+    conversationId: input.conversationId ?? "",
+  });
 }
