@@ -11,6 +11,7 @@ import {
   sessionCountsAsSalesFlowStarted,
   businessStartsSalesFlowOnHi,
   businessOpensSalesFlowOnAnyNewLeadMessage,
+  businessUsesConversationFollowupNodes,
 } from "@/lib/sales-flow-start-triggers";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
@@ -25,6 +26,8 @@ const yigalSlug = "master-yigal-arbiv-ikma-israel";
 assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("pipman-team"), true);
 assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("Pipman-Team"), true);
 assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage(yigalSlug), false);
+assert.equal(businessUsesConversationFollowupNodes("pipman-team"), true);
+assert.equal(businessUsesConversationFollowupNodes(yigalSlug), false);
 assert.equal(businessStartsSalesFlowOnHi({ slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("היי", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("שלום", { slug: yigalSlug }), false);

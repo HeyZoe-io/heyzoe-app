@@ -1647,7 +1647,8 @@ export default function SlugSettingsPage({
     const sp = searchParams.get("step") ?? "";
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
-    const n = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
+    const parsedStep = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
+    const n = NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) && parsedStep === 5 ? 4 : parsedStep;
     if (n !== stepRef.current) {
       stepSyncFromUrlRef.current = true;
       setStep(n);
@@ -3178,11 +3179,12 @@ export default function SlugSettingsPage({
     );
   }
 
+  const nodeConversation = NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
   const isFirst = step === 1;
-  const isLast  = step === STEPS.length;
+  const isLast  = nodeConversation ? step >= 4 : step === STEPS.length;
 
   function nextStep() {
-    setStep((s) => Math.min(STEPS.length, s + 1));
+    setStep((s) => Math.min(nodeConversation ? 4 : STEPS.length, s + 1));
   }
 
   function prevStep() {
@@ -3445,7 +3447,7 @@ export default function SlugSettingsPage({
         ) : null}
 
         {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
-        {step === 5 && (
+        {step === 5 && !nodeConversation ? (
           <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
             <FollowupStepPanel
               lang={lang}
@@ -3465,7 +3467,7 @@ export default function SlugSettingsPage({
               onApplyDefaults={() => runBusy("followup:defaults", applyWaSalesFollowupDefaults)}
             />
           </StepPanel>
-        )}
+        ) : null}
         </fieldset>
 
         {saveErr ? <p className="mt-4 text-center text-sm text-red-500">{saveErr}</p> : null}

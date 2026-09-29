@@ -47,6 +47,7 @@ type WaFollowupSkipReason =
   | "send_failed"
   | "session_paused"
   | "stage_disabled"
+  | "node_followups"
   | "sales_flow_not_started";
 
 function authorizeCron(req: NextRequest): boolean {
@@ -338,6 +339,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const { runDueConversationFollowups } = await import("@/lib/business-conversation-flow");
+  const nodeFollowups = await runDueConversationFollowups(admin);
+
   const nowIso = new Date().toISOString();
   const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
@@ -513,6 +517,17 @@ export async function GET(req: NextRequest) {
       }
 
       const business_slug = String(channel.businessSlug).trim().toLowerCase();
+      const { businessUsesConversationFollowupNodes } = await import("@/lib/sales-flow-start-triggers");
+      if (businessUsesConversationFollowupNodes(business_slug)) {
+        logWaFollowupSkip("node_followups", {
+          contact_id: contactId,
+          phone: maskPhone(phone),
+          business_slug,
+          detail: "conversation_nodes",
+        });
+        bumpSkip("node_followups");
+        continue;
+      }
       const phoneNumberId = String(channel.phoneNumberId).trim();
       const sessionId = buildWaSessionId(phoneNumberId, phone);
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
@@ -771,5 +786,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, examined, sent, skipped, skip_counts: skipCounts });
+  return NextResponse.json({
+    ok: true,
+    examined,
+    sent,
+    skipped,
+    skip_counts: skipCounts,
+    node_followups: nodeFollowups,
+  });
 }

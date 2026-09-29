@@ -10,6 +10,7 @@ import {
   type DashboardLang,
 } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, settingsStepHref } from "@/lib/dashboard-settings-i18n";
+import { businessUsesConversationFollowupNodes } from "@/lib/sales-flow-start-triggers";
 import { useSettingsGuardedLinkClick } from "@/app/[slug]/settings/settings-unsaved-context";
 
 export const DASHBOARD_SETTINGS_SHELL = "mx-auto w-full min-w-0 max-w-4xl overflow-x-clip px-0 sm:px-6";
@@ -60,6 +61,7 @@ export function SalesPathSubNav({ slug }: { slug: string }) {
           <div className="inline-flex w-max items-center gap-1 rounded-2xl bg-zinc-100/80 p-1 sm:gap-1">
             {steps.map((label, i) => {
               const n = i + 1;
+              if (n === 5 && businessUsesConversationFollowupNodes(slug)) return null;
               const active = step === n;
               const href = settingsStepHref(base, n, lang);
               return (

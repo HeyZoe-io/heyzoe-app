@@ -120,6 +120,11 @@ export function businessOpensSalesFlowOnAnyNewLeadMessage(slug?: string | null):
   return String(slug ?? "").trim().toLowerCase() === "pipman-team";
 }
 
+/** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
+export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
+  return String(slug ?? "").trim().toLowerCase() === "pipman-team";
+}
+
 /** בקשת פרטים שאפשר לזהות גם בסוף הודעה ארוכה, לא רק כשהיא כל ההודעה. */
 const DETAILS_ASK_TAILS = [
   "אשמח לשמוע פרטים",

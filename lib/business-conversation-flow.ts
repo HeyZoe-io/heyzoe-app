@@ -11,7 +11,7 @@ import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manua
 import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
 import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
-import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { buildWaSessionId, contactPhoneLookupVariants, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
 import {
   serviceMetaFromDescription,
@@ -19,7 +19,7 @@ import {
   type WeeklyScheduleButton,
 } from "@/lib/product-schedule-slots";
 
-export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register";
+export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register" | "followup";
 
 type FlowNode = {
   id: string;
@@ -40,6 +40,8 @@ type FlowSession = {
   product_slug: string;
   captured_day: string;
   captured_time: string;
+  pending_followup_node_id: string | null;
+  followup_due_at: string | null;
 };
 
 const MAX_CHAIN = 12;
@@ -72,6 +74,54 @@ function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {
 
 function edgeFrom(edges: FlowEdge[], sourceId: string, handle: string): FlowEdge | null {
   return edges.find((e) => e.source_node_id === sourceId && e.source_handle === handle) ?? null;
+}
+
+function followupDelayMinutes(data: Record<string, unknown>): number {
+  const n = Number(data.delay_minutes);
+  if (!Number.isFinite(n)) return 120;
+  return Math.min(7 * 24 * 60, Math.max(5, Math.round(n)));
+}
+
+function silenceChain(nodes: FlowNode[], edges: FlowEdge[], anchorId: string): FlowNode[] {
+  const out: FlowNode[] = [];
+  const seen = new Set<string>();
+  let id = anchorId;
+  while (id && !seen.has(id)) {
+    seen.add(id);
+    const edge = edgeFrom(edges, id, "silence");
+    if (!edge) break;
+    const node = nodes.find((item) => item.id === edge.target_node_id && item.type === "followup");
+    if (!node) break;
+    out.push(node);
+    id = node.id;
+  }
+  return out;
+}
+
+function armSilence(session: FlowSession, nodes: FlowNode[], edges: FlowEdge[], anchorId: string | null): FlowSession {
+  if (!anchorId || session.flow_completed) {
+    return { ...session, pending_followup_node_id: null, followup_due_at: null };
+  }
+  const next = silenceChain(nodes, edges, anchorId)[0];
+  if (!next) return { ...session, pending_followup_node_id: null, followup_due_at: null };
+  return {
+    ...session,
+    pending_followup_node_id: next.id,
+    followup_due_at: new Date(Date.now() + followupDelayMinutes(next.data) * 60_000).toISOString(),
+  };
+}
+
+function blankSession(id = ""): FlowSession {
+  return {
+    id,
+    current_node_id: null,
+    flow_completed: false,
+    product_slug: "",
+    captured_day: "",
+    captured_time: "",
+    pending_followup_node_id: null,
+    followup_due_at: null,
+  };
 }
 
 async function sendText(phoneNumberId: string, phone: string, businessSlug: string, sessionId: string, text: string) {
@@ -128,7 +178,7 @@ async function loadGraph(admin: SupabaseClient, businessId: number): Promise<{ n
       type: String((row as { type?: unknown }).type ?? "") as BusinessFlowNodeType,
       data: ((row as { data?: unknown }).data ?? {}) as Record<string, unknown>,
     }))
-    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "daytime" || n.type === "register"));
+    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "daytime" || n.type === "register" || n.type === "followup"));
   if (!nodes.length) return null;
 
   const { data: edgeRows, error: edgeErr } = await admin
@@ -147,22 +197,39 @@ async function loadGraph(admin: SupabaseClient, businessId: number): Promise<{ n
   return { nodes, edges };
 }
 
+function sessionFromRow(data: Record<string, unknown>): FlowSession {
+  return {
+    id: String(data.id ?? ""),
+    current_node_id: (data.current_node_id as string | null) ?? null,
+    flow_completed: data.flow_completed === true,
+    product_slug: String(data.product_slug ?? ""),
+    captured_day: String(data.captured_day ?? ""),
+    captured_time: String(data.captured_time ?? ""),
+    pending_followup_node_id: (data.pending_followup_node_id as string | null) ?? null,
+    followup_due_at: data.followup_due_at ? String(data.followup_due_at) : null,
+  };
+}
+
 async function loadSession(admin: SupabaseClient, businessId: number, phone: string): Promise<FlowSession | null> {
-  const { data, error } = await admin
+  const select =
+    "id, current_node_id, flow_completed, product_slug, captured_day, captured_time, pending_followup_node_id, followup_due_at";
+  const first = await admin
     .from("business_conversation_sessions")
-    .select("id, current_node_id, flow_completed, product_slug, captured_day, captured_time")
+    .select(select)
     .eq("business_id", businessId)
     .eq("phone", phone)
     .maybeSingle();
-  if (error || !data) return null;
-  return {
-    id: String((data as { id?: unknown }).id ?? ""),
-    current_node_id: ((data as { current_node_id?: unknown }).current_node_id as string | null) ?? null,
-    flow_completed: (data as { flow_completed?: unknown }).flow_completed === true,
-    product_slug: String((data as { product_slug?: unknown }).product_slug ?? ""),
-    captured_day: String((data as { captured_day?: unknown }).captured_day ?? ""),
-    captured_time: String((data as { captured_time?: unknown }).captured_time ?? ""),
-  };
+  const missingColumn = first.error && /pending_followup_node_id|followup_due_at|column/i.test(first.error.message);
+  const result = missingColumn
+    ? await admin
+        .from("business_conversation_sessions")
+        .select("id, current_node_id, flow_completed, product_slug, captured_day, captured_time")
+        .eq("business_id", businessId)
+        .eq("phone", phone)
+        .maybeSingle()
+    : first;
+  if (result.error || !result.data) return null;
+  return sessionFromRow(result.data as Record<string, unknown>);
 }
 
 async function saveSession(
@@ -181,7 +248,16 @@ async function saveSession(
     captured_day: patch.captured_day ?? "",
     captured_time: patch.captured_time ?? "",
   };
-  const { error } = await admin.from("business_conversation_sessions").upsert(row, { onConflict: "business_id,phone" });
+  const withFollowup = {
+    ...row,
+    pending_followup_node_id: patch.pending_followup_node_id ?? null,
+    followup_due_at: patch.followup_due_at ?? null,
+  };
+  const first = await admin.from("business_conversation_sessions").upsert(withFollowup, { onConflict: "business_id,phone" });
+  const missingColumn = first.error && /pending_followup_node_id|followup_due_at|column/i.test(first.error.message);
+  const error = missingColumn
+    ? (await admin.from("business_conversation_sessions").upsert(row, { onConflict: "business_id,phone" })).error
+    : first.error;
   if (error) console.error("[business-conversation-flow] session save failed:", error.message);
 }
 
@@ -329,6 +405,7 @@ async function deliverFrom(input: {
   let nodeId: string | null = input.nodeId;
   const seen = new Set<string>();
   let session = input.session;
+  let silenceAnchor: string | null = null;
 
   for (let step = 0; step < MAX_CHAIN && nodeId; step += 1) {
     if (seen.has(nodeId)) break;
@@ -345,10 +422,17 @@ async function deliverFrom(input: {
         nodeText(node),
         questionButtons(node)
       );
-      session = { ...session, current_node_id: node.id, flow_completed: false };
+      session = armSilence(
+        { ...session, current_node_id: node.id, flow_completed: false },
+        input.nodes,
+        input.edges,
+        node.id
+      );
       await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
       return;
     }
+
+    if (node.type === "followup") break;
 
     if (node.type === "daytime") {
       const slots = await weeklySlotsForProduct(input.admin, input.businessId, session.product_slug);
@@ -365,12 +449,18 @@ async function deliverFrom(input: {
         SLOT_PICK_PROMPT,
         slots.map((slot) => slot.label)
       );
-      session = { ...session, current_node_id: node.id, flow_completed: false };
+      session = armSilence(
+        { ...session, current_node_id: node.id, flow_completed: false },
+        input.nodes,
+        input.edges,
+        node.id
+      );
       await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
       return;
     }
 
     if (node.type === "product") {
+      silenceAnchor = node.id;
       const slug = String(node.data.product_slug ?? "").trim();
       session = { ...session, product_slug: slug || session.product_slug, captured_day: "", captured_time: "" };
       const text = nodeText(node);
@@ -390,7 +480,12 @@ async function deliverFrom(input: {
         time: session.captured_time,
       });
       await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
-      session = { ...session, current_node_id: node.id, flow_completed: true };
+      session = armSilence(
+        { ...session, current_node_id: node.id, flow_completed: true },
+        input.nodes,
+        input.edges,
+        null
+      );
       await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
       await completeRegistration({
         admin: input.admin,
@@ -402,17 +497,22 @@ async function deliverFrom(input: {
       return;
     }
 
+    silenceAnchor = node.id;
     const text = nodeText(node);
     if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
     const next = edgeFrom(input.edges, node.id, "out");
     nodeId = next?.target_node_id ?? null;
   }
 
-  await saveSession(input.admin, input.businessId, phoneKey(input.phone), {
-    ...session,
-    current_node_id: nodeId,
-    flow_completed: session.flow_completed,
-  });
+  const endedOnFollowup = Boolean(nodeId && byId.get(nodeId)?.type === "followup");
+  const stayId = endedOnFollowup || !nodeId ? silenceAnchor : nodeId;
+  session = armSilence(
+    { ...session, current_node_id: stayId, flow_completed: session.flow_completed },
+    input.nodes,
+    input.edges,
+    stayId
+  );
+  await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
 }
 
 async function leadStillWaitingToOpenSalesFlow(
@@ -479,12 +579,8 @@ export async function handleBusinessConversationFlowInbound(input: {
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
     session = {
-      id: session?.id ?? "",
+      ...blankSession(session?.id ?? ""),
       current_node_id: start.id,
-      flow_completed: false,
-      product_slug: "",
-      captured_day: "",
-      captured_time: "",
     };
     await markContactSalesFlowStarted({
       supabase: admin,
@@ -558,14 +654,7 @@ export async function handleBusinessConversationFlowInbound(input: {
       sessionId: input.sessionId,
       nodes: graph.nodes,
       edges: graph.edges,
-      session: session ?? {
-        id: "",
-        current_node_id: start.id,
-        flow_completed: false,
-        product_slug: "",
-        captured_day: "",
-        captured_time: "",
-      },
+      session: session ?? { ...blankSession(), current_node_id: start.id },
       nodeId: start.id,
     });
     return { handled: true };
@@ -591,7 +680,7 @@ export async function handleBusinessConversationFlowInbound(input: {
 
   const next = edgeFrom(graph.edges, current.id, `btn-${index}`) ?? edgeFrom(graph.edges, current.id, "out");
   if (!next) {
-    await saveSession(admin, businessId, phone, session);
+    await saveSession(admin, businessId, phone, armSilence(session, graph.nodes, graph.edges, null));
     return { handled: true };
   }
   await deliverFrom({
@@ -607,4 +696,167 @@ export async function handleBusinessConversationFlowInbound(input: {
     nodeId: next.target_node_id,
   });
   return { handled: true };
+}
+
+/**
+ * פולואפים של מסלול השיחה. רץ מתוך /api/cron/wa-followups (cron-job.org, בערך כל 5 דקות).
+ * שאילתה אחת על אינדקס followup_due_at, עד 40 שורות שכבר הגיע זמנן. לא סריקת טבלה.
+ * לכל שורה: ערוץ, איש קשר, והודעת משתמש אחרונה — ואז לכל היותר הודעת וואטסאפ אחת.
+ */
+export async function runDueConversationFollowups(admin: SupabaseClient): Promise<{
+  sent: number;
+  cleared: number;
+  skipped: number;
+}> {
+  const { isAllowedWhatsAppSendTimeIsrael } = await import("@/lib/israel-time");
+  if (!isAllowedWhatsAppSendTimeIsrael(new Date())) return { sent: 0, cleared: 0, skipped: 0 };
+
+  const nowIso = new Date().toISOString();
+  const { data, error } = await admin
+    .from("business_conversation_sessions")
+    .select(
+      "id, business_id, phone, current_node_id, flow_completed, product_slug, captured_day, captured_time, pending_followup_node_id, followup_due_at"
+    )
+    .eq("flow_completed", false)
+    .not("pending_followup_node_id", "is", null)
+    .lte("followup_due_at", nowIso)
+    .order("followup_due_at", { ascending: true })
+    .limit(40);
+  if (error) {
+    if (/pending_followup_node_id|followup_due_at|column/i.test(error.message)) {
+      console.error(
+        "[business-conversation-flow] followups need supabase/business_conversation_flow_followup.sql:",
+        error.message
+      );
+    } else {
+      console.error("[business-conversation-flow] followup due query failed:", error.message);
+    }
+    return { sent: 0, cleared: 0, skipped: 0 };
+  }
+
+  let sent = 0;
+  let cleared = 0;
+  let skipped = 0;
+  const channelCache = new Map<number, { slug: string; phoneNumberId: string; active: boolean }>();
+
+  for (const raw of data ?? []) {
+    const row = raw as Record<string, unknown>;
+    const session = sessionFromRow(row);
+    const businessId = Number(row.business_id);
+    const phone = phoneKey(String(row.phone ?? ""));
+    if (!businessId || !phone || !session.pending_followup_node_id || !session.current_node_id) {
+      skipped += 1;
+      continue;
+    }
+
+    let channel = channelCache.get(businessId);
+    if (!channel) {
+      const biz = await admin.from("businesses").select("slug, is_active").eq("id", businessId).maybeSingle();
+      const bizRow = biz.data as { slug?: unknown; is_active?: boolean | null } | null;
+      const slug = String(bizRow?.slug ?? "").trim().toLowerCase();
+      const wa = await admin
+        .from("whatsapp_channels")
+        .select("phone_number_id")
+        .eq("business_id", businessId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      channel = {
+        slug,
+        phoneNumberId: String((wa.data as { phone_number_id?: unknown } | null)?.phone_number_id ?? "").trim(),
+        active: bizRow?.is_active !== false && Boolean(slug),
+      };
+      channelCache.set(businessId, channel);
+    }
+    if (!channel.active || !channel.phoneNumberId || !channel.slug) {
+      skipped += 1;
+      continue;
+    }
+
+    const graph = await loadGraph(admin, businessId);
+    const chain = graph ? silenceChain(graph.nodes, graph.edges, session.current_node_id) : [];
+    const followup = chain.find((node) => node.id === session.pending_followup_node_id) ?? null;
+    if (!graph || !followup) {
+      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      cleared += 1;
+      continue;
+    }
+
+    const variants = contactPhoneLookupVariants(phone);
+    const contact = await admin
+      .from("contacts")
+      .select("opted_out, trial_registered")
+      .eq("business_id", businessId)
+      .in("phone", variants.length ? variants : [phone])
+      .limit(1);
+    const contactRow = (contact.data ?? [])[0] as { opted_out?: boolean | null; trial_registered?: boolean | null } | undefined;
+    if (contactRow?.opted_out || contactRow?.trial_registered) {
+      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      cleared += 1;
+      continue;
+    }
+
+    const { isWaFollowupBlockedByAppPause } = await import("@/lib/wa-app-echo-pause");
+    if (
+      await isWaFollowupBlockedByAppPause({
+        admin,
+        businessSlug: channel.slug,
+        phoneNumberId: channel.phoneNumberId,
+        phone,
+      })
+    ) {
+      skipped += 1;
+      continue;
+    }
+
+    const armedAt = new Date(
+      new Date(session.followup_due_at ?? nowIso).getTime() - followupDelayMinutes(followup.data) * 60_000
+    ).toISOString();
+    const sessionIds = waSessionIdLookupVariants(channel.phoneNumberId, phone);
+    const reply = await admin
+      .from("messages")
+      .select("id")
+      .eq("business_slug", channel.slug)
+      .in("session_id", sessionIds.length ? sessionIds : [buildWaSessionId(channel.phoneNumberId, phone)])
+      .eq("role", "user")
+      .gt("created_at", armedAt)
+      .limit(1);
+    if ((reply.data ?? []).length) {
+      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      cleared += 1;
+      continue;
+    }
+
+    const text = String(followup.data.text ?? "").trim();
+    const idx = chain.findIndex((node) => node.id === followup.id);
+    const next = chain[idx + 1];
+    if (!text) {
+      await saveSession(admin, businessId, phone, {
+        ...session,
+        pending_followup_node_id: next?.id ?? null,
+        followup_due_at: next ? new Date(Date.now() + followupDelayMinutes(next.data) * 60_000).toISOString() : null,
+      });
+      cleared += 1;
+      continue;
+    }
+
+    try {
+      const sessionId = buildWaSessionId(channel.phoneNumberId, phone);
+      await sendText(channel.phoneNumberId, phone, channel.slug, sessionId, text);
+    } catch (e) {
+      console.error("[business-conversation-flow] followup send failed:", e);
+      skipped += 1;
+      continue;
+    }
+
+    await saveSession(admin, businessId, phone, {
+      ...session,
+      pending_followup_node_id: next?.id ?? null,
+      followup_due_at: next ? new Date(Date.now() + followupDelayMinutes(next.data) * 60_000).toISOString() : null,
+    });
+    sent += 1;
+  }
+
+  return { sent, cleared, skipped };
 }

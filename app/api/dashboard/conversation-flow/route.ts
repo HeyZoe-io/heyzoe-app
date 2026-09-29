@@ -9,7 +9,7 @@ import { serviceMetaFromDescription, weeklyScheduleSlotButtons } from "@/lib/pro
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const NODE_TYPES = new Set(["message", "question", "product", "daytime", "register"]);
+const NODE_TYPES = new Set(["message", "question", "product", "daytime", "register", "followup"]);
 const MAX_NODE_BUTTONS = 10;
 
 function capNodeData(data: unknown): Record<string, unknown> {
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[conversation-flow] save nodes failed:", error.message);
       const message = /type_check|check constraint/i.test(error.message)
-        ? "כדי לשמור תיבת יום ושעה צריך להריץ ב-Supabase את supabase/business_conversation_flow_daytime.sql"
+        ? "כדי לשמור תיבת פולואפ או יום ושעה צריך להריץ ב-Supabase את supabase/business_conversation_flow_followup.sql"
         : error.message;
       return NextResponse.json({ error: message }, { status: 500 });
     }

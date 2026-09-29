@@ -22,7 +22,7 @@ import "@xyflow/react/dist/style.css";
 import { Loader2, Undo2 } from "lucide-react";
 import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/wa-button-label";
 
-type FlowType = "message" | "question" | "product" | "daytime" | "register";
+type FlowType = "message" | "question" | "product" | "daytime" | "register" | "followup";
 
 type FlowData = {
   text?: string;
@@ -32,6 +32,7 @@ type FlowData = {
   day_buttons?: string[];
   time_text?: string;
   time_buttons?: string[];
+  delay_minutes?: number;
 };
 
 type ProductOption = { slug: string; name: string; slots: string[] };
@@ -42,9 +43,24 @@ const TYPE_LABEL: Record<FlowType, string> = {
   product: "מוצר",
   daytime: "יום ושעה",
   register: "אישור הרשמה",
+  followup: "פולואפ",
 };
 
-const ADD_TYPES: FlowType[] = ["message", "question", "product", "register"];
+const ADD_TYPES: FlowType[] = ["message", "question", "product", "register", "followup"];
+
+function delayMinutesOf(data: FlowData): number {
+  const n = Number(data.delay_minutes);
+  if (!Number.isFinite(n)) return 120;
+  return Math.min(7 * 24 * 60, Math.max(5, Math.round(n)));
+}
+
+function delayLabel(minutes: number): string {
+  if (minutes >= 60 && minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return hours === 1 ? "אחרי שעה" : `אחרי ${hours} שעות`;
+  }
+  return `אחרי ${minutes} דקות`;
+}
 const MAX_NODE_BUTTONS = 10;
 
 function capButtonList(list: string[] | undefined): string[] | undefined {
@@ -146,6 +162,9 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
         {String(d.text || "").trim() || "טקסט ריק"}
       </div>
       )}
+      {type === "followup" ? (
+        <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{delayLabel(delayMinutesOf(d))}</div>
+      ) : null}
       {type === "product" ? (
         <div
           style={{
@@ -188,9 +207,13 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
               />
             </div>
           ))
-        : (
+        : type !== "followup" ? (
           <Handle type="source" position={Position.Left} id="out" style={{ background: "#7133da" }} />
-        )}
+        ) : null}
+      <div style={{ position: "relative", marginTop: 6, fontSize: 8, color: "#a1a1aa" }}>
+        אין מענה
+        <Handle type="source" position={Position.Left} id="silence" style={{ background: "#a1a1aa", top: "50%" }} />
+      </div>
     </div>
   );
 }
@@ -201,6 +224,7 @@ const nodeTypes = {
   product: FlowNodeCard,
   daytime: FlowNodeCard,
   register: FlowNodeCard,
+  followup: FlowNodeCard,
 };
 
 function emptyDaytime(): FlowData {
@@ -431,7 +455,11 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
     (connection: Connection) => {
       remember();
       setDirty(true);
-      setEdges((current) => addEdge({ ...connection, sourceHandle: connection.sourceHandle || "out" }, current));
+      const sourceType = nodesRef.current.find((node) => node.id === connection.source)?.type;
+      const targetType = nodesRef.current.find((node) => node.id === connection.target)?.type;
+      const sourceHandle =
+        sourceType === "followup" || targetType === "followup" ? "silence" : connection.sourceHandle || "out";
+      setEdges((current) => addEdge({ ...connection, sourceHandle }, current));
     },
     [remember, setEdges]
   );
@@ -458,7 +486,9 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
           ? { text: "" }
           : type === "product"
             ? { text: "", product_slug: "" }
-            : { text: "" };
+            : type === "followup"
+              ? { text: "", delay_minutes: 120 }
+              : { text: "" };
     const dayId = type === "product" ? newId() : "";
     setNodes((current) => {
       const wrap = flowWrapRef.current?.getBoundingClientRect();
@@ -525,7 +555,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
           <div>
             <h2 className="text-base font-semibold text-zinc-900">שיחה</h2>
-            <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, מוצר ואישור הרשמה. הפולואפים נשארים בדף פולואפ.</p>
+            <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, מוצר, אישור הרשמה ופולואפ. פולואפ נשלח רק אם אין מענה, אחרי ההשהייה, ורק במסלול שמחובר אליו.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -612,7 +642,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             ) : (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">{TYPE_LABEL[selected.type as FlowType]}</div>
-                {selected.type === "message" || selected.type === "question" || selected.type === "register" ? (
+                {selected.type === "message" || selected.type === "question" || selected.type === "register" || selected.type === "followup" ? (
                   <label className="block text-sm text-zinc-700">
                     טקסט
                     <textarea
@@ -687,6 +717,47 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                     {(daytimeSlots.get(selected.id) ?? []).length > MAX_NODE_BUTTONS ? (
                       <p className="text-xs text-zinc-400">בוואטסאפ נשלחים 10 המועדים הראשונים.</p>
                     ) : null}
+                  </div>
+                ) : null}
+                {selected.type === "followup" ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm text-zinc-700">
+                      השהייה בלי מענה
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={
+                            delayMinutesOf(selected.data) % 60 === 0
+                              ? delayMinutesOf(selected.data) / 60
+                              : delayMinutesOf(selected.data)
+                          }
+                          onChange={(e) => {
+                            const amount = Math.max(1, Number(e.target.value) || 1);
+                            const asHours = delayMinutesOf(selected.data) >= 60 && delayMinutesOf(selected.data) % 60 === 0;
+                            const minutes = asHours ? amount * 60 : amount;
+                            patchSelected({ delay_minutes: Math.min(7 * 24 * 60, Math.max(5, minutes)) });
+                          }}
+                          className="w-24 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <select
+                          value={delayMinutesOf(selected.data) >= 60 && delayMinutesOf(selected.data) % 60 === 0 ? "hours" : "minutes"}
+                          onChange={(e) => {
+                            const minutes = delayMinutesOf(selected.data);
+                            const asHours = e.target.value === "hours";
+                            const amount = asHours ? Math.max(1, Math.round(minutes / 60)) : minutes;
+                            patchSelected({ delay_minutes: asHours ? amount * 60 : Math.max(5, amount) });
+                          }}
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="minutes">דקות</option>
+                          <option value="hours">שעות</option>
+                        </select>
+                      </div>
+                    </label>
+                    <p className="text-xs leading-relaxed text-zinc-500">
+                      נשלח רק למי שנמצא על התיבה שמחוברת בקו «אין מענה», ורק אם לא ענה עד סוף ההשהייה. מינימום 5 דקות.
+                    </p>
                   </div>
                 ) : null}
                 {selected.type === "product" ? (
