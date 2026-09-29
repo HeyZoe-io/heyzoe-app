@@ -146,6 +146,8 @@ export const dashboardSettingsI18n = {
       taglineHint: "משפט אחד - זואי משתמשת בו בהקדמה",
       address: "כתובת",
       directions: "הנחיות הגעה",
+      branchLocationsHint:
+        "לכל סניף כתובת והנחיות הגעה משלו. זואי שולחת רק את הסניף שנבחר בשיחה.",
       uploadFile: "העלאת קובץ",
       knowledge: "ידע לזואי",
       knowledgeHint: "עובדות, מבצעים ושאלות משלימות",
@@ -669,6 +671,8 @@ export const dashboardSettingsI18n = {
       taglineHint: "One sentence — Zoe uses it in introductions",
       address: "Address",
       directions: "Arrival directions",
+      branchLocationsHint:
+        "Each branch has its own address and directions. Zoe uses only the branch chosen in the chat.",
       uploadFile: "Upload file",
       knowledge: "Knowledge for Zoe",
       knowledgeHint: "Facts, promotions & follow-up questions",

@@ -30,6 +30,10 @@ export type BranchOffers = Record<DualBranchId, BranchOffer>;
 
 export type BranchScheduleUrls = Record<DualBranchId, string>;
 
+export type BranchLocation = { address: string; directions: string };
+
+export type BranchLocations = Record<DualBranchId, BranchLocation>;
+
 export function isDualBranchBusiness(slug: string | null | undefined): boolean {
   return String(slug ?? "").trim().toLowerCase() === DUAL_BRANCH_SLUG;
 }
@@ -48,6 +52,80 @@ export function emptyBranchOffers(): BranchOffers {
 
 export function emptyBranchScheduleUrls(): BranchScheduleUrls {
   return { amiad: "", kiryat_shmona: "" };
+}
+
+export function emptyBranchLocation(): BranchLocation {
+  return { address: "", directions: "" };
+}
+
+export function emptyBranchLocations(): BranchLocations {
+  return { amiad: emptyBranchLocation(), kiryat_shmona: emptyBranchLocation() };
+}
+
+export function parseBranchLocations(raw: unknown): BranchLocations {
+  const root = asRecord(raw);
+  const one = (id: DualBranchId): BranchLocation => {
+    const row = asRecord(root?.[id]);
+    return {
+      address: String(row?.address ?? "").trim(),
+      directions: String(row?.directions ?? "").trim(),
+    };
+  };
+  if (!root) return emptyBranchLocations();
+  return { amiad: one("amiad"), kiryat_shmona: one("kiryat_shmona") };
+}
+
+export function branchLocationsToMeta(locations: BranchLocations): Record<string, unknown> {
+  const one = (location: BranchLocation) => ({
+    address: location.address.trim(),
+    directions: location.directions.trim(),
+  });
+  return { amiad: one(locations.amiad), kiryat_shmona: one(locations.kiryat_shmona) };
+}
+
+export function branchLocationsHaveContent(locations: BranchLocations | null | undefined): boolean {
+  if (!locations) return false;
+  return DUAL_BRANCHES.some((branch) => locations[branch.id].address || locations[branch.id].directions);
+}
+
+/** כתובת שכבר הוחלפה לכתובת הסניף — מזהה איזה סניף פעיל בשיחה. */
+export function activeDualBranchFromAddress(
+  locations: BranchLocations | null | undefined,
+  addressText: string
+): DualBranchId | null {
+  if (!locations) return null;
+  const address = addressText.trim();
+  if (!address) return null;
+  for (const branch of DUAL_BRANCHES) {
+    const branchAddress = locations[branch.id].address.trim();
+    if (branchAddress && branchAddress === address) return branch.id;
+  }
+  return null;
+}
+
+export function formatBranchLocationsForPrompt(
+  locations: BranchLocations,
+  active: DualBranchId | null
+): string {
+  if (active) {
+    const location = locations[active];
+    const label = dualBranchLabel(active);
+    return [
+      `הסניף שנבחר בשיחה: ${label}.`,
+      `כתובת: ${location.address.trim() || "לא הוגדרה"}`,
+      `הנחיות הגעה: ${location.directions.trim() || "לא הוגדרו"}`,
+      `עני על כתובת והגעה רק עבור ${label}. אסור לתת כתובת או הוראות הגעה של הסניף השני.`,
+    ].join("\n");
+  }
+  const lines = DUAL_BRANCHES.map((branch) => {
+    const location = locations[branch.id];
+    return `- ${branch.label}: כתובת: ${location.address.trim() || "לא הוגדרה"}. הגעה: ${location.directions.trim() || "לא הוגדרה"}.`;
+  });
+  return [
+    "יש שני סניפים. אל תערבבי ביניהם.",
+    ...lines,
+    "אם עדיין לא נבחר סניף ושואלים איפה אתם — צייני את שני הסניפים בנפרד, כל אחד עם הכתובת וההגעה שלו.",
+  ].join("\n");
 }
 
 function asRecord(raw: unknown): Record<string, unknown> | null {
@@ -184,10 +262,12 @@ type BranchKnowledgeSlice = {
   arboxLink: string;
   schedulePublicUrl: string;
   addressText: string;
+  directionsText: string;
   servicesText: string;
   salesFlowServices: BranchServiceSlice[];
   knowledgeCatalogServices?: BranchServiceSlice[];
   branchScheduleUrls?: BranchScheduleUrls;
+  branchLocations?: BranchLocations;
 };
 
 function branchKnowledgeNote(services: BranchServiceSlice[], branch: DualBranchId): string {
@@ -207,18 +287,27 @@ export function applyDualBranchToKnowledge<T extends BranchKnowledgeSlice>(
   branch: DualBranchId
 ): T {
   const url = knowledge.branchScheduleUrls?.[branch]?.trim() ?? "";
+  const location = knowledge.branchLocations?.[branch];
+  const branchAddress = location?.address.trim() ?? "";
+  const branchDirections = location?.directions.trim() ?? "";
   const salesFlowServices = (knowledge.salesFlowServices ?? []).map((row) =>
     applyDualBranchToService(row, branch)
   );
   const knowledgeCatalogServices = (knowledge.knowledgeCatalogServices ?? knowledge.salesFlowServices ?? []).map(
     (row) => applyDualBranchToService(row, branch)
   );
-  const note = branchKnowledgeNote(salesFlowServices, branch);
+  const placeNote = [
+    `כתובת ${dualBranchLabel(branch)}: ${branchAddress || "לא הוגדרה"}`,
+    `הנחיות הגעה ${dualBranchLabel(branch)}: ${branchDirections || "לא הוגדרו"}`,
+    "אסור לתת כתובת או הוראות הגעה של הסניף השני.",
+  ].join("\n");
+  const note = [branchKnowledgeNote(salesFlowServices, branch), placeNote].join("\n");
   return {
     ...knowledge,
     arboxLink: url || knowledge.arboxLink,
     schedulePublicUrl: url || knowledge.schedulePublicUrl,
-    addressText: withBranchLabel(knowledge.addressText, branch),
+    addressText: branchAddress || withBranchLabel(knowledge.addressText, branch),
+    directionsText: branchDirections || knowledge.directionsText,
     salesFlowServices,
     knowledgeCatalogServices,
     servicesText: [knowledge.servicesText.trim(), note].filter(Boolean).join("\n\n"),

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  applyDualBranchToKnowledge,
   applyDualBranchToService,
   branchOffersToMeta,
   matchDualBranchChoice,
@@ -87,5 +88,25 @@ assert.equal(pageOnly.scheduleSlots[0]?.time, "09:00");
 const urls = parseBranchScheduleUrls({ amiad: " https://sched.example/amiad ", kiryat_shmona: "" });
 assert.equal(urls.amiad, "https://sched.example/amiad");
 assert.equal(urls.kiryat_shmona, "");
+
+const placed = applyDualBranchToKnowledge(
+  {
+    arboxLink: "",
+    schedulePublicUrl: "",
+    addressText: "",
+    directionsText: "",
+    servicesText: "",
+    salesFlowServices: [],
+    branchLocations: {
+      amiad: { address: "מושב עמיעד", directions: "חניה בכניסה" },
+      kiryat_shmona: { address: "שדרות תל חי 12", directions: "קומה 2, דלת ימין" },
+    },
+  },
+  "kiryat_shmona"
+);
+assert.equal(placed.addressText, "שדרות תל חי 12");
+assert.equal(placed.directionsText, "קומה 2, דלת ימין");
+assert.match(placed.servicesText, /קריית שמונה/);
+assert.doesNotMatch(placed.addressText, /עמיעד/);
 
 console.log("dual-branch: ok");

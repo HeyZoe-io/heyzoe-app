@@ -38,7 +38,14 @@ import {
   resolveKnowledgeCatalogServices,
   WA_MAX_PRODUCTS,
 } from "@/lib/trial-service";
-import { parseBranchScheduleUrls } from "@/lib/dual-branch";
+import {
+  activeDualBranchFromAddress,
+  branchLocationsHaveContent,
+  formatBranchLocationsForPrompt,
+  isDualBranchBusiness,
+  parseBranchLocations,
+  parseBranchScheduleUrls,
+} from "@/lib/dual-branch";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 import {
   FACT_QUOTE_RULES,
@@ -115,6 +122,8 @@ export type BusinessKnowledgePack = {
   instagramUrl: string;
   /** מערכות שעות לפי סניף — רק tshelgine-8774 */
   branchScheduleUrls?: import("@/lib/dual-branch").BranchScheduleUrls;
+  /** כתובת והגעה לפי סניף — רק tshelgine-8774 */
+  branchLocations?: import("@/lib/dual-branch").BranchLocations;
   promotionsText: string;
   traits: string[];
   knowledgeQa?: KnowledgeQaPair[];
@@ -305,8 +314,19 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         ? (business.social_links as Record<string, unknown>)
         : {};
 
-    const addressText = typeof social.address === "string" ? String(social.address) : "";
-    const directionsText = typeof social.directions === "string" ? String(social.directions).trim() : "";
+    const branchLocations = parseBranchLocations(social.branch_locations);
+    const splitBranchLocations =
+      isDualBranchBusiness(slug) && branchLocationsHaveContent(branchLocations);
+    const addressText = splitBranchLocations
+      ? ""
+      : typeof social.address === "string"
+        ? String(social.address)
+        : "";
+    const directionsText = splitBranchLocations
+      ? ""
+      : typeof social.directions === "string"
+        ? String(social.directions).trim()
+        : "";
     const directionsMediaUrl =
       typeof social.directions_media_url === "string" ? String(social.directions_media_url).trim() : "";
     const directionsMediaType =
@@ -480,6 +500,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       knowledgeCatalogServices,
       instagramUrl,
       branchScheduleUrls: parseBranchScheduleUrls(social.branch_schedule_urls),
+      branchLocations: splitBranchLocations ? branchLocations : undefined,
       promotionsText,
       traits: traitsList,
       knowledgeQa,
@@ -941,6 +962,14 @@ ${waResponseShapeBlock}
 ידע עסקי:
 נישה: ${knowledge?.niche ?? ""}
 תיאור עסק: ${annotateExpiredIsraelDates(knowledge?.businessDescription ?? "", promptNow) || "לא הוגדר"}
+${
+  knowledge?.branchLocations && branchLocationsHaveContent(knowledge.branchLocations)
+    ? `${formatBranchLocationsForPrompt(
+        knowledge.branchLocations,
+        activeDualBranchFromAddress(knowledge.branchLocations, knowledge.addressText ?? "")
+      )}\n`
+    : ""
+}
 ${formatBusinessFactsPromptBlock(knowledge, promptNow)}
 הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
 שירותים:

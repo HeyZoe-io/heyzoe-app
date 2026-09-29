@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { dashboardDir, dashboardTextAlign, type DashboardLang } from "@/lib/dashboard-lang";
+import { DUAL_BRANCHES } from "@/lib/dual-branch";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import { cn } from "@/lib/utils";
 import type { FactQuestion } from "@/lib/fact-questions";
@@ -253,6 +254,15 @@ export type AboutBusinessStepPanelProps = {
   setAddress: (v: string) => void;
   directions: string;
   setDirections: (v: string) => void;
+  dualBranch?: boolean;
+  branchAddressAmiad?: string;
+  setBranchAddressAmiad?: (v: string) => void;
+  branchDirectionsAmiad?: string;
+  setBranchDirectionsAmiad?: (v: string) => void;
+  branchAddressKiryat?: string;
+  setBranchAddressKiryat?: (v: string) => void;
+  branchDirectionsKiryat?: string;
+  setBranchDirectionsKiryat?: (v: string) => void;
   planIsStarter: boolean;
   onDirectionsMediaClick: () => void;
   onStarterMediaBlocked: () => void;
@@ -289,6 +299,15 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     setAddress,
     directions,
     setDirections,
+    dualBranch = false,
+    branchAddressAmiad = "",
+    setBranchAddressAmiad,
+    branchDirectionsAmiad = "",
+    setBranchDirectionsAmiad,
+    branchAddressKiryat = "",
+    setBranchAddressKiryat,
+    branchDirectionsKiryat = "",
+    setBranchDirectionsKiryat,
     planIsStarter,
     onDirectionsMediaClick,
     onStarterMediaBlocked,
@@ -345,7 +364,14 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
     () => ({
       contact: Boolean(customerServicePhone.trim()),
       identity: Boolean(name.trim() || botName.trim() || businessTagline.trim()),
-      location: Boolean(address.trim() || directions.trim()),
+      location: dualBranch
+        ? Boolean(
+            branchAddressAmiad.trim() ||
+              branchDirectionsAmiad.trim() ||
+              branchAddressKiryat.trim() ||
+              branchDirectionsKiryat.trim()
+          )
+        : Boolean(address.trim() || directions.trim()),
       knowledge:
         (useKnowledgeQa
           ? knowledgeQa.some((p) => p.question.trim() || p.answer.trim())
@@ -358,6 +384,11 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
       businessTagline,
       address,
       directions,
+      dualBranch,
+      branchAddressAmiad,
+      branchDirectionsAmiad,
+      branchAddressKiryat,
+      branchDirectionsKiryat,
       traits,
       promotions,
       useKnowledgeQa,
@@ -477,6 +508,65 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
             onToggle={() => toggle("location")}
             filled={sectionFilled.location}
           >
+            {dualBranch ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] leading-snug text-zinc-500">{t.about.branchLocationsHint}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (planIsStarter) {
+                        onStarterMediaBlocked();
+                        return;
+                      }
+                      onDirectionsMediaClick();
+                    }}
+                    className="text-[11px] font-medium text-[#027eb5] hover:text-[#02638f]"
+                  >
+                    {t.about.uploadFile}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {DUAL_BRANCHES.map((branch) => {
+                    const addressValue = branch.id === "amiad" ? branchAddressAmiad : branchAddressKiryat;
+                    const directionsValue =
+                      branch.id === "amiad" ? branchDirectionsAmiad : branchDirectionsKiryat;
+                    const setAddressValue =
+                      branch.id === "amiad" ? setBranchAddressAmiad : setBranchAddressKiryat;
+                    const setDirectionsValue =
+                      branch.id === "amiad" ? setBranchDirectionsAmiad : setBranchDirectionsKiryat;
+                    return (
+                      <section
+                        key={branch.id}
+                        className="space-y-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 p-3"
+                      >
+                        <h4 className="text-sm font-semibold text-[#2d1a6e]">{branch.label}</h4>
+                        <div>
+                          <SalesPathFieldLabel lang={lang}>{t.about.address}</SalesPathFieldLabel>
+                          <Input
+                            dir={dashboardDir(lang)}
+                            value={addressValue}
+                            onChange={(e) => setAddressValue?.(e.target.value)}
+                            autoComplete="street-address"
+                            className={INPUT}
+                          />
+                        </div>
+                        <div>
+                          <SalesPathFieldLabel lang={lang}>{t.about.directions}</SalesPathFieldLabel>
+                          <Input
+                            dir={dashboardDir(lang)}
+                            value={directionsValue}
+                            onChange={(e) => setDirectionsValue?.(e.target.value)}
+                            placeholder="חניה, כניסה, קומה…"
+                            className={INPUT}
+                          />
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <SalesPathFieldLabel lang={lang}>{t.about.address}</SalesPathFieldLabel>
@@ -518,6 +608,7 @@ export function AboutBusinessStepPanel(props: AboutBusinessStepPanelProps) {
                 />
               </div>
             </div>
+            )}
           </SalesPathSectionBlock>
 
           <SalesPathSectionBlock

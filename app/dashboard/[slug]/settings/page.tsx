@@ -83,8 +83,10 @@ import {
   StepPanel,
 } from "./settings-ui";
 import {
+  branchLocationsToMeta,
   branchOffersToMeta,
   isDualBranchBusiness,
+  parseBranchLocations,
   parseBranchOffers,
   parseBranchScheduleUrls,
   type BranchOffers,
@@ -1372,6 +1374,10 @@ export default function SlugSettingsPage({
   const [arboxLink, setArboxLink] = useState("");
   const [branchScheduleAmiad, setBranchScheduleAmiad] = useState("");
   const [branchScheduleKiryat, setBranchScheduleKiryat] = useState("");
+  const [branchAddressAmiad, setBranchAddressAmiad] = useState("");
+  const [branchDirectionsAmiad, setBranchDirectionsAmiad] = useState("");
+  const [branchAddressKiryat, setBranchAddressKiryat] = useState("");
+  const [branchDirectionsKiryat, setBranchDirectionsKiryat] = useState("");
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
   const [arboxScheduleScanBusy, setArboxScheduleScanBusy] = useState(false);
@@ -1795,6 +1801,13 @@ export default function SlugSettingsPage({
         setBotName(String(business.bot_name ?? "זואי"));
         setNiche(String(business.niche ?? ""));
         setAddress(String(sl.address ?? ""));
+        {
+          const locations = parseBranchLocations(sl.branch_locations);
+          setBranchAddressAmiad(locations.amiad.address);
+          setBranchDirectionsAmiad(locations.amiad.directions);
+          setBranchAddressKiryat(locations.kiryat_shmona.address);
+          setBranchDirectionsKiryat(locations.kiryat_shmona.directions);
+        }
         setCustomerServicePhone(
           typeof sl.customer_service_phone === "string" ? sl.customer_service_phone.trim() : ""
         );
@@ -2134,6 +2147,10 @@ export default function SlugSettingsPage({
                   amiad: branchScheduleAmiad.trim(),
                   kiryat_shmona: branchScheduleKiryat.trim(),
                 },
+                branch_locations: branchLocationsToMeta({
+                  amiad: { address: branchAddressAmiad, directions: branchDirectionsAmiad },
+                  kiryat_shmona: { address: branchAddressKiryat, directions: branchDirectionsKiryat },
+                }),
               }
             : {}),
           objections,
@@ -2204,6 +2221,10 @@ export default function SlugSettingsPage({
       arboxLink,
       branchScheduleAmiad,
       branchScheduleKiryat,
+      branchAddressAmiad,
+      branchDirectionsAmiad,
+      branchAddressKiryat,
+      branchDirectionsKiryat,
       crmType,
       crmApiKey,
       crmBoxId,
@@ -3354,6 +3375,15 @@ export default function SlugSettingsPage({
                 setAddress={setAddress}
                 directions={directions}
                 setDirections={setDirections}
+                dualBranch={isDualBranchBusiness(slug)}
+                branchAddressAmiad={branchAddressAmiad}
+                setBranchAddressAmiad={setBranchAddressAmiad}
+                branchDirectionsAmiad={branchDirectionsAmiad}
+                setBranchDirectionsAmiad={setBranchDirectionsAmiad}
+                branchAddressKiryat={branchAddressKiryat}
+                setBranchAddressKiryat={setBranchAddressKiryat}
+                branchDirectionsKiryat={branchDirectionsKiryat}
+                setBranchDirectionsKiryat={setBranchDirectionsKiryat}
                 planIsStarter={plan === "basic"}
                 onStarterMediaBlocked={() => setShowStarterMediaProModal(true)}
                 onDirectionsMediaClick={() => setShowDirectionsMediaModal(true)}
