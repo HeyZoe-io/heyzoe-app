@@ -9,6 +9,9 @@ import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/what
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
+import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
+import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
+import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 
 export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register";
 
@@ -391,6 +394,30 @@ async function deliverFrom(input: {
   });
 }
 
+async function leadStillWaitingToOpenSalesFlow(
+  admin: SupabaseClient,
+  businessId: number,
+  phone: string
+): Promise<boolean> {
+  const variants = contactPhoneLookupVariants(phone);
+  const lookup = variants.length ? variants : [phone];
+  const { data, error } = await admin
+    .from("contacts")
+    .select("sales_flow_started_at, trial_registered")
+    .eq("business_id", businessId)
+    .in("phone", lookup)
+    .limit(1);
+  if (error) {
+    if (/sales_flow_started_at|column/i.test(error.message)) return true;
+    console.warn("[business-conversation-flow] new-lead lookup failed:", error.message);
+    return false;
+  }
+  const row = (data ?? [])[0] as { sales_flow_started_at?: string | null; trial_registered?: boolean | null } | undefined;
+  if (!row) return true;
+  if (row.trial_registered === true) return false;
+  return !String(row.sales_flow_started_at ?? "").trim();
+}
+
 export async function handleBusinessConversationFlowInbound(input: {
   businessId: number;
   businessSlug: string;
@@ -417,17 +444,33 @@ export async function handleBusinessConversationFlowInbound(input: {
     return { handled: true };
   }
 
-  if (!session?.current_node_id) {
+  const waitingNode = session?.current_node_id
+    ? graph.nodes.find((node) => node.id === session?.current_node_id)
+    : null;
+  const alreadyInsideFlow =
+    waitingNode?.type === "question" || waitingNode?.type === "daytime" || waitingNode?.type === "register";
+  const openFromAnyMessage =
+    businessOpensSalesFlowOnAnyNewLeadMessage(input.businessSlug) &&
+    !alreadyInsideFlow &&
+    (await leadStillWaitingToOpenSalesFlow(admin, businessId, input.phone));
+
+  if (openFromAnyMessage || !session?.current_node_id) {
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
     session = {
-      id: "",
+      id: session?.id ?? "",
       current_node_id: start.id,
       flow_completed: false,
       product_slug: "",
       captured_day: "",
       captured_time: "",
     };
+    await markContactSalesFlowStarted({
+      supabase: admin,
+      businessId,
+      businessSlug: input.businessSlug,
+      phone: input.phone,
+    });
     await deliverFrom({
       admin,
       businessId,

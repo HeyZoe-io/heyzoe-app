@@ -10,6 +10,7 @@ import {
   salesFlowGreetingMarkerCountsAsStarted,
   sessionCountsAsSalesFlowStarted,
   businessStartsSalesFlowOnHi,
+  businessOpensSalesFlowOnAnyNewLeadMessage,
 } from "@/lib/sales-flow-start-triggers";
 
 assert.equal(isSalesFlowStartTrigger("היי"), false);
@@ -21,6 +22,9 @@ assert.equal(isSalesFlowStartTrigger("שלום"), false);
 assert.equal(isSalesFlowStartTrigger("hi"), false);
 
 const yigalSlug = "master-yigal-arbiv-ikma-israel";
+assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("pipman-team"), true);
+assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("Pipman-Team"), true);
+assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage(yigalSlug), false);
 assert.equal(businessStartsSalesFlowOnHi({ slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("היי", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("שלום", { slug: yigalSlug }), false);

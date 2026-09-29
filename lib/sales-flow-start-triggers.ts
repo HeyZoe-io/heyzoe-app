@@ -115,6 +115,11 @@ export function businessStartsSalesFlowOnHi(opts?: SalesFlowStartTriggerOpts): b
   return false;
 }
 
+/** פיפמן: כל הודעה מליד שעוד לא נכנס לפלואו פותחת את פלואו המכירה, לא רק «אשמח לפרטים». */
+export function businessOpensSalesFlowOnAnyNewLeadMessage(slug?: string | null): boolean {
+  return String(slug ?? "").trim().toLowerCase() === "pipman-team";
+}
+
 /** בקשת פרטים שאפשר לזהות גם בסוף הודעה ארוכה, לא רק כשהיא כל ההודעה. */
 const DETAILS_ASK_TAILS = [
   "אשמח לשמוע פרטים",

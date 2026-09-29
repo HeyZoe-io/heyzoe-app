@@ -202,7 +202,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
 import {
   buildOwnerAddressedGreetingReply,
   parseOwnerAddressedGreeting,
@@ -6691,14 +6691,14 @@ async function processIncoming(
     console.error("[WA Webhook] pause-check (early) failed (continuing):", e);
   }
 
-  if (!sessionPausedNow && businessId && msg.type === "text") {
+  if (!sessionPausedNow && businessId && (msg.type === "text" || business_slug === "pipman-team")) {
     try {
       const { handleBusinessConversationFlowInbound } = await import("@/lib/business-conversation-flow");
       const nodeFlow = await handleBusinessConversationFlowInbound({
         businessId: Number(businessId),
         businessSlug: business_slug,
         phone: msg.from,
-        text: String(msg.text ?? ""),
+        text: msg.type === "text" ? String(msg.text ?? "") : "",
         phoneNumberId: msg.toNumber,
         sessionId: earlySessionId,
       });
@@ -8840,16 +8840,23 @@ async function processIncoming(
   };
 
   // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
+  // פיפמן: כל הודעה מליד שעוד לא נכנס לפלואו פותחת אותו.
   const salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
   const openingFlowActive = salesFlowStarted;
   const salesFlowStartOpts = { slug: business_slug, businessName: knowledge?.businessName };
+  const pipmanNewLeadOpensFlow =
+    businessOpensSalesFlowOnAnyNewLeadMessage(business_slug) &&
+    !salesFlowStarted &&
+    msg.type === "text" &&
+    Boolean(String(msg.text ?? "").trim());
 
   // ───────────────────── Priority routing (no Claude first) ───────────────────
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
     if (
       isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
-      wantsRussianFlowRestart
+      wantsRussianFlowRestart ||
+      pipmanNewLeadOpensFlow
     ) {
       // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
