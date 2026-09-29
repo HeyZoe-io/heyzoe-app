@@ -160,7 +160,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     loadOpenedReplyRows(admin, openedSinceIso),
   ]);
 
-  let bizRows = bizQuery.data;
+  let bizRows = (bizQuery.data ?? null) as BizRow[] | null;
   if (bizQuery.error) {
     console.error(
       "[admin/dashboard] intro columns unavailable — run supabase/businesses_intro_period.sql:",
@@ -171,12 +171,12 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       .select("id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at")
       .order("created_at", { ascending: true })
       .limit(5000);
-    bizRows = fallback.data;
+    bizRows = (fallback.data ?? null) as BizRow[] | null;
     if (fallback.error) console.error("[admin/dashboard] businesses query failed:", fallback.error.message);
   }
   const inquiries = inquiriesQuery.data;
 
-  const businesses = (bizRows ?? []) as BizRow[];
+  const businesses = bizRows ?? [];
   const fromMs = new Date(fromTs).getTime();
   const toMs = new Date(toTs).getTime();
   const monthMs = new Date(monthStartIso).getTime();
