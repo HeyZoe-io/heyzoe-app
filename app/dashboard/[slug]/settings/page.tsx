@@ -455,7 +455,10 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
   const base = {
     price_text: (s.price_text ?? "").trim(),
     duration: s.duration,
-    payment_link: s.branch_offers?.amiad.paymentLink.trim() || s.payment_link,
+    payment_link:
+      s.branch_offers?.amiad.paymentPage.trim() ||
+      s.branch_offers?.amiad.paymentLink.trim() ||
+      s.payment_link,
     ...(s.branch_offers ? { branch_offers: branchOffersToMeta(s.branch_offers) } : {}),
     benefit_line: benefitLineFromProductDescription(s.description),
     description_text: s.description,

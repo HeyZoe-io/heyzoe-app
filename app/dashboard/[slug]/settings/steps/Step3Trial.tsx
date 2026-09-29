@@ -922,7 +922,8 @@ export default function Step3Trial(props: {
                   arr[i] = {
                     ...s,
                     branch_offers: next,
-                    payment_link: next.amiad.paymentLink.trim() || s.payment_link,
+                    payment_link:
+                      next.amiad.paymentPage.trim() || next.amiad.paymentLink.trim() || s.payment_link,
                   };
                   setServices(arr);
                 }}

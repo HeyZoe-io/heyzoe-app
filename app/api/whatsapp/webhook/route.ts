@@ -555,6 +555,8 @@ import {
   logMessage,
 } from "@/lib/analytics";
 import {
+  activeDualBranchFromAddress,
+  addressForSelectedBranch,
   applyDualBranchToKnowledge,
   dualBranchPickMenu,
   fetchLastDualBranchId,
@@ -3316,10 +3318,22 @@ async function sendAfterServicePickIntro(input: {
     business_slug: input.business_slug,
     sessionId: input.sessionId,
   });
+  let businessAddress = input.knowledge.addressText ?? "";
+  if (isDualBranchBusiness(input.business_slug)) {
+    const locations = input.knowledge.branchLocations;
+    let branch = activeDualBranchFromAddress(locations, businessAddress);
+    if (!branch) {
+      branch = await fetchLastDualBranchId({
+        business_slug: input.business_slug,
+        session_id: input.sessionId,
+      });
+    }
+    businessAddress = addressForSelectedBranch(locations, branch);
+  }
   const afterPickText = buildAfterServicePickReplyText(
     cfg.after_service_pick,
     input.picked,
-    input.knowledge.addressText ?? ""
+    businessAddress
   );
   if (!afterPickText.trim()) return;
   await sendWhatsAppMessage(

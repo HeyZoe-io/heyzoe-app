@@ -69,18 +69,10 @@ export function DualBranchProductFields(props: {
                 <SalesPathFieldLabel>{t.products.paymentPage}</SalesPathFieldLabel>
                 <Input
                   dir="ltr"
-                  value={offer.paymentPage}
-                  onChange={(e) => patch(branch.id, { paymentPage: e.target.value })}
-                  placeholder="https://..."
-                  className={`${SALES_PATH_INPUT} text-left font-mono text-sm`}
-                />
-              </div>
-              <div>
-                <SalesPathFieldLabel>{t.products.paymentLink}</SalesPathFieldLabel>
-                <Input
-                  dir="ltr"
-                  value={offer.paymentLink}
-                  onChange={(e) => patch(branch.id, { paymentLink: e.target.value })}
+                  value={offer.paymentPage || offer.paymentLink}
+                  onChange={(e) =>
+                    patch(branch.id, { paymentPage: e.target.value, paymentLink: e.target.value })
+                  }
                   placeholder="https://..."
                   className={`${SALES_PATH_INPUT} text-left font-mono text-sm`}
                 />

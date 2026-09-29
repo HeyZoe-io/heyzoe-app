@@ -1,6 +1,6 @@
 /**
  * שני סניפים לעסק אחד — כרגע רק tshelgine-8774 (תמרה).
- * אותם שיעורים, מערכת / עמוד תשלום / לינק סליקה / מועדים לפי סניף.
+ * אותם שיעורים, מערכת / עמוד תשלום / מועדים לפי סניף.
  * הסניף שנבחר נשמר כאירוע בשיחה, בלי עמודה חדשה ב-contacts.
  */
 import { fetchLastSalesFlowGreetingResetAt } from "@/lib/analytics";
@@ -171,17 +171,20 @@ export function parseBranchOffers(meta: Record<string, unknown> | null | undefin
 }
 
 export function branchOffersToMeta(offers: BranchOffers): Record<string, unknown> {
-  const one = (offer: BranchOffer) => ({
-    payment_page: offer.paymentPage.trim(),
-    payment_link: offer.paymentLink.trim(),
-    schedule_slots: offer.scheduleSlots
-      .filter((slot) => slot.day.trim() || slot.time.trim())
-      .map((slot) => ({
-        id: slot.id,
-        day: slot.day.trim(),
-        time: slot.time.trim(),
-      })),
-  });
+  const one = (offer: BranchOffer) => {
+    const url = offer.paymentPage.trim() || offer.paymentLink.trim();
+    return {
+      payment_page: url,
+      payment_link: url,
+      schedule_slots: offer.scheduleSlots
+        .filter((slot) => slot.day.trim() || slot.time.trim())
+        .map((slot) => ({
+          id: slot.id,
+          day: slot.day.trim(),
+          time: slot.time.trim(),
+        })),
+    };
+  };
   return {
     amiad: one(offers.amiad),
     kiryat_shmona: one(offers.kiryat_shmona),
@@ -249,7 +252,7 @@ type BranchServiceSlice = {
 export function applyDualBranchToService<T extends BranchServiceSlice>(row: T, branch: DualBranchId): T {
   const offer = row.branchOffers?.[branch];
   const slots = filledSlots(offer?.scheduleSlots ?? []);
-  const payment = offer?.paymentLink.trim() || offer?.paymentPage.trim() || row.paymentLink;
+  const payment = offer?.paymentPage.trim() || offer?.paymentLink.trim() || row.paymentLink;
   return {
     ...row,
     paymentLink: payment,
@@ -314,10 +317,19 @@ export function applyDualBranchToKnowledge<T extends BranchKnowledgeSlice>(
   } as T;
 }
 
+/** כתובת שנשלחת בתיאור המוצר — רק כתובת הסניף שנבחר, בלי כתובת משותפת. */
+export function addressForSelectedBranch(
+  locations: BranchLocations | null | undefined,
+  branch: DualBranchId | null
+): string {
+  if (!branch || !locations) return "";
+  return locations[branch].address.trim();
+}
+
 export function paymentLinkForBranch(meta: Record<string, unknown>, branch: DualBranchId | null): string {
   if (branch) {
     const offer = parseBranchOffers(meta)[branch];
-    const branched = offer.paymentLink || offer.paymentPage;
+    const branched = offer.paymentPage || offer.paymentLink;
     if (branched) return branched;
   }
   return String(meta.payment_link ?? "").trim();

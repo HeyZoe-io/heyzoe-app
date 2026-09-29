@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  addressForSelectedBranch,
   applyDualBranchToKnowledge,
   applyDualBranchToService,
   branchOffersToMeta,
@@ -60,7 +61,7 @@ const offers = parseBranchOffers({
 });
 
 const amiadRow = applyDualBranchToService({ ...row(), branchOffers: offers }, "amiad");
-assert.equal(amiadRow.paymentLink, "https://pay.example/amiad");
+assert.equal(amiadRow.paymentLink, "https://pay.example/amiad-page");
 assert.deepEqual(
   amiadRow.scheduleSlots.map((s) => `${s.day} ${s.time}`),
   ["ב 18:00"]
@@ -68,7 +69,7 @@ assert.deepEqual(
 assert.match(amiadRow.locationText, /עמיעד/);
 
 const kiryatRow = applyDualBranchToService({ ...row(), branchOffers: offers }, "kiryat_shmona");
-assert.equal(kiryatRow.paymentLink, "https://pay.example/ks");
+assert.equal(kiryatRow.paymentLink, "https://pay.example/ks-page");
 assert.equal(kiryatRow.scheduleSlots[0]?.time, "20:15");
 
 const pageOnly = applyDualBranchToService(
@@ -83,6 +84,27 @@ const pageOnly = applyDualBranchToService(
   "amiad"
 );
 assert.equal(pageOnly.paymentLink, "https://pay.example/page-only");
+
+const legacyLink = applyDualBranchToService(
+  {
+    ...row(),
+    branchOffers: parseBranchOffers({
+      branch_offers: {
+        amiad: { payment_page: "", payment_link: "https://pay.example/legacy", schedule_slots: [] },
+      },
+    }),
+  },
+  "amiad"
+);
+assert.equal(legacyLink.paymentLink, "https://pay.example/legacy");
+
+const locations = {
+  amiad: { address: "מושב עמיעד", directions: "חניה בכניסה" },
+  kiryat_shmona: { address: "שדרות תל חי 12", directions: "קומה 2" },
+};
+assert.equal(addressForSelectedBranch(locations, "kiryat_shmona"), "שדרות תל חי 12");
+assert.equal(addressForSelectedBranch(locations, "amiad"), "מושב עמיעד");
+assert.equal(addressForSelectedBranch(locations, null), "");
 assert.equal(pageOnly.scheduleSlots[0]?.time, "09:00");
 
 const urls = parseBranchScheduleUrls({ amiad: " https://sched.example/amiad ", kiryat_shmona: "" });
