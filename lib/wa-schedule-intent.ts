@@ -32,3 +32,20 @@ export function isScheduleIntent(text: string): boolean {
     (n.includes("שוב") && n.includes("מערכת"))
   );
 }
+
+/**
+ * בחימום בלוק ה-CTA מדולג, וקלוד לא שולח תמונה/לינק.
+ * בקשת לוח בטקסט חופשי צריכה לשלוח את מערכת השעות בעצמה.
+ */
+export function shouldSendScheduleBoardDuringWarmup(input: {
+  phase: string;
+  text: string;
+  canSendImage: boolean;
+  scheduleCtaOn: boolean;
+  hasLink: boolean;
+}): boolean {
+  if (input.phase !== "warmup") return false;
+  if (!isScheduleIntent(input.text)) return false;
+  if (input.canSendImage) return true;
+  return input.scheduleCtaOn && input.hasLink;
+}
