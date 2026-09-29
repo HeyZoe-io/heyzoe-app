@@ -1292,6 +1292,15 @@ export default function SlugSettingsPage({
     keepAboutBusinessStepMountedRef.current = false;
   }
   if (step === 2) keepAboutBusinessStepMountedRef.current = true;
+  const keepConversationMountedRef = useRef(false);
+  const conversationSlugRef = useRef(slug);
+  if (conversationSlugRef.current !== slug) {
+    conversationSlugRef.current = slug;
+    keepConversationMountedRef.current = false;
+  }
+  if (step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase())) {
+    keepConversationMountedRef.current = true;
+  }
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
   /** נכון רק אחרי GET מוצלח לעסק שתואם ל־slug — מונע אוטו־שמירה שדורסת נתונים */
   const [settingsHydrated, setSettingsHydrated] = useState(false);
@@ -3366,8 +3375,10 @@ export default function SlugSettingsPage({
         )}
 
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
-        {step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) ? (
-          <ConversationFlowBuilder slug={slug} />
+        {keepConversationMountedRef.current ? (
+          <div className={step !== 4 ? "hidden" : undefined} aria-hidden={step !== 4}>
+            <ConversationFlowBuilder slug={slug} />
+          </div>
         ) : null}
         {step === 4 && !NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) ? (
           <Step4SalesFlow
