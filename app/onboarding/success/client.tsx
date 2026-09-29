@@ -42,7 +42,7 @@ const i18n = {
     ],
     loginRedirectMsg: "התחברי כדי להיכנס לדשבורד.",
     missingEmail: "חסר אימייל בקישור. אם זה קרה אחרי תשלום, כתבו לנו בוואטסאפ ונעזור מיד.",
-    timedOut: "משהו תקע, פנו אלינו בוואטסאפ ונבדוק את זה איתכם.",
+    timedOut: "התשלום עדיין נקלט. ברגע שהוא יאושר נמשיך אוטומטית. אם זה נמשך, פנו אלינו בוואטסאפ.",
     whatsappHelpAria: "פנייה לוואטסאפ",
     doneLabel: "הצלחנו!",
     title: "חיבור ווטסאפ עסקי (מטא)",
@@ -100,7 +100,7 @@ const i18n = {
     loginRedirectMsg: "Sign in to access your dashboard.",
     missingEmail:
       "Email is missing from the link. If this happened after payment, message us on WhatsApp and we'll help right away.",
-    timedOut: "Something got stuck. Reach out on WhatsApp and we'll check it with you.",
+    timedOut: "Payment is still being confirmed. We'll continue automatically once it clears. If this takes a while, reach out on WhatsApp.",
     whatsappHelpAria: "Contact us on WhatsApp",
     doneLabel: "All set!",
     title: "Connect WhatsApp Business (Meta)",
@@ -520,9 +520,8 @@ export default function OnboardingSuccessClient() {
     let cancelled = false;
     let pollTimer: number | undefined;
     const ac = new AbortController();
+    // Keep polling after the note appears. A late IPN must still advance the page.
     const timeoutId = window.setTimeout(() => {
-      cancelled = true;
-      ac.abort();
       setTimedOut(true);
     }, TIMEOUT_MS);
 
@@ -640,7 +639,7 @@ export default function OnboardingSuccessClient() {
 
         {!email ? (
           <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>{t.missingEmail}</div>
-        ) : timedOut ? (
+        ) : timedOut && !ready ? (
           <div style={{ color: "#6b5b9a", fontSize: "14px", lineHeight: 1.7 }}>
             {t.timedOut}
             <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>

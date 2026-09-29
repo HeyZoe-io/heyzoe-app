@@ -362,9 +362,10 @@ function OnboardingContent() {
     setPaymentReady(null);
     setPaymentReadyTimedOut(false);
     const ac = new AbortController();
+    // Show the slow-payment note, but keep polling. iCount's IPN can land
+    // just after two minutes; stopping here left the payer on this screen
+    // even though the business was already created.
     const timeoutId = window.setTimeout(() => {
-      cancelled = true;
-      ac.abort();
       setPaymentReadyTimedOut(true);
     }, PAY_READY_TIMEOUT_MS);
 
@@ -1424,7 +1425,7 @@ function OnboardingContent() {
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <div style={{ fontSize: 13 }}>
-                      משהו תקע, פנו אלינו בוואטסאפ ונבדוק את זה איתכם.
+                      התשלום עדיין נקלט. ברגע שהוא יאושר נעביר אתכם אוטומטית. אם זה נמשך, פנו אלינו בוואטסאפ.
                     </div>
                     <a
                       href={WHATSAPP_HELP_URL}
