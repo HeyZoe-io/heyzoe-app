@@ -208,7 +208,7 @@ import {
   parseOwnerAddressedGreeting,
 } from "@/lib/wa-owner-addressed-greeting";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
-import { isScheduleIntent, shouldSendScheduleBoardDuringWarmup } from "@/lib/wa-schedule-intent";
+import { isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
 import {
   buildClassRescheduleTeamHandoffReply,
   resolveUnauthorizedBookingHandoff,
@@ -2129,6 +2129,7 @@ const SCHEDULE_BOARD_SENT_MODELS = new Set([
   "sales_flow_schedule_board_before_service_pick",
   "sales_flow_schedule_board_after_service_pick",
   "sales_flow_schedule_board_warmup_ask",
+  "sales_flow_schedule_board_on_ask",
 ]);
 
 async function ensureScheduleBoardSentOnce(input: {
@@ -9148,60 +9149,51 @@ async function processIncoming(
     }
   }
 
-  // חימום מדלג על בלוק ה-CTA, וקלוד לא מצרף את הלוח — שולחים תמונה/לינק ואז את שאלת החימום.
-  if (
-    isWaInboundTextMessage(msg) &&
-    knowledge?.salesFlowConfig &&
-    businessId &&
-    salesFlowStarted
-  ) {
-    const warmupScheduleAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
-    const warmupSchedBtn = knowledge.salesFlowConfig.cta_buttons?.find((b) => b.kind === "schedule");
-    const warmupScheduleCtaOn = Boolean(
-      warmupSchedBtn && (warmupSchedBtn.schedule_cta_delivery ?? "link") !== "none"
-    );
+  // בקשת מערכת שעות — התמונה/הלינק נשלחים בכל שלב, בלי לחכות ל-CTA או לקלוד.
+  if (isWaInboundTextMessage(msg) && knowledge && businessId) {
+    const askedScheduleAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
     if (
-      shouldSendScheduleBoardDuringWarmup({
-        phase: contactSessionPhase,
+      shouldSendScheduleBoardOnAsk({
         text: msg.text,
-        canSendImage: warmupScheduleAssets.canSendScheduleImage && Boolean(warmupScheduleAssets.scheduleImgUrl),
-        scheduleCtaOn: warmupScheduleCtaOn,
-        hasLink: warmupScheduleAssets.link.trim().length > 0,
+        canSendImage: askedScheduleAssets.canSendScheduleImage && Boolean(askedScheduleAssets.scheduleImgUrl),
+        hasLink: askedScheduleAssets.link.trim().length > 0,
       })
     ) {
       const delivery = await sendScheduleBoardAfterOpening({
-        assets: warmupScheduleAssets,
+        assets: askedScheduleAssets,
         msg,
         accountSid,
         authToken,
         business_slug,
         sessionId,
-        modelUsed: "sales_flow_schedule_board_warmup_ask",
+        modelUsed: "sales_flow_schedule_board_on_ask",
       });
       if (delivery !== "none") {
-        await resendUnansweredSalesFlowPrompt({
-          phase: contactSessionPhase,
-          contact: { flow_step: contactFlowStep },
-          knowledge,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          salesFlowServices,
-          trialRegistered: contactTrialRegistered,
-          allowTrialCta: allowTrialCtaThisSession,
-          blockTrialPickMedia: starterBlocksMedia,
-          sfConsumedKinds: sfClickedCtaKinds,
-          instagramFollowPromptSent: contactInstagramFollowPromptSent,
-          inboundText: msg.text,
-          flowStarted: true,
-          arboxApiKey: crmApiKey,
-          arboxBoxId: crmBoxId,
-          now: new Date(nowIso),
-        });
+        if (knowledge.salesFlowConfig && salesFlowStarted) {
+          await resendUnansweredSalesFlowPrompt({
+            phase: contactSessionPhase,
+            contact: { flow_step: contactFlowStep },
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            inboundText: msg.text,
+            flowStarted: true,
+            arboxApiKey: crmApiKey,
+            arboxBoxId: crmBoxId,
+            now: new Date(nowIso),
+          });
+        }
         return;
       }
     }

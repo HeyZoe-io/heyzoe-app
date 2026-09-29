@@ -34,18 +34,14 @@ export function isScheduleIntent(text: string): boolean {
 }
 
 /**
- * בחימום בלוק ה-CTA מדולג, וקלוד לא שולח תמונה/לינק.
- * בקשת לוח בטקסט חופשי צריכה לשלוח את מערכת השעות בעצמה.
+ * בקשת לוח בטקסט חופשי — שולחים את מערכת השעות בכל שלב.
+ * קלוד לא מצרף תמונה או לינק בעצמו.
  */
-export function shouldSendScheduleBoardDuringWarmup(input: {
-  phase: string;
+export function shouldSendScheduleBoardOnAsk(input: {
   text: string;
   canSendImage: boolean;
-  scheduleCtaOn: boolean;
   hasLink: boolean;
 }): boolean {
-  if (input.phase !== "warmup") return false;
   if (!isScheduleIntent(input.text)) return false;
-  if (input.canSendImage) return true;
-  return input.scheduleCtaOn && input.hasLink;
+  return input.canSendImage || input.hasLink;
 }

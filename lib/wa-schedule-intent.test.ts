@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isScheduleIntent, shouldSendScheduleBoardDuringWarmup } from "@/lib/wa-schedule-intent";
+import { isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
 
 assert.equal(isScheduleIntent("צפייה במערכת השעות"), true);
 assert.equal(isScheduleIntent("צפייה במערכת שעות"), true);
@@ -14,41 +14,33 @@ assert.equal(isScheduleIntent("לא. תודה."), false);
 assert.equal(isScheduleIntent("שיעור ניסיון"), false);
 
 assert.equal(
-  shouldSendScheduleBoardDuringWarmup({
-    phase: "warmup",
+  shouldSendScheduleBoardOnAsk({
     text: "מערכת שעות",
     canSendImage: true,
-    scheduleCtaOn: true,
+    hasLink: false,
+  }),
+  true
+);
+assert.equal(
+  shouldSendScheduleBoardOnAsk({
+    text: "מערכת שעות",
+    canSendImage: false,
     hasLink: true,
   }),
   true
 );
 assert.equal(
-  shouldSendScheduleBoardDuringWarmup({
-    phase: "cta",
-    text: "מערכת שעות",
-    canSendImage: true,
-    scheduleCtaOn: true,
-    hasLink: true,
-  }),
-  false
-);
-assert.equal(
-  shouldSendScheduleBoardDuringWarmup({
-    phase: "warmup",
+  shouldSendScheduleBoardOnAsk({
     text: "כמה עולה",
     canSendImage: true,
-    scheduleCtaOn: true,
     hasLink: true,
   }),
   false
 );
 assert.equal(
-  shouldSendScheduleBoardDuringWarmup({
-    phase: "warmup",
+  shouldSendScheduleBoardOnAsk({
     text: "מערכת שעות",
     canSendImage: false,
-    scheduleCtaOn: false,
     hasLink: false,
   }),
   false
