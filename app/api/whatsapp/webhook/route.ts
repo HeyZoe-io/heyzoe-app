@@ -471,6 +471,17 @@ const GEMINI_WHATSAPP_MODEL = "gemini-2.5-flash" as const;
 /** תשובות Claude/Gemini לליד בוואטסאפ בחלון נע של 24 שעות (לא כולל הודעות פלואו דטרמיניסטיות). */
 const WA_AI_REPLIES_PER_ROLLING_24H = 40;
 
+/**
+ * בעלות עסק שבודקות את זואי שלהן מהמספר האישי — בלי תקרת 24 שעות על השיחה הזו.
+ * טניה, סטודיו TIGHTS.
+ */
+const WA_AI_24H_LIMIT_EXEMPT_PHONES = new Set(["972524296071", "0524296071"]);
+
+function isWaAi24hLimitExempt(phone: string): boolean {
+  const digits = phone.replace(/\D/g, "");
+  return WA_AI_24H_LIMIT_EXEMPT_PHONES.has(digits);
+}
+
 function salesFlowMenuFooter(knowledge: BusinessKnowledgePack | null | undefined): string {
   return getZoeWhatsAppMenuFooter(resolveBusinessContentLanguageFromKnowledge(knowledge));
 }
@@ -11949,7 +11960,7 @@ async function processIncoming(
         .in("model_used", [CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL])
         .gte("created_at", sinceIso);
       const recentAiCount = typeof count === "number" ? count : 0;
-      if (recentAiCount >= WA_AI_REPLIES_PER_ROLLING_24H) {
+      if (recentAiCount >= WA_AI_REPLIES_PER_ROLLING_24H && !isWaAi24hLimitExempt(msg.from)) {
         const phone = knowledge?.customerServicePhone?.trim() ?? "";
         const txt = phone
           ? [
