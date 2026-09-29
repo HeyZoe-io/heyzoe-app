@@ -8,13 +8,9 @@ import { HEYZOE_SF_SERVICE_PREFIX, logMessage } from "@/lib/analytics";
 import { buildMetaInteractivePayload, sendMetaWhatsAppMessage } from "@/lib/whatsapp";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
-import {
-  fillRegistrationText,
-  matchQuestionButton,
-  type ConversationCapture,
-} from "@/lib/business-conversation-flow-text";
+import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
 
-export type BusinessFlowNodeType = "message" | "question" | "product" | "register";
+export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register";
 
 type FlowNode = {
   id: string;
@@ -53,10 +49,9 @@ function questionButtons(node: FlowNode): string[] {
   return raw.map((b) => String(b ?? "").trim()).filter(Boolean);
 }
 
-function captureOf(node: FlowNode): ConversationCapture {
-  const value = String(node.data.capture ?? "").trim();
-  if (value === "day" || value === "time") return value;
-  return "none";
+function buttonList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((b) => String(b ?? "").trim()).filter(Boolean);
 }
 
 function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {
@@ -82,6 +77,30 @@ async function sendText(phoneNumberId: string, phone: string, businessSlug: stri
   });
 }
 
+async function sendChoices(
+  phoneNumberId: string,
+  phone: string,
+  businessSlug: string,
+  sessionId: string,
+  text: string,
+  buttons: string[]
+) {
+  const body = text.trim() || "בחרו אפשרות";
+  const interactive = buttons.length ? buildMetaInteractivePayload(body, buttons) : null;
+  if (interactive) {
+    await sendMetaWhatsAppMessage(phoneNumberId, phone, interactive);
+    await logMessage({
+      business_slug: businessSlug,
+      role: "assistant",
+      content: `${body}\n[כפתורים: ${buttons.join(" | ")}]`,
+      model_used: "business_conversation_flow",
+      session_id: sessionId,
+    });
+    return;
+  }
+  await sendText(phoneNumberId, phone, businessSlug, sessionId, body);
+}
+
 async function loadGraph(admin: SupabaseClient, businessId: number): Promise<{ nodes: FlowNode[]; edges: FlowEdge[] } | null> {
   const { data: nodeRows, error: nodeErr } = await admin
     .from("business_conversation_nodes")
@@ -99,7 +118,7 @@ async function loadGraph(admin: SupabaseClient, businessId: number): Promise<{ n
       type: String((row as { type?: unknown }).type ?? "") as BusinessFlowNodeType,
       data: ((row as { data?: unknown }).data ?? {}) as Record<string, unknown>,
     }))
-    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "register"));
+    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "daytime" || n.type === "register"));
   if (!nodes.length) return null;
 
   const { data: edgeRows, error: edgeErr } = await admin
@@ -283,20 +302,44 @@ async function deliverFrom(input: {
     if (!node) break;
 
     if (node.type === "question") {
-      const buttons = questionButtons(node);
-      const text = nodeText(node) || "בחרו אפשרות";
-      const interactive = buttons.length ? buildMetaInteractivePayload(text, buttons) : null;
-      if (interactive) {
-        await sendMetaWhatsAppMessage(input.phoneNumberId, input.phone, interactive);
-        await logMessage({
-          business_slug: input.businessSlug,
-          role: "assistant",
-          content: `${text}\n[כפתורים: ${buttons.join(" | ")}]`,
-          model_used: "business_conversation_flow",
-          session_id: input.sessionId,
-        });
+      await sendChoices(
+        input.phoneNumberId,
+        input.phone,
+        input.businessSlug,
+        input.sessionId,
+        nodeText(node),
+        questionButtons(node)
+      );
+      session = { ...session, current_node_id: node.id, flow_completed: false };
+      await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
+      return;
+    }
+
+    if (node.type === "daytime") {
+      const days = buttonList(node.data.day_buttons);
+      const times = buttonList(node.data.time_buttons);
+      if (!session.captured_day) {
+        await sendChoices(
+          input.phoneNumberId,
+          input.phone,
+          input.businessSlug,
+          input.sessionId,
+          String(node.data.day_text ?? ""),
+          days
+        );
+      } else if (!session.captured_time) {
+        await sendChoices(
+          input.phoneNumberId,
+          input.phone,
+          input.businessSlug,
+          input.sessionId,
+          String(node.data.time_text ?? ""),
+          times
+        );
       } else {
-        await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
+        const next = edgeFrom(input.edges, node.id, "out");
+        nodeId = next?.target_node_id ?? null;
+        continue;
       }
       session = { ...session, current_node_id: node.id, flow_completed: false };
       await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
@@ -305,7 +348,7 @@ async function deliverFrom(input: {
 
     if (node.type === "product") {
       const slug = String(node.data.product_slug ?? "").trim();
-      if (slug) session = { ...session, product_slug: slug };
+      session = { ...session, product_slug: slug || session.product_slug, captured_day: "", captured_time: "" };
       const text = nodeText(node);
       if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
       const next = edgeFrom(input.edges, node.id, "out");
@@ -401,6 +444,42 @@ export async function handleBusinessConversationFlowInbound(input: {
   }
 
   const current = graph.nodes.find((n) => n.id === session?.current_node_id);
+  if (current?.type === "daytime") {
+    const waitingForTime = Boolean(session.captured_day);
+    const buttons = waitingForTime ? buttonList(current.data.time_buttons) : buttonList(current.data.day_buttons);
+    const index = matchQuestionButton(buttons, text);
+    if (index < 0) {
+      await deliverFrom({
+        admin,
+        businessId,
+        businessSlug: input.businessSlug,
+        phone: input.phone,
+        phoneNumberId: input.phoneNumberId,
+        sessionId: input.sessionId,
+        nodes: graph.nodes,
+        edges: graph.edges,
+        session,
+        nodeId: current.id,
+      });
+      return { handled: true };
+    }
+    const chosen = buttons[index] ?? "";
+    session = waitingForTime ? { ...session, captured_time: chosen } : { ...session, captured_day: chosen };
+    await deliverFrom({
+      admin,
+      businessId,
+      businessSlug: input.businessSlug,
+      phone: input.phone,
+      phoneNumberId: input.phoneNumberId,
+      sessionId: input.sessionId,
+      nodes: graph.nodes,
+      edges: graph.edges,
+      session,
+      nodeId: current.id,
+    });
+    return { handled: true };
+  }
+
   if (!current || current.type !== "question") {
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
@@ -444,10 +523,6 @@ export async function handleBusinessConversationFlowInbound(input: {
     return { handled: true };
   }
 
-  const chosen = buttons[index] ?? "";
-  const capture = captureOf(current);
-  if (capture === "day") session = { ...session, captured_day: chosen };
-  if (capture === "time") session = { ...session, captured_time: chosen };
   const next = edgeFrom(graph.edges, current.id, `btn-${index}`) ?? edgeFrom(graph.edges, current.id, "out");
   if (!next) {
     await saveSession(admin, businessId, phone, session);

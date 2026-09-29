@@ -16,7 +16,7 @@ alter table public.business_conversation_nodes
 
 alter table public.business_conversation_nodes
   add constraint business_conversation_nodes_type_check
-  check (type in ('message', 'question', 'product', 'register'));
+  check (type in ('message', 'question', 'product', 'daytime', 'register'));
 
 create index if not exists idx_bcn_business on public.business_conversation_nodes(business_id);
 

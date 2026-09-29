@@ -21,14 +21,16 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Loader2 } from "lucide-react";
 
-type FlowType = "message" | "question" | "product" | "register";
-type Capture = "none" | "day" | "time";
+type FlowType = "message" | "question" | "product" | "daytime" | "register";
 
 type FlowData = {
   text?: string;
   buttons?: string[];
-  capture?: Capture;
   product_slug?: string;
+  day_text?: string;
+  day_buttons?: string[];
+  time_text?: string;
+  time_buttons?: string[];
 };
 
 type ProductOption = { slug: string; name: string };
@@ -37,8 +39,11 @@ const TYPE_LABEL: Record<FlowType, string> = {
   message: "הודעה",
   question: "שאלה",
   product: "מוצר",
+  daytime: "יום ושעה",
   register: "אישור הרשמה",
 };
+
+const ADD_TYPES: FlowType[] = ["message", "question", "product", "register"];
 
 function newId() {
   return crypto.randomUUID();
@@ -95,6 +100,18 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       </button>
       <Handle type="target" position={Position.Right} style={{ background: "#7133da" }} />
       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>{TYPE_LABEL[type]}</div>
+      {type === "daytime" ? (
+        <div style={{ fontSize: 10, color: "#3f3f46", lineHeight: 1.35 }}>
+          <div style={{ whiteSpace: "pre-wrap" }}>{String(d.day_text || "").trim() || "שאלה על היום"}</div>
+          {(d.day_buttons ?? []).filter((label) => label.trim()).map((label, i) => (
+            <div key={`d-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
+          ))}
+          <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{String(d.time_text || "").trim() || "שאלה על השעה"}</div>
+          {(d.time_buttons ?? []).filter((label) => label.trim()).map((label, i) => (
+            <div key={`t-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
+          ))}
+        </div>
+      ) : (
       <div
         style={{
           fontSize: 10,
@@ -106,6 +123,7 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       >
         {String(d.text || "").trim() || "טקסט ריק"}
       </div>
+      )}
       {type === "product" ? (
         <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{d.product_slug ? "מוצר נבחר" : "בחרי מוצר"}</div>
       ) : null}
@@ -147,8 +165,42 @@ const nodeTypes = {
   message: FlowNodeCard,
   question: FlowNodeCard,
   product: FlowNodeCard,
+  daytime: FlowNodeCard,
   register: FlowNodeCard,
 };
+
+function emptyDaytime(): FlowData {
+  return { day_text: "", day_buttons: ["", ""], time_text: "", time_buttons: ["", ""] };
+}
+
+function ensureDaytimeAfterProducts(nodes: Node<FlowData, FlowType>[], edges: Edge[]): {
+  nodes: Node<FlowData, FlowType>[];
+  edges: Edge[];
+} {
+  let nextNodes = nodes;
+  let nextEdges = edges;
+  for (const product of nodes.filter((node) => node.type === "product")) {
+    const outIndex = nextEdges.findIndex((edge) => edge.source === product.id && (edge.sourceHandle || "out") === "out");
+    const out = outIndex >= 0 ? nextEdges[outIndex] : null;
+    const target = out ? nextNodes.find((node) => node.id === out.target) : null;
+    if (target?.type === "daytime") continue;
+    const dayId = newId();
+    const daytime: Node<FlowData, FlowType> = {
+      id: dayId,
+      type: "daytime",
+      position: { x: product.position.x - 200, y: product.position.y },
+      data: emptyDaytime(),
+    };
+    nextNodes = [...nextNodes, daytime];
+    if (out) {
+      nextEdges = nextEdges.map((edge, index) => (index === outIndex ? { ...edge, target: dayId } : edge));
+      nextEdges = [...nextEdges, { id: newId(), source: dayId, target: out.target, sourceHandle: "out" }];
+    } else {
+      nextEdges = [...nextEdges, { id: newId(), source: product.id, target: dayId, sourceHandle: "out" }];
+    }
+  }
+  return { nodes: nextNodes, edges: nextEdges };
+}
 
 function starterNodes(openingText: string): Node<FlowData, FlowType>[] {
   return [
@@ -218,8 +270,10 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
         position: { x: n.position_x, y: n.position_y },
         data: n.data ?? {},
       }));
-      setNodes(withDefaultOpening(loadedNodes, loadedEdges, String(json.openingText ?? "")));
-      setEdges(loadedEdges);
+      const opened = withDefaultOpening(loadedNodes, loadedEdges, String(json.openingText ?? ""));
+      const withSchedule = ensureDaytimeAfterProducts(opened, loadedEdges);
+      setNodes(withSchedule.nodes);
+      setEdges(withSchedule.edges);
       setStatus("ready");
       ready.current = true;
     } catch (e) {
@@ -295,12 +349,13 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
     const id = newId();
     const data: FlowData =
       type === "question"
-        ? { text: "", buttons: ["", ""], capture: "none" }
+        ? { text: "", buttons: ["", ""] }
         : type === "register"
           ? { text: "" }
           : type === "product"
             ? { text: "", product_slug: "" }
             : { text: "" };
+    const dayId = type === "product" ? newId() : "";
     setNodes((current) => {
       const wrap = flowWrapRef.current?.getBoundingClientRect();
       const center =
@@ -312,8 +367,20 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
       const stacked = current.filter((node) => Math.abs(node.position.x - x) < 36 && Math.abs(node.position.y - y) < 36).length;
       x += stacked * 22;
       y += stacked * 18;
-      return [...current, { id, type, position: { x, y }, data }];
+      const created: Node<FlowData, FlowType>[] = [{ id, type, position: { x, y }, data }];
+      if (type === "product") {
+        created.push({
+          id: dayId,
+          type: "daytime",
+          position: { x: x - 200, y },
+          data: emptyDaytime(),
+        });
+      }
+      return [...current, ...created];
     });
+    if (type === "product") {
+      setEdges((current) => [...current, { id: newId(), source: id, target: dayId, sourceHandle: "out" }]);
+    }
     setSelectedId(id);
   }
 
@@ -336,7 +403,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, מוצר ואישור הרשמה. הפולואפים נשארים בדף פולואפ.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(TYPE_LABEL) as FlowType[]).map((type) => (
+            {ADD_TYPES.map((type) => (
               <button
                 key={type}
                 type="button"
@@ -385,7 +452,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             ) : (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">{TYPE_LABEL[selected.type as FlowType]}</div>
-                {selected.type !== "product" ? (
+                {selected.type === "message" || selected.type === "question" || selected.type === "register" ? (
                   <label className="block text-sm text-zinc-700">
                     טקסט
                     <textarea
@@ -396,7 +463,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
                   </label>
-                ) : (
+                ) : selected.type === "product" ? (
                   <label className="block text-sm text-zinc-700">
                     טקסט לפני המעבר
                     <textarea
@@ -407,7 +474,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
                   </label>
-                )}
+                ) : null}
                 {selected.type === "question" ? (
                   <div className="space-y-2">
                     <div className="text-sm text-zinc-700">כפתורים</div>
@@ -431,18 +498,70 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                     >
                       הוסיפי כפתור
                     </button>
+                  </div>
+                ) : null}
+                {selected.type === "daytime" ? (
+                  <div className="space-y-3">
                     <label className="block text-sm text-zinc-700">
-                      התשובה נשמרת כ
-                      <select
-                        value={selected.data.capture ?? "none"}
-                        onChange={(e) => patchSelected({ capture: e.target.value as Capture })}
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value="none">בלי שמירה</option>
-                        <option value="day">יום</option>
-                        <option value="time">שעה</option>
-                      </select>
+                      שאלה על היום
+                      <textarea
+                        rows={2}
+                        value={String(selected.data.day_text ?? "")}
+                        onChange={(e) => patchSelected({ day_text: e.target.value })}
+                        placeholder="באיזה יום נוח לך?"
+                        className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
+                      />
                     </label>
+                    {(selected.data.day_buttons ?? [""]).map((label, i) => (
+                      <input
+                        key={`day-${i}`}
+                        value={label}
+                        onChange={(e) => {
+                          const day_buttons = [...(selected.data.day_buttons ?? [])];
+                          day_buttons[i] = e.target.value;
+                          patchSelected({ day_buttons });
+                        }}
+                        placeholder={`יום ${i + 1}`}
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => patchSelected({ day_buttons: [...(selected.data.day_buttons ?? []), ""] })}
+                      className="text-sm font-medium text-[#7133da]"
+                    >
+                      הוסיפי יום
+                    </button>
+                    <label className="block text-sm text-zinc-700">
+                      שאלה על השעה
+                      <textarea
+                        rows={2}
+                        value={String(selected.data.time_text ?? "")}
+                        onChange={(e) => patchSelected({ time_text: e.target.value })}
+                        placeholder="באיזו שעה?"
+                        className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
+                      />
+                    </label>
+                    {(selected.data.time_buttons ?? [""]).map((label, i) => (
+                      <input
+                        key={`time-${i}`}
+                        value={label}
+                        onChange={(e) => {
+                          const time_buttons = [...(selected.data.time_buttons ?? [])];
+                          time_buttons[i] = e.target.value;
+                          patchSelected({ time_buttons });
+                        }}
+                        placeholder={`שעה ${i + 1}`}
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => patchSelected({ time_buttons: [...(selected.data.time_buttons ?? []), ""] })}
+                      className="text-sm font-medium text-[#7133da]"
+                    >
+                      הוסיפי שעה
+                    </button>
                   </div>
                 ) : null}
                 {selected.type === "product" ? (
@@ -465,7 +584,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 ) : null}
                 {selected.type === "register" ? (
                   <p className="text-xs leading-relaxed text-zinc-500">
-                    {"{מוצר}"} נמשך מנוד המוצר ומטאב מוצרים. {"{יום}"} ו{"{שעה}"} נמשכים משאלות שסימנת כיום או כשעה. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
+                    {"{מוצר}"} נמשך מנוד המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מנוד יום ושעה שאחריו. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
                   </p>
                 ) : null}
                 <button type="button" onClick={() => deleteNode(selected.id)} className="text-sm text-rose-600">

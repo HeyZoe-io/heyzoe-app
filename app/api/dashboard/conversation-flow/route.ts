@@ -7,7 +7,7 @@ import { buildDefaultConversationOpening, taglineFromSocialLinks } from "@/lib/b
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const NODE_TYPES = new Set(["message", "question", "product", "register"]);
+const NODE_TYPES = new Set(["message", "question", "product", "daytime", "register"]);
 
 async function authorizedBusiness(slugRaw: string) {
   const slug = normDashboardSlug(slugRaw);
@@ -82,13 +82,8 @@ export async function POST(req: NextRequest) {
     (e) => nodeIds.has(String(e.source_node_id ?? "")) && nodeIds.has(String(e.target_node_id ?? ""))
   );
 
-  const { error: delEdges } = await admin.from("business_conversation_edges").delete().eq("business_id", businessId);
-  if (delEdges) return NextResponse.json({ error: delEdges.message }, { status: 500 });
-  const { error: delNodes } = await admin.from("business_conversation_nodes").delete().eq("business_id", businessId);
-  if (delNodes) return NextResponse.json({ error: delNodes.message }, { status: 500 });
-
   if (nodes.length) {
-    const { error } = await admin.from("business_conversation_nodes").insert(
+    const { error } = await admin.from("business_conversation_nodes").upsert(
       nodes.map((n) => ({
         id: String(n.id),
         business_id: businessId,
@@ -96,13 +91,28 @@ export async function POST(req: NextRequest) {
         data: n.data && typeof n.data === "object" ? n.data : {},
         position_x: Number(n.position_x) || 0,
         position_y: Number(n.position_y) || 0,
-      }))
+      })),
+      { onConflict: "id" }
     );
     if (error) {
-      console.error("[conversation-flow] insert nodes failed:", error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[conversation-flow] save nodes failed:", error.message);
+      const message = /type_check|check constraint/i.test(error.message)
+        ? "כדי לשמור נוד יום ושעה צריך להריץ ב-Supabase את supabase/business_conversation_flow_daytime.sql"
+        : error.message;
+      return NextResponse.json({ error: message }, { status: 500 });
     }
   }
+
+  const { error: delEdges } = await admin.from("business_conversation_edges").delete().eq("business_id", businessId);
+  if (delEdges) return NextResponse.json({ error: delEdges.message }, { status: 500 });
+
+  const keepIds = nodes.map((n) => String(n.id));
+  const nodeDelete = admin.from("business_conversation_nodes").delete().eq("business_id", businessId);
+  const { error: delNodes } = keepIds.length
+    ? await nodeDelete.not("id", "in", `(${keepIds.join(",")})`)
+    : await nodeDelete;
+  if (delNodes) return NextResponse.json({ error: delNodes.message }, { status: 500 });
+
   if (edges.length) {
     const { error } = await admin.from("business_conversation_edges").insert(
       edges.map((e) => ({
