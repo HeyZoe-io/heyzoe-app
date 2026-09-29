@@ -119,7 +119,11 @@ export default function SlugLayoutChrome({
           </div>
         ) : null}
         <div className="px-3 py-6 sm:px-6 sm:py-8">
-          <div className="mx-auto max-w-6xl min-w-0 space-y-5 overflow-x-clip">
+          <div
+            className={`mx-auto min-w-0 space-y-5 overflow-x-clip ${
+              normSlug === "pipman-team" && pathname.includes("/settings") ? "max-w-none" : "max-w-6xl"
+            }`}
+          >
             <div className="relative pt-1">
               <SlugDashboardNav slug={slug} />
             </div>

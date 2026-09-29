@@ -45,12 +45,12 @@ function newId() {
 
 function cardStyle(selected: boolean): CSSProperties {
   return {
-    width: 220,
-    borderRadius: 16,
-    border: selected ? "1.5px solid #7133da" : "1px solid rgba(24,24,27,0.08)",
+    width: 132,
+    borderRadius: 10,
+    border: selected ? "1.5px solid #7133da" : "1px solid rgba(24,24,27,0.1)",
     background: "#fff",
-    boxShadow: "0 8px 24px rgba(24,24,27,0.06)",
-    padding: "12px 12px 10px",
+    boxShadow: "0 1px 2px rgba(24,24,27,0.06)",
+    padding: "6px 7px 5px",
     textAlign: "right",
     direction: "rtl",
   };
@@ -62,24 +62,38 @@ function FlowNodeCard({ data, selected, type }: NodeProps<Node<FlowData, FlowTyp
   return (
     <div style={cardStyle(Boolean(selected))}>
       <Handle type="target" position={Position.Right} style={{ background: "#7133da" }} />
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#7133da", marginBottom: 6 }}>{TYPE_LABEL[type]}</div>
-      <div style={{ fontSize: 13, color: "#3f3f46", whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>{TYPE_LABEL[type]}</div>
+      <div
+        style={{
+          fontSize: 10,
+          color: "#3f3f46",
+          lineHeight: 1.3,
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          overflow: "hidden",
+        }}
+      >
         {String(d.text || "").trim() || "טקסט ריק"}
       </div>
       {type === "product" ? (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#71717a" }}>{d.product_slug ? "מוצר נבחר" : "בחרי מוצר"}</div>
+        <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{d.product_slug ? "מוצר נבחר" : "בחרי מוצר"}</div>
       ) : null}
       {type === "question"
         ? buttons.map((label, i) => (
-            <div key={i} style={{ position: "relative", marginTop: 8 }}>
+            <div key={i} style={{ position: "relative", marginTop: 4 }}>
               <div
                 style={{
                   borderRadius: 999,
-                  border: "1px solid rgba(113,51,218,0.25)",
-                  padding: "4px 10px",
-                  fontSize: 12,
+                  border: "1px solid rgba(113,51,218,0.22)",
+                  padding: "1px 6px",
+                  fontSize: 9,
+                  lineHeight: 1.4,
                   color: "#3f3f46",
                   background: "#fafafa",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {label.trim() || `כפתור ${i + 1}`}
@@ -247,12 +261,12 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   }, [products, selected]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 sm:px-6" dir="rtl">
-      <div className="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5">
+    <div className="w-full text-right [&_input]:!text-right [&_textarea]:!text-right" dir="rtl">
+      <div className="flex h-[calc(100dvh-10.5rem)] min-h-[680px] flex-col overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
           <div>
             <h2 className="text-base font-semibold text-zinc-900">שיחה</h2>
-            <p className="mt-1 text-sm text-zinc-500">הודעות, שאלות, מוצר ואישור הרשמה. הפולואפים נשארים בדף פולואפ.</p>
+            <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, מוצר ואישור הרשמה. הפולואפים נשארים בדף פולואפ.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(TYPE_LABEL) as FlowType[]).map((type) => (
@@ -267,8 +281,8 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             ))}
           </div>
         </div>
-        <div className="grid min-h-[680px] lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="h-[680px] bg-[#fafafa]">
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="relative h-[520px] min-h-0 overflow-hidden bg-[#fafafa] lg:h-full">
             {status === "loading" ? (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
                 <Loader2 className="me-2 h-4 w-4 animate-spin" />
@@ -285,7 +299,11 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 onNodeClick={(_, node) => setSelectedId(node.id)}
                 onPaneClick={() => setSelectedId(null)}
                 fitView
+                fitViewOptions={{ padding: 0.45, maxZoom: 0.9 }}
+                minZoom={0.35}
+                maxZoom={1.35}
                 proOptions={{ hideAttribution: true }}
+                className="h-full w-full"
               >
                 <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#e4e4e7" />
                 <Controls showInteractive={false} />

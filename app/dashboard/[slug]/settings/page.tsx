@@ -3180,9 +3180,12 @@ export default function SlugSettingsPage({
     setStep((s) => Math.max(1, s - 1));
   }
 
+  const wideConversation =
+    step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+
   return (
     <div className="min-h-[50vh]" dir={dashboardDir(lang)}>
-      <div className={DASHBOARD_SETTINGS_SHELL}>
+      <div className={wideConversation ? "mx-auto w-full min-w-0 max-w-none px-0" : DASHBOARD_SETTINGS_SHELL}>
         {settingsPresenceLocked ? (
           <div
             className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-right text-sm font-medium text-amber-800"
@@ -3229,7 +3232,7 @@ export default function SlugSettingsPage({
       ) : null}
 
       <div
-        className={`min-w-0 py-4 sm:py-10 ${DASHBOARD_CENTERED_CONTENT}`}
+        className={`min-w-0 ${wideConversation ? "py-1" : "py-4 sm:py-10"} ${DASHBOARD_CENTERED_CONTENT}`}
         style={{ overflowAnchor: "none" }}
       >
         <fieldset
