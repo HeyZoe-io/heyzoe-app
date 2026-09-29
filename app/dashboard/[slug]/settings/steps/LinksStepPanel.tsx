@@ -18,6 +18,7 @@ import {
   filterArboxMembershipTypesByWords,
   type ArboxMembershipTypeRow,
 } from "@/lib/arbox-membership-types";
+import { isDualBranchBusiness } from "@/lib/dual-branch";
 
 type SectionId = "website" | "booking" | "crm" | "social";
 
@@ -31,6 +32,10 @@ export type LinksStepPanelProps = {
   fetchSiteNotice: string;
   arboxLink: string;
   setArboxLink: (v: string) => void;
+  branchScheduleAmiad?: string;
+  setBranchScheduleAmiad?: (v: string) => void;
+  branchScheduleKiryat?: string;
+  setBranchScheduleKiryat?: (v: string) => void;
   scheduleScanImageUrl: string;
   setScheduleScanImageUrl: (v: string) => void;
   scheduleScanMediaInputRef: React.RefObject<HTMLInputElement | null>;
@@ -121,6 +126,10 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     fetchSiteNotice,
     arboxLink,
     setArboxLink,
+    branchScheduleAmiad = "",
+    setBranchScheduleAmiad,
+    branchScheduleKiryat = "",
+    setBranchScheduleKiryat,
     scheduleScanImageUrl,
     setScheduleScanImageUrl,
     scheduleScanMediaInputRef,
@@ -152,6 +161,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     arboxMembershipTypesFetchNonce,
   } = props;
   const t = dashboardSettingsT(lang);
+  const dualBranch = isDualBranchBusiness(slug);
 
   const canLoadArboxMembershipTypes =
     crmType === "arbox" && Boolean(crmApiKey.trim()) && Boolean(crmBoxId.trim());
@@ -300,11 +310,16 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   const filled = useMemo(
     () => ({
       website: Boolean(websiteUrl.trim()),
-      booking: Boolean(arboxLink.trim() || membershipsUrl.trim()),
+      booking: Boolean(
+        arboxLink.trim() ||
+          membershipsUrl.trim() ||
+          branchScheduleAmiad.trim() ||
+          branchScheduleKiryat.trim()
+      ),
       crm: Boolean(crmType && crmApiKey.trim()),
       social: Boolean(instagramUrl.trim()),
     }),
-    [websiteUrl, arboxLink, membershipsUrl, crmType, crmApiKey, crmBoxId, instagramUrl]
+    [websiteUrl, arboxLink, branchScheduleAmiad, branchScheduleKiryat, membershipsUrl, crmType, crmApiKey, crmBoxId, instagramUrl]
   );
 
   return (
@@ -403,6 +418,36 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         }
       >
         <div>
+          {dualBranch ? (
+            <div className="space-y-3">
+              <p className="text-[11px] leading-snug text-zinc-500">{t.links.branchSystemsHint}</p>
+              <div>
+                <SalesPathFieldLabel>{t.links.scheduleLinkAmiad}</SalesPathFieldLabel>
+                <Input
+                  dir="ltr"
+                  value={branchScheduleAmiad}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setBranchScheduleAmiad?.(next);
+                    setArboxLink(next);
+                  }}
+                  placeholder="https://..."
+                  className={SALES_PATH_INPUT}
+                />
+              </div>
+              <div>
+                <SalesPathFieldLabel>{t.links.scheduleLinkKiryatShmona}</SalesPathFieldLabel>
+                <Input
+                  dir="ltr"
+                  value={branchScheduleKiryat}
+                  onChange={(e) => setBranchScheduleKiryat?.(e.target.value)}
+                  placeholder="https://..."
+                  className={SALES_PATH_INPUT}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
           <SalesPathFieldLabel>{t.links.scheduleLink}</SalesPathFieldLabel>
           <Input
             dir="ltr"
@@ -411,6 +456,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             placeholder="https://..."
             className={SALES_PATH_INPUT}
           />
+            </>
+          )}
           {scheduleScanImageUrl.trim() ? (
             <div className="mt-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>

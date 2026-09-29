@@ -38,6 +38,7 @@ import {
   resolveKnowledgeCatalogServices,
   WA_MAX_PRODUCTS,
 } from "@/lib/trial-service";
+import { parseBranchScheduleUrls } from "@/lib/dual-branch";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
 import {
   FACT_QUOTE_RULES,
@@ -112,6 +113,8 @@ export type BusinessKnowledgePack = {
   knowledgeCatalogServices?: SfServiceRow[];
   /** קישור אינסטגרם (social_links.instagram) */
   instagramUrl: string;
+  /** מערכות שעות לפי סניף — רק tshelgine-8774 */
+  branchScheduleUrls?: import("@/lib/dual-branch").BranchScheduleUrls;
   promotionsText: string;
   traits: string[];
   knowledgeQa?: KnowledgeQaPair[];
@@ -476,6 +479,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       salesFlowServices: salesFlowConfig ? knowledgeCatalogServices.slice(0, WA_MAX_PRODUCTS) : [],
       knowledgeCatalogServices,
       instagramUrl,
+      branchScheduleUrls: parseBranchScheduleUrls(social.branch_schedule_urls),
       promotionsText,
       traits: traitsList,
       knowledgeQa,
@@ -652,6 +656,7 @@ export type WhatsAppPromptContext = {
     | "schedule_time"
     | "call_schedule_day"
     | "call_schedule_time"
+    | "branch_pick"
     | "cta"
     | "registered";
   trialRegistered?: boolean;
@@ -839,6 +844,10 @@ export function buildSystemPrompt(
     isWhatsApp && (phase === "call_schedule_day" || phase === "call_schedule_time")
       ? "- הליד באמצע קביעת מועד לשיחה וכתב טקסט חופשי (שאלה או עדכון), לא בחירת כפתור. עני קודם על מה שכתבו: אם יש שאלה — מהידע; אם זה עדכון — התייחסות קצרה לתוכן. אל תחזרי על «באיזה יום נוח» / «באיזה טווח שעות» ואל תרשמי כפתורים. המערכת שולחת את שאלת המועד שוב מיד אחרייך."
       : "";
+  const branchPickOpenAnswerRule =
+    isWhatsApp && phase === "branch_pick"
+      ? "- הליד צריך לבחור סניף (עמיעד או קריית שמונה). עני על שאלה פתוחה אם יש. אסור לבחור סניף במקומם, ואסור לשלוח מערכת שעות, מועדים או לינק תשלום. המערכת שולחת שוב את בחירת הסניף."
+      : "";
   const promotionsText = annotateExpiredIsraelDates(knowledge?.promotionsText?.trim() ?? "", promptNow);
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
@@ -924,6 +933,7 @@ ${directAnswerRule}
 ${holidayQuestionRule ? `${holidayQuestionRule}\n` : ""}${waSpellingPhrasingRule}
 ${warmupResumeRule}
 ${callScheduleOpenAnswerRule}
+${branchPickOpenAnswerRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}

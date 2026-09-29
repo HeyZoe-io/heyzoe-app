@@ -2,6 +2,7 @@ import { fetchLastSfServiceEventName, logMessage } from "@/lib/analytics";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
+import { applyDualBranchToKnowledge, fetchLastDualBranchId, isDualBranchBusiness } from "@/lib/dual-branch";
 import { resolveBusinessContentLanguageFromKnowledge } from "@/lib/business-content-lang";
 import { parseWaUiLang } from "@/lib/lead-ui-lang";
 import { localizeKnowledgePackForLead } from "@/lib/sales-flow-localize";
@@ -169,6 +170,11 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   const requestedDate = scheduleState.requestedDate;
   const requestedTime = scheduleState.requestedTime;
   const hasScheduleSelection = Boolean(requestedDate && requestedTime);
+
+  if (isDualBranchBusiness(businessSlug)) {
+    const branch = await fetchLastDualBranchId({ business_slug: businessSlug, session_id: sessionId });
+    if (branch) knowledge = applyDualBranchToKnowledge(knowledge, branch);
+  }
 
   const salesFlowServices = knowledge.salesFlowServices ?? [];
   const selectedServiceName =

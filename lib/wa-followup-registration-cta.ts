@@ -1,5 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { HEYZOE_SF_SERVICE_PREFIX } from "@/lib/analytics";
+import { fetchLastDualBranchId, isDualBranchBusiness, paymentLinkForBranch } from "@/lib/dual-branch";
 import { offerKindFromServiceMeta, type OfferKind } from "@/lib/sales-flow";
 
 function asSocialRecord(social: unknown): Record<string, unknown> {
@@ -60,10 +61,13 @@ function resolveServiceOfferKind(row: ServiceRow | null | undefined): OfferKind 
   return offerKindFromServiceMeta(parseServiceDescriptionMeta(String(row.description ?? "")));
 }
 
-function paymentLinkFromService(row: ServiceRow | null | undefined): string {
+function paymentLinkFromService(
+  row: ServiceRow | null | undefined,
+  branch: Awaited<ReturnType<typeof fetchLastDualBranchId>>
+): string {
   if (!row) return "";
   const meta = parseServiceDescriptionMeta(String(row.description ?? ""));
-  return String(meta.payment_link ?? "").trim();
+  return paymentLinkForBranch(meta, branch);
 }
 
 /**
@@ -109,7 +113,13 @@ export async function resolveWaFollowupRegistrationCta(input: {
 
   // לינק הרשמה רק מהשירות האחרון שנבחר — בלי fallback ללינק של מוצר אחר.
   const offerKind = resolveServiceOfferKind(selected);
-  const url = paymentLinkFromService(selected);
+  const branch = isDualBranchBusiness(input.business_slug)
+    ? await fetchLastDualBranchId({
+        business_slug: input.business_slug,
+        session_ids: input.session_ids,
+      })
+    : null;
+  const url = paymentLinkFromService(selected, branch);
 
   if (!validHttp(url)) {
     const sl = asSocialRecord(input.social_links);

@@ -554,6 +554,14 @@ import {
   HEYZOE_SF_WARMUP_EXTRA_PREFIX,
   logMessage,
 } from "@/lib/analytics";
+import {
+  applyDualBranchToKnowledge,
+  dualBranchPickMenu,
+  fetchLastDualBranchId,
+  HEYZOE_SF_BRANCH_PREFIX,
+  isDualBranchBusiness,
+  matchDualBranchChoice,
+} from "@/lib/dual-branch";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import {
@@ -715,6 +723,7 @@ function findWaMenuOptionIndex(
 type HeyzoeSessionPhase =
   | "opening"
   | "warmup"
+  | "branch_pick"
   | "schedule_date"
   | "schedule_time"
   | "call_schedule_day"
@@ -726,6 +735,7 @@ type HeyzoeSessionPhase =
 const SALES_FLOW_FREE_TEXT_SPLIT_PHASES = new Set<HeyzoeSessionPhase>([
   "opening",
   "warmup",
+  "branch_pick",
   "schedule_date",
   "schedule_time",
   "call_schedule_day",
@@ -781,6 +791,7 @@ function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
   const s = String(raw ?? "").trim();
   if (
     s === "warmup" ||
+    s === "branch_pick" ||
     s === "schedule_date" ||
     s === "schedule_time" ||
     s === "call_schedule_day" ||
@@ -796,6 +807,7 @@ function normalizeSessionPhase(raw: unknown): HeyzoeSessionPhase {
 const SALES_FLOW_DETERMINISTIC_PHASES = new Set<HeyzoeSessionPhase>([
   "opening",
   "warmup",
+  "branch_pick",
   "schedule_date",
   "schedule_time",
   "call_schedule_day",
@@ -823,6 +835,7 @@ type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
 const JOIN_SIGNUP_RECOVERY_BLOCKED_PHASES = new Set<HeyzoeSessionPhase>([
   "opening",
   "warmup",
+  "branch_pick",
   "registered",
 ]);
 
@@ -1220,6 +1233,7 @@ async function restartSalesFlowFromGreeting(input: {
 const SALES_FLOW_CONTINUATION_PHASES = new Set<HeyzoeSessionPhase>([
   "opening",
   "warmup",
+  "branch_pick",
   "schedule_date",
   "schedule_time",
   "call_schedule_day",
@@ -2258,7 +2272,45 @@ async function maybeSendScheduleBoardForPlacement(input: {
   });
 }
 
-/** אחרי חימום (או כשחימום כבוי): מערכת שעות (לפי מיקום) → בחירת מוצר (מרובים) / המשך מסלול (יחיד) */
+async function sendDualBranchPickMenu(input: {
+  knowledge: BusinessKnowledgePack;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+}): Promise<void> {
+  const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  const menuLang = lang === "en" || lang === "ru" ? lang : "he";
+  const { question, labels } = dualBranchPickMenu(menuLang);
+  const menuFooter = salesFlowMenuFooter(input.knowledge);
+  await sendWhatsAppTextOrMenu(
+    input.msg.toNumber,
+    input.msg.from,
+    question,
+    labels,
+    input.accountSid,
+    input.authToken,
+    { footerHint: menuFooter, language: lang }
+  ).catch((e) => console.error("[WA Webhook] Send branch pick menu failed:", e));
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: formatInteractiveConversationLog(question, labels, menuFooter),
+    model_used: "sales_flow_branch_pick",
+    session_id: input.sessionId,
+  });
+  await updateContactSessionPhase({
+    supabase: input.supabase,
+    businessId: input.businessId,
+    phone: input.msg.from,
+    phase: "branch_pick",
+  });
+}
+
+/** אחרי חימום (או כשחימום כבוי): בחירת סניף (אם יש) → מערכת שעות → בחירת מוצר / המשך מסלול */
 async function advanceAfterWarmupSessionComplete(input: {
   knowledge: BusinessKnowledgePack;
   salesFlowServices: SfServiceRow[];
@@ -2293,6 +2345,23 @@ async function advanceAfterWarmupSessionComplete(input: {
   } = input;
 
   try {
+    if (isDualBranchBusiness(business_slug)) {
+      const branch = await fetchLastDualBranchId({ business_slug, session_id: sessionId });
+      if (!branch) {
+        await sendDualBranchPickMenu({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+        });
+        return;
+      }
+    }
+
     const placement = resolveScheduleBoardPlacement(knowledge.salesFlowConfig);
     // after_opening: כבר נשלח (או safety-net כאן). before_service_pick: עכשיו.
     // after_service_pick + מרובים: אחרי בחירת מוצר. יחיד: כאן (אין שלב בחירה).
@@ -4256,6 +4325,20 @@ async function sendFlowContinuation(input: {
   }
   const menuFooter = salesFlowMenuFooter(knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+
+  if (phase === "branch_pick") {
+    await sendDualBranchPickMenu({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+    });
+    return;
+  }
 
   if (phase === "registered") {
     const igRaw = knowledge.instagramUrl?.trim();
@@ -6749,6 +6832,7 @@ async function processIncoming(
       businessId &&
       (contactSessionPhase === "opening" ||
         contactSessionPhase === "warmup" ||
+        contactSessionPhase === "branch_pick" ||
         contactSessionPhase === "schedule_date" ||
         contactSessionPhase === "schedule_time" ||
         contactSessionPhase === "call_schedule_day" ||
@@ -6874,7 +6958,15 @@ async function processIncoming(
       }
     }
   }
-  const salesFlowServices = knowledge?.salesFlowServices ?? [];
+  let salesFlowServices = knowledge?.salesFlowServices ?? [];
+  if (knowledge && isDualBranchBusiness(business_slug)) {
+    const selectedBranch = await fetchLastDualBranchId({ business_slug, session_id: sessionId });
+    if (selectedBranch) {
+      const applied = applyDualBranchToKnowledge(knowledge, selectedBranch);
+      knowledge = applied;
+      salesFlowServices = applied.salesFlowServices;
+    }
+  }
 
   // Handle unsupported message types (voice note, image, sticker, …).
   // Log for the dashboard; do not auto-reply (no canned "text only" message).
@@ -9837,6 +9929,55 @@ async function processIncoming(
         return;
       }
     }
+  }
+
+  // 1.44) בחירת סניף — אחרי חימום, לפני מוצר / מועדים (tshelgine-8774)
+  if (
+    msg.type === "text" &&
+    isDualBranchBusiness(business_slug) &&
+    contactSessionPhase === "branch_pick" &&
+    knowledge?.salesFlowConfig &&
+    businessId
+  ) {
+    const branch = matchDualBranchChoice(msg.text, msg.metaInteractiveReplyId);
+    if (!branch) {
+      await sendDualBranchPickMenu({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+    await logMessage({
+      business_slug,
+      role: "event",
+      content: `${HEYZOE_SF_BRANCH_PREFIX}${branch}`,
+      model_used: "sf_branch_pick",
+      session_id: sessionId,
+    });
+    const applied = applyDualBranchToKnowledge(knowledge, branch);
+    await advanceAfterWarmupSessionComplete({
+      knowledge: applied,
+      salesFlowServices: applied.salesFlowServices,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      blockTrialPickMedia: starterBlocksMedia,
+      trialRegistered: contactTrialRegistered,
+      allowTrialCta: allowTrialCtaThisSession,
+      sfConsumedKinds: sfClickedCtaKinds,
+      instagramFollowPromptSent: contactInstagramFollowPromptSent,
+    });
+    return;
   }
 
   // 1.45) Sales flow: קביעת מועד לשיחה (call_schedule_day / call_schedule_time)

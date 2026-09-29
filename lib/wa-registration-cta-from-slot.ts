@@ -47,6 +47,7 @@ export function resolveCtaOccurrenceOutcome(state: "open" | "full" | "cancelled"
 }
 
 const SKIP_PHASES = new Set([
+  "branch_pick",
   "schedule_date",
   "schedule_time",
   "call_schedule_day",

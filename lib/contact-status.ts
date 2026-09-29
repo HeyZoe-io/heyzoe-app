@@ -28,7 +28,7 @@ export type ContactStatusInput = {
   last_contact_at?: string | null;
 };
 
-const ACTIVE_PHASES = new Set(["opening", "warmup", "schedule_date", "schedule_time", "cta"]);
+const ACTIVE_PHASES = new Set(["opening", "warmup", "branch_pick", "schedule_date", "schedule_time", "cta"]);
 
 export function isContactTrialRegistered(input: ContactStatusInput): boolean {
   return input.trial_registered === true || input.session_phase === "registered";

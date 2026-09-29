@@ -1,3 +1,4 @@
+import { parseBranchOffers, type BranchOffers } from "@/lib/dual-branch";
 import { offerKindFromServiceMeta } from "@/lib/sales-flow";
 import { parseArboxClassStamp } from "@/lib/arbox-class-stamp";
 import {
@@ -38,6 +39,8 @@ export type SfServiceRow = {
   courseDatesEnabled: boolean;
   /** Stamped Arbox class name (join key for per-occurrence fullness checks) — "" when unstamped. */
   arboxClassName: string;
+  /** עמיעד / קריית שמונה — ריק לעסקים בלי שני סניפים */
+  branchOffers?: BranchOffers;
 };
 
 export type RawServiceRowInput = {
@@ -129,6 +132,7 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       locationText: String(s.location_text ?? meta.location_text ?? "").trim(),
       courseDatesEnabled,
       arboxClassName: parseArboxClassStamp(meta).arbox_class_name,
+      branchOffers: parseBranchOffers(meta),
     };
   } catch {
     const raw = String(s.description ?? "");

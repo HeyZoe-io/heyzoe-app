@@ -24,6 +24,8 @@ import { isWhatsAppChatOverflowIndex, TRIAL_SERVICE_NAME_MAX_CHARS, WA_MAX_PRODU
 import { type OfferKind } from "@/lib/sales-flow";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT, type DashboardSettingsT } from "@/lib/dashboard-settings-i18n";
+import type { BranchOffers } from "@/lib/dual-branch";
+import { DualBranchProductFields } from "./DualBranchProductFields";
 
 const PRODUCT_INPUT = SALES_PATH_INPUT;
 
@@ -92,6 +94,7 @@ type ServiceItem = {
   arbox_class_name: string;
   schedule_removed_notice: { detected_at: string; dismissed: boolean } | null;
   description_meta: Record<string, unknown>;
+  branch_offers?: BranchOffers;
 };
 
 function courseCyclesForOfferKindSwitch(
@@ -325,6 +328,8 @@ export default function Step3Trial(props: {
   arboxScheduleScanError?: string;
   focusProductUiId?: string | null;
   onFocusProductConsumed?: () => void;
+  /** tshelgine-8774 — שני סניפים: עמיעד וקריית שמונה */
+  dualBranch?: boolean;
 }) {
   const {
     lang = "he",
@@ -357,6 +362,7 @@ export default function Step3Trial(props: {
     arboxScheduleScanBusy = false,
     arboxScheduleScanError = "",
     focusProductUiId = null,
+    dualBranch = false,
     onFocusProductConsumed,
   } = props;
   const t = dashboardSettingsT(lang);
@@ -904,7 +910,27 @@ export default function Step3Trial(props: {
               </div>
             )}
 
+            {dualBranch ? (
+              <DualBranchProductFields
+                lang={lang}
+                t={t}
+                showSlots={scheduleDirectRegistration === false && s.offer_kind !== "course"}
+                offers={s.branch_offers}
+                newId={uid}
+                onChange={(next) => {
+                  const arr = [...services];
+                  arr[i] = {
+                    ...s,
+                    branch_offers: next,
+                    payment_link: next.amiad.paymentLink.trim() || s.payment_link,
+                  };
+                  setServices(arr);
+                }}
+              />
+            ) : null}
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {dualBranch ? null : (
               <div>
                 <SalesPathFieldLabel>{t.products.paymentLink}</SalesPathFieldLabel>
                 <div className="flex min-w-0 items-center gap-2">
@@ -922,6 +948,7 @@ export default function Step3Trial(props: {
                   />
                 </div>
               </div>
+              )}
               <div>
                 <SalesPathFieldLabel>{t.products.location}</SalesPathFieldLabel>
                 <Input
@@ -1241,7 +1268,7 @@ export default function Step3Trial(props: {
                 </>
                 )}
               </div>
-              ) : scheduleDirectRegistration === false ? (
+              ) : scheduleDirectRegistration === false && !dualBranch ? (
               <div className="space-y-3 rounded-lg border border-zinc-200/80 bg-zinc-50/40 p-4 text-right" dir={dashboardDir(lang)}>
                 <div className="mb-1.5 flex items-center gap-1">
                   <span className="text-[13px] font-medium text-zinc-800">{t.products.weeklySlots}</span>
