@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { assertBusinessAccess, normDashboardSlug } from "@/lib/dashboard-business-access";
+import { buildDefaultConversationOpening, taglineFromSocialLinks } from "@/lib/business-conversation-opening";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   if ("error" in auth && auth.error) return auth.error;
   const { admin, businessId } = auth as { admin: ReturnType<typeof createSupabaseAdminClient>; businessId: number };
 
-  const [nodesRes, edgesRes, productsRes] = await Promise.all([
+  const [nodesRes, edgesRes, productsRes, businessRes] = await Promise.all([
     admin
       .from("business_conversation_nodes")
       .select("id, type, data, position_x, position_y")
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
       .select("id, source_node_id, target_node_id, source_handle")
       .eq("business_id", businessId),
     admin.from("services").select("service_slug, name").eq("business_id", businessId).order("id", { ascending: true }),
+    admin.from("businesses").select("name, bot_name, social_links").eq("id", businessId).maybeSingle(),
   ]);
 
   if (nodesRes.error) {
@@ -44,9 +46,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: nodesRes.error.message }, { status: 500 });
   }
 
+  const business = businessRes.data as { name?: unknown; bot_name?: unknown; social_links?: unknown } | null;
+  const { tagline, address } = taglineFromSocialLinks(business?.social_links);
+  const openingText = buildDefaultConversationOpening({
+    botName: String(business?.bot_name ?? ""),
+    businessName: String(business?.name ?? ""),
+    tagline,
+    address,
+  });
+
   return NextResponse.json({
     nodes: nodesRes.data ?? [],
     edges: edgesRes.data ?? [],
+    openingText,
     products: (productsRes.data ?? []).map((row) => ({
       slug: String((row as { service_slug?: unknown }).service_slug ?? ""),
       name: String((row as { name?: unknown }).name ?? ""),

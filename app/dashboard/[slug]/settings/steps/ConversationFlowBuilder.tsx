@@ -69,7 +69,7 @@ function FlowNodeCard({ data, selected, type }: NodeProps<Node<FlowData, FlowTyp
           color: "#3f3f46",
           lineHeight: 1.3,
           display: "-webkit-box",
-          WebkitLineClamp: 2,
+          WebkitLineClamp: 4,
           WebkitBoxOrient: "vertical",
           overflow: "hidden",
         }}
@@ -120,15 +120,32 @@ const nodeTypes = {
   register: FlowNodeCard,
 };
 
-function starterNodes(): Node<FlowData, FlowType>[] {
+function starterNodes(openingText: string): Node<FlowData, FlowType>[] {
   return [
     {
       id: newId(),
-      type: "question",
-      position: { x: 420, y: 80 },
-      data: { text: "", buttons: ["", ""], capture: "none" },
+      type: "message",
+      position: { x: 720, y: 140 },
+      data: { text: openingText },
     },
   ];
+}
+
+/** נוד הפתיחה הוא ההתחלה: הודעה בלי חץ נכנס. אם היא ריקה, ממלאים את הג׳ינרוט הרגיל. */
+function withDefaultOpening(
+  nodes: Node<FlowData, FlowType>[],
+  edges: Edge[],
+  openingText: string
+): Node<FlowData, FlowType>[] {
+  const text = openingText.trim();
+  if (!nodes.length) return starterNodes(text);
+  if (!text) return nodes;
+  const targeted = new Set(edges.map((edge) => edge.target));
+  const first = nodes
+    .filter((node) => !targeted.has(node.id))
+    .sort((a, b) => a.position.y - b.position.y || b.position.x - a.position.x)[0];
+  if (!first || first.type !== "message" || String(first.data.text ?? "").trim()) return nodes;
+  return nodes.map((node) => (node.id === first.id ? { ...node, data: { ...node.data, text } } : node));
 }
 
 function ConversationFlowCanvas({ slug }: { slug: string }) {
@@ -152,25 +169,25 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
         nodes?: Array<{ id: string; type: FlowType; data: FlowData; position_x: number; position_y: number }>;
         edges?: Array<{ id: string; source_node_id: string; target_node_id: string; source_handle: string }>;
         products?: ProductOption[];
+        openingText?: string;
         error?: string;
       };
       if (!res.ok) throw new Error(json.error || "load_failed");
       setProducts(json.products ?? []);
+      const loadedEdges = (json.edges ?? []).map((e) => ({
+        id: e.id,
+        source: e.source_node_id,
+        target: e.target_node_id,
+        sourceHandle: e.source_handle || "out",
+      }));
       const loadedNodes = (json.nodes ?? []).map((n) => ({
         id: n.id,
         type: n.type,
         position: { x: n.position_x, y: n.position_y },
         data: n.data ?? {},
       }));
-      setNodes(loadedNodes.length ? loadedNodes : starterNodes());
-      setEdges(
-        (json.edges ?? []).map((e) => ({
-          id: e.id,
-          source: e.source_node_id,
-          target: e.target_node_id,
-          sourceHandle: e.source_handle || "out",
-        }))
-      );
+      setNodes(withDefaultOpening(loadedNodes, loadedEdges, String(json.openingText ?? "")));
+      setEdges(loadedEdges);
       setStatus("ready");
       ready.current = true;
     } catch (e) {
