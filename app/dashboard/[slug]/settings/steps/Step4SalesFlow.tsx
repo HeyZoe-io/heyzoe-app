@@ -176,6 +176,8 @@ type Step4SalesFlowProps = {
   addressText: string;
   directionsMediaUrl?: string;
   directionsMediaType?: "image" | "video" | "";
+  /** tshelgine-8774 — סשן בחירת סניף אחרי חימום */
+  dualBranch?: boolean;
 };
 
 function resolveOfferTab(
@@ -628,6 +630,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     addressText,
     directionsMediaUrl = "",
     directionsMediaType = "",
+    dualBranch = false,
   } = props;
   const t = dashboardSettingsT(lang);
 
@@ -904,6 +907,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
     | "schedule_board"
     | "service_pick"
     | "warmup"
+    | "branch_pick"
     | "schedule_selection"
     | "cta"
     | "after_trial";
@@ -940,12 +944,21 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       label: t.salesFlow.postRegistration,
       hint: t.salesFlow.sections.after_trial.hint,
     };
+    const branchPick = dualBranch
+      ? [
+          {
+            id: "branch_pick" as const,
+            label: t.salesFlow.branchPickSession,
+            hint: t.salesFlow.sections.branch_pick.hint,
+          },
+        ]
+      : [];
     const mid =
       scheduleBoardPlacement === "after_opening"
-        ? [scheduleBoard, warmup, servicePick]
+        ? [scheduleBoard, warmup, ...branchPick, servicePick]
         : scheduleBoardPlacement === "after_service_pick"
-          ? [warmup, servicePick, scheduleBoard]
-          : [warmup, scheduleBoard, servicePick];
+          ? [warmup, ...branchPick, servicePick, scheduleBoard]
+          : [warmup, ...branchPick, scheduleBoard, servicePick];
     return [
       media,
       opening,
@@ -954,7 +967,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
       cta,
       afterTrial,
     ];
-  }, [scheduleBoardPlacement, t]);
+  }, [scheduleBoardPlacement, t, dualBranch]);
   const { openSections, toggle, scrollToSection, activeNav, mainRef, setStepPrefix } =
     useSalesPathSections<SalesSectionId>(SALES_SECTIONS, {
       media: true,
@@ -1471,6 +1484,32 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           </div>
         </SalesPathSectionBlock>
         </SalesPathSectionRow>
+
+        {dualBranch ? (
+        <SalesPathSectionRow lang={lang}>
+        <SalesPathSectionBlock
+          stepPrefix="sales"
+          id="branch_pick"
+          title={t.salesFlow.branchPickSession}
+          open={openSections.branch_pick}
+          onToggle={() => toggle("branch_pick")}
+          filled
+        >
+          <div className="space-y-3">
+            <p className="text-[13px] leading-relaxed text-zinc-600">{t.salesFlow.branchPickHint}</p>
+            <p className="text-sm font-medium text-zinc-800">{t.salesFlow.branchPickQuestion}</p>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-[#7133da]/30 bg-[#f3edff] px-3 py-1.5 text-sm font-semibold text-[#2d1a6e]">
+                {t.products.branchAmiad}
+              </span>
+              <span className="rounded-full border border-[#7133da]/30 bg-[#f3edff] px-3 py-1.5 text-sm font-semibold text-[#2d1a6e]">
+                {t.products.branchKiryatShmona}
+              </span>
+            </div>
+          </div>
+        </SalesPathSectionBlock>
+        </SalesPathSectionRow>
+        ) : null}
 
         {renderScheduleDropSlot("before_service_pick", t.salesFlow.scheduleBoardDropBeforePick)}
         {scheduleBoardPlacement === "before_service_pick" ? renderScheduleBoardSection() : null}

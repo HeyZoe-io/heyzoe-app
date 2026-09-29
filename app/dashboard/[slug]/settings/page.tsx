@@ -3484,6 +3484,7 @@ export default function SlugSettingsPage({
             scheduleBoardLink={(schedulePublicUrl.trim() || arboxLink.trim()).trim()}
             warmupSessionEnabled={warmupSessionEnabled}
             setWarmupSessionEnabled={setWarmupSessionEnabled}
+            dualBranch={isDualBranchBusiness(slug)}
             salesOpeningAutoText={salesOpeningAutoText}
             trialServiceNames={trialServiceNames}
             firstNamedService={firstNamedService}

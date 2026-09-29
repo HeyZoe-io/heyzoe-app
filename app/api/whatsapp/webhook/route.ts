@@ -2061,15 +2061,24 @@ async function sendScheduleSelectionTimeQuestion(input: {
 
 const SCHEDULE_SLOT_PICK_MAX = 10;
 
-function scheduleBoardAssetsFromKnowledge(knowledge: BusinessKnowledgePack, blockMedia: boolean) {
+function scheduleBoardAssetsFromKnowledge(
+  knowledge: BusinessKnowledgePack,
+  blockMedia: boolean,
+  business_slug?: string
+) {
   const schedBtn = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
-  return resolveScheduleBoardAssets({
+  const assets = resolveScheduleBoardAssets({
     schedulePublicUrl: knowledge.schedulePublicUrl,
     arboxLink: knowledge.arboxLink,
     scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
     scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
     blockMedia,
   });
+  // שני סניפים: אחרי הבחירה נשלח את לינק המערכת של הסניף, לא תמונת לוח משותפת.
+  if (business_slug && isDualBranchBusiness(business_slug) && assets.link) {
+    return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
+  }
+  return assets;
 }
 
 type ScheduleBoardDelivery = "image" | "link" | "none";
@@ -2259,9 +2268,20 @@ async function maybeSendScheduleBoardForPlacement(input: {
 }): Promise<ScheduleBoardDelivery> {
   const placement = resolveScheduleBoardPlacement(input.knowledge.salesFlowConfig);
   if (placement !== input.when) return "none";
+  if (isDualBranchBusiness(input.business_slug)) {
+    const branch = await fetchLastDualBranchId({
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+    });
+    if (!branch) return "none";
+  }
   return ensureScheduleBoardSentOnce({
     supabase: input.supabase,
-    assets: scheduleBoardAssetsFromKnowledge(input.knowledge, input.blockTrialPickMedia ?? false),
+    assets: scheduleBoardAssetsFromKnowledge(
+      input.knowledge,
+      input.blockTrialPickMedia ?? false,
+      input.business_slug
+    ),
     msg: input.msg,
     accountSid: input.accountSid,
     authToken: input.authToken,
@@ -2376,7 +2396,7 @@ async function advanceAfterWarmupSessionComplete(input: {
     if (shouldSendScheduleNow) {
       scheduleBoardDelivery = await ensureScheduleBoardSentOnce({
         supabase,
-        assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia ?? false),
+        assets: scheduleBoardAssetsFromKnowledge(knowledge, blockTrialPickMedia ?? false, business_slug),
         msg,
         accountSid,
         authToken,

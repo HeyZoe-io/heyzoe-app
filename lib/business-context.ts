@@ -122,6 +122,8 @@ export type BusinessKnowledgePack = {
   instagramUrl: string;
   /** מערכות שעות לפי סניף — רק tshelgine-8774 */
   branchScheduleUrls?: import("@/lib/dual-branch").BranchScheduleUrls;
+  /** אחרי חימום יש בחירת סניף — רק tshelgine-8774 */
+  dualBranch?: boolean;
   /** כתובת והגעה לפי סניף — רק tshelgine-8774 */
   branchLocations?: import("@/lib/dual-branch").BranchLocations;
   promotionsText: string;
@@ -498,6 +500,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       knowledgeCatalogServices,
       instagramUrl,
       branchScheduleUrls: parseBranchScheduleUrls(social.branch_schedule_urls),
+      dualBranch: isDualBranchBusiness(slug) || undefined,
       branchLocations: splitBranchLocations ? branchLocations : undefined,
       promotionsText,
       traits: traitsList,
@@ -867,6 +870,9 @@ export function buildSystemPrompt(
     isWhatsApp && phase === "branch_pick"
       ? "- הליד צריך לבחור סניף (עמיעד או קריית שמונה). עני על שאלה פתוחה אם יש. אסור לבחור סניף במקומם, ואסור לשלוח מערכת שעות, מועדים או לינק תשלום. המערכת שולחת שוב את בחירת הסניף."
       : "";
+  const dualBranchFlowRule = knowledge?.dualBranch
+    ? "- אחרי סשן החימום יש סשן בחירת סניף: עמיעד או קריית שמונה. אסור לשלוח מערכת שעות, מועדים, עמוד תשלום או כתובת לפני שנבחר סניף. אחרי הבחירה — רק מערכת השעות, המועדים, עמוד התשלום והכתובת של הסניף שנבחר. אסור לערבב בין הסניפים."
+    : "";
   const promotionsText = annotateExpiredIsraelDates(knowledge?.promotionsText?.trim() ?? "", promptNow);
   const promotionsRule = promotionsText
     ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
@@ -953,6 +959,7 @@ ${holidayQuestionRule ? `${holidayQuestionRule}\n` : ""}${waSpellingPhrasingRule
 ${warmupResumeRule}
 ${callScheduleOpenAnswerRule}
 ${branchPickOpenAnswerRule}
+${dualBranchFlowRule}
 ${promotionsRule}
 ${registrationPaymentRule}${channelNote}
 ${waResponseShapeBlock}
