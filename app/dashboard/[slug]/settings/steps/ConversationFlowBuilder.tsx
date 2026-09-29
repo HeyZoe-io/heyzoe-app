@@ -67,11 +67,9 @@ function FlowNodeCard({ data, selected, type }: NodeProps<Node<FlowData, FlowTyp
         style={{
           fontSize: 10,
           color: "#3f3f46",
-          lineHeight: 1.3,
-          display: "-webkit-box",
-          WebkitLineClamp: 4,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
+          lineHeight: 1.35,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
         }}
       >
         {String(d.text || "").trim() || "טקסט ריק"}
