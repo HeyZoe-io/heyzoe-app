@@ -10,6 +10,7 @@ import type { ZoeBusinessOption } from "@/app/admin/zoe/ZoeConversationsTab";
 import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 import { resolveAdminPackage, type AdminPackageKind } from "@/lib/admin-package";
 import { getIsraelMonthStartUtc } from "@/lib/israel-time";
+import { fetchIcountInvrecTotals, sumCollectedByClient } from "@/lib/icount-v3";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ type BizRow = {
   cancellation_effective_at: string | null;
   intro_period_ends_at?: string | null;
   intro_full_price_at?: string | null;
+  icount_client_id?: string | null;
 };
 
 type InquiryRow = {
@@ -134,6 +136,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
         to={toDateOnly}
         activeCustomers={0}
         mrr={0}
+        icountOk
         churn={0}
         leadingBusiness="—"
         inquiries={[]}
@@ -146,11 +149,11 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   }
 
   const bizSelectWithIntro =
-    "id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at, intro_period_ends_at, intro_full_price_at";
+    "id, slug, name, plan, plan_price, is_active, updated_at, cancellation_effective_at, intro_period_ends_at, intro_full_price_at, icount_client_id";
   const monthStartIso = getIsraelMonthStartUtc(new Date()).toISOString();
   const openedSinceIso = fromTs < monthStartIso ? fromTs : monthStartIso;
 
-  const [bizQuery, inquiriesQuery, opened] = await Promise.all([
+  const [bizQuery, inquiriesQuery, opened, icount] = await Promise.all([
     admin.from("businesses").select(bizSelectWithIntro).order("created_at", { ascending: true }).limit(5000),
     admin
       .from("business_inquiries")
@@ -158,6 +161,10 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       .order("created_at", { ascending: false })
       .limit(3),
     loadOpenedReplyRows(admin, openedSinceIso),
+    fetchIcountInvrecTotals({ startDate: fromDateOnly, endDate: toDateOnly }).catch((e) => {
+      console.error("[admin/dashboard] iCount invrec search failed:", e);
+      return { ok: false as const, error: "request_failed" };
+    }),
   ]);
 
   let bizRows = (bizQuery.data ?? null) as BizRow[] | null;
@@ -189,6 +196,8 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     return Number.isFinite(ms) && ms >= fromMs && ms <= toMs;
   });
 
+  const collectedByClient = icount.ok ? sumCollectedByClient(icount.rows) : new Map<string, number>();
+  const linkedClientIds = new Set<string>();
   const businessOverview = businesses.map((b) => {
     const id = Number(b.id);
     const pkg = resolveAdminPackage({
@@ -197,13 +206,16 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       introPeriodEndsAt: b.intro_period_ends_at,
       introFullPriceAt: b.intro_full_price_at,
     });
+    const clientId = String(b.icount_client_id ?? "").trim();
+    if (clientId) linkedClientIds.add(clientId);
+    const collectedIls = !icount.ok ? null : clientId ? (collectedByClient.get(clientId) ?? 0) : null;
     return {
       slug: String(b.slug ?? ""),
       name: String(b.name ?? ""),
       packageKind: pkg.kind,
       packageLabel: pkg.label,
       packageDetail: pkg.detail,
-      billedIls: pkg.billedIls,
+      collectedIls,
       conversationLimit: pkg.conversationLimit,
       active: Boolean(b.is_active),
       conversations_month: Number.isFinite(id) ? (monthCounts.get(id) ?? 0) : 0,
@@ -213,7 +225,13 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
 
   const activeOverview = businessOverview.filter((b) => b.active);
   const activeCustomers = activeOverview.length;
-  const mrrDisplay = activeOverview.reduce((sum, b) => sum + b.billedIls, 0);
+  let mrrDisplay = 0;
+  if (icount.ok) {
+    for (const [clientId, sum] of collectedByClient) {
+      if (linkedClientIds.has(clientId)) mrrDisplay += sum;
+    }
+    mrrDisplay = Math.round(mrrDisplay * 100) / 100;
+  }
   const leading = [...businessOverview].sort((a, b) => b.conversations_range - a.conversations_range)[0];
   const leadingBusiness = leading && leading.conversations_range > 0 ? leading.name || leading.slug : "—";
 
@@ -296,6 +314,8 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       to={toDateOnly}
       activeCustomers={activeCustomers}
       mrr={mrrDisplay}
+      icountOk={icount.ok}
+      icountTruncated={icount.ok ? icount.truncated : false}
       churn={churn}
       leadingBusiness={leadingBusiness}
       countsTruncated={opened.truncated}
@@ -325,9 +345,14 @@ function formatRelTime(iso: string) {
 
 function moneyIls(n: number) {
   try {
-    return new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 }).format(n);
+    return new Intl.NumberFormat("he-IL", {
+      style: "currency",
+      currency: "ILS",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
   } catch {
-    return `${Math.round(n)} ₪`;
+    return `${n.toFixed(2)} ₪`;
   }
 }
 
@@ -337,6 +362,8 @@ function DashboardV2(props: {
   to: string;
   activeCustomers: number;
   mrr: number;
+  icountOk?: boolean;
+  icountTruncated?: boolean;
   churn: number;
   leadingBusiness: string;
   countsTruncated?: boolean;
@@ -347,7 +374,7 @@ function DashboardV2(props: {
     packageKind: AdminPackageKind;
     packageLabel: string;
     packageDetail: string;
-    billedIls: number;
+    collectedIls: number | null;
     conversationLimit: number;
     active: boolean;
     conversations_month: number;
@@ -495,7 +522,10 @@ function DashboardV2(props: {
         <section style={{ marginTop: 14, display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
           {[
             { label: "לקוחות פעילים", value: String(props.activeCustomers) },
-            { label: "חיוב חודשי בפועל", value: moneyIls(props.mrr) },
+            {
+              label: "שולם בטווח (iCount)",
+              value: props.icountOk === false ? "לא זמין" : moneyIls(props.mrr),
+            },
             { label: "ביטולים בטווח", value: String(props.churn) },
             { label: "עסק מוביל בטווח", value: props.leadingBusiness },
           ].map((m) => (
@@ -633,8 +663,18 @@ function DashboardV2(props: {
         >
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 400 }}>Business Overview</h2>
           <p style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b5b9a" }}>
-            חבילה וסכום לפי מה שנגבה בפועל, לפני מע״מ (חודש ראשון ב־₪5). שיחות החודש = מספרים שזואי דיברה איתם מתחילת החודש בישראל, מול מכסת החבילה.
+            «שולם ב־iCount» הוא סכום חשבוניות המס-קבלה בטווח התאריכים, כולל מע״מ והנחות. נספרים רק לקוחות שמחוברים לעסק. שיחות החודש = מספרים שזואי דיברה איתם מתחילת החודש בישראל, מול מכסת החבילה.
           </p>
+          {props.icountOk === false ? (
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#8a1c1c" }}>
+              לא הצלחנו לקרוא את התשלומים מ־iCount. הסכומים לא מוצגים כדי לא להציג מחיר מחירון.
+            </p>
+          ) : null}
+          {props.icountTruncated ? (
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#8a1c1c" }}>
+              רשימת המסמכים מ־iCount נחתכה. הסכום בטווח עלול להיות חלקי.
+            </p>
+          ) : null}
           {props.countsTruncated ? (
             <p style={{ margin: "0 0 12px", fontSize: 13, color: "#8a1c1c" }}>
               הספירה נחתכה אחרי 40,000 אנשי קשר. יש להריץ את האינדקס ולבדוק שוב.
@@ -646,7 +686,7 @@ function DashboardV2(props: {
                 <tr style={{ textAlign: "right", fontSize: 12, color: "#6b5b9a" }}>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>עסק</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>חבילה</th>
-                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>נגבה</th>
+                  <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שולם ב־iCount</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות החודש</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>שיחות בטווח</th>
                   <th style={{ padding: "10px 8px", borderBottom: "1px solid rgba(113,51,218,0.10)" }}>סטטוס</th>
@@ -693,7 +733,9 @@ function DashboardV2(props: {
                           <div style={{ marginTop: 4, fontSize: 11, color: "#6b5b9a" }}>{b.packageDetail}</div>
                         ) : null}
                       </td>
-                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>{moneyIls(b.billedIls)}</td>
+                      <td style={{ padding: "10px 8px", fontWeight: 500 }}>
+                        {b.collectedIls == null ? "אין חיבור" : moneyIls(b.collectedIls)}
+                      </td>
                       <td style={{ padding: "10px 8px", fontWeight: 400 }}>
                         {b.conversations_month}
                         <span style={{ color: "#6b5b9a", fontWeight: 400 }}> / {b.conversationLimit}</span>
