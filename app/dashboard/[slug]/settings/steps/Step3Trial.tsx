@@ -929,45 +929,25 @@ export default function Step3Trial(props: {
               />
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {dualBranch ? null : (
-              <div>
-                <SalesPathFieldLabel>{t.products.paymentLink}</SalesPathFieldLabel>
-                <div className="flex min-w-0 items-center gap-2">
-                  <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
-                  <Input
-                    dir="ltr"
-                    value={s.payment_link}
-                    onChange={(e) => {
-                      const arr = [...services];
-                      arr[i] = { ...s, payment_link: e.target.value };
-                      setServices(arr);
-                    }}
-                    placeholder="https://..."
-                    className={`${PRODUCT_INPUT} min-w-0 flex-1 text-left font-mono text-sm`}
-                  />
-                </div>
-              </div>
-              )}
-              <div>
-                <SalesPathFieldLabel>{t.products.location}</SalesPathFieldLabel>
+            {dualBranch ? null : (
+            <div>
+              <SalesPathFieldLabel>{t.products.paymentLink}</SalesPathFieldLabel>
+              <div className="flex min-w-0 items-center gap-2">
+                <Link className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
                 <Input
-                  dir={dashboardDir(lang)}
-                  value={s.location_text}
+                  dir="ltr"
+                  value={s.payment_link}
                   onChange={(e) => {
                     const arr = [...services];
-                    arr[i] = { ...s, location_text: e.target.value };
+                    arr[i] = { ...s, payment_link: e.target.value };
                     setServices(arr);
                   }}
-                  placeholder={
-                    s.offer_kind === "course" && s.location_mode === "online"
-                      ? t.products.locationOnlineDefault
-                      : address || "Location"
-                  }
-                  className={PRODUCT_INPUT}
+                  placeholder="https://..."
+                  className={`${PRODUCT_INPUT} min-w-0 flex-1 text-left font-mono text-sm`}
                 />
               </div>
             </div>
+            )}
 
             <div dir="rtl" className="hz-rtl-text text-right">
               <SalesPathFieldLabel

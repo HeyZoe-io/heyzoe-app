@@ -280,9 +280,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
               const cycles = datesOn ? migrateLegacyCourseToCycles(meta, () => `s${slotId++}`) : [];
               const cyclesFormatted = formatCourseCyclesForKnowledge(cycles);
               const online = String(s.location_mode ?? meta.location_mode ?? "").toLowerCase() === "online";
-              const locLabel = online
-                ? ` | מיקום: אונליין`
-                : ` | מיקום: ${s.location_text ?? "לא צוין"}`;
+              const locLabel = online ? ` | מיקום: אונליין` : "";
               slotsText = cyclesFormatted ? ` | מחזורי קורס: ${cyclesFormatted}` : datesOn ? "" : " | ללא תאריכי התחלה/סיום";
               return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)}${locLabel}${levelsText}${slotsText}${payText} | תיאור: ${truncateText(descriptionText, 140)}`;
             } else {
@@ -290,7 +288,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
               const slotsFormatted = formatScheduleSlotsForKnowledge(slotRows);
               slotsText = slotsFormatted ? ` | מועדי לוח (שבועי): ${slotsFormatted}` : "";
             }
-            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)} | מיקום: ${s.location_text ?? "לא צוין"}${levelsText}${slotsText}${payText} | תיאור: ${truncateText(descriptionText, 140)}`;
+            return `${i + 1}. ${truncateText(String(s.name ?? ""), 60)} | מחיר: ${truncateText(String(s.price_text ?? "לא צוין"), 40)}${levelsText}${slotsText}${payText} | תיאור: ${truncateText(descriptionText, 140)}`;
           })
           .join("\n")
       : "אין שירותים מוגדרים.";
