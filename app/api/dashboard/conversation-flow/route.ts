@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[conversation-flow] save nodes failed:", error.message);
       const message = /type_check|check constraint/i.test(error.message)
-        ? "כדי לשמור נוד יום ושעה צריך להריץ ב-Supabase את supabase/business_conversation_flow_daytime.sql"
+        ? "כדי לשמור תיבת יום ושעה צריך להריץ ב-Supabase את supabase/business_conversation_flow_daytime.sql"
         : error.message;
       return NextResponse.json({ error: message }, { status: 500 });
     }

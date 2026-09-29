@@ -90,7 +90,7 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       <button
         type="button"
         className="nodrag nopan"
-        aria-label="מחיקת נוד"
+        aria-label="מחיקת תיבה"
         onClick={(event) => {
           event.stopPropagation();
           deleteNode(id);
@@ -568,7 +568,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
           </div>
           <aside className="border-t border-zinc-100 p-4 lg:border-s lg:border-t-0">
             {!selected ? (
-              <p className="text-sm leading-relaxed text-zinc-500">בחרי נוד כדי לערוך את הטקסט. מכל כפתור בשאלה יוצא חץ לענף אחר.</p>
+              <p className="text-sm leading-relaxed text-zinc-500">בחרי תיבה כדי לערוך את הטקסט. מכל כפתור בשאלה יוצא חץ לענף אחר.</p>
             ) : (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">{TYPE_LABEL[selected.type as FlowType]}</div>
@@ -730,7 +730,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 ) : null}
                 {selected.type === "register" ? (
                   <p className="text-xs leading-relaxed text-zinc-500">
-                    {"{מוצר}"} נמשך מנוד המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מנוד יום ושעה שאחריו. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
+                    {"{מוצר}"} נמשך מתיבת המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מתיבת יום ושעה שאחריה. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
                   </p>
                 ) : null}
               </div>
