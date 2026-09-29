@@ -70,6 +70,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: nodesRes.error.message }, { status: 500 });
   }
 
+  const loadedNodes = (nodesRes.data ?? []) as Array<{ id?: unknown; type?: unknown; data?: unknown; position_x?: unknown; position_y?: unknown }>;
+  const loadedEdges = (edgesRes.data ?? []) as Array<{ source_node_id?: unknown; target_node_id?: unknown; source_handle?: unknown }>;
+  let responseNodes = loadedNodes;
+  if (loadedNodes.length && !loadedNodes.some((node) => (node.data as { is_start?: unknown } | null)?.is_start === true)) {
+    const targeted = new Set(loadedEdges.map((edge) => String(edge.target_node_id ?? "")));
+    const roots = loadedNodes.filter((node) => node.type === "message" && !targeted.has(String(node.id ?? "")));
+    const continues = roots.filter((node) =>
+      loadedEdges.some(
+        (edge) => String(edge.source_node_id ?? "") === String(node.id ?? "") && String(edge.source_handle ?? "out") !== "silence"
+      )
+    );
+    const withText = continues.filter((node) => String((node.data as { text?: unknown } | null)?.text ?? "").trim());
+    const pool = withText.length ? withText : continues.length ? continues : roots;
+    const start = [...pool].sort((a, b) => (Number(b.position_x) || 0) - (Number(a.position_x) || 0))[0];
+    if (start?.id) {
+      const data = { ...((start.data as Record<string, unknown> | null) ?? {}), is_start: true };
+      const { error } = await admin
+        .from("business_conversation_nodes")
+        .update({ data })
+        .eq("id", String(start.id))
+        .eq("business_id", businessId);
+      if (error) console.error("[conversation-flow] lock start node failed:", error.message);
+      else responseNodes = loadedNodes.map((node) => (String(node.id) === String(start.id) ? { ...node, data } : node));
+    }
+  }
+
   const business = businessRes.data as { name?: unknown; bot_name?: unknown; social_links?: unknown } | null;
   const { tagline, address } = taglineFromSocialLinks(business?.social_links);
   const openingText = buildDefaultConversationOpening({
@@ -80,7 +106,7 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
-    nodes: nodesRes.data ?? [],
+    nodes: responseNodes,
     edges: edgesRes.data ?? [],
     openingText,
     products: (productsRes.data ?? []).map((row) => {
@@ -104,10 +130,60 @@ export async function POST(req: NextRequest) {
   if ("error" in auth && auth.error) return auth.error;
   const { admin, businessId } = auth as { admin: ReturnType<typeof createSupabaseAdminClient>; businessId: number };
 
-  const nodes = (body?.nodes ?? []).filter((n) => n.id && NODE_TYPES.has(String(n.type ?? "")));
+  const existingRes = await admin
+    .from("business_conversation_nodes")
+    .select("id, type, data, position_x, position_y")
+    .eq("business_id", businessId);
+  if (existingRes.error) {
+    console.error("[conversation-flow] load nodes before save failed:", existingRes.error.message);
+    return NextResponse.json({ error: existingRes.error.message }, { status: 500 });
+  }
+  const existing = (existingRes.data ?? []) as Array<{
+    id?: unknown;
+    type?: unknown;
+    data?: unknown;
+    position_x?: unknown;
+    position_y?: unknown;
+  }>;
+  const locked = existing.find((row) => {
+    const data = row.data;
+    return Boolean(data && typeof data === "object" && (data as { is_start?: unknown }).is_start === true);
+  });
+
+  let nodes = (body?.nodes ?? []).filter((n) => n.id && NODE_TYPES.has(String(n.type ?? "")));
+  const lockedId = locked ? String(locked.id ?? "") : "";
+  if (lockedId && !nodes.some((node) => String(node.id) === lockedId)) {
+    nodes = [
+      ...nodes,
+      {
+        id: lockedId,
+        type: "message",
+        data: locked?.data,
+        position_x: Number(locked?.position_x) || 0,
+        position_y: Number(locked?.position_y) || 0,
+      },
+    ];
+  }
+  const startId =
+    lockedId ||
+    String(nodes.find((node) => (node.data as { is_start?: unknown } | undefined)?.is_start === true)?.id ?? "") ||
+    String(nodes.find((node) => node.type === "message")?.id ?? "");
+  nodes = nodes.map((node) => {
+    const data = capNodeData(node.data);
+    if (String(node.id) === startId) data.is_start = true;
+    else delete data.is_start;
+    return {
+      ...node,
+      type: String(node.id) === startId ? "message" : String(node.type),
+      data,
+    };
+  });
   const nodeIds = new Set(nodes.map((n) => String(n.id)));
   const edges = (body?.edges ?? []).filter(
-    (e) => nodeIds.has(String(e.source_node_id ?? "")) && nodeIds.has(String(e.target_node_id ?? ""))
+    (e) =>
+      nodeIds.has(String(e.source_node_id ?? "")) &&
+      nodeIds.has(String(e.target_node_id ?? "")) &&
+      String(e.target_node_id ?? "") !== startId
   );
 
   if (nodes.length) {

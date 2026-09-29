@@ -38,6 +38,7 @@ type FlowData = {
   delay_minutes?: number;
   media_url?: string;
   media_kind?: "image" | "video" | "";
+  is_start?: boolean;
 };
 
 type ProductOption = { slug: string; name: string; slots: string[] };
@@ -77,10 +78,34 @@ function capButtonList(list: string[] | undefined): string[] | undefined {
 function capFlowData(data: FlowData): FlowData {
   return {
     ...data,
+    is_start: data.is_start === true ? true : undefined,
     buttons: capButtonList(data.buttons),
     day_buttons: capButtonList(data.day_buttons),
     time_buttons: capButtonList(data.time_buttons),
   };
+}
+
+function pickStartId(nodes: Node<FlowData, FlowType>[], edges: Edge[]): string | null {
+  const marked = nodes.find((node) => node.data.is_start === true);
+  if (marked) return marked.id;
+  const targeted = new Set(edges.map((edge) => edge.target));
+  const roots = nodes.filter((node) => node.type === "message" && !targeted.has(node.id));
+  const continues = roots.filter((node) =>
+    edges.some((edge) => edge.source === node.id && (edge.sourceHandle || "out") !== "silence")
+  );
+  const withText = continues.filter((node) => String(node.data.text ?? "").trim());
+  const pool = withText.length ? withText : continues.length ? continues : roots;
+  return [...pool].sort((a, b) => b.position.x - a.position.x)[0]?.id ?? nodes.find((node) => node.type === "message")?.id ?? null;
+}
+
+function lockStartNode(nodes: Node<FlowData, FlowType>[], edges: Edge[]): Node<FlowData, FlowType>[] {
+  const startId = pickStartId(nodes, edges);
+  if (!startId) return nodes;
+  return nodes.map((node) => ({
+    ...node,
+    deletable: node.id !== startId,
+    data: { ...node.data, is_start: node.id === startId ? true : undefined },
+  }));
 }
 
 function newId() {
@@ -116,6 +141,7 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
   const scheduleSlots = daytimeSlots.get(id) ?? [];
   return (
     <div style={cardStyle(Boolean(selected))}>
+      {d.is_start ? null : (
       <button
         type="button"
         className="nodrag nopan"
@@ -143,8 +169,11 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       >
         ×
       </button>
-      <Handle type="target" position={Position.Right} style={{ background: "#7133da" }} />
-      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>{TYPE_LABEL[type]}</div>
+      )}
+      {d.is_start ? null : <Handle type="target" position={Position.Right} style={{ background: "#7133da" }} />}
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>
+        {d.is_start ? "התחלה" : TYPE_LABEL[type]}
+      </div>
       {type === "daytime" ? (
         <div style={{ fontSize: 10, color: "#3f3f46", lineHeight: 1.35 }}>
           {scheduleSlots.length ? (
@@ -309,12 +338,13 @@ function starterNodes(openingText: string): Node<FlowData, FlowType>[] {
       id: newId(),
       type: "message",
       position: { x: 720, y: 140 },
-      data: { text: openingText },
+      data: { text: openingText, is_start: true },
+      deletable: false,
     },
   ];
 }
 
-/** נוד הפתיחה הוא ההתחלה: הודעה בלי חץ נכנס. אם היא ריקה, ממלאים את הג׳ינרוט הרגיל. */
+/** תיבת ההתחלה קבועה. אם הטקסט שלה ריק, ממלאים את הג׳ינרוט הרגיל. */
 function withDefaultOpening(
   nodes: Node<FlowData, FlowType>[],
   edges: Edge[],
@@ -322,13 +352,10 @@ function withDefaultOpening(
 ): Node<FlowData, FlowType>[] {
   const text = openingText.trim();
   if (!nodes.length) return starterNodes(text);
-  if (!text) return nodes;
-  const targeted = new Set(edges.map((edge) => edge.target));
-  const first = nodes
-    .filter((node) => !targeted.has(node.id))
-    .sort((a, b) => a.position.y - b.position.y || b.position.x - a.position.x)[0];
-  if (!first || first.type !== "message" || String(first.data.text ?? "").trim()) return nodes;
-  return nodes.map((node) => (node.id === first.id ? { ...node, data: { ...node.data, text } } : node));
+  const locked = lockStartNode(nodes, edges);
+  const start = locked.find((node) => node.data.is_start);
+  if (!start || !text || String(start.data.text ?? "").trim()) return locked;
+  return locked.map((node) => (node.id === start.id ? { ...node, data: { ...node.data, text } } : node));
 }
 
 function ConversationFlowCanvas({ slug }: { slug: string }) {
@@ -507,6 +534,8 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      const target = nodesRef.current.find((node) => node.id === connection.target);
+      if (target?.data.is_start) return;
       remember();
       setDirty(true);
       const sourceType = nodesRef.current.find((node) => node.id === connection.source)?.type;
@@ -520,6 +549,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
 
   const deleteNode = useCallback(
     (id: string) => {
+      if (nodesRef.current.find((node) => node.id === id)?.data.is_start) return;
       remember();
       setDirty(true);
       setNodes((current) => current.filter((node) => node.id !== id));
@@ -656,11 +686,14 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={(changes) => {
-                  if (changes.some((change) => change.type === "remove")) {
+                  const startIds = new Set(nodesRef.current.filter((node) => node.data.is_start).map((node) => node.id));
+                  const allowed = changes.filter((change) => !(change.type === "remove" && startIds.has(change.id)));
+                  if (!allowed.length) return;
+                  if (allowed.some((change) => change.type === "remove")) {
                     remember();
                     setDirty(true);
                   }
-                  onNodesChange(changes);
+                  onNodesChange(allowed);
                 }}
                 onEdgesChange={(changes) => {
                   if (changes.some((change) => change.type === "remove")) {
@@ -695,7 +728,14 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
               <p className="text-sm leading-relaxed text-zinc-500">בחרי תיבה כדי לערוך את הטקסט. מכל כפתור בשאלה יוצא חץ לענף אחר.</p>
             ) : (
               <div className="space-y-3">
-                <div className="text-sm font-semibold text-zinc-900">{TYPE_LABEL[selected.type as FlowType]}</div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  {selected.data.is_start ? "התחלה" : TYPE_LABEL[selected.type as FlowType]}
+                </div>
+                {selected.data.is_start ? (
+                  <p className="text-xs leading-relaxed text-zinc-500">
+                    זו תיבת ההתחלה. אפשר לערוך את התוכן, אי אפשר למחוק אותה או להתחיל מתיבה אחרת.
+                  </p>
+                ) : null}
                 {selected.type === "message" || selected.type === "question" || selected.type === "register" || selected.type === "followup" || selected.type === "details" ? (
                   <label className="block text-sm text-zinc-700">
                     טקסט

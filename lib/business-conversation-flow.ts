@@ -68,6 +68,8 @@ function questionButtons(node: FlowNode): string[] {
 }
 
 function startNode(nodes: FlowNode[], edges: FlowEdge[]): FlowNode | null {
+  const marked = nodes.find((node) => node.data.is_start === true);
+  if (marked) return marked;
   const targeted = new Set(edges.map((e) => e.target_node_id));
   const roots = nodes.filter((n) => !targeted.has(n.id));
   const continues = roots.filter((node) =>
