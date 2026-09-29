@@ -82,6 +82,13 @@ import {
   StepHeader,
   StepPanel,
 } from "./settings-ui";
+import {
+  branchOffersToMeta,
+  isDualBranchBusiness,
+  parseBranchOffers,
+  parseBranchScheduleUrls,
+  type BranchOffers,
+} from "@/lib/dual-branch";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
 import ConnectWhatsAppSection from "../../../[slug]/settings/connect-whatsapp-section";
@@ -129,6 +136,8 @@ type ServiceItem = {
   schedule_removed_notice: ArboxScheduleRemovedNotice | null;
   /** Full services.description JSON so unknown keys round-trip on save */
   description_meta: Record<string, unknown>;
+  /** עמיעד / קריית שמונה — רק tshelgine-8774 */
+  branch_offers?: BranchOffers;
 };
 
 function emptyArboxServiceFields(): Pick<
@@ -305,6 +314,7 @@ function readTrialServicesStash(slug: string): ServiceItem[] | null {
           r.description_meta && typeof r.description_meta === "object" && !Array.isArray(r.description_meta)
             ? { ...(r.description_meta as Record<string, unknown>) }
             : {},
+        branch_offers: r.branch_offers ? parseBranchOffers({ branch_offers: r.branch_offers }) : undefined,
       });
     }
     return out.length ? out : null;
@@ -432,6 +442,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
         };
       })(),
       ...arboxFieldsFromDescriptionMeta(meta),
+      branch_offers: meta.branch_offers ? parseBranchOffers(meta) : undefined,
     };
   });
 }
@@ -442,7 +453,8 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
   const base = {
     price_text: (s.price_text ?? "").trim(),
     duration: s.duration,
-    payment_link: s.payment_link,
+    payment_link: s.branch_offers?.amiad.paymentLink.trim() || s.payment_link,
+    ...(s.branch_offers ? { branch_offers: branchOffersToMeta(s.branch_offers) } : {}),
     benefit_line: benefitLineFromProductDescription(s.description),
     description_text: s.description,
     levels_enabled: s.levels_enabled,
@@ -986,6 +998,7 @@ const SERVICE_META_JSON_HINT_KEYS = new Set([
   "arbox_class_name",
   "arbox_class_description",
   "schedule_removed_notice",
+  "branch_offers",
 ]);
 
 /**
@@ -1317,7 +1330,7 @@ export default function SlugSettingsPage({
   const [businessNameEditing, setBusinessNameEditing] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const hasUnsavedChangesRef = useRef(false);
-  const { requestNavigation } = useSettingsUnsaved();
+  const { requestNavigation, hasUnsavedChanges: anyUnsavedChanges } = useSettingsUnsaved();
 
   useEffect(() => {
     hasUnsavedChangesRef.current = hasUnsavedChanges;
@@ -1357,6 +1370,8 @@ export default function SlugSettingsPage({
   const [promotions, setPromotions] = useState("");
   const [vibe, setVibe]         = useState<string[]>([]);
   const [arboxLink, setArboxLink] = useState("");
+  const [branchScheduleAmiad, setBranchScheduleAmiad] = useState("");
+  const [branchScheduleKiryat, setBranchScheduleKiryat] = useState("");
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
   const [arboxScheduleScanBusy, setArboxScheduleScanBusy] = useState(false);
@@ -1944,6 +1959,11 @@ export default function SlugSettingsPage({
         // Load quick replies as-is (including "מה הכתובת שלכם?" if exists)
         setQuickReplies(loadedQr);
         setArboxLink(String(sl.arbox_link ?? ""));
+        {
+          const branchUrls = parseBranchScheduleUrls(sl.branch_schedule_urls);
+          setBranchScheduleAmiad(branchUrls.amiad || String(sl.arbox_link ?? "").trim());
+          setBranchScheduleKiryat(branchUrls.kiryat_shmona);
+        }
         setCrmType(normalizeCrmType((business as { crm_type?: unknown }).crm_type));
         setCrmApiKey(String((business as { crm_api_key?: unknown }).crm_api_key ?? ""));
         setCrmBoxId(String((business as { crm_box_id?: unknown }).crm_box_id ?? ""));
@@ -2105,7 +2125,17 @@ export default function SlugSettingsPage({
           sales_flow_blocks: [],
           segmentation_questions: segQuestions,
           quick_replies: quickReplies,
-          arbox_link: arboxLink,
+          arbox_link: isDualBranchBusiness(slug)
+            ? branchScheduleAmiad.trim() || arboxLink
+            : arboxLink,
+          ...(isDualBranchBusiness(slug)
+            ? {
+                branch_schedule_urls: {
+                  amiad: branchScheduleAmiad.trim(),
+                  kiryat_shmona: branchScheduleKiryat.trim(),
+                },
+              }
+            : {}),
           objections,
           wa_sales_followup_1: waSalesFollowup1.trim(),
           wa_sales_followup_2: waSalesFollowup2.trim(),
@@ -2172,6 +2202,8 @@ export default function SlugSettingsPage({
       segQuestions,
       quickReplies,
       arboxLink,
+      branchScheduleAmiad,
+      branchScheduleKiryat,
       crmType,
       crmApiKey,
       crmBoxId,
@@ -3215,7 +3247,7 @@ export default function SlugSettingsPage({
           className="flex h-5 items-center justify-end gap-1.5 pb-3 text-xs leading-none text-zinc-500"
           aria-live="polite"
         >
-          {settingsHydrated && hasUnsavedChanges ? (
+          {settingsHydrated && (hasUnsavedChanges || anyUnsavedChanges) ? (
             <span className="inline-flex items-center gap-1.5 text-amber-600">
               <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
               {t.unsavedIndicator}
@@ -3264,6 +3296,10 @@ export default function SlugSettingsPage({
               fetchSiteNotice={fetchSiteNotice}
               arboxLink={arboxLink}
               setArboxLink={setArboxLink}
+              branchScheduleAmiad={branchScheduleAmiad}
+              setBranchScheduleAmiad={setBranchScheduleAmiad}
+              branchScheduleKiryat={branchScheduleKiryat}
+              setBranchScheduleKiryat={setBranchScheduleKiryat}
               scheduleScanImageUrl={scheduleScanImageUrl}
               setScheduleScanImageUrl={setScheduleScanImageUrl}
               scheduleScanMediaInputRef={scheduleScanMediaInputRef}
@@ -3371,6 +3407,7 @@ export default function SlugSettingsPage({
             onArboxScheduleScan={() => void runArboxScheduleScan()}
             arboxScheduleScanBusy={arboxScheduleScanBusy}
             arboxScheduleScanError={arboxScheduleScanError}
+            dualBranch={isDualBranchBusiness(slug)}
             focusProductUiId={focusProductUiId}
             onFocusProductConsumed={() => setFocusProductUiId(null)}
           />

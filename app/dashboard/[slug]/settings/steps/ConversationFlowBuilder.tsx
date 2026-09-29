@@ -21,6 +21,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Loader2, Undo2 } from "lucide-react";
 import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/wa-button-label";
+import { useRegisterSettingsUnsaved } from "@/app/[slug]/settings/settings-unsaved-context";
 import { uploadDashboardWhatsAppMedia } from "@/lib/upload-dashboard-media-client";
 import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
 
@@ -413,7 +414,9 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   const persist = useCallback(
     async (nextNodes: Node<FlowData, FlowType>[], nextEdges: Edge[]) => {
       setStatus("saving");
-      const res = await fetch("/api/dashboard/conversation-flow", {
+      let res: Response;
+      try {
+        res = await fetch("/api/dashboard/conversation-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -432,19 +435,49 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
           })),
         }),
       });
+      } catch {
+        setStatus("error");
+        setError("save_failed");
+        return false;
+      }
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         setStatus("error");
         setError(json.error || "save_failed");
-        return;
+        return false;
       }
       savedKey.current = graphKey(nextNodes, nextEdges);
       setStatus("ready");
       setError("");
       setDirty(false);
+      return true;
     },
     [slug]
   );
+
+  const saveGraph = useCallback(async () => {
+    if (graphKey(nodesRef.current, edgesRef.current) === savedKey.current) return true;
+    try {
+      return await persist(nodesRef.current, edgesRef.current);
+    } catch {
+      setStatus("error");
+      setError("save_failed");
+      return false;
+    }
+  }, [persist]);
+
+  const unsavedController = useMemo(
+    () =>
+      status === "loading"
+        ? null
+        : {
+            hasUnsavedChanges: dirty,
+            saveAll: saveGraph,
+            saving: status === "saving",
+          },
+    [dirty, saveGraph, status]
+  );
+  useRegisterSettingsUnsaved(unsavedController, "conversation-flow");
 
   useEffect(() => {
     if (!dirty) return;

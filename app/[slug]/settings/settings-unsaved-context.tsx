@@ -36,21 +36,27 @@ export const SettingsUnsavedContext = createContext<SettingsUnsavedContextValue>
 });
 
 const SettingsUnsavedRegisterContext = createContext<
-  ((controller: SettingsUnsavedController | null) => void) | null
+  ((id: string, controller: SettingsUnsavedController | null) => void) | null
 >(null);
 
 export function useSettingsUnsaved(): SettingsUnsavedContextValue {
   return useContext(SettingsUnsavedContext);
 }
 
-/** Page registers save/dirty state; cleared on unmount. */
-export function useRegisterSettingsUnsaved(controller: SettingsUnsavedController | null): void {
+/** Page registers save/dirty state; cleared on unmount. Extra surfaces use their own id. */
+export function useRegisterSettingsUnsaved(
+  controller: SettingsUnsavedController | null,
+  id = "settings"
+): void {
   const register = useContext(SettingsUnsavedRegisterContext);
   useEffect(() => {
     if (!register) return;
-    register(controller);
-    return () => register(null);
-  }, [register, controller]);
+    register(id, controller);
+  }, [register, controller, id]);
+  useEffect(() => {
+    if (!register) return;
+    return () => register(id, null);
+  }, [register, id]);
 }
 
 export function useSettingsGuardedLinkClick(): (
@@ -133,9 +139,12 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
   const lang = dashboardLangFromParam(searchParams.get("lang"));
   const t = dashboardSettingsT(lang);
 
-  const [controller, setController] = useState<SettingsUnsavedController | null>(null);
-  const controllerRef = useRef<SettingsUnsavedController | null>(null);
-  controllerRef.current = controller;
+  const [entries, setEntries] = useState<Record<string, SettingsUnsavedController>>({});
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const controllers = Object.values(entries);
+  const hasUnsavedChanges = controllers.some((entry) => entry.hasUnsavedChanges);
+  const saving = controllers.some((entry) => entry.saving);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const resolverRef = useRef<((choice: UnsavedNavChoice) => void) | null>(null);
@@ -156,12 +165,12 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!dialogOpen) return;
-    if (!controller?.hasUnsavedChanges) {
+    if (!hasUnsavedChanges) {
       setDialogOpen(false);
       resolverRef.current?.("cancel");
       resolverRef.current = null;
     }
-  }, [dialogOpen, controller?.hasUnsavedChanges]);
+  }, [dialogOpen, hasUnsavedChanges]);
 
   const requestNavigation = useCallback(
     async (target: string | (() => void)) => {
@@ -173,8 +182,8 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
         router.push(target);
       };
 
-      const ctrl = controllerRef.current;
-      if (!ctrl?.hasUnsavedChanges) {
+      const dirty = Object.values(entriesRef.current).filter((entry) => entry.hasUnsavedChanges);
+      if (!dirty.length) {
         navigate();
         return;
       }
@@ -185,8 +194,10 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
         const choice = await promptDialog();
         if (choice === "cancel") return;
         if (choice === "save-and-go") {
-          const ok = await ctrl.saveAll();
-          if (!ok) return;
+          for (const entry of dirty) {
+            const ok = await entry.saveAll();
+            if (!ok) return;
+          }
         }
         navigate();
       } finally {
@@ -196,16 +207,33 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
     [router, promptDialog]
   );
 
-  const register = useCallback((next: SettingsUnsavedController | null) => {
-    setController(next);
+  const register = useCallback((id: string, next: SettingsUnsavedController | null) => {
+    setEntries((prev) => {
+      if (!next) {
+        if (!(id in prev)) return prev;
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      }
+      const current = prev[id];
+      if (
+        current &&
+        current.hasUnsavedChanges === next.hasUnsavedChanges &&
+        current.saving === next.saving &&
+        current.saveAll === next.saveAll
+      ) {
+        return prev;
+      }
+      return { ...prev, [id]: next };
+    });
   }, []);
 
   const contextValue = useMemo<SettingsUnsavedContextValue>(
     () => ({
-      hasUnsavedChanges: controller?.hasUnsavedChanges ?? false,
+      hasUnsavedChanges,
       requestNavigation,
     }),
-    [controller?.hasUnsavedChanges, requestNavigation]
+    [hasUnsavedChanges, requestNavigation]
   );
 
   return (
@@ -214,7 +242,7 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
         {children}
         <UnsavedChangesDialog
           open={dialogOpen}
-          saving={controller?.saving ?? false}
+          saving={saving}
           onResolve={resolveDialog}
           t={t}
         />
