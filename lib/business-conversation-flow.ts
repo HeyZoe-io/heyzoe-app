@@ -13,6 +13,11 @@ import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-star
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
+import {
+  serviceMetaFromDescription,
+  weeklyScheduleSlotButtons,
+  type WeeklyScheduleButton,
+} from "@/lib/product-schedule-slots";
 
 export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register";
 
@@ -55,11 +60,6 @@ function fitButtonLabel(raw: unknown): string {
 
 function questionButtons(node: FlowNode): string[] {
   const raw = node.data.buttons;
-  if (!Array.isArray(raw)) return [];
-  return raw.map(fitButtonLabel).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
-}
-
-function buttonList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.map(fitButtonLabel).filter(Boolean).slice(0, MAX_NODE_BUTTONS);
 }
@@ -183,6 +183,31 @@ async function saveSession(
   };
   const { error } = await admin.from("business_conversation_sessions").upsert(row, { onConflict: "business_id,phone" });
   if (error) console.error("[business-conversation-flow] session save failed:", error.message);
+}
+
+const SLOT_PICK_PROMPT = "באיזה מועד נוח לך?";
+
+async function weeklySlotsForProduct(
+  admin: SupabaseClient,
+  businessId: number,
+  slug: string
+): Promise<WeeklyScheduleButton[]> {
+  const clean = slug.trim();
+  if (!clean) return [];
+  const { data, error } = await admin
+    .from("services")
+    .select("description")
+    .eq("business_id", businessId)
+    .eq("service_slug", clean)
+    .maybeSingle();
+  if (error) {
+    console.error("[business-conversation-flow] schedule slots lookup failed:", error.message);
+    return [];
+  }
+  return weeklyScheduleSlotButtons(serviceMetaFromDescription((data as { description?: unknown } | null)?.description)).slice(
+    0,
+    MAX_NODE_BUTTONS
+  );
 }
 
 async function productName(admin: SupabaseClient, businessId: number, slug: string): Promise<string> {
@@ -326,31 +351,20 @@ async function deliverFrom(input: {
     }
 
     if (node.type === "daytime") {
-      const days = buttonList(node.data.day_buttons);
-      const times = buttonList(node.data.time_buttons);
-      if (!session.captured_day) {
-        await sendChoices(
-          input.phoneNumberId,
-          input.phone,
-          input.businessSlug,
-          input.sessionId,
-          String(node.data.day_text ?? ""),
-          days
-        );
-      } else if (!session.captured_time) {
-        await sendChoices(
-          input.phoneNumberId,
-          input.phone,
-          input.businessSlug,
-          input.sessionId,
-          String(node.data.time_text ?? ""),
-          times
-        );
-      } else {
+      const slots = await weeklySlotsForProduct(input.admin, input.businessId, session.product_slug);
+      if (!slots.length || (session.captured_day && session.captured_time)) {
         const next = edgeFrom(input.edges, node.id, "out");
         nodeId = next?.target_node_id ?? null;
         continue;
       }
+      await sendChoices(
+        input.phoneNumberId,
+        input.phone,
+        input.businessSlug,
+        input.sessionId,
+        SLOT_PICK_PROMPT,
+        slots.map((slot) => slot.label)
+      );
       session = { ...session, current_node_id: node.id, flow_completed: false };
       await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
       return;
@@ -495,10 +509,13 @@ export async function handleBusinessConversationFlowInbound(input: {
 
   const current = graph.nodes.find((n) => n.id === session?.current_node_id);
   if (current?.type === "daytime") {
-    const waitingForTime = Boolean(session.captured_day);
-    const buttons = waitingForTime ? buttonList(current.data.time_buttons) : buttonList(current.data.day_buttons);
-    const index = matchQuestionButton(buttons, text);
-    if (index < 0) {
+    const slots = await weeklySlotsForProduct(admin, businessId, session.product_slug);
+    const index = matchQuestionButton(
+      slots.map((slot) => slot.label),
+      text
+    );
+    const chosen = index >= 0 ? slots[index] : null;
+    if (!chosen) {
       await deliverFrom({
         admin,
         businessId,
@@ -513,8 +530,7 @@ export async function handleBusinessConversationFlowInbound(input: {
       });
       return { handled: true };
     }
-    const chosen = buttons[index] ?? "";
-    session = waitingForTime ? { ...session, captured_time: chosen } : { ...session, captured_day: chosen };
+    session = { ...session, captured_day: chosen.day, captured_time: chosen.time };
     await deliverFrom({
       admin,
       businessId,

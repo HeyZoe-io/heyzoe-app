@@ -1,6 +1,6 @@
 /** מועדי לוח לפי מוצר (מערכת שעות לא־אינטראקטיבית) — נשמר ב־JSON של service.description */
 
-import { truncateWaButtonLabel } from "@/lib/wa-button-label";
+import { clampWaReplyButtonTitle, truncateWaButtonLabel } from "@/lib/wa-button-label";
 
 export type ProductScheduleSlot = {
   id: string;
@@ -109,6 +109,33 @@ export function normalizeRequestedDateForTemplate(stored: string): string {
 /** תווית כפתור: «שישי 18:30» */
 export function formatSlotPickButtonLabel(slot: { day: string; time: string }): string {
   return truncateWaButtonLabel(formatScheduleSlotDisplayLabel(slot));
+}
+
+export type WeeklyScheduleButton = { label: string; day: string; time: string };
+
+/** מועדי לוח שבועיים מטאב מוצרים, ככפתורי וואטסאפ שלא נחתכים. */
+export function weeklyScheduleSlotButtons(meta: Record<string, unknown>): WeeklyScheduleButton[] {
+  return filterConfiguredProductScheduleSlots(
+    normalizeProductScheduleSlotsFromMeta(meta.schedule_slots, () => "slot")
+  ).map((slot) => ({
+    label: clampWaReplyButtonTitle(formatScheduleSlotDisplayLabel(slot)),
+    day: formatYomForContactSlotDate(slot.day),
+    time: String(slot.time ?? "").trim(),
+  }));
+}
+
+export function serviceMetaFromDescription(raw: unknown): Record<string, unknown> {
+  const text = String(raw ?? "").trim();
+  const candidate = text.startsWith("__META__:") ? text.slice("__META__:".length).trim() : text;
+  const start = candidate.indexOf("{");
+  if (start < 0) return {};
+  try {
+    const parsed = JSON.parse(candidate.slice(start)) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+  return {};
 }
 
 /** נרמול לזיהוי בחירת מועד מרשימת וואטסאפ (ב-18:45 מול ב18:45, רווחים). */

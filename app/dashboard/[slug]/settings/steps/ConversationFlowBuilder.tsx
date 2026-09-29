@@ -34,7 +34,7 @@ type FlowData = {
   time_buttons?: string[];
 };
 
-type ProductOption = { slug: string; name: string };
+type ProductOption = { slug: string; name: string; slots: string[] };
 
 const TYPE_LABEL: Record<FlowType, string> = {
   message: "הודעה",
@@ -67,6 +67,7 @@ function newId() {
 
 const deleteNodeContext = createContext<(id: string) => void>(() => {});
 const productsContext = createContext<ProductOption[]>([]);
+const daytimeSlotsContext = createContext<Map<string, string[]>>(new Map());
 
 function cardStyle(selected: boolean): CSSProperties {
   return {
@@ -87,8 +88,10 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
   const buttons = (Array.isArray(d.buttons) ? d.buttons : []).slice(0, MAX_NODE_BUTTONS);
   const deleteNode = useContext(deleteNodeContext);
   const products = useContext(productsContext);
+  const daytimeSlots = useContext(daytimeSlotsContext);
   const chosenProduct = products.find((product) => product.slug === String(d.product_slug ?? ""));
   const chosenProductName = String(chosenProduct?.name || d.product_slug || "").trim();
+  const scheduleSlots = daytimeSlots.get(id) ?? [];
   return (
     <div style={cardStyle(Boolean(selected))}>
       <button
@@ -122,14 +125,13 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.2, color: "#7133da", marginBottom: 3 }}>{TYPE_LABEL[type]}</div>
       {type === "daytime" ? (
         <div style={{ fontSize: 10, color: "#3f3f46", lineHeight: 1.35 }}>
-          <div style={{ whiteSpace: "pre-wrap" }}>{String(d.day_text || "").trim() || "שאלה על היום"}</div>
-          {(d.day_buttons ?? []).slice(0, MAX_NODE_BUTTONS).filter((label) => label.trim()).map((label, i) => (
-            <div key={`d-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
-          ))}
-          <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{String(d.time_text || "").trim() || "שאלה על השעה"}</div>
-          {(d.time_buttons ?? []).slice(0, MAX_NODE_BUTTONS).filter((label) => label.trim()).map((label, i) => (
-            <div key={`t-${i}`} style={{ marginTop: 3, fontSize: 9, color: "#71717a" }}>{label}</div>
-          ))}
+          {scheduleSlots.length ? (
+            scheduleSlots.map((label, i) => (
+              <div key={`${label}-${i}`} style={{ marginTop: i ? 3 : 0, fontSize: 9, color: "#3f3f46" }}>{label}</div>
+            ))
+          ) : (
+            <div style={{ color: "#71717a" }}>מועדי לוח מהמוצר</div>
+          )}
         </div>
       ) : (
       <div
@@ -319,12 +321,18 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
       const json = (await res.json()) as {
         nodes?: Array<{ id: string; type: FlowType; data: FlowData; position_x: number; position_y: number }>;
         edges?: Array<{ id: string; source_node_id: string; target_node_id: string; source_handle: string }>;
-        products?: ProductOption[];
+        products?: Array<ProductOption & { slots?: string[] }>;
         openingText?: string;
         error?: string;
       };
       if (!res.ok) throw new Error(json.error || "load_failed");
-      setProducts(json.products ?? []);
+      setProducts(
+        (json.products ?? []).map((product) => ({
+          slug: product.slug,
+          name: product.name,
+          slots: Array.isArray(product.slots) ? product.slots : [],
+        }))
+      );
       const loadedEdges = (json.edges ?? []).map((e) => ({
         id: e.id,
         source: e.source_node_id,
@@ -499,6 +507,18 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
     return products.find((p) => p.slug === slugValue)?.name ?? "";
   }, [products, selected]);
 
+  const daytimeSlots = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const node of nodes) {
+      if (node.type !== "daytime") continue;
+      const incoming = edges.find((edge) => edge.target === node.id);
+      const source = nodes.find((item) => item.id === incoming?.source);
+      const slug = source?.type === "product" ? String(source.data.product_slug ?? "") : "";
+      map.set(node.id, products.find((product) => product.slug === slug)?.slots ?? []);
+    }
+    return map;
+  }, [edges, nodes, products]);
+
   return (
     <div className="w-full text-right [&_input]:!text-right [&_textarea]:!text-right" dir="rtl">
       <div className="flex h-[calc(100dvh-10.5rem)] min-h-[680px] flex-col overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-sm">
@@ -545,6 +565,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 טוען את השיחה…
               </div>
             ) : (
+              <daytimeSlotsContext.Provider value={daytimeSlots}>
               <productsContext.Provider value={products}>
               <deleteNodeContext.Provider value={deleteNode}>
               <ReactFlow
@@ -582,6 +603,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
               </ReactFlow>
               </deleteNodeContext.Provider>
               </productsContext.Provider>
+              </daytimeSlotsContext.Provider>
             )}
           </div>
           <aside className="border-t border-zinc-100 p-4 lg:border-s lg:border-t-0">
@@ -649,83 +671,22 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                   </div>
                 ) : null}
                 {selected.type === "daytime" ? (
-                  <div className="space-y-3">
-                    <label className="block text-sm text-zinc-700">
-                      שאלה על היום
-                      <textarea
-                        rows={2}
-                        value={String(selected.data.day_text ?? "")}
-                        onFocus={armEditGesture}
-                        onChange={(e) => patchSelected({ day_text: e.target.value }, true)}
-                        placeholder="באיזה יום נוח לך?"
-                        className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
-                      />
-                    </label>
-                    <p className="text-xs text-zinc-400">עד {WA_REPLY_BUTTON_TITLE_MAX_CHARS} תווים לכפתור</p>
-                    {(selected.data.day_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
-                      <input
-                        key={`day-${i}`}
-                        value={label}
-                        onFocus={armEditGesture}
-                        maxLength={WA_REPLY_BUTTON_TITLE_MAX_CHARS}
-                        onChange={(e) => {
-                          const day_buttons = [...(selected.data.day_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
-                          day_buttons[i] = clampWaReplyButtonTitle(e.target.value);
-                          patchSelected({ day_buttons }, true);
-                        }}
-                        placeholder={`יום ${i + 1}`}
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                    ))}
-                    {(selected.data.day_buttons ?? []).length < MAX_NODE_BUTTONS ? (
-                      <button
-                        type="button"
-                        onClick={() => patchSelected({ day_buttons: [...(selected.data.day_buttons ?? []), ""].slice(0, MAX_NODE_BUTTONS) })}
-                        className="text-sm font-medium text-[#7133da]"
-                      >
-                        הוסיפי יום
-                      </button>
+                  <div className="space-y-2">
+                    <p className="text-sm leading-relaxed text-zinc-500">
+                      המועדים נמשכים מלוח המועדים של המוצר בטאב מוצרים. אין כאן בחירה ידנית.
+                    </p>
+                    {(daytimeSlots.get(selected.id) ?? []).length ? (
+                      <ul className="space-y-1 text-sm text-zinc-800">
+                        {(daytimeSlots.get(selected.id) ?? []).map((label, i) => (
+                          <li key={`${label}-${i}`}>{label}</li>
+                        ))}
+                      </ul>
                     ) : (
-                      <p className="text-xs text-zinc-400">עד 10 כפתורים</p>
+                      <p className="text-sm text-zinc-400">אין מועדי לוח למוצר שנבחר.</p>
                     )}
-                    <label className="block text-sm text-zinc-700">
-                      שאלה על השעה
-                      <textarea
-                        rows={2}
-                        value={String(selected.data.time_text ?? "")}
-                        onFocus={armEditGesture}
-                        onChange={(e) => patchSelected({ time_text: e.target.value }, true)}
-                        placeholder="באיזו שעה?"
-                        className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm outline-none focus:border-[#7133da]/40"
-                      />
-                    </label>
-                    <p className="text-xs text-zinc-400">עד {WA_REPLY_BUTTON_TITLE_MAX_CHARS} תווים לכפתור</p>
-                    {(selected.data.time_buttons ?? [""]).slice(0, MAX_NODE_BUTTONS).map((label, i) => (
-                      <input
-                        key={`time-${i}`}
-                        value={label}
-                        onFocus={armEditGesture}
-                        maxLength={WA_REPLY_BUTTON_TITLE_MAX_CHARS}
-                        onChange={(e) => {
-                          const time_buttons = [...(selected.data.time_buttons ?? [])].slice(0, MAX_NODE_BUTTONS);
-                          time_buttons[i] = clampWaReplyButtonTitle(e.target.value);
-                          patchSelected({ time_buttons }, true);
-                        }}
-                        placeholder={`שעה ${i + 1}`}
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                    ))}
-                    {(selected.data.time_buttons ?? []).length < MAX_NODE_BUTTONS ? (
-                      <button
-                        type="button"
-                        onClick={() => patchSelected({ time_buttons: [...(selected.data.time_buttons ?? []), ""].slice(0, MAX_NODE_BUTTONS) })}
-                        className="text-sm font-medium text-[#7133da]"
-                      >
-                        הוסיפי שעה
-                      </button>
-                    ) : (
-                      <p className="text-xs text-zinc-400">עד 10 כפתורים</p>
-                    )}
+                    {(daytimeSlots.get(selected.id) ?? []).length > MAX_NODE_BUTTONS ? (
+                      <p className="text-xs text-zinc-400">בוואטסאפ נשלחים 10 המועדים הראשונים.</p>
+                    ) : null}
                   </div>
                 ) : null}
                 {selected.type === "product" ? (
@@ -748,7 +709,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 ) : null}
                 {selected.type === "register" ? (
                   <p className="text-xs leading-relaxed text-zinc-500">
-                    {"{מוצר}"} נמשך מתיבת המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מתיבת יום ושעה שאחריה. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
+                    {"{מוצר}"} נמשך מתיבת המוצר. {"{יום}"} ו{"{שעה}"} נמשכים מהמועד שנבחר מלוח המועדים. אחרי השליחה נשלחת לבעלת העסק הודעת וואטסאפ על הרשמה לאימון ניסיון.
                   </p>
                 ) : null}
               </div>

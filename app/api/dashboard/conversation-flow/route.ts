@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { assertBusinessAccess, normDashboardSlug } from "@/lib/dashboard-business-access";
 import { buildDefaultConversationOpening, taglineFromSocialLinks } from "@/lib/business-conversation-opening";
 import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
+import { serviceMetaFromDescription, weeklyScheduleSlotButtons } from "@/lib/product-schedule-slots";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
       .from("business_conversation_edges")
       .select("id, source_node_id, target_node_id, source_handle")
       .eq("business_id", businessId),
-    admin.from("services").select("service_slug, name").eq("business_id", businessId).order("id", { ascending: true }),
+    admin.from("services").select("service_slug, name, description").eq("business_id", businessId).order("id", { ascending: true }),
     admin.from("businesses").select("name, bot_name, social_links").eq("id", businessId).maybeSingle(),
   ]);
 
@@ -73,10 +74,14 @@ export async function GET(req: NextRequest) {
     nodes: nodesRes.data ?? [],
     edges: edgesRes.data ?? [],
     openingText,
-    products: (productsRes.data ?? []).map((row) => ({
-      slug: String((row as { service_slug?: unknown }).service_slug ?? ""),
-      name: String((row as { name?: unknown }).name ?? ""),
-    })),
+    products: (productsRes.data ?? []).map((row) => {
+      const record = row as { service_slug?: unknown; name?: unknown; description?: unknown };
+      return {
+        slug: String(record.service_slug ?? ""),
+        name: String(record.name ?? ""),
+        slots: weeklyScheduleSlotButtons(serviceMetaFromDescription(record.description)).map((slot) => slot.label),
+      };
+    }),
   });
 }
 
