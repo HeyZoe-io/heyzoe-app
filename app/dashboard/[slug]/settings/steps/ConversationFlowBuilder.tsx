@@ -22,7 +22,7 @@ import "@xyflow/react/dist/style.css";
 import { Loader2, Undo2 } from "lucide-react";
 import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/wa-button-label";
 
-type FlowType = "message" | "question" | "product" | "daytime" | "register" | "followup";
+type FlowType = "message" | "question" | "product" | "daytime" | "register" | "followup" | "details";
 
 type FlowData = {
   text?: string;
@@ -44,9 +44,10 @@ const TYPE_LABEL: Record<FlowType, string> = {
   daytime: "יום ושעה",
   register: "אישור הרשמה",
   followup: "פולואפ",
+  details: "איסוף פרטים",
 };
 
-const ADD_TYPES: FlowType[] = ["message", "question", "product", "register", "followup"];
+const ADD_TYPES: FlowType[] = ["message", "question", "product", "register", "followup", "details"];
 
 function delayMinutesOf(data: FlowData): number {
   const n = Number(data.delay_minutes);
@@ -165,6 +166,9 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
       {type === "followup" ? (
         <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>{delayLabel(delayMinutesOf(d))}</div>
       ) : null}
+      {type === "details" ? (
+        <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>תשובה פתוחה</div>
+      ) : null}
       {type === "product" ? (
         <div
           style={{
@@ -225,6 +229,7 @@ const nodeTypes = {
   daytime: FlowNodeCard,
   register: FlowNodeCard,
   followup: FlowNodeCard,
+  details: FlowNodeCard,
 };
 
 function emptyDaytime(): FlowData {
@@ -555,7 +560,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
           <div>
             <h2 className="text-base font-semibold text-zinc-900">שיחה</h2>
-            <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, מוצר, אישור הרשמה ופולואפ. פולואפ נשלח רק אם אין מענה, אחרי ההשהייה, ורק במסלול שמחובר אליו.</p>
+            <p className="mt-0.5 text-sm text-zinc-500">הודעות, שאלות, איסוף פרטים, מוצר, אישור הרשמה ופולואפ. פולואפ נשלח רק אם אין מענה, אחרי ההשהייה, ורק במסלול שמחובר אליו.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -642,7 +647,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             ) : (
               <div className="space-y-3">
                 <div className="text-sm font-semibold text-zinc-900">{TYPE_LABEL[selected.type as FlowType]}</div>
-                {selected.type === "message" || selected.type === "question" || selected.type === "register" || selected.type === "followup" ? (
+                {selected.type === "message" || selected.type === "question" || selected.type === "register" || selected.type === "followup" || selected.type === "details" ? (
                   <label className="block text-sm text-zinc-700">
                     טקסט
                     <textarea
@@ -650,7 +655,13 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       value={String(selected.data.text ?? "")}
                       onFocus={armEditGesture}
                       onChange={(e) => patchSelected({ text: e.target.value }, true)}
-                      placeholder={selected.type === "register" ? "רשמתי אותך ל{מוצר} ב{יום} בשעה {שעה}." : "כתבי את ההודעה"}
+                      placeholder={
+                        selected.type === "register"
+                          ? "רשמתי אותך ל{מוצר} ב{יום} בשעה {שעה}."
+                          : selected.type === "details"
+                            ? "ספרו לי בקצרה מה חשוב שנדע"
+                            : "כתבי את ההודעה"
+                      }
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
                   </label>
@@ -718,6 +729,11 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       <p className="text-xs text-zinc-400">בוואטסאפ נשלחים 10 המועדים הראשונים.</p>
                     ) : null}
                   </div>
+                ) : null}
+                {selected.type === "details" ? (
+                  <p className="text-xs leading-relaxed text-zinc-500">
+                    הליד עונה בטקסט חופשי. אחרי התשובה נשלח «קיבלנו את הפרטים, תודה!» והמסלול ממשיך לתיבה הבאה.
+                  </p>
                 ) : null}
                 {selected.type === "followup" ? (
                   <div className="space-y-2">

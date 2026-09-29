@@ -7,7 +7,7 @@ alter table public.business_conversation_nodes
 
 alter table public.business_conversation_nodes
   add constraint business_conversation_nodes_type_check
-  check (type in ('message', 'question', 'product', 'daytime', 'register', 'followup'));
+  check (type in ('message', 'question', 'product', 'daytime', 'register', 'followup', 'details'));
 
 alter table public.business_conversation_sessions
   add column if not exists pending_followup_node_id uuid;

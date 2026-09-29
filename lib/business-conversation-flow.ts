@@ -19,7 +19,7 @@ import {
   type WeeklyScheduleButton,
 } from "@/lib/product-schedule-slots";
 
-export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register" | "followup";
+export type BusinessFlowNodeType = "message" | "question" | "product" | "daytime" | "register" | "followup" | "details";
 
 type FlowNode = {
   id: string;
@@ -178,7 +178,7 @@ async function loadGraph(admin: SupabaseClient, businessId: number): Promise<{ n
       type: String((row as { type?: unknown }).type ?? "") as BusinessFlowNodeType,
       data: ((row as { data?: unknown }).data ?? {}) as Record<string, unknown>,
     }))
-    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "daytime" || n.type === "register" || n.type === "followup"));
+    .filter((n) => n.id && (n.type === "message" || n.type === "question" || n.type === "product" || n.type === "daytime" || n.type === "register" || n.type === "followup" || n.type === "details"));
   if (!nodes.length) return null;
 
   const { data: edgeRows, error: edgeErr } = await admin
@@ -262,6 +262,8 @@ async function saveSession(
 }
 
 const SLOT_PICK_PROMPT = "באיזה מועד נוח לך?";
+const DETAILS_ACK = "קיבלנו את הפרטים, תודה!";
+const DETAILS_PROMPT = "ספרו לי בקצרה מה חשוב שנדע.";
 
 async function weeklySlotsForProduct(
   admin: SupabaseClient,
@@ -432,6 +434,24 @@ async function deliverFrom(input: {
       return;
     }
 
+    if (node.type === "details") {
+      await sendText(
+        input.phoneNumberId,
+        input.phone,
+        input.businessSlug,
+        input.sessionId,
+        nodeText(node) || DETAILS_PROMPT
+      );
+      session = armSilence(
+        { ...session, current_node_id: node.id, flow_completed: false },
+        input.nodes,
+        input.edges,
+        node.id
+      );
+      await saveSession(input.admin, input.businessId, phoneKey(input.phone), session);
+      return;
+    }
+
     if (node.type === "followup") break;
 
     if (node.type === "daytime") {
@@ -569,7 +589,10 @@ export async function handleBusinessConversationFlowInbound(input: {
     ? graph.nodes.find((node) => node.id === session?.current_node_id)
     : null;
   const alreadyInsideFlow =
-    waitingNode?.type === "question" || waitingNode?.type === "daytime" || waitingNode?.type === "register";
+    waitingNode?.type === "question" ||
+    waitingNode?.type === "daytime" ||
+    waitingNode?.type === "register" ||
+    waitingNode?.type === "details";
   const openFromAnyMessage =
     businessOpensSalesFlowOnAnyNewLeadMessage(input.businessSlug) &&
     !alreadyInsideFlow &&
@@ -638,6 +661,43 @@ export async function handleBusinessConversationFlowInbound(input: {
       edges: graph.edges,
       session,
       nodeId: current.id,
+    });
+    return { handled: true };
+  }
+
+  if (current?.type === "details") {
+    if (!text) {
+      await deliverFrom({
+        admin,
+        businessId,
+        businessSlug: input.businessSlug,
+        phone: input.phone,
+        phoneNumberId: input.phoneNumberId,
+        sessionId: input.sessionId,
+        nodes: graph.nodes,
+        edges: graph.edges,
+        session,
+        nodeId: current.id,
+      });
+      return { handled: true };
+    }
+    await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, DETAILS_ACK);
+    const next = edgeFrom(graph.edges, current.id, "out");
+    if (!next) {
+      await saveSession(admin, businessId, phone, armSilence({ ...session, current_node_id: current.id }, graph.nodes, graph.edges, null));
+      return { handled: true };
+    }
+    await deliverFrom({
+      admin,
+      businessId,
+      businessSlug: input.businessSlug,
+      phone: input.phone,
+      phoneNumberId: input.phoneNumberId,
+      sessionId: input.sessionId,
+      nodes: graph.nodes,
+      edges: graph.edges,
+      session,
+      nodeId: next.target_node_id,
     });
     return { handled: true };
   }
