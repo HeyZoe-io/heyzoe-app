@@ -322,6 +322,22 @@ const NOT_RELEVANT_EXACT = new Set([
 
 const NOT_RELEVANT_CONTAINS = ["לא רלוונטי", "לא מעוניין", "לא מעוניינת", "לא מעוניינים"];
 
+/** «פחות רלוונטי» / «לא ממש רלוונטי» — סגירה מפורשת, רכה יותר מ«לא רלוונטי». */
+const SOFT_NOT_RELEVANT_PHRASES = [
+  "פחות רלוונטי",
+  "לא כל כך רלוונטי",
+  "לא ממש רלוונטי",
+  "לא כזה רלוונטי",
+];
+
+/** שאלה שממשיכה את השיחה אחרי «פחות רלוונטי» — לא סגירת ליד. «לי?» / «תודה» לא נחשבים. */
+function softPhraseTailStillAsks(afterRaw: string): boolean {
+  if (!/[?？]/.test(afterRaw)) return false;
+  const tail = normalizeNotRelevantToken(afterRaw);
+  if (!tail || tail === "לי" || tail === "תודה" || tail === "לי תודה") return false;
+  return true;
+}
+
 /** «אל תכתבי לי» / «תפסיקי לכתוב» — בקשה מפורשת לא להמשיך את השיחה. */
 const EXPLICIT_STOP_TALKING_RE = [
   /אל\s+תכתב[יאם]?\s+לי/,
@@ -422,13 +438,21 @@ export async function classifyNotRelevantIntentWithClaude(input: {
   return matchesNotRelevantKeyword(input.text);
 }
 
-/** זיהוי מפורש: לא מעוניין / לא רלוונטי / אל תכתבי לי יותר. לא שאלות, לא «ביי», לא ניחוש. */
+/** זיהוי מפורש: לא מעוניין / לא רלוונטי / פחות רלוונטי / אל תכתבי לי יותר. לא שאלות, לא «ביי», לא ניחוש. */
 export function matchesNotRelevantKeyword(text: string): boolean {
-  const t = normalizeNotRelevantToken(text);
+  const raw = String(text ?? "");
+  const t = normalizeNotRelevantToken(raw);
   if (!t) return false;
   if (NOT_RELEVANT_EXACT.has(t)) return true;
   if (t === "לא תודה" || t.startsWith("לא תודה ")) return true;
   if (EXPLICIT_STOP_TALKING_RE.some((re) => re.test(t))) return true;
+
+  const softPhrase = SOFT_NOT_RELEVANT_PHRASES.find((phrase) => t.includes(phrase));
+  if (softPhrase && !/^(האם)(?:\s|$)/u.test(t) && !/^(is this|is it)\b/u.test(t)) {
+    const rawAt = raw.toLowerCase().indexOf(softPhrase);
+    const after = rawAt >= 0 ? raw.slice(rawAt + softPhrase.length) : "";
+    if (!softPhraseTailStillAsks(after)) return true;
+  }
 
   const hasExplicitPhrase = NOT_RELEVANT_CONTAINS.some((phrase) => t.includes(phrase));
   if (!hasExplicitPhrase) return false;

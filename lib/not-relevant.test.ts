@@ -28,6 +28,16 @@ assert.equal(matchesNotRelevantKeyword("not interested"), true);
 
 assert.equal(matchesNotRelevantKeyword("האם זה רלוונטי למתחילים?"), false);
 assert.equal(matchesNotRelevantKeyword("האם זה לא רלוונטי למתחילים?"), false);
+assert.equal(
+  matchesNotRelevantKeyword("אני רואה שאין שיעורים לפני 7:30 אז פחות רלוונטי, תודה"),
+  true
+);
+assert.equal(matchesNotRelevantKeyword("פחות רלוונטי"), true);
+assert.equal(matchesNotRelevantKeyword("פחות רלוונטי לי"), true);
+assert.equal(matchesNotRelevantKeyword("לא ממש רלוונטי כרגע"), true);
+assert.equal(matchesNotRelevantKeyword("לא כל כך רלוונטי"), true);
+assert.equal(matchesNotRelevantKeyword("האם זה פחות רלוונטי למתחילים?"), false);
+assert.equal(matchesNotRelevantKeyword("7:30 פחות רלוונטי לי, יש משהו בבוקר?"), false);
 assert.equal(matchesNotRelevantKeyword("היי, מתי יש שיעור?"), false);
 assert.equal(matchesNotRelevantKeyword("ביי"), false);
 assert.equal(matchesNotRelevantKeyword("בסדר"), false);
