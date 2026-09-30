@@ -51,7 +51,8 @@ export function leadPausesSalesFlowNow(text: string): boolean {
 export function assistantReplyIndicatesTeamHandoff(text: string): boolean {
   const t = normalizeSalesFlowPauseText(text);
   if (!t) return false;
-  if (/מעביר(?:ה|ים)?\s+את\s+(?:הפני|הבקש|זה)/.test(t)) return true;
+  // «הבקשה» וגם סמיכות «בקשת הביטול» / «אעביר את הבקשה».
+  if (/(?:מ|א)עביר(?:ה|ים)?\s+את\s+(?:ה)?(?:פני|בקש|זה)/.test(t)) return true;
   if (/אעביר\s+את\s+ההודעה\s+לצוות/.test(t)) return true;
   if (/יצרו\s+איתך\s+קשר/.test(t)) return true;
   if (/הצוות\s+יצרו/.test(t)) return true;

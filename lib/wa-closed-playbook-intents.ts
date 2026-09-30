@@ -92,7 +92,7 @@ export function matchClassCancelPlaybook(raw: string): ClosedPlaybookIntent | nu
   const n = t.toLowerCase();
 
   if (
-    /לבטל.{0,40}(?:את\s+)?ה?(?:מנוי|כרטיסי[יה]|חבילה)/u.test(t) &&
+    /(?:לבטל|(?<!לא\s)מבטל(?:ת|ים|ות)?).{0,40}(?:את\s+)?ה?(?:מנוי|כרטיסי[יה]|חבילה)/u.test(t) &&
     !/(?:שיעור|אימון)/u.test(t)
   ) {
     return null;
@@ -100,6 +100,8 @@ export function matchClassCancelPlaybook(raw: string): ClosedPlaybookIntent | nu
 
   const cancelOrSwitchClass =
     /לבטל.{0,48}(?:את\s+)?ה?(?:אימון|שיעור)/u.test(t) ||
+    /(?<!לא\s)מבטל(?:ת|ים|ות)?\s+(?:לי\s+)?(?:את\s+)?(?:ה)?(?:אימון|שיעור)/u.test(t) ||
+    /(?<!לא\s)מבטל(?:ת|ים|ות)?.{0,32}הרשמ(?:ה)?\s+ל(?:שיעור|אימון)/u.test(t) ||
     /תבטל(?:י|ו)?\s+(?:לי\s+)?(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
     /בטל(?:י|ו)\s+(?:לי\s+)?(?:את\s+)?ה?(?:שיעור|אימון)/u.test(t) ||
     /ביטול.{0,24}(?:ה)?(?:אימון|שיעור)/u.test(t) ||
@@ -134,8 +136,8 @@ export function matchCancellationPlaybook(raw: string): ClosedPlaybookIntent | n
     /לבטל.{0,40}(?:את\s+)?ה?(?:מנוי|כרטיסי[יה]|חבילה)/u.test(t) ||
     /תבטל(?:י|ו)?.{0,24}(?:מנוי|כרטיסי|הרשמ|חבילה)/u.test(t) ||
     /רוצ(?:ה|ה)\s+לבטל.{0,32}(?:מנוי|הרשמ|כרטיסי|חבילה)/u.test(t) ||
-    /ביטול\s+(?:של\s+)?(?:ה)?(?:מנוי|הרשמ|כרטיסי)/u.test(t) &&
-      !/מדיניות/u.test(t) ||
+    /(?<!לא\s)מבטל(?:ת|ים|ות)?\s+(?:לי\s+)?(?:את\s+)?(?:ה)?(?:מנוי|כרטיסי[יה]|חבילה|הרשמ)/u.test(t) ||
+    (/ביטול\s+(?:של\s+)?(?:ה)?(?:מנוי|הרשמ|כרטיסי)/u.test(t) && !/מדיניות/u.test(t)) ||
     /\bcancel\s+(my\s+)?(registration|booking|membership|subscription)\b/i.test(n);
 
   const policy =

@@ -80,6 +80,17 @@ assert.equal(
   true
 );
 assert.equal(assistantReplyIndicatesTeamHandoff("בשמחה! אפשר לבחור מועד מהכפתורים."), false);
+const limitlessCancelHandoff =
+  "תודה רבה! שנה טובה מכל צוות Limitless סטודיו! ❤️\n\nמצטערת לשמוע שאת עוזבת אותנו 💜 הבנתי שיש עדכון בחיים. אני מעבירה את בקשת הביטול לצוות ויטפלו בזה בהקדם! שנה טובה גם לך, והצלחה בדירה החדשה! 🏡";
+assert.equal(assistantReplyIndicatesTeamHandoff(limitlessCancelHandoff), true);
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("תודה רבה! שנה טובה מכל צוות Limitless סטודיו!"),
+  false
+);
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("אני אעביר את הבקשה לביטול לצוות שלנו והם יחזרו אלייך בהקדם"),
+  true
+);
 
 assert.equal(
   shouldPauseSalesFlowPromptResend({

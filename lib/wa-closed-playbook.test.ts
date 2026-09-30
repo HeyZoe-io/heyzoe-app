@@ -69,6 +69,16 @@ assert.equal(cat("איך מבטלים מנוי")?.category, "cancellation");
 assert.equal(cat("איך מבטלים מנוי")?.shape, "policy");
 assert.equal(cat("אפשר לבטל מנוי?")?.shape, "policy");
 assert.equal(cat("אפשר לבטל לי את המנוי?")?.shape, "action");
+assert.equal(cat("אני מבטלת את המנוי")?.category, "cancellation");
+assert.equal(cat("אני מבטלת את המנוי")?.shape, "action");
+assert.equal(
+  cat("היי.אני מבטלת את המנוי.אני עוברת דירה.הייתי בטוחה שהעברתי את ההודעה לאלין.יום טוב שנה טובה")
+    ?.shape,
+  "action"
+);
+assert.equal(cat("אני לא מבטלת את המנוי"), null);
+assert.equal(cat("אני מבטלת את השיעור")?.category, "class_cancel");
+assert.equal(cat("אני מבטלת את השיעור")?.shape, "action");
 
 // --- 3 freeze (not billing dispute) ---
 assert.equal(isFreezeBillingAccountDispute("אפשר להקפיא את המנוי?"), false);
