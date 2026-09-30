@@ -1,3 +1,5 @@
+import { isSalesFlowStartTrigger } from "@/lib/sales-flow-start-triggers";
+
 export type ConversationCapture = "none" | "day" | "time";
 
 export function fillRegistrationText(input: {
@@ -22,6 +24,23 @@ export function normalizeFlowAnswer(raw: string): string {
     .toLowerCase()
     .replace(/[“”״"']/g, "")
     .replace(/\s+/g, " ");
+}
+
+/**
+ * «אשמח לפרטים» / «בואו נתחיל» פותחים את מסלול השיחה מהנוד הראשון,
+ * גם אחרי סיום המסלול וגם כשמחכים לתשובה פתוחה.
+ * לחיצה על כפתור שזה בדיוק הטקסט שלו נשארת תשובה לשאלה הנוכחית.
+ */
+export function inboundRestartsBusinessFlowFromStart(input: {
+  text: string;
+  businessSlug?: string;
+  currentQuestionButtons?: string[];
+}): boolean {
+  if (!isSalesFlowStartTrigger(input.text, { slug: input.businessSlug })) return false;
+  const want = normalizeFlowAnswer(input.text);
+  const buttons = input.currentQuestionButtons ?? [];
+  const matchesCurrentButton = buttons.some((label) => normalizeFlowAnswer(label) === want);
+  return !matchesCurrentButton;
 }
 
 /** התאמה לכפתור שאלה לפי הטקסט שהליד שלח או לחץ. */

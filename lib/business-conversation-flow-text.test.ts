@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { buildDefaultConversationOpening } from "@/lib/business-conversation-opening";
-import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
+import {
+  fillRegistrationText,
+  inboundRestartsBusinessFlowFromStart,
+  matchQuestionButton,
+} from "@/lib/business-conversation-flow-text";
 
 assert.equal(
   fillRegistrationText({
@@ -15,6 +19,31 @@ assert.equal(
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "שחייה"), 0);
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "  ריצה "), 1);
 assert.equal(matchQuestionButton(["שחייה"], "אופניים"), -1);
+
+assert.equal(
+  inboundRestartsBusinessFlowFromStart({ text: "אשמח לפרטים", businessSlug: "pipman-team" }),
+  true
+);
+assert.equal(
+  inboundRestartsBusinessFlowFromStart({
+    text: "אשמח לפרטים",
+    businessSlug: "pipman-team",
+    currentQuestionButtons: ["טריאתלון ילדים ונוער", "ריצה"],
+  }),
+  true
+);
+assert.equal(
+  inboundRestartsBusinessFlowFromStart({
+    text: "אשמח לפרטים",
+    businessSlug: "pipman-team",
+    currentQuestionButtons: ["אשמח לפרטים", "לא תודה"],
+  }),
+  false
+);
+assert.equal(
+  inboundRestartsBusinessFlowFromStart({ text: "מה השעות?", businessSlug: "pipman-team" }),
+  false
+);
 
 const opening = buildDefaultConversationOpening({
   botName: "זואי",

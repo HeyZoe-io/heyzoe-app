@@ -9,7 +9,11 @@ import { buildMetaInteractivePayload, sendMetaWhatsAppMessage, sendWhatsAppMedia
 import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
-import { fillRegistrationText, matchQuestionButton } from "@/lib/business-conversation-flow-text";
+import {
+  fillRegistrationText,
+  inboundRestartsBusinessFlowFromStart,
+  matchQuestionButton,
+} from "@/lib/business-conversation-flow-text";
 import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { buildWaSessionId, contactPhoneLookupVariants, waSessionIdLookupVariants } from "@/lib/phone-normalize";
@@ -630,27 +634,45 @@ export async function handleBusinessConversationFlowInbound(input: {
   const text = String(input.text ?? "").trim();
   let session = await loadSession(admin, businessId, phone);
 
-  if (session?.flow_completed) {
+  const waitingNode = session?.current_node_id
+    ? graph.nodes.find((node) => node.id === session?.current_node_id)
+    : null;
+  const restartFromStart =
+    Boolean(text) &&
+    inboundRestartsBusinessFlowFromStart({
+      text,
+      businessSlug: input.businessSlug,
+      currentQuestionButtons: waitingNode?.type === "question" ? questionButtons(waitingNode) : [],
+    });
+
+  if (session?.flow_completed && !restartFromStart) {
     if (!text) return { handled: true };
     const answer = await answerFreeQuestion(input.businessSlug, input.sessionId, text);
     await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, answer);
     return { handled: true };
   }
 
-  const waitingNode = session?.current_node_id
-    ? graph.nodes.find((node) => node.id === session?.current_node_id)
-    : null;
   const alreadyInsideFlow =
-    waitingNode?.type === "question" ||
-    waitingNode?.type === "daytime" ||
-    waitingNode?.type === "register" ||
-    waitingNode?.type === "details";
+    !restartFromStart &&
+    (waitingNode?.type === "question" ||
+      waitingNode?.type === "daytime" ||
+      waitingNode?.type === "register" ||
+      waitingNode?.type === "details");
   const openFromAnyMessage =
+    !restartFromStart &&
     businessOpensSalesFlowOnAnyNewLeadMessage(input.businessSlug) &&
     !alreadyInsideFlow &&
     (await leadStillWaitingToOpenSalesFlow(admin, businessId, input.phone));
 
-  if (openFromAnyMessage || !session?.current_node_id) {
+  if (restartFromStart || openFromAnyMessage || !session?.current_node_id) {
+    if (restartFromStart) {
+      console.info("[business-conversation-flow] start trigger reopens flow from first node", {
+        businessSlug: input.businessSlug,
+        phone,
+        flowCompleted: session?.flow_completed === true,
+        previousNodeType: waitingNode?.type ?? null,
+      });
+    }
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
     session = {
