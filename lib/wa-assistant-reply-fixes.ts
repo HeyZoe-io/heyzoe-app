@@ -25,6 +25,7 @@ import {
 import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dates";
 import { rewriteFalseSingleWeeklySlotClaim } from "@/lib/wa-relative-day-class-slots";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
+import { applyLeadAgeBandToReply, type LeadAgeBand } from "@/lib/wa-lead-audience";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -44,6 +45,8 @@ export type ApplyAssistantReplyFixesInput = {
   /** לוג כשמורידים שורת THOUGHT — בלי תוכן ההודעה */
   businessSlug?: string;
   conversationId?: string;
+  /** קהל יעד שננעל בשיחה — לא לערבב שעות של ילדים/נוער/מבוגרים */
+  leadAgeBand?: LeadAgeBand | null;
 };
 
 export function getScheduleDayLabelsFromSlots(slots: { day: string }[]): string[] {
@@ -658,6 +661,9 @@ export function applyKnownAssistantReplyFixes(
     return buildStudioScopeRedirectReply(lang);
   }
   s = scrubCustomerFacingPlatformLeak(s.replace(/\n{3,}/g, "\n\n").trim());
+  if (input.leadAgeBand) {
+    s = applyLeadAgeBandToReply(s, input.leadAgeBand, input.knowledge);
+  }
   if (input.trialRegistered !== true) {
     s = stripFabricatedSeeYouAtSlot(s, lang);
     s = stripPrematureAfterRegistration(s);

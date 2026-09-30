@@ -29,6 +29,7 @@ import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-f
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildHolidayQuestionPromptRule } from "@/lib/wa-personal-blessing";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
+import { buildLeadAgeBandPromptRule } from "@/lib/wa-lead-audience";
 import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { inboundIsCatalogServiceName } from "@/lib/lead-ui-lang";
@@ -708,6 +709,8 @@ export type WhatsAppPromptContext = {
   israelNowScheduleBlock?: string;
   /** כבר נשלחה בקשת «נסחו שוב» בשיחה — השלב הבא הוא העברה לצוות */
   unclearClarifyAlreadySent?: boolean;
+  /** הליד נעל קהל יעד (מבוגרים / ילדים / נוער) — לא לערבב שעות של קהל אחר */
+  leadAgeBand?: "adults" | "kids" | "youth" | null;
 };
 
 function formatCommittedScheduleLabel(date: string, time: string): string {
@@ -955,6 +958,7 @@ ${legalRules}
 ${userLanguageBlock ? `${userLanguageBlock}\n` : ""}${structureRule}
 ${optionListingNoCountRule}
 ${directAnswerRule}
+${buildLeadAgeBandPromptRule(waCtx?.leadAgeBand)}
 ${holidayQuestionRule ? `${holidayQuestionRule}\n` : ""}${waSpellingPhrasingRule}
 ${warmupResumeRule}
 ${callScheduleOpenAnswerRule}

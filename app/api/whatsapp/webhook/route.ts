@@ -365,6 +365,12 @@ import {
   pickKnowledgeGapNoDetailsReply,
 } from "@/lib/analytics-knowledge-gaps";
 import {
+  buildAgeBandCatalogReply,
+  inferLeadAgeBandFromUserTexts,
+  isLeadAgeBandRestatement,
+  type LeadAgeBand,
+} from "@/lib/wa-lead-audience";
+import {
   TODAY_SCHEDULE_FOUND_MODEL,
   TODAY_SCHEDULE_NOT_FOUND_MODEL,
   TODAY_SCHEDULE_NOT_FOUND_REPLY,
@@ -11974,6 +11980,7 @@ async function processIncoming(
   let pickedServiceScheduleLexicon: string | undefined;
   let pickedServiceScheduleDayLabels: string[] | undefined;
   let aiSessionHistory: { role: "user" | "assistant"; content: string }[] = [];
+  let leadAgeBand: LeadAgeBand | null = null;
   if (isSalesFlowOpenQuestionAi) {
     const pickedNameForLexicon =
       (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }))?.trim() ?? "";
@@ -12483,6 +12490,10 @@ async function processIncoming(
     }
     promptClaimedThroughIso = claimed.throughIso;
     const currentText = claimed.text.trim();
+    leadAgeBand = inferLeadAgeBandFromUserTexts([
+      ...history.filter((m) => m.role === "user").map((m) => m.content),
+      currentText,
+    ]);
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -12503,6 +12514,7 @@ async function processIncoming(
         pickedServiceScheduleLexicon,
         israelNowScheduleBlock: buildIsraelNowSchedulePromptBlock(salesFlowServices),
         unclearClarifyAlreadySent: sessionHasUnclearClarifyAsk(history),
+        leadAgeBand,
       },
       platformGuidelines,
       currentText
@@ -12702,6 +12714,7 @@ async function processIncoming(
       trialRegistered: contactTrialRegistered === true,
       businessSlug: business_slug,
       conversationId: sessionId,
+      leadAgeBand,
     }
   );
 
@@ -13033,10 +13046,17 @@ async function processIncoming(
     assistantReplyIsExplicitKnowledgeGap(replyCoreClean) &&
     businessId
   ) {
-    // "האם חדר הכושר פתוח או סגור היום":
-    // 1) שעות פעילות עם תאריך היום (חג/סגירה) — לפני Arbox לפי יום־שבוע.
-    // 2) ארבוקס: שיעורי היום במערכת השעות, לפני העברה גנרית לצוות.
-    if (looksLikeBusinessOpenOrClosedTodayQuestion(incomingRaw)) {
+    const ageBandCatalogReply =
+      leadAgeBand && isLeadAgeBandRestatement(incomingRaw)
+        ? buildAgeBandCatalogReply(knowledge, leadAgeBand)
+        : "";
+    if (ageBandCatalogReply) {
+      replyCoreClean = ageBandCatalogReply;
+      replyModelUsed = "lead_age_band_catalog";
+    } else if (looksLikeBusinessOpenOrClosedTodayQuestion(incomingRaw)) {
+      // "האם חדר הכושר פתוח או סגור היום":
+      // 1) שעות פעילות עם תאריך היום (חג/סגירה) — לפני Arbox לפי יום־שבוע.
+      // 2) ארבוקס: שיעורי היום במערכת השעות, לפני העברה גנרית לצוות.
       const fromScheduleText = tryBuildTodayOpeningHoursFromScheduleText({
         text: incomingRaw,
         scheduleText: knowledge?.scheduleText,
@@ -13092,19 +13112,32 @@ async function processIncoming(
         }
         return;
       }
+      await sendKnowledgeGapTeamHandoff({
+        inboundText: incomingRaw,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
+    } else {
+      await sendKnowledgeGapTeamHandoff({
+        inboundText: incomingRaw,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
     }
-    await sendKnowledgeGapTeamHandoff({
-      inboundText: incomingRaw,
-      msg,
-      accountSid,
-      authToken,
-      supabase,
-      businessId,
-      business_slug,
-      sessionId,
-      nowIso,
-    });
-    return;
   }
 
   function softenWebsiteAttribution(text: string): string {
