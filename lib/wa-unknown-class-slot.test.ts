@@ -391,4 +391,49 @@ assert.equal(
   "once-a-week question is answered from the full timetable"
 );
 
+const apexMorningLike = [
+  svc("אימון פונקציונלי בבוקר", []),
+  svc("אימון פונקציונלי", []),
+  svc("אימון אירובי", []),
+  svc("אימון כוח (FLEX)", []),
+  svc("חדר כושר", []),
+  svc("יוגה", []),
+  svc("פילאטיס מזרן", []),
+];
+const yaronPunchCard =
+  "בוקר טוב, אפשר לקנות כרטיסיה למספר כניסות, על מנת להבין אם אצליח לאהוב ולהתמיד?";
+assert.equal(
+  matchCatalogServiceFromFreeText(yaronPunchCard, apexMorningLike),
+  null,
+  "בוקר טוב is a greeting, not a pick of the morning class"
+);
+assert.deepEqual(
+  matchCatalogServicesSharingDistinctiveToken(yaronPunchCard, apexMorningLike),
+  [],
+  "greeting בוקר does not form a one-class family"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("בוקר", apexMorningLike),
+  "אימון פונקציונלי בבוקר",
+  "bare בוקר still identifies the only morning class"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("רוצה אימון בבוקר", apexMorningLike),
+  "אימון פונקציונלי בבוקר",
+  "אימון בבוקר still matches on two real tokens"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("בוקר טוב, יוגה", apexMorningLike),
+  "יוגה",
+  "greeting prefix does not hide a real class name"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText("ערב טוב, אפשר כרטיסייה למספר כניסות?", [
+    svc("אימון ערב", []),
+    svc("יוגה", []),
+  ]),
+  null,
+  "ערב טוב is a greeting, not the evening class"
+);
+
 console.log("wa-unknown-class-slot.test.ts: ok");

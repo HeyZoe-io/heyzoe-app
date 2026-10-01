@@ -70,6 +70,19 @@ function isGenericCatalogMatchToken(raw: string): boolean {
   return !tok || tok.length < 3 || GENERIC_CATALOG_MATCH_TOKENS.has(tok);
 }
 
+/**
+ * ברכת שעה — לא טוקן קטלוג.
+ * «בוקר» נשאר מילה מזהה («אימון בבוקר», «בוקר» לבד).
+ * רק הנוסחה «בוקר טוב» / «ערב טוב» / «צהריים טובים» יורדת לפני ההתאמה,
+ * כדי שלא תיספר כבחירה של המוצר היחיד שמכיל את המילה.
+ */
+const TIME_OF_DAY_GREETING_RE =
+  /(?:^|(?<=[^\p{L}\p{N}]))(?:(?:בוקר|ערב|צהריים|צהרים|לילה)\s+טוב(?:ים|ות)?|good\s+(?:morning|evening|afternoon|night))(?=$|[^\p{L}\p{N}])/giu;
+
+function stripTimeOfDayGreetings(raw: string): string {
+  return String(raw ?? "").replace(TIME_OF_DAY_GREETING_RE, " ");
+}
+
 function foldClassName(raw: string): string {
   let t = String(raw ?? "")
     .toLowerCase()
@@ -288,7 +301,7 @@ export function matchCatalogServicesFromFreeText(
   text: string,
   services: Pick<SfServiceRow, "name">[]
 ): string[] {
-  const foldedUser = foldClassName(text);
+  const foldedUser = foldClassName(stripTimeOfDayGreetings(text));
   if (!foldedUser || foldedUser.length < 3) return [];
 
   type Hit = { name: string; extra: number };
@@ -363,7 +376,7 @@ export function matchCatalogServicesSharingDistinctiveToken(
   text: string,
   services: Pick<SfServiceRow, "name">[]
 ): string[] {
-  const foldedUser = foldClassName(text);
+  const foldedUser = foldClassName(stripTimeOfDayGreetings(text));
   if (!foldedUser) return [];
   const tokens = [
     ...new Set(
