@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import type { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import {
   addDaysYmd,
   arboxClassMatchKey,
   catalogFromBoxCategoryRows,
   resolveArboxClassDescriptionFromCatalog,
+  fetchPaginatedArboxList,
   findWeeklyClassForStamp,
   hebrewDayLetterFromYmd,
   indexWeeklyClassesByMatchKey,
+  isAllowedArboxNextPageUrl,
   arboxClassAlreadyInServices,
   mergeServiceDescriptionPatch,
   normalizeHhmm,
@@ -321,4 +324,184 @@ assert.equal(sanitizeArboxClassDescription("   "), "");
   assert.equal(shouldFillProductDescriptionFromArbox("", ""), false);
 }
 
-console.log("arbox-schedule-sync.test.ts: ok");
+assert.equal(
+  isAllowedArboxNextPageUrl("https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2"),
+  true
+);
+assert.equal(
+  isAllowedArboxNextPageUrl("http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2"),
+  true
+);
+assert.equal(isAllowedArboxNextPageUrl("/v3/schedule?page=2"), true);
+
+async function runPaginationTests(): Promise<void> {
+{
+  const requested: string[] = [];
+  const result = await fetchPaginatedArboxList({
+    apiKey: "k",
+    firstPath: "/v3/schedule?from_date=2026-10-01",
+    fetchPage: (async (path) => {
+      requested.push(path);
+      if (requested.length === 1) return fakePage({ id: 1, next: "/v3/schedule?page=2" });
+      return fakePage({ id: 2, next: null });
+    }) as typeof arboxPublicFetch,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(requested[1], "/v3/schedule?page=2");
+}
+assert.equal(isAllowedArboxNextPageUrl("/api/public/v2/schedule?page=2"), false);
+assert.equal(
+  isAllowedArboxNextPageUrl("https://evil.example/api/public/v3/schedule?page=2"),
+  false
+);
+assert.equal(isAllowedArboxNextPageUrl("not a url"), false);
+assert.equal(isAllowedArboxNextPageUrl(""), false);
+
+function fakePage(input: {
+  id: number;
+  next?: string | null;
+}): Awaited<ReturnType<typeof arboxPublicFetch>> {
+  return {
+    ok: true,
+    status: 200,
+    json: {
+      data: [{ id: input.id }],
+      extra: { pagination: { next_page_url: input.next ?? null } },
+    },
+    rawText: "",
+  };
+}
+
+{
+  const requested: string[] = [];
+  const result = await fetchPaginatedArboxList({
+    apiKey: "k",
+    firstPath: "/v3/schedule?from_date=2026-10-01&to_date=2026-10-07",
+    fetchPage: (async (path) => {
+      requested.push(path);
+      if (requested.length === 1) {
+        return fakePage({
+          id: 1,
+          next: "https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
+        });
+      }
+      return fakePage({ id: 2, next: null });
+    }) as typeof arboxPublicFetch,
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.rows.length, 2);
+  assert.deepEqual(requested, [
+    "/v3/schedule?from_date=2026-10-01&to_date=2026-10-07",
+    "https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
+  ]);
+}
+
+{
+  const requested: string[] = [];
+  const warns: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warns.push(args);
+  };
+  try {
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: "/v3/schedule?from_date=2026-10-01",
+      fetchPage: (async (path) => {
+        requested.push(path);
+        return fakePage({
+          id: 1,
+          next: "https://evil.example/api/public/v2/schedule?api-key=secret&page=2",
+        });
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(requested.length, 1);
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0]?.[0], "[arbox-pagination] rejected next_page_url");
+    const logged = JSON.stringify(warns[0]);
+    assert.equal(logged.includes("secret"), false);
+    assert.equal(logged.includes("api-key"), false);
+    assert.equal(logged.includes("evil.example"), true);
+    assert.equal(logged.includes("/api/public/v2/schedule"), true);
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
+{
+  const requested: string[] = [];
+  const result = await fetchPaginatedArboxList({
+    apiKey: "k",
+    firstPath: "/v3/schedule?from_date=2026-10-01",
+    fetchPage: (async (path) => {
+      requested.push(path);
+      if (requested.length === 1) {
+        return fakePage({
+          id: 1,
+          next: "http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
+        });
+      }
+      return fakePage({ id: 2, next: null });
+    }) as typeof arboxPublicFetch,
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.rows.length, 2);
+  assert.equal(requested[1], "http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2");
+}
+
+{
+  const warns: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warns.push(args);
+  };
+  try {
+    let calls = 0;
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: "/v3/schedule?from_date=2026-10-01",
+      fetchPage: (async () => {
+        calls += 1;
+        return fakePage({
+          id: calls,
+          next: `https://arboxserver.arboxapp.com/api/public/v3/schedule?page=${calls + 1}`,
+        });
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.body, "pagination_cap");
+    assert.equal(calls, 20);
+    assert.equal(warns.some((w) => w[0] === "[arbox-pagination] cap reached"), true);
+  } finally {
+    console.warn = originalWarn;
+  }
+}
+
+{
+  let calls = 0;
+  const result = await fetchPaginatedArboxList({
+    apiKey: "k",
+    firstPath: "/v3/schedule?from_date=2026-10-01",
+    fetchPage: (async () => {
+      calls += 1;
+      return fakePage({
+        id: calls,
+        next: calls >= 20 ? null : `https://arboxserver.arboxapp.com/api/public/v3/schedule?page=${calls + 1}`,
+      });
+    }) as typeof arboxPublicFetch,
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.rows.length, 20);
+  assert.equal(calls, 20);
+}
+}
+
+runPaginationTests()
+  .then(() => {
+    console.log("arbox-schedule-sync.test.ts: ok");
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

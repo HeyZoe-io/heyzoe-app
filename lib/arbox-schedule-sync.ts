@@ -4,7 +4,7 @@ import {
   type ArboxScheduleRemovedNotice,
   type ServiceDescriptionBlob,
 } from "@/lib/arbox-class-stamp";
-import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { ARBOX_API_BASE, arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { sortProductScheduleSlots, type ProductScheduleSlot } from "@/lib/product-schedule-slots";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -247,21 +247,77 @@ function nextPageUrl(json: unknown): string | null {
   return url || null;
 }
 
-async function fetchPaginatedArboxList(input: {
+const ARBOX_NEXT_PAGE_HOST = "arboxserver.arboxapp.com";
+const ARBOX_NEXT_PAGE_PATH_PREFIX = "/api/public/v3/";
+
+/**
+ * Absolute URLs must be this host and `/api/public/v3/…`.
+ * A relative path is judged as the URL `arboxPublicFetch` would request
+ * (base + path). No scheme upgrade — `http` v3 is still followed as `http`.
+ */
+export function isAllowedArboxNextPageUrl(url: string): boolean {
+  const raw = String(url ?? "").trim();
+  if (!raw) return false;
+  const candidate = /^https?:\/\//i.test(raw)
+    ? raw
+    : raw.startsWith("/")
+      ? `${ARBOX_API_BASE}${raw}`
+      : "";
+  if (!candidate) return false;
+  try {
+    const parsed = new URL(candidate);
+    return (
+      parsed.hostname === ARBOX_NEXT_PAGE_HOST &&
+      parsed.pathname.startsWith(ARBOX_NEXT_PAGE_PATH_PREFIX)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Host + pathname only. Query, userinfo, and unparseable text are omitted. */
+function nextPageUrlLogParts(url: string): { host: string; pathname: string } {
+  const raw = String(url ?? "").trim();
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      return { host: parsed.hostname, pathname: parsed.pathname };
+    } catch {
+      return { host: "", pathname: "" };
+    }
+  }
+  const pathname = (raw.split("?")[0] ?? "").trim();
+  if (!pathname.startsWith("/")) return { host: "", pathname: "" };
+  return { host: "", pathname };
+}
+
+export async function fetchPaginatedArboxList(input: {
   apiKey: string;
   firstPath: string;
+  fetchPage?: typeof arboxPublicFetch;
 }): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; status: number; body: string }> {
+  const fetchPage = input.fetchPage ?? arboxPublicFetch;
   const rows: Record<string, unknown>[] = [];
   let pathOrUrl: string | null = input.firstPath;
   let pages = 0;
   while (pathOrUrl && pages < MAX_SCHEDULE_PAGES) {
     pages += 1;
-    const res = await arboxPublicFetch(pathOrUrl, { apiKey: input.apiKey, method: "GET" });
+    const res = await fetchPage(pathOrUrl, { apiKey: input.apiKey, method: "GET" });
     if (!res.ok) {
       return { ok: false, status: res.status, body: res.rawText.slice(0, 400) };
     }
     rows.push(...extractRows(res.json));
-    pathOrUrl = nextPageUrl(res.json);
+    const next = nextPageUrl(res.json);
+    if (!next) return { ok: true, rows };
+    if (pages >= MAX_SCHEDULE_PAGES) {
+      console.warn("[arbox-pagination] cap reached", { pages });
+      return { ok: false, status: 0, body: "pagination_cap" };
+    }
+    if (!isAllowedArboxNextPageUrl(next)) {
+      console.warn("[arbox-pagination] rejected next_page_url", nextPageUrlLogParts(next));
+      return { ok: false, status: 0, body: "rejected_next_page_url" };
+    }
+    pathOrUrl = next;
   }
   return { ok: true, rows };
 }
