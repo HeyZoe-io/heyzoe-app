@@ -4,7 +4,7 @@ import {
   type ArboxScheduleRemovedNotice,
   type ServiceDescriptionBlob,
 } from "@/lib/arbox-class-stamp";
-import { ARBOX_API_BASE, arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { sortProductScheduleSlots, type ProductScheduleSlot } from "@/lib/product-schedule-slots";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -247,79 +247,88 @@ function nextPageUrl(json: unknown): string | null {
   return url || null;
 }
 
-const ARBOX_NEXT_PAGE_HOST = "arboxserver.arboxapp.com";
-const ARBOX_NEXT_PAGE_PATH_PREFIX = "/api/public/v3/";
+const ARBOX_LIST_PAGE_LIMIT = 500;
 
-/**
- * Absolute URLs must be this host and `/api/public/v3/…`.
- * A relative path is judged as the URL `arboxPublicFetch` would request
- * (base + path). No scheme upgrade — `http` v3 is still followed as `http`.
- */
-export function isAllowedArboxNextPageUrl(url: string): boolean {
-  const raw = String(url ?? "").trim();
-  if (!raw) return false;
-  const candidate = /^https?:\/\//i.test(raw)
-    ? raw
-    : raw.startsWith("/")
-      ? `${ARBOX_API_BASE}${raw}`
-      : "";
-  if (!candidate) return false;
-  try {
-    const parsed = new URL(candidate);
-    return (
-      parsed.hostname === ARBOX_NEXT_PAGE_HOST &&
-      parsed.pathname.startsWith(ARBOX_NEXT_PAGE_PATH_PREFIX)
-    );
-  } catch {
-    return false;
-  }
+/** Schedule occurrences dedupe on schedule_id; the category catalog on box_category_id. */
+function dedupeKeyField(firstPath: string): "schedule_id" | "box_category_id" {
+  const path = (firstPath.split("?")[0] ?? firstPath).replace(/\/+$/, "");
+  return path.endsWith("/boxCategories") ? "box_category_id" : "schedule_id";
 }
 
-/** Host + pathname only. Query, userinfo, and unparseable text are omitted. */
-function nextPageUrlLogParts(url: string): { host: string; pathname: string } {
-  const raw = String(url ?? "").trim();
-  if (/^https?:\/\//i.test(raw)) {
-    try {
-      const parsed = new URL(raw);
-      return { host: parsed.hostname, pathname: parsed.pathname };
-    } catch {
-      return { host: "", pathname: "" };
+function pathnameOf(pathOrUrl: string): string {
+  const path = (pathOrUrl.split("?")[0] ?? pathOrUrl).trim();
+  return path.startsWith("/") ? path : "";
+}
+
+/**
+ * Page 1 keeps the caller's query and adds limit. Later pages add page=N.
+ * next_page_url is never requested — live Arbox returns http and drops the
+ * original from_date / to_date / location_id / limit.
+ */
+export function buildArboxListPagePath(firstPath: string, page: number, limit = ARBOX_LIST_PAGE_LIMIT): string {
+  const qIndex = firstPath.indexOf("?");
+  const path = qIndex === -1 ? firstPath : firstPath.slice(0, qIndex);
+  const qs = new URLSearchParams(qIndex === -1 ? "" : firstPath.slice(qIndex + 1));
+  qs.set("limit", String(limit));
+  if (page > 1) qs.set("page", String(page));
+  else qs.delete("page");
+  const query = qs.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+function appendNewRows(
+  rows: Record<string, unknown>[],
+  seen: Set<string>,
+  pageRows: Record<string, unknown>[],
+  idField: "schedule_id" | "box_category_id"
+): number {
+  let added = 0;
+  for (const row of pageRows) {
+    const id = String(row[idField] ?? "").trim();
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
     }
+    rows.push(row);
+    added += 1;
   }
-  const pathname = (raw.split("?")[0] ?? "").trim();
-  if (!pathname.startsWith("/")) return { host: "", pathname: "" };
-  return { host: "", pathname };
+  return added;
 }
 
 export async function fetchPaginatedArboxList(input: {
   apiKey: string;
   firstPath: string;
   fetchPage?: typeof arboxPublicFetch;
+  /** Default 500. Tests and the limit=10 live check pass a smaller page size. */
+  limit?: number;
 }): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; status: number; body: string }> {
   const fetchPage = input.fetchPage ?? arboxPublicFetch;
+  const limit = input.limit ?? ARBOX_LIST_PAGE_LIMIT;
+  const idField = dedupeKeyField(input.firstPath);
   const rows: Record<string, unknown>[] = [];
-  let pathOrUrl: string | null = input.firstPath;
-  let pages = 0;
-  while (pathOrUrl && pages < MAX_SCHEDULE_PAGES) {
-    pages += 1;
-    const res = await fetchPage(pathOrUrl, { apiKey: input.apiKey, method: "GET" });
+  const seen = new Set<string>();
+  let page = 1;
+  while (page <= MAX_SCHEDULE_PAGES) {
+    const path = buildArboxListPagePath(input.firstPath, page, limit);
+    const res = await fetchPage(path, { apiKey: input.apiKey, method: "GET" });
     if (!res.ok) {
       return { ok: false, status: res.status, body: res.rawText.slice(0, 400) };
     }
-    rows.push(...extractRows(res.json));
+    const pageRows = extractRows(res.json);
+    const added = appendNewRows(rows, seen, pageRows, idField);
     const next = nextPageUrl(res.json);
     if (!next) return { ok: true, rows };
-    if (pages >= MAX_SCHEDULE_PAGES) {
-      console.warn("[arbox-pagination] cap reached", { pages });
+    if (added === 0) {
+      console.warn("[arbox-pagination] no progress", { pathname: pathnameOf(path), page });
+      return { ok: false, status: 0, body: "pagination_no_progress" };
+    }
+    if (page >= MAX_SCHEDULE_PAGES) {
+      console.warn("[arbox-pagination] cap reached", { pages: page });
       return { ok: false, status: 0, body: "pagination_cap" };
     }
-    if (!isAllowedArboxNextPageUrl(next)) {
-      console.warn("[arbox-pagination] rejected next_page_url", nextPageUrlLogParts(next));
-      return { ok: false, status: 0, body: "rejected_next_page_url" };
-    }
-    pathOrUrl = next;
+    page += 1;
   }
-  return { ok: true, rows };
+  return { ok: false, status: 0, body: "pagination_cap" };
 }
 
 export async function fetchArboxScheduleOccurrences(input: {
@@ -411,7 +420,7 @@ function catalogDescriptionForClass(
 
 /**
  * Live class description for «ג׳נרט תיאור».
- * IO: 1 GET /v3/schedule/boxCategories (page 2+ only if next_page_url).
+ * IO: 1 GET /v3/schedule/boxCategories?limit=500 (another page only if next_page_url is set).
  * User-initiated — not a cron. Do not filter by location_id (full catalog).
  */
 export async function fetchArboxClassDescriptionForProduct(input: {

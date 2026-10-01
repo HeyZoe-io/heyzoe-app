@@ -9,7 +9,6 @@ import {
   findWeeklyClassForStamp,
   hebrewDayLetterFromYmd,
   indexWeeklyClassesByMatchKey,
-  isAllowedArboxNextPageUrl,
   arboxClassAlreadyInServices,
   mergeServiceDescriptionPatch,
   normalizeHhmm,
@@ -324,177 +323,253 @@ assert.equal(sanitizeArboxClassDescription("   "), "");
   assert.equal(shouldFillProductDescriptionFromArbox("", ""), false);
 }
 
-assert.equal(
-  isAllowedArboxNextPageUrl("https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2"),
-  true
-);
-assert.equal(
-  isAllowedArboxNextPageUrl("http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2"),
-  true
-);
-assert.equal(isAllowedArboxNextPageUrl("/v3/schedule?page=2"), true);
-
-async function runPaginationTests(): Promise<void> {
-{
-  const requested: string[] = [];
-  const result = await fetchPaginatedArboxList({
-    apiKey: "k",
-    firstPath: "/v3/schedule?from_date=2026-10-01",
-    fetchPage: (async (path) => {
-      requested.push(path);
-      if (requested.length === 1) return fakePage({ id: 1, next: "/v3/schedule?page=2" });
-      return fakePage({ id: 2, next: null });
-    }) as typeof arboxPublicFetch,
-  });
-  assert.equal(result.ok, true);
-  assert.equal(requested[1], "/v3/schedule?page=2");
-}
-assert.equal(isAllowedArboxNextPageUrl("/api/public/v2/schedule?page=2"), false);
-assert.equal(
-  isAllowedArboxNextPageUrl("https://evil.example/api/public/v3/schedule?page=2"),
-  false
-);
-assert.equal(isAllowedArboxNextPageUrl("not a url"), false);
-assert.equal(isAllowedArboxNextPageUrl(""), false);
+const POISON_NEXT = "http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2";
+const FIRST_PATH = "/v3/schedule?from_date=2026-10-01&to_date=2026-10-07&location_id=3068";
 
 function fakePage(input: {
-  id: number;
+  rows: Record<string, unknown>[];
   next?: string | null;
+  ok?: boolean;
+  status?: number;
 }): Awaited<ReturnType<typeof arboxPublicFetch>> {
+  const ok = input.ok !== false;
   return {
-    ok: true,
-    status: 200,
-    json: {
-      data: [{ id: input.id }],
-      extra: { pagination: { next_page_url: input.next ?? null } },
-    },
-    rawText: "",
+    ok,
+    status: input.status ?? (ok ? 200 : 500),
+    json: ok
+      ? { data: input.rows, extra: { pagination: { next_page_url: input.next ?? null } } }
+      : null,
+    rawText: ok ? "" : "nope",
   };
 }
 
-{
-  const requested: string[] = [];
-  const result = await fetchPaginatedArboxList({
-    apiKey: "k",
-    firstPath: "/v3/schedule?from_date=2026-10-01&to_date=2026-10-07",
-    fetchPage: (async (path) => {
-      requested.push(path);
-      if (requested.length === 1) {
-        return fakePage({
-          id: 1,
-          next: "https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
-        });
-      }
-      return fakePage({ id: 2, next: null });
-    }) as typeof arboxPublicFetch,
-  });
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.rows.length, 2);
-  assert.deepEqual(requested, [
-    "/v3/schedule?from_date=2026-10-01&to_date=2026-10-07",
-    "https://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
-  ]);
+function assertBuiltPage(actual: string, page: number): void {
+  assert.equal(actual.startsWith("http"), false);
+  assert.equal(actual.includes(POISON_NEXT), false);
+  const qIndex = actual.indexOf("?");
+  assert.equal(qIndex === -1 ? actual : actual.slice(0, qIndex), "/v3/schedule");
+  const qs = new URLSearchParams(qIndex === -1 ? "" : actual.slice(qIndex + 1));
+  assert.equal(qs.get("from_date"), "2026-10-01");
+  assert.equal(qs.get("to_date"), "2026-10-07");
+  assert.equal(qs.get("location_id"), "3068");
+  assert.equal(qs.get("limit"), "500");
+  if (page <= 1) assert.equal(qs.get("page"), null);
+  else assert.equal(qs.get("page"), String(page));
 }
 
-{
-  const requested: string[] = [];
-  const warns: unknown[][] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
-    warns.push(args);
-  };
-  try {
+async function runPaginationTests(): Promise<void> {
+  {
+    const requested: string[] = [];
     const result = await fetchPaginatedArboxList({
       apiKey: "k",
-      firstPath: "/v3/schedule?from_date=2026-10-01",
+      firstPath: FIRST_PATH,
       fetchPage: (async (path) => {
         requested.push(path);
+        return fakePage({ rows: [{ schedule_id: 1 }, { schedule_id: 2 }], next: null });
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.rows.length, 2);
+    assert.equal(requested.length, 1);
+    assertBuiltPage(requested[0]!, 1);
+  }
+
+  {
+    const requested: string[] = [];
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: FIRST_PATH,
+      fetchPage: (async (path) => {
+        requested.push(path);
+        const page = requested.length;
+        const rows =
+          page === 1
+            ? [{ schedule_id: 1 }]
+            : page === 2
+              ? [{ schedule_id: 2 }]
+              : [{ schedule_id: 3 }];
         return fakePage({
-          id: 1,
-          next: "https://evil.example/api/public/v2/schedule?api-key=secret&page=2",
+          rows,
+          next: page < 3 ? POISON_NEXT : null,
         });
       }) as typeof arboxPublicFetch,
     });
-    assert.equal(result.ok, false);
-    assert.equal(requested.length, 1);
-    assert.equal(warns.length, 1);
-    assert.equal(warns[0]?.[0], "[arbox-pagination] rejected next_page_url");
-    const logged = JSON.stringify(warns[0]);
-    assert.equal(logged.includes("secret"), false);
-    assert.equal(logged.includes("api-key"), false);
-    assert.equal(logged.includes("evil.example"), true);
-    assert.equal(logged.includes("/api/public/v2/schedule"), true);
-  } finally {
-    console.warn = originalWarn;
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.deepEqual(
+        result.rows.map((row) => row.schedule_id),
+        [1, 2, 3]
+      );
+    }
+    assert.equal(requested.length, 3);
+    requested.forEach((url, i) => assertBuiltPage(url, i + 1));
+    assert.equal(requested.some((url) => url === POISON_NEXT), false);
   }
-}
 
-{
-  const requested: string[] = [];
-  const result = await fetchPaginatedArboxList({
-    apiKey: "k",
-    firstPath: "/v3/schedule?from_date=2026-10-01",
-    fetchPage: (async (path) => {
-      requested.push(path);
-      if (requested.length === 1) {
+  {
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: FIRST_PATH,
+      fetchPage: (async (path) => {
+        const page = new URLSearchParams(path.split("?")[1] ?? "").get("page");
+        if (!page) {
+          return fakePage({
+            rows: [{ schedule_id: 1 }, { schedule_id: 2 }],
+            next: POISON_NEXT,
+          });
+        }
         return fakePage({
-          id: 1,
-          next: "http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2",
+          rows: [{ schedule_id: 2 }, { schedule_id: 3 }],
+          next: null,
         });
-      }
-      return fakePage({ id: 2, next: null });
-    }) as typeof arboxPublicFetch,
-  });
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.rows.length, 2);
-  assert.equal(requested[1], "http://arboxserver.arboxapp.com/api/public/v3/schedule?page=2");
-}
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.deepEqual(
+        result.rows.map((row) => row.schedule_id),
+        [1, 2, 3]
+      );
+    }
+  }
 
-{
-  const warns: unknown[][] = [];
-  const originalWarn = console.warn;
-  console.warn = (...args: unknown[]) => {
-    warns.push(args);
-  };
-  try {
+  {
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: "/v3/schedule/boxCategories",
+      fetchPage: (async (path) => {
+        const page = new URLSearchParams(path.split("?")[1] ?? "").get("page");
+        if (!page) {
+          return fakePage({
+            rows: [{ box_category_id: 9 }],
+            next: "http://arboxserver.arboxapp.com/api/public/v3/schedule/boxCategories?page=2",
+          });
+        }
+        return fakePage({
+          rows: [{ box_category_id: 9 }, { box_category_id: 10 }],
+          next: null,
+        });
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.deepEqual(
+        result.rows.map((row) => row.box_category_id),
+        [9, 10]
+      );
+    }
+  }
+
+  {
+    const warns: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warns.push(args);
+    };
+    try {
+      const empty = await fetchPaginatedArboxList({
+        apiKey: "k",
+        firstPath: FIRST_PATH,
+        fetchPage: (async (path) => {
+          const page = new URLSearchParams(path.split("?")[1] ?? "").get("page");
+          if (!page) return fakePage({ rows: [{ schedule_id: 1 }], next: POISON_NEXT });
+          return fakePage({ rows: [], next: POISON_NEXT });
+        }) as typeof arboxPublicFetch,
+      });
+      assert.equal(empty.ok, false);
+      if (!empty.ok) assert.equal(empty.body, "pagination_no_progress");
+
+      const dupes = await fetchPaginatedArboxList({
+        apiKey: "k",
+        firstPath: FIRST_PATH,
+        fetchPage: (async (path) => {
+          const page = new URLSearchParams(path.split("?")[1] ?? "").get("page");
+          return fakePage({
+            rows: [{ schedule_id: 1 }],
+            next: page ? POISON_NEXT : POISON_NEXT,
+          });
+        }) as typeof arboxPublicFetch,
+      });
+      assert.equal(dupes.ok, false);
+      if (!dupes.ok) assert.equal(dupes.body, "pagination_no_progress");
+      assert.equal(
+        warns.filter((w) => w[0] === "[arbox-pagination] no progress").length,
+        2
+      );
+      const logged = JSON.stringify(warns);
+      assert.equal(logged.includes("api-key"), false);
+      assert.equal(logged.includes(POISON_NEXT), false);
+    } finally {
+      console.warn = originalWarn;
+    }
+  }
+
+  {
+    const requested: string[] = [];
+    const result = await fetchPaginatedArboxList({
+      apiKey: "k",
+      firstPath: FIRST_PATH,
+      fetchPage: (async (path) => {
+        requested.push(path);
+        if (requested.length === 1) {
+          return fakePage({ rows: [{ schedule_id: 1 }], next: POISON_NEXT });
+        }
+        return fakePage({ rows: [], ok: false, status: 400 });
+      }) as typeof arboxPublicFetch,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.status, 400);
+    assert.equal(requested.length, 2);
+    assertBuiltPage(requested[1]!, 2);
+  }
+
+  {
+    const warns: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warns.push(args);
+    };
+    try {
+      let calls = 0;
+      const result = await fetchPaginatedArboxList({
+        apiKey: "k",
+        firstPath: FIRST_PATH,
+        fetchPage: (async (path) => {
+          calls += 1;
+          assert.equal(path === POISON_NEXT, false);
+          assertBuiltPage(path, calls);
+          return fakePage({
+            rows: [{ schedule_id: calls }],
+            next: POISON_NEXT,
+          });
+        }) as typeof arboxPublicFetch,
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.equal(result.body, "pagination_cap");
+      assert.equal(calls, 20);
+      assert.equal(warns.some((w) => w[0] === "[arbox-pagination] cap reached"), true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  }
+
+  {
     let calls = 0;
     const result = await fetchPaginatedArboxList({
       apiKey: "k",
-      firstPath: "/v3/schedule?from_date=2026-10-01",
+      firstPath: FIRST_PATH,
       fetchPage: (async () => {
         calls += 1;
         return fakePage({
-          id: calls,
-          next: `https://arboxserver.arboxapp.com/api/public/v3/schedule?page=${calls + 1}`,
+          rows: [{ schedule_id: calls }],
+          next: calls >= 20 ? null : POISON_NEXT,
         });
       }) as typeof arboxPublicFetch,
     });
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.body, "pagination_cap");
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.rows.length, 20);
     assert.equal(calls, 20);
-    assert.equal(warns.some((w) => w[0] === "[arbox-pagination] cap reached"), true);
-  } finally {
-    console.warn = originalWarn;
   }
-}
-
-{
-  let calls = 0;
-  const result = await fetchPaginatedArboxList({
-    apiKey: "k",
-    firstPath: "/v3/schedule?from_date=2026-10-01",
-    fetchPage: (async () => {
-      calls += 1;
-      return fakePage({
-        id: calls,
-        next: calls >= 20 ? null : `https://arboxserver.arboxapp.com/api/public/v3/schedule?page=${calls + 1}`,
-      });
-    }) as typeof arboxPublicFetch,
-  });
-  assert.equal(result.ok, true);
-  if (result.ok) assert.equal(result.rows.length, 20);
-  assert.equal(calls, 20);
-}
 }
 
 runPaginationTests()
