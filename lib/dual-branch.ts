@@ -264,6 +264,7 @@ export function applyDualBranchToService<T extends BranchServiceSlice>(row: T, b
   const offer = row.branchOffers?.[branch];
   const slots = filledSlots(offer?.scheduleSlots ?? []);
   const payment = offer?.paymentPage.trim() || offer?.paymentLink.trim() || row.paymentLink;
+  // מחיר/משך נשארים ברמת המוצר (משותפים לשני הסניפים) — לא לגעת בהם כאן.
   return {
     ...row,
     paymentLink: payment,

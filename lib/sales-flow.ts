@@ -1382,8 +1382,12 @@ export function isSfServiceUnsetForCta(selectedServiceName: string, serviceCount
 }
 
 export function resolveSfServicePriceDuration(
-  selected: { priceText?: string; durationText?: string } | null | undefined,
-  all: Array<{ priceText?: string; durationText?: string }>
+  selected: {
+    priceText?: string;
+    durationText?: string;
+    offerKind?: string;
+  } | null | undefined,
+  all: Array<{ priceText?: string; durationText?: string; offerKind?: string }>
 ): { priceText: string; durationText: string } {
   const from = (s: { priceText?: string; durationText?: string } | null | undefined) => ({
     priceText: String(s?.priceText ?? "").trim(),
@@ -1394,7 +1398,11 @@ export function resolveSfServicePriceDuration(
   }
   let { priceText, durationText } = from(selected);
   if (priceText && durationText) return { priceText, durationText };
-  const candidates = [selected, ...all];
+  const selectedKind = String(selected.offerKind ?? "").trim();
+  const sameKind = selectedKind
+    ? all.filter((row) => String(row.offerKind ?? "").trim() === selectedKind)
+    : [];
+  const candidates = [selected, ...sameKind, ...all];
   for (const row of candidates) {
     const p = String(row.priceText ?? "").trim();
     const d = String(row.durationText ?? "").trim();

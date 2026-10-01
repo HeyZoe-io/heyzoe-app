@@ -395,7 +395,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
     return {
       ui_id: uid(),
       name,
-      price_text: String(s.price_text ?? ""),
+      price_text: String(s.price_text ?? "").trim() || String(meta.price_text ?? "").trim(),
       duration: String(meta.duration ?? ""),
       payment_link: String(meta.payment_link ?? ""),
       service_slug: String(s.service_slug ?? ""),

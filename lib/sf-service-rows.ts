@@ -94,10 +94,13 @@ function parseOneSfServiceRow(s: RawServiceRowInput): SfServiceRow | null {
       meta.location_mode === "online" || meta.location_mode === "location"
         ? meta.location_mode
         : undefined;
+    // עמודה ריקה ("") לא אמורה לחסום מחיר שמור ב־meta — במיוחד אחרי שמירות סניפים/סנכרון.
+    const priceText =
+      String(s.price_text ?? "").trim() || String(meta.price_text ?? "").trim();
     return {
       name,
       benefit: String(meta.benefit_line ?? "").trim(),
-      priceText: String(s.price_text ?? meta.price_text ?? "").trim(),
+      priceText,
       durationText: String(meta.duration ?? "").trim(),
       descriptionText: String(meta.description_text ?? meta.description ?? "").trim(),
       paymentLink: String(meta.payment_link ?? "").trim(),

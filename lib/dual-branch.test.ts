@@ -62,6 +62,7 @@ const offers = parseBranchOffers({
 
 const amiadRow = applyDualBranchToService({ ...row(), branchOffers: offers }, "amiad");
 assert.equal(amiadRow.paymentLink, "https://pay.example/amiad-page");
+assert.equal(amiadRow.priceText, "50");
 assert.deepEqual(
   amiadRow.scheduleSlots.map((s) => `${s.day} ${s.time}`),
   ["ב 18:00"]
