@@ -2073,17 +2073,20 @@ function scheduleBoardAssetsFromKnowledge(
   business_slug?: string
 ) {
   const schedBtn = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
+  const dual = Boolean(
+    (business_slug && isDualBranchBusiness(business_slug)) || knowledge.dualBranch
+  );
+  // שני סניפים: תמונה רק אחרי בחירת סניף (applyDualBranch), ורק של הסניף שנבחר.
+  const branchImageReady = dual
+    ? Boolean(knowledge.activeDualBranch) && Boolean(String(knowledge.scheduleScanImageUrl ?? "").trim())
+    : true;
   const assets = resolveScheduleBoardAssets({
     schedulePublicUrl: knowledge.schedulePublicUrl,
     arboxLink: knowledge.arboxLink,
-    scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
-    scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
+    scheduleScanImageUrl: branchImageReady ? knowledge.scheduleScanImageUrl : "",
+    scheduleCtaImageUrl: dual ? "" : schedBtn?.schedule_cta_image_url,
     blockMedia,
   });
-  // שני סניפים: אחרי הבחירה נשלח את לינק המערכת של הסניף, לא תמונת לוח משותפת.
-  if (business_slug && isDualBranchBusiness(business_slug) && assets.link) {
-    return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
-  }
   return assets;
 }
 

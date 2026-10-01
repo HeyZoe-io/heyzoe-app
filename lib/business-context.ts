@@ -45,6 +45,7 @@ import {
   formatBranchLocationsForPrompt,
   isDualBranchBusiness,
   parseBranchLocations,
+  parseBranchScheduleImageUrls,
   parseBranchScheduleUrls,
 } from "@/lib/dual-branch";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
@@ -123,6 +124,10 @@ export type BusinessKnowledgePack = {
   instagramUrl: string;
   /** מערכות שעות לפי סניף — רק tshelgine-8774 */
   branchScheduleUrls?: import("@/lib/dual-branch").BranchScheduleUrls;
+  /** תמונות מערכת שעות לפי סניף — רק tshelgine-8774 */
+  branchScheduleImageUrls?: import("@/lib/dual-branch").BranchScheduleImageUrls;
+  /** סניף שנבחר בשיחה — אחרי applyDualBranchToKnowledge */
+  activeDualBranch?: import("@/lib/dual-branch").DualBranchId | null;
   /** אחרי חימום יש בחירת סניף — רק tshelgine-8774 */
   dualBranch?: boolean;
   /** כתובת והגעה לפי סניף — רק tshelgine-8774 */
@@ -501,6 +506,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       knowledgeCatalogServices,
       instagramUrl,
       branchScheduleUrls: parseBranchScheduleUrls(social.branch_schedule_urls),
+      branchScheduleImageUrls: parseBranchScheduleImageUrls(social.branch_schedule_image_urls),
       dualBranch: isDualBranchBusiness(slug) || undefined,
       branchLocations: splitBranchLocations ? branchLocations : undefined,
       promotionsText,
