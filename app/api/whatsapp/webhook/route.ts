@@ -2073,17 +2073,20 @@ function scheduleBoardAssetsFromKnowledge(
   business_slug?: string
 ) {
   const schedBtn = knowledge.salesFlowConfig?.cta_buttons?.find((b) => b.kind === "schedule");
+  const dual = Boolean(
+    (business_slug && isDualBranchBusiness(business_slug)) || knowledge.dualBranch
+  );
+  // שני סניפים: תמונה רק אחרי בחירת סניף (applyDualBranch), ורק של הסניף שנבחר.
+  const branchImageReady = dual
+    ? Boolean(knowledge.activeDualBranch) && Boolean(String(knowledge.scheduleScanImageUrl ?? "").trim())
+    : true;
   const assets = resolveScheduleBoardAssets({
     schedulePublicUrl: knowledge.schedulePublicUrl,
     arboxLink: knowledge.arboxLink,
-    scheduleScanImageUrl: knowledge.scheduleScanImageUrl,
-    scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
+    scheduleScanImageUrl: branchImageReady ? knowledge.scheduleScanImageUrl : "",
+    scheduleCtaImageUrl: dual ? "" : schedBtn?.schedule_cta_image_url,
     blockMedia,
   });
-  // שני סניפים: אחרי הבחירה נשלח את לינק המערכת של הסניף, לא תמונת לוח משותפת.
-  if (business_slug && isDualBranchBusiness(business_slug) && assets.link) {
-    return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
-  }
   return assets;
 }
 
@@ -2437,6 +2440,26 @@ async function advanceAfterWarmupSessionComplete(input: {
     }
 
     const singleService = salesFlowServices[0] ?? null;
+    // שני סניפים + מוצר יחיד: אחרי בחירת סניף שולחים תיאור עם מחיר + כתובת הסניף לפני שיבוץ/CTA.
+    if (singleService && isDualBranchBusiness(business_slug)) {
+      await sendAfterServicePickIntro({
+        knowledge,
+        picked: singleService,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: blockTrialPickMedia,
+      });
+      await logMessage({
+        business_slug,
+        role: "event",
+        content: `${HEYZOE_SF_SERVICE_PREFIX}${singleService.name}`,
+        model_used: "sf_service_single_after_branch",
+        session_id: sessionId,
+      }).catch((e) => console.warn("[WA Webhook] sf_service single marker failed:", e));
+    }
     const nextPhase = scheduleSelectionPhaseAfterService(knowledge, singleService);
     await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: nextPhase });
     await sendFlowContinuation({
@@ -4049,6 +4072,16 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
     selectedService,
     salesFlowServices
   );
+  if (!ctaPriceText.trim()) {
+    console.warn("[WA Webhook] sendSalesFlowCtaMenu: empty price for CTA", {
+      business_slug,
+      sessionId,
+      selectedServiceName,
+      dualBranch: isDualBranchBusiness(business_slug),
+      activeDualBranch: knowledge.activeDualBranch ?? null,
+      serviceCount: salesFlowServices.length,
+    });
+  }
   const baseCtaBody = inScheduleTrialFlow
     ? fillCtaBodyTemplate(resolveTrialCtaBodyTemplate(cfg, true), ctaPriceText, ctaDurationText)
     : fillOfferKindCtaBody(activeOfferKind, cfg, {

@@ -36,12 +36,23 @@ export type LinksStepPanelProps = {
   setBranchScheduleAmiad?: (v: string) => void;
   branchScheduleKiryat?: string;
   setBranchScheduleKiryat?: (v: string) => void;
+  branchScheduleImageAmiad?: string;
+  setBranchScheduleImageAmiad?: (v: string) => void;
+  branchScheduleImageKiryat?: string;
+  setBranchScheduleImageKiryat?: (v: string) => void;
+  branchScheduleImageAmiadInputRef?: React.RefObject<HTMLInputElement | null>;
+  branchScheduleImageKiryatInputRef?: React.RefObject<HTMLInputElement | null>;
+  uploadingBranchScheduleImage?: "amiad" | "kiryat_shmona" | null;
+  branchScheduleImageUploadError?: string;
   scheduleScanImageUrl: string;
   setScheduleScanImageUrl: (v: string) => void;
   scheduleScanMediaInputRef: React.RefObject<HTMLInputElement | null>;
   uploadingScheduleScanMedia: boolean;
   scheduleScanMediaUploadError: string;
-  uploadMedia: (file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") => Promise<void>;
+  uploadMedia: (
+    file: File,
+    target: "opening" | "directions" | "schedule_cta" | "schedule_scan" | "schedule_scan_amiad" | "schedule_scan_kiryat"
+  ) => Promise<void>;
   scheduleDirectRegistration: boolean;
   setScheduleDirectRegistration: (v: boolean) => void;
   membershipsUrl: string;
@@ -130,6 +141,14 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setBranchScheduleAmiad,
     branchScheduleKiryat = "",
     setBranchScheduleKiryat,
+    branchScheduleImageAmiad = "",
+    setBranchScheduleImageAmiad,
+    branchScheduleImageKiryat = "",
+    setBranchScheduleImageKiryat,
+    branchScheduleImageAmiadInputRef,
+    branchScheduleImageKiryatInputRef,
+    uploadingBranchScheduleImage = null,
+    branchScheduleImageUploadError = "",
     scheduleScanImageUrl,
     setScheduleScanImageUrl,
     scheduleScanMediaInputRef,
@@ -388,6 +407,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
         onToggle={() => toggle("booking")}
         filled={filled.booking}
         titleAction={
+          dualBranch ? null : (
           <>
             <input
               ref={scheduleScanMediaInputRef}
@@ -415,6 +435,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               {uploadingScheduleScanMedia ? t.uploading : t.links.uploadScheduleImage}
             </button>
           </>
+          )
         }
       >
         <div>
@@ -434,6 +455,56 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                   placeholder="https://..."
                   className={SALES_PATH_INPUT}
                 />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    ref={branchScheduleImageAmiadInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      void uploadMedia(f, "schedule_scan_amiad");
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={[
+                      "text-xs font-semibold underline underline-offset-4",
+                      "text-[#2f6feb] hover:text-[#1f5bd6]",
+                      "disabled:opacity-60 disabled:no-underline",
+                    ].join(" ")}
+                    onClick={() => branchScheduleImageAmiadInputRef?.current?.click()}
+                    disabled={uploadingBranchScheduleImage === "amiad"}
+                    title={t.links.uploadScheduleImageTitle}
+                  >
+                    {uploadingBranchScheduleImage === "amiad"
+                      ? t.uploading
+                      : t.links.uploadScheduleImageAmiad}
+                  </button>
+                </div>
+                {branchScheduleImageAmiad.trim() ? (
+                  <div className="mt-2 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
+                      <p className="text-xs font-semibold text-zinc-800">{t.links.scheduleImageAmiad}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1.5 text-xs border-zinc-200 bg-white hover:bg-red-50/70 text-red-600"
+                        onClick={() => setBranchScheduleImageAmiad?.("")}
+                      >
+                        {t.remove}
+                      </Button>
+                    </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={branchScheduleImageAmiad.trim()}
+                      alt=""
+                      className="mt-2 w-full max-h-52 rounded-lg object-contain bg-white"
+                    />
+                  </div>
+                ) : null}
               </div>
               <div>
                 <SalesPathFieldLabel>{t.links.scheduleLinkKiryatShmona}</SalesPathFieldLabel>
@@ -444,7 +515,65 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                   placeholder="https://..."
                   className={SALES_PATH_INPUT}
                 />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    ref={branchScheduleImageKiryatInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      void uploadMedia(f, "schedule_scan_kiryat");
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className={[
+                      "text-xs font-semibold underline underline-offset-4",
+                      "text-[#2f6feb] hover:text-[#1f5bd6]",
+                      "disabled:opacity-60 disabled:no-underline",
+                    ].join(" ")}
+                    onClick={() => branchScheduleImageKiryatInputRef?.current?.click()}
+                    disabled={uploadingBranchScheduleImage === "kiryat_shmona"}
+                    title={t.links.uploadScheduleImageTitle}
+                  >
+                    {uploadingBranchScheduleImage === "kiryat_shmona"
+                      ? t.uploading
+                      : t.links.uploadScheduleImageKiryat}
+                  </button>
+                </div>
+                {branchScheduleImageKiryat.trim() ? (
+                  <div className="mt-2 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
+                      <p className="text-xs font-semibold text-zinc-800">{t.links.scheduleImageKiryat}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 gap-1.5 text-xs border-zinc-200 bg-white hover:bg-red-50/70 text-red-600"
+                        onClick={() => setBranchScheduleImageKiryat?.("")}
+                      >
+                        {t.remove}
+                      </Button>
+                    </div>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={branchScheduleImageKiryat.trim()}
+                      alt=""
+                      className="mt-2 w-full max-h-52 rounded-lg object-contain bg-white"
+                    />
+                  </div>
+                ) : null}
               </div>
+              {branchScheduleImageUploadError ? (
+                <p className="text-sm text-red-600" role="alert">
+                  {branchScheduleImageUploadError}
+                </p>
+              ) : null}
+              <p className="text-[11px] text-zinc-500 leading-snug" dir={dashboardDir(lang)}>
+                {t.links.branchScheduleImagesTip}
+              </p>
             </div>
           ) : (
             <>
@@ -456,8 +585,6 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
             placeholder="https://..."
             className={SALES_PATH_INPUT}
           />
-            </>
-          )}
           {scheduleScanImageUrl.trim() ? (
             <div className="mt-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
@@ -487,6 +614,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               {scheduleScanMediaUploadError}
             </p>
           ) : null}
+            </>
+          )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2">
             <span className="text-sm font-medium text-zinc-800">{t.links.directRegistration}</span>
             <button

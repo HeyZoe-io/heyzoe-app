@@ -74,7 +74,14 @@ export const dashboardSettingsI18n = {
       scheduleLink: "לינק מערכת שעות",
       scheduleLinkAmiad: "מערכת שעות — עמיעד",
       scheduleLinkKiryatShmona: "מערכת שעות — קריית שמונה",
-      branchSystemsHint: "לכל סניף מערכת נפרדת. אחרי החימום זואי שואלת סניף, ומשם המועדים והלינקים של הסניף שנבחר.",
+      branchSystemsHint:
+        "לכל סניף מערכת נפרדת ותמונת לוח משלו. אחרי החימום זואי שואלת סניף, ומשם נשלחים המועדים, הלינק והתמונה של הסניף שנבחר.",
+      uploadScheduleImageAmiad: "העלאת תמונה — עמיעד",
+      uploadScheduleImageKiryat: "העלאת תמונה — קריית שמונה",
+      scheduleImageAmiad: "תמונת לוח — עמיעד",
+      scheduleImageKiryat: "תמונת לוח — קריית שמונה",
+      branchScheduleImagesTip:
+        "העלו צילום מסך חתוך של הטבלה לכל סניף בנפרד. אחרי בחירת סניף בשיחה — זואי שולחת את התמונה המתאימה.",
       scheduleImagePreferred: "תמונת לוח לסריקה (מועדפת)",
       scheduleImageTip:
         "מומלץ להעלות צילום מסך חתוך רק של הטבלה (בלי תפריטים/באנרים) כדי לשפר דיוק.",
@@ -604,7 +611,14 @@ export const dashboardSettingsI18n = {
       scheduleLink: "Schedule system link",
       scheduleLinkAmiad: "Schedule — Amiad",
       scheduleLinkKiryatShmona: "Schedule — Kiryat Shmona",
-      branchSystemsHint: "Each branch has its own schedule system. After warmup, Zoe asks which branch, then uses that branch's times and links.",
+      branchSystemsHint:
+        "Each branch has its own schedule link and board image. After warmup, Zoe asks which branch, then sends that branch's times, link, and image.",
+      uploadScheduleImageAmiad: "Upload image — Amiad",
+      uploadScheduleImageKiryat: "Upload image — Kiryat Shmona",
+      scheduleImageAmiad: "Schedule image — Amiad",
+      scheduleImageKiryat: "Schedule image — Kiryat Shmona",
+      branchScheduleImagesTip:
+        "Upload a cropped table screenshot for each branch. After the lead picks a branch, Zoe sends the matching image.",
       scheduleImagePreferred: "Schedule image for scanning (preferred)",
       scheduleImageTip:
         "Upload a cropped screenshot of the table only (no menus/banners) for better accuracy.",

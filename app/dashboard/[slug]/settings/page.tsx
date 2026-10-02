@@ -88,8 +88,10 @@ import {
   isDualBranchBusiness,
   parseBranchLocations,
   parseBranchOffers,
+  parseBranchScheduleImageUrls,
   parseBranchScheduleUrls,
   type BranchOffers,
+  type DualBranchId,
 } from "@/lib/dual-branch";
 import { dashboardDir, dashboardLangFromParam } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -393,7 +395,7 @@ function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): Servic
     return {
       ui_id: uid(),
       name,
-      price_text: String(s.price_text ?? ""),
+      price_text: String(s.price_text ?? "").trim() || String(meta.price_text ?? "").trim(),
       duration: String(meta.duration ?? ""),
       payment_link: String(meta.payment_link ?? ""),
       service_slug: String(s.service_slug ?? ""),
@@ -1411,6 +1413,8 @@ export default function SlugSettingsPage({
   const [facebookPixelId, setFacebookPixelId] = useState("");
   const [conversionsApiToken, setConversionsApiToken] = useState("");
   const [scheduleScanImageUrl, setScheduleScanImageUrl] = useState("");
+  const [branchScheduleImageAmiad, setBranchScheduleImageAmiad] = useState("");
+  const [branchScheduleImageKiryat, setBranchScheduleImageKiryat] = useState("");
 
   // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
@@ -1425,8 +1429,12 @@ export default function SlugSettingsPage({
   const [uploadingScheduleCtaMedia, setUploadingScheduleCtaMedia] = useState(false);
   const [scheduleCtaMediaUploadError, setScheduleCtaMediaUploadError] = useState("");
   const scheduleScanMediaInputRef = useRef<HTMLInputElement>(null);
+  const branchScheduleImageAmiadInputRef = useRef<HTMLInputElement>(null);
+  const branchScheduleImageKiryatInputRef = useRef<HTMLInputElement>(null);
   const [uploadingScheduleScanMedia, setUploadingScheduleScanMedia] = useState(false);
+  const [uploadingBranchScheduleImage, setUploadingBranchScheduleImage] = useState<DualBranchId | null>(null);
   const [scheduleScanMediaUploadError, setScheduleScanMediaUploadError] = useState("");
+  const [branchScheduleImageUploadError, setBranchScheduleImageUploadError] = useState("");
   const [showDirectionsMediaModal, setShowDirectionsMediaModal] = useState(false);
   const [showStarterMediaProModal, setShowStarterMediaProModal] = useState(false);
   const [uploadingTrialPickUiId, setUploadingTrialPickUiId] = useState<string | null>(null);
@@ -1595,8 +1603,15 @@ export default function SlugSettingsPage({
 
   useEffect(() => {
     if (!settingsHydrated) return;
-    setSalesFlowConfig((c) => hydrateSalesFlowScheduleCtaFromScan(c, scheduleScanImageUrl));
-  }, [settingsHydrated, scheduleScanImageUrl]);
+    setSalesFlowConfig((c) =>
+      hydrateSalesFlowScheduleCtaFromScan(
+        c,
+        isDualBranchBusiness(slug)
+          ? branchScheduleImageAmiad || branchScheduleImageKiryat || scheduleScanImageUrl
+          : scheduleScanImageUrl
+      )
+    );
+  }, [settingsHydrated, scheduleScanImageUrl, branchScheduleImageAmiad, branchScheduleImageKiryat, slug]);
 
   const [factAnswers, setFactAnswers] = useState<Record<string, string>>({});
   const [factQuestionIdx, setFactQuestionIdx] = useState(0);
@@ -1872,6 +1887,11 @@ export default function SlugSettingsPage({
         const loadedScheduleScanImageUrl =
           typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "";
         setScheduleScanImageUrl(loadedScheduleScanImageUrl);
+        {
+          const branchImages = parseBranchScheduleImageUrls(sl.branch_schedule_image_urls);
+          setBranchScheduleImageAmiad(branchImages.amiad);
+          setBranchScheduleImageKiryat(branchImages.kiryat_shmona);
+        }
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
         setSalesFlowCallSchedulingEnabled(
@@ -2150,6 +2170,10 @@ export default function SlugSettingsPage({
                   amiad: branchScheduleAmiad.trim(),
                   kiryat_shmona: branchScheduleKiryat.trim(),
                 },
+                branch_schedule_image_urls: {
+                  amiad: branchScheduleImageAmiad.trim(),
+                  kiryat_shmona: branchScheduleImageKiryat.trim(),
+                },
                 branch_locations: branchLocationsToMeta({
                   amiad: { address: branchAddressAmiad, directions: branchDirectionsAmiad },
                   kiryat_shmona: { address: branchAddressKiryat, directions: branchDirectionsKiryat },
@@ -2170,7 +2194,11 @@ export default function SlugSettingsPage({
           punch_cards: [],
           memberships_url: membershipsUrl.trim(),
           schedule_public_url: schedulePublicUrl.trim(),
-          schedule_scan_image_url: scheduleScanImageUrl.trim(),
+          schedule_scan_image_url: isDualBranchBusiness(slug)
+            ? branchScheduleImageAmiad.trim() ||
+              branchScheduleImageKiryat.trim() ||
+              scheduleScanImageUrl.trim()
+            : scheduleScanImageUrl.trim(),
           ...(useKnowledgeQaUi ? { knowledge_qa: serializeKnowledgeQa(knowledgeQa) } : {}),
         },
       },
@@ -2224,6 +2252,8 @@ export default function SlugSettingsPage({
       arboxLink,
       branchScheduleAmiad,
       branchScheduleKiryat,
+      branchScheduleImageAmiad,
+      branchScheduleImageKiryat,
       branchAddressAmiad,
       branchDirectionsAmiad,
       branchAddressKiryat,
@@ -2673,7 +2703,10 @@ export default function SlugSettingsPage({
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
-  async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") {
+  async function uploadMedia(
+    file: File,
+    target: "opening" | "directions" | "schedule_cta" | "schedule_scan" | "schedule_scan_amiad" | "schedule_scan_kiryat"
+  ) {
     if (target === "schedule_cta") {
       setScheduleCtaMediaUploadError("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
@@ -2750,21 +2783,25 @@ export default function SlugSettingsPage({
       }
       return;
     }
-    if (target === "schedule_scan") {
-      setScheduleScanMediaUploadError("");
+    if (target === "schedule_scan" || target === "schedule_scan_amiad" || target === "schedule_scan_kiryat") {
+      const branchTarget: DualBranchId | null =
+        target === "schedule_scan_amiad" ? "amiad" : target === "schedule_scan_kiryat" ? "kiryat_shmona" : null;
+      const setErr = branchTarget ? setBranchScheduleImageUploadError : setScheduleScanMediaUploadError;
+      setErr("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
-        setScheduleScanMediaUploadError(tp.webpNotSupportedShort);
+        setErr(tp.webpNotSupportedShort);
         return;
       }
       if (!file.type.startsWith("image")) {
-        setScheduleScanMediaUploadError(tp.imageOnly);
+        setErr(tp.imageOnly);
         return;
       }
-      setUploadingScheduleScanMedia(true);
+      if (branchTarget) setUploadingBranchScheduleImage(branchTarget);
+      else setUploadingScheduleScanMedia(true);
       try {
         const prepared = await prepareDashboardMediaUpload(file, t);
         if (!prepared.ok) {
-          setScheduleScanMediaUploadError(prepared.error);
+          setErr(prepared.error);
           return;
         }
         const uploadFile = prepared.file;
@@ -2781,17 +2818,17 @@ export default function SlugSettingsPage({
         try {
           signJson = (await signRes.json()) as typeof signJson;
         } catch {
-          setScheduleScanMediaUploadError(tp.invalidServerResponse);
+          setErr(tp.invalidServerResponse);
           return;
         }
         if (!signRes.ok) {
-          setScheduleScanMediaUploadError(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
+          setErr(signJson.error?.trim() || tp.uploadPrepFailed(signRes.status));
           return;
         }
         const signedUrl = signJson.signedUrl?.trim();
         const publicUrl = signJson.publicUrl?.trim();
         if (!signedUrl || !publicUrl) {
-          setScheduleScanMediaUploadError(tp.noSignedUrl);
+          setErr(tp.noSignedUrl);
           return;
         }
         const putRes = await fetch(signedUrl, {
@@ -2803,14 +2840,17 @@ export default function SlugSettingsPage({
           body: uploadFile,
         });
         if (!putRes.ok) {
-          setScheduleScanMediaUploadError(tp.storageUploadFailed(putRes.status));
+          setErr(tp.storageUploadFailed(putRes.status));
           return;
         }
-        setScheduleScanImageUrl(publicUrl);
+        if (branchTarget === "amiad") setBranchScheduleImageAmiad(publicUrl);
+        else if (branchTarget === "kiryat_shmona") setBranchScheduleImageKiryat(publicUrl);
+        else setScheduleScanImageUrl(publicUrl);
       } catch {
-        setScheduleScanMediaUploadError(tp.uploadNetwork);
+        setErr(tp.uploadNetwork);
       } finally {
-        setUploadingScheduleScanMedia(false);
+        if (branchTarget) setUploadingBranchScheduleImage(null);
+        else setUploadingScheduleScanMedia(false);
       }
       return;
     }
@@ -3324,6 +3364,14 @@ export default function SlugSettingsPage({
               setBranchScheduleAmiad={setBranchScheduleAmiad}
               branchScheduleKiryat={branchScheduleKiryat}
               setBranchScheduleKiryat={setBranchScheduleKiryat}
+              branchScheduleImageAmiad={branchScheduleImageAmiad}
+              setBranchScheduleImageAmiad={setBranchScheduleImageAmiad}
+              branchScheduleImageKiryat={branchScheduleImageKiryat}
+              setBranchScheduleImageKiryat={setBranchScheduleImageKiryat}
+              branchScheduleImageAmiadInputRef={branchScheduleImageAmiadInputRef}
+              branchScheduleImageKiryatInputRef={branchScheduleImageKiryatInputRef}
+              uploadingBranchScheduleImage={uploadingBranchScheduleImage}
+              branchScheduleImageUploadError={branchScheduleImageUploadError}
               scheduleScanImageUrl={scheduleScanImageUrl}
               setScheduleScanImageUrl={setScheduleScanImageUrl}
               scheduleScanMediaInputRef={scheduleScanMediaInputRef}
@@ -3434,7 +3482,13 @@ export default function SlugSettingsPage({
             busyAction={busyAction}
             runBusy={runBusy}
             scheduleDirectRegistration={scheduleDirectRegistration}
-            scheduleUrl={(scheduleScanImageUrl.trim() || arboxLink).trim()}
+            scheduleUrl={(
+              (isDualBranchBusiness(slug)
+                ? branchScheduleImageAmiad.trim() ||
+                  branchScheduleImageKiryat.trim() ||
+                  scheduleScanImageUrl.trim()
+                : scheduleScanImageUrl.trim()) || arboxLink
+            ).trim()}
             generateProductDescription={generateProductDescriptionBusy}
             arboxProgrammaticScan={arboxProgrammaticScan}
             onArboxScheduleScan={() => void runArboxScheduleScan()}
@@ -3480,7 +3534,13 @@ export default function SlugSettingsPage({
             setSalesFlowCallSchedulingEnabled={setSalesFlowCallSchedulingEnabled}
             callScheduleSlots={callScheduleSlots}
             setCallScheduleSlots={setCallScheduleSlots}
-            scheduleScanImageUrl={scheduleScanImageUrl}
+            scheduleScanImageUrl={
+              isDualBranchBusiness(slug)
+                ? branchScheduleImageAmiad.trim() ||
+                  branchScheduleImageKiryat.trim() ||
+                  scheduleScanImageUrl
+                : scheduleScanImageUrl
+            }
             scheduleBoardLink={(schedulePublicUrl.trim() || arboxLink.trim()).trim()}
             warmupSessionEnabled={warmupSessionEnabled}
             setWarmupSessionEnabled={setWarmupSessionEnabled}
