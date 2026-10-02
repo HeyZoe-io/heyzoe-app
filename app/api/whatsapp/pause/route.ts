@@ -3,9 +3,11 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
+import { markMarketingFollowupOptedOut } from "@/lib/marketing-followups";
 import {
   MARKETING_CONVERSATIONS_SLUG,
   canonicalMarketingSessionId,
+  extractLeadPhoneFromMarketingSession,
   isMarketingConversationsSlug,
 } from "@/lib/marketing-whatsapp";
 
@@ -58,6 +60,18 @@ export async function POST(req: NextRequest) {
       if (error) {
         console.error("[api/whatsapp/pause] marketing upsert failed:", error.message);
         return NextResponse.json({ error: "pause_failed" }, { status: 500 });
+      }
+      const leadPhone = extractLeadPhoneFromMarketingSession(sessionId);
+      if (leadPhone) {
+        try {
+          await markMarketingFollowupOptedOut(leadPhone);
+        } catch (e) {
+          console.error("[api/whatsapp/pause] marketing followup opt-out failed:", e);
+        }
+      } else {
+        console.error("[api/whatsapp/pause] marketing followup opt-out skipped — no phone", {
+          sessionId,
+        });
       }
       console.info("[api/whatsapp/pause] marketing session paused", { sessionId });
       return NextResponse.json({ ok: true, paused_until: until.toISOString() });

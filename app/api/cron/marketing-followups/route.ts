@@ -6,6 +6,7 @@ import {
   markMarketingFollowupSent,
   pickMarketingFollowupSkipReason,
   pickMarketingFollowupStage,
+  markMarketingFollowupOptedOut,
   sendMarketingFollowupStage,
   sessionHasMarketingRegisteredMessage,
   type MarketingFlowSessionFollowupRow,
@@ -14,6 +15,7 @@ import {
   marketingFollowupDelaysMs,
   marketingFollowupEnabled,
 } from "@/lib/marketing-followup-config";
+import { isMarketingPipelineDropStatus, pipelineStatusStopsFollowups } from "@/lib/marketing-pipeline-status";
 import { isMarketingConversationPaused, marketingWaSessionId } from "@/lib/marketing-whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
 
@@ -89,7 +91,7 @@ export async function GET(req: NextRequest) {
   const withHuman = await admin
     .from("marketing_flow_sessions")
     .select(
-      "id, phone, last_user_message_at, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, followup_opted_out, flow_completed, human_followup_at"
+      "id, phone, last_user_message_at, followup_1_sent_at, followup_2_sent_at, followup_3_sent_at, followup_opted_out, flow_completed, human_followup_at, pipeline_status"
     )
     .eq("flow_completed", false)
     .eq("followup_opted_out", false)
@@ -147,17 +149,23 @@ export async function GET(req: NextRequest) {
     const sessionId = marketingWaSessionId(phone);
 
     try {
-      if (row.human_followup_at) {
+      const statusStops =
+        isMarketingPipelineDropStatus(row.pipeline_status) &&
+        pipelineStatusStopsFollowups(row.pipeline_status);
+      if (row.human_followup_at || statusStops) {
+        await markMarketingFollowupOptedOut(phone);
         logMarketingFollowupSkip("human_followup", {
           session_id: row.id,
           phone: maskPhone(phone),
           marketing_session_id: sessionId,
+          pipeline_status: row.pipeline_status ?? null,
         });
         bumpSkip("human_followup");
         continue;
       }
 
       if (await isMarketingConversationPaused(phone)) {
+        await markMarketingFollowupOptedOut(phone);
         logMarketingFollowupSkip("paused", {
           session_id: row.id,
           phone: maskPhone(phone),

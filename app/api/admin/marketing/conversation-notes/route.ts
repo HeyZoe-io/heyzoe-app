@@ -412,9 +412,14 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    const sessionPatch: Record<string, unknown> = {
+      pipeline_status: column,
+      updated_at: new Date().toISOString(),
+    };
+    if (column === "requires_call") sessionPatch.human_followup_at = new Date().toISOString();
     const { error: pipelineErr } = await admin
       .from("marketing_flow_sessions")
-      .update({ pipeline_status: column, updated_at: new Date().toISOString() })
+      .update(sessionPatch)
       .eq("phone", phone);
     if (pipelineErr) {
       console.error("[marketing/conversation-notes] pipeline mirror failed:", pipelineErr.message);

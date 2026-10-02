@@ -45,6 +45,7 @@ const STOP_FOLLOWUPS = new Set<string>([
   "not_relevant",
   "no_response",
   "human_requested",
+  "human_followup",
   "requires_call",
   "setup_call",
   "opted_out",

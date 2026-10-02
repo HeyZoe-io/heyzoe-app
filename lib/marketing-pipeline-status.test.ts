@@ -36,6 +36,9 @@ assert.equal(marketingNoteStatusToPipeline("not_relevant"), "not_relevant");
 assert.equal(marketingNoteStatusToPipeline("in_process"), null);
 assert.equal(pipelineStatusToNoteStatus("setup_call"), "setup_call");
 assert.equal(pipelineStatusStopsFollowups("setup_call"), true);
+assert.equal(pipelineStatusStopsFollowups("requires_call"), true);
+assert.equal(pipelineStatusStopsFollowups("human_followup"), true);
+assert.equal(pipelineStatusStopsFollowups("in_process"), false);
 
 const setupWithCall = applyManualPipelineStatus(
   { ...base, next_call_at: "2026-10-02", next_call_time: "11:30" },
