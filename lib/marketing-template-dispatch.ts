@@ -5,6 +5,7 @@ import {
   decideCallDayQueuedDate,
   parseMarketingCallDay,
   parseMarketingCallSlot,
+  parseMarketingCallTimeRange,
   resolveCallDayDue,
 } from "@/lib/marketing-call-time";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
@@ -322,6 +323,32 @@ async function lookupSessionCallSlot(
   };
 }
 
+/** הטווח שהליד בחר, רק אם שעת ההתחלה עדיין תואמת ל־next_call_time. */
+async function lookupAgreedCallEndHm(
+  admin: AdminClient,
+  phone: string,
+  startHm: string | null
+): Promise<string | null> {
+  if (!startHm) return null;
+  const { data, error } = await admin
+    .from("marketing_lead_answers")
+    .select("answer_text")
+    .eq("phone", phone)
+    .order("created_at", { ascending: false })
+    .limit(12);
+  if (error) {
+    if (!/does not exist|schema cache/i.test(error.message)) {
+      console.warn("[marketing-template-dispatch] call range lookup failed:", error.message);
+    }
+    return null;
+  }
+  for (const row of data ?? []) {
+    const range = parseMarketingCallTimeRange(String((row as { answer_text?: unknown }).answer_text ?? ""));
+    if (range?.startHm === startHm) return range.endHm;
+  }
+  return null;
+}
+
 async function resolveDueMarketingBodyParams(input: {
   admin: AdminClient;
   phone: string;
@@ -335,6 +362,7 @@ async function resolveDueMarketingBodyParams(input: {
 
   const liveTime = input.liveTimeHm ?? null;
   const callTime = preferLiveCallTime(queued[1], liveTime);
+  const callTimeEnd = await lookupAgreedCallEndHm(input.admin, input.phone, callTime || null);
   const queuedName = resolveTemplateFirstName({ full_name: String(queued[0] ?? "") });
   const firstName = queuedName || (await lookupLeadFirstName(input.admin, input.phone));
   if (!firstName) return [];
@@ -343,6 +371,7 @@ async function resolveDueMarketingBodyParams(input: {
     components: input.approvedComponents,
     firstName,
     callTime,
+    callTimeEnd,
   });
   if (refreshed.length > 0) return refreshed;
   if (queued.length >= 2) {
@@ -358,6 +387,7 @@ function paramsForTrigger(input: {
   components: unknown;
   firstName: string;
   callTime?: string | null;
+  callTimeEnd?: string | null;
 }): string[] {
   const body = bodyTextFromTemplateComponents(input.components);
   const varCount = extractBodyVarCount(body);
@@ -366,6 +396,7 @@ function paramsForTrigger(input: {
     varCount,
     firstName: input.firstName,
     callTime: input.callTime,
+    callTimeEnd: input.callTimeEnd,
     bodyText: body,
   });
 }
@@ -378,6 +409,7 @@ async function dispatchOrEnqueue(input: {
   dedupKey: string;
   firstName: string;
   callTime?: string | null;
+  callTimeEnd?: string | null;
   now?: Date;
 }): Promise<void> {
   const templateName = String(input.trigger.template_name ?? "").trim();
@@ -387,6 +419,7 @@ async function dispatchOrEnqueue(input: {
     components: approved?.components,
     firstName: input.firstName,
     callTime: input.callTime,
+    callTimeEnd: input.callTimeEnd,
   });
   const now = input.now ?? new Date();
   const immediate = input.dueAt.getTime() <= now.getTime() + 15_000;
@@ -503,6 +536,7 @@ async function enqueueCallDayTriggers(input: {
   phone: string;
   dateYmd: string;
   timeHm: string | null;
+  callTimeEnd?: string | null;
   firstName: string;
   now?: Date;
   sourceNodeId?: string | null;
@@ -549,6 +583,7 @@ async function enqueueCallDayTriggers(input: {
       dedupKey: keepDedupKey,
       firstName: input.firstName,
       callTime: timeHm,
+      callTimeEnd: toPipelineTime(input.callTimeEnd),
       now,
     });
   }
@@ -571,6 +606,9 @@ export async function onMarketingFlowNodeAnswered(input: {
 
   let dateYmd: string | null = parsed?.hasDate ? parsed.dateYmd : dayOnly;
   let timeHm: string | null = parsed?.timeHm ?? null;
+  const answeredRange = parseMarketingCallTimeRange(input.answerText);
+  const timeEndHm =
+    answeredRange && (!timeHm || answeredRange.startHm === timeHm) ? answeredRange.endHm : null;
 
   if (parsed && !parsed.hasDate) {
     const inferred = await inferCallDateFromSessionOrAnswers(admin, phone, now);
@@ -589,6 +627,7 @@ export async function onMarketingFlowNodeAnswered(input: {
         phone,
         dateYmd,
         timeHm,
+        callTimeEnd: timeEndHm,
         firstName,
         now,
         sourceNodeId: nodeId,

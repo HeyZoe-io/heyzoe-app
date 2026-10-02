@@ -187,6 +187,21 @@ function extractTimeHm(text: string): string | null {
   return null;
 }
 
+/** «בין 10:00 ל-12:00» / «10:00-12:00» — הטווח שהליד בחר, לא שעה בודדת. */
+export function parseMarketingCallTimeRange(
+  text: string
+): { startHm: string; endHm: string } | null {
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+  const labeled = raw.match(/בין\s+(\d{1,2}[:.]\d{2})\s+ל-?\s*(\d{1,2}[:.]\d{2})/u);
+  const plain = labeled ?? raw.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/u);
+  if (!plain) return null;
+  const startHm = toPipelineTime(plain[1]);
+  const endHm = toPipelineTime(plain[2]);
+  if (!startHm || !endHm || startHm === endHm) return null;
+  return { startHm, endHm };
+}
+
 function extractAbsoluteDate(text: string, todayYmd: string): string | null {
   const full = text.match(/(\d{1,2})[./](\d{1,2})[./](\d{2,4})/);
   if (full) {

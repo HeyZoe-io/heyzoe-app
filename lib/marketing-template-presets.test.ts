@@ -33,6 +33,11 @@ import {
   assert.equal(formatMarketingCallTimeParam(null, shaahBody), "");
   assert.equal(formatMarketingCallTimeParam(null, "היי {{1}}, שיחה היום{{2}} 📅"), MARKETING_CALL_TIME_OMIT);
   assert.equal(formatMarketingCallTimeParam("14:30", "היי {{1}}, שיחה היום{{2}} 📅"), "בשעה 14:30");
+  assert.equal(
+    formatMarketingCallTimeParam("10:00", "היי {{1}}, שיחה היום {{2}} 📅", "12:00"),
+    "בין 10:00 ל-12:00"
+  );
+  assert.equal(formatMarketingCallTimeParam("10:00", shaahBody, "12:00"), "10:00");
 }
 
 {
@@ -55,6 +60,18 @@ import {
     bodyText: "היי {{1}}, מזכירה שיש לנו שיחה היום בשעה {{2}} 📅",
   });
   assert.deepEqual(params, ["Eva", "10:00"]);
+}
+
+{
+  const params = resolveMarketingTemplateBodyParams({
+    triggerType: "call_day",
+    varCount: 2,
+    firstName: "Eva",
+    callTime: "10:00",
+    callTimeEnd: "12:00",
+    bodyText: "היי {{1}}, מזכירה שיש לנו שיחה היום {{2}} 📅",
+  });
+  assert.deepEqual(params, ["Eva", "בין 10:00 ל-12:00"]);
 }
 
 {

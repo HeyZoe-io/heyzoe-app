@@ -34,7 +34,7 @@ export const MARKETING_TEMPLATE_PRESETS: Record<MarketingTriggerType, MarketingT
   call_day: {
     name: "call_today",
     category: "UTILITY",
-    body: "היי {{1}}, מזכירה שיש לנו שיחה היום{{2}} 📅\nבמידה ויש בעיה כלשהי נשמח לעדכון. אחרת - מצפים לדבר איתך :)",
+    body: "היי {{1}}, מזכירה שיש לנו שיחה היום {{2}} 📅\nבמידה ויש בעיה כלשהי נשמח לעדכון. אחרת - מצפים לדבר איתך :)",
   },
   status_changed: {
     name: "status_update",
@@ -51,13 +51,13 @@ export function marketingPresetVarHint(triggerType: MarketingTriggerType | "broa
   const slots = MARKETING_TEMPLATE_PARAM_SLOTS[triggerType];
   const labels: Record<MarketingTemplateParamSlot, string> = {
     first_name: "שם פרטי",
-    call_time: "שעת השיחה",
+    call_time: "טווח השיחה",
   };
   return slots.map((slot, i) => `{{${i + 1}}} = ${labels[slot]}`).join(" · ");
 }
 
 export function marketingPresetExampleForSlot(slot: MarketingTemplateParamSlot): string {
-  if (slot === "call_time") return " בשעה 14:00";
+  if (slot === "call_time") return "בין 10:00 ל-12:00";
   return "דנה";
 }
 
@@ -86,14 +86,23 @@ export function callDayTemplateBakesInHour(bodyText: string): boolean {
   return /בשעה\s*\{\{\s*\d+\s*\}\}/u.test(bodyText);
 }
 
+/**
+ * פרמטר {{שעה}} לתזכורת יום הפגישה.
+ * טמפלייט ישן עם «בשעה {{n}}» מקבל רק HH:mm.
+ * טמפלייט בלי «בשעה» מקבל «בין 10:00 ל-12:00», או «בשעה 13:00» כשנקבעה שעה בודדת.
+ */
 export function formatMarketingCallTimeParam(
   callTime: string | null | undefined,
-  bodyText = ""
+  bodyText = "",
+  callTimeEnd?: string | null
 ): string {
   const hm = toPipelineTime(callTime);
+  const end = toPipelineTime(callTimeEnd);
   const shaahInBody = callDayTemplateBakesInHour(bodyText);
-  if (hm) return shaahInBody ? hm : `בשעה ${hm}`;
-  return shaahInBody ? "" : MARKETING_CALL_TIME_OMIT;
+  if (!hm) return shaahInBody ? "" : MARKETING_CALL_TIME_OMIT;
+  if (shaahInBody) return hm;
+  if (end && end !== hm) return `בין ${hm} ל-${end}`;
+  return `בשעה ${hm}`;
 }
 
 export function renderMarketingCallDayFallbackText(input: {
@@ -127,13 +136,18 @@ export function resolveMarketingTemplateBodyParams(input: {
   varCount: number;
   firstName: string;
   callTime?: string | null;
+  callTimeEnd?: string | null;
   bodyText?: string | null;
 }): string[] {
   const count = Math.max(0, Math.trunc(input.varCount) || 0);
   if (count <= 0) return [];
   const slots = MARKETING_TEMPLATE_PARAM_SLOTS[input.triggerType];
   const first = String(input.firstName ?? "").trim() || "שלום";
-  const callTime = formatMarketingCallTimeParam(input.callTime, String(input.bodyText ?? ""));
+  const callTime = formatMarketingCallTimeParam(
+    input.callTime,
+    String(input.bodyText ?? ""),
+    input.callTimeEnd
+  );
   const values: string[] = [];
   for (let i = 0; i < count; i += 1) {
     const slot = slots[i] ?? (i === 1 ? "call_time" : "first_name");

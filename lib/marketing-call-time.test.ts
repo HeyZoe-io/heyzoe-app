@@ -5,6 +5,7 @@ import {
   israelWallTimeToUtc,
   parseMarketingCallDay,
   parseMarketingCallSlot,
+  parseMarketingCallTimeRange,
 } from "@/lib/marketing-call-time";
 
 const noonUtc = new Date("2026-08-30T12:00:00.000Z");
@@ -85,6 +86,15 @@ const noonUtc = new Date("2026-08-30T12:00:00.000Z");
 }
 
 {
+  assert.deepEqual(parseMarketingCallTimeRange("בין 10:00 ל-12:00"), {
+    startHm: "10:00",
+    endHm: "12:00",
+  });
+  assert.deepEqual(parseMarketingCallTimeRange("בין 14:00 ל-16:00"), {
+    startHm: "14:00",
+    endHm: "16:00",
+  });
+  assert.equal(parseMarketingCallTimeRange("בין 101 ל-500"), null);
   assert.equal(parseMarketingCallDay("רביעי", noonUtc), "2026-09-02");
   assert.equal(parseMarketingCallDay("מחר", noonUtc), "2026-08-31");
 }

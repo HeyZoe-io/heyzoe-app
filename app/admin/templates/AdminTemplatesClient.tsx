@@ -820,7 +820,7 @@ export default function AdminTemplatesClient({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               required
-              placeholder={"היי {{1}}, יש לנו שיחה היום בשעה {{2}}"}
+              placeholder={"היי {{1}}, מזכירה שיש לנו שיחה היום {{2}}"}
             />
             <p className="text-xs text-zinc-500">
               {purpose ? marketingPresetVarHint(purpose) : "{{1}} שם פרטי · {{2}} שעת שיחה (לתזכורת)"}
