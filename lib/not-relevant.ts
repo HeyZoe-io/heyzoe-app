@@ -200,7 +200,7 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
   }
 
   let replyCore = "";
-  let replyModelUsed = CLAUDE_WHATSAPP_MODEL;
+  const replyModelUsed = CLAUDE_WHATSAPP_MODEL;
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
 
@@ -438,20 +438,84 @@ export async function classifyNotRelevantIntentWithClaude(input: {
   return matchesNotRelevantKeyword(input.text);
 }
 
+const SOCIAL_QUESTION_ONLY_RE =
+  /^(?:(?:היי|הי|שלום|אהלן)\s+)?(?:מה\s+שלומ(?:ך|כם|כן)?|מה\s+נשמע|מה\s+המצב|איך\s+(?:את|אתה|אתם)|how\s+are\s+you)(?:\s*[!?.]*)?$/iu;
+
+const THANKS_OR_GREETING_ONLY_RE =
+  /^(?:תודה(?:\s+רבה)?(?:\s+מראש)?|בבקשה|היי|הי|שלום|אהלן)$/iu;
+
+/** בקשה מפורשת למידע — גם בלי סימן שאלה. */
+const ADDRESSABLE_REQUEST_RE =
+  /(?:אשמח|נשמח|רציתי\s+(?:לברר|לדעת|לשאול|לבדוק)|רצינו\s+(?:לברר|לדעת|לשאול)|תוכל(?:ו|י)?\s+(?:לומר|להגיד|לעדכן|לשלוח)|אפשר\s+(?:לדעת|לברר)|בבקשה\s+(?:תגיד|תכתוב|תשלח))/iu;
+
+/** מילת שאלה שלמה. «מי» בתוך «מילואים» לא נחשב. */
+const STANDALONE_QUESTION_WORD_RE =
+  /(?:^|[^\p{L}])(?:מה|איך|כמה|מתי|איפה|למה|האם|מי|what|how|when|where|why)(?:$|[^\p{L}])/iu;
+
+function dismissalPhrasesLongestFirst(): string[] {
+  return [...NOT_RELEVANT_CONTAINS, ...SOFT_NOT_RELEVANT_PHRASES].sort((a, b) => b.length - a.length);
+}
+
+function clauseContainsDismissalPhrase(clause: string): boolean {
+  const t = normalizeNotRelevantToken(clause);
+  return dismissalPhrasesLongestFirst().some((phrase) => t.includes(phrase));
+}
+
+function piecesOutsideDismissal(clause: string): string[] {
+  const phrases = dismissalPhrasesLongestFirst();
+  const re = new RegExp(phrases.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "giu");
+  return clause
+    .split(re)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** משפט שנשאר אחרי ניסוי הסגירה ועדיין מבקש תשובה מהעסק. */
+function clauseNeedsBusinessReply(clause: string): boolean {
+  const t = normalizeNotRelevantToken(clause);
+  if (!t || t.length < 4) return false;
+  if (NOT_RELEVANT_SHORT_DISMISSALS.has(t)) return false;
+  if (THANKS_OR_GREETING_ONLY_RE.test(t) || SOCIAL_QUESTION_ONLY_RE.test(t)) return false;
+  if (/[?؟]/.test(clause) || STANDALONE_QUESTION_WORD_RE.test(t)) return true;
+  return ADDRESSABLE_REQUEST_RE.test(t);
+}
+
+/**
+ * «לא מעוניין במנוי שנתי» בתוך הודעה שגם שואלת מחיר — יש על מה לענות.
+ * ברכת «מה שלומך?» לפני «זה לא רלוונטי» לא נחשבת בקשה.
+ */
+function messageHasAddressableContentBesidesDismissal(raw: string): boolean {
+  const clauses = String(raw)
+    .split(/[\n.!?؟]+/u)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const clause of clauses) {
+    const pieces = clauseContainsDismissalPhrase(clause) ? piecesOutsideDismissal(clause) : [clause];
+    if (pieces.some((piece) => clauseNeedsBusinessReply(piece))) return true;
+  }
+  return false;
+}
+
 /** זיהוי מפורש: לא מעוניין / לא רלוונטי / פחות רלוונטי / אל תכתבי לי יותר. לא שאלות, לא «ביי», לא ניחוש. */
 export function matchesNotRelevantKeyword(text: string): boolean {
   const raw = String(text ?? "");
   const t = normalizeNotRelevantToken(raw);
   if (!t) return false;
   if (NOT_RELEVANT_EXACT.has(t)) return true;
-  if (t === "לא תודה" || t.startsWith("לא תודה ")) return true;
+  if (t === "לא תודה") return true;
   if (EXPLICIT_STOP_TALKING_RE.some((re) => re.test(t))) return true;
+  if (
+    (t.startsWith("לא תודה ") || t.startsWith("לא תודה,")) &&
+    !messageHasAddressableContentBesidesDismissal(raw)
+  ) {
+    return true;
+  }
 
   const softPhrase = SOFT_NOT_RELEVANT_PHRASES.find((phrase) => t.includes(phrase));
   if (softPhrase && !/^(האם)(?:\s|$)/u.test(t) && !/^(is this|is it)\b/u.test(t)) {
     const rawAt = raw.toLowerCase().indexOf(softPhrase);
     const after = rawAt >= 0 ? raw.slice(rawAt + softPhrase.length) : "";
-    if (!softPhraseTailStillAsks(after)) return true;
+    if (!softPhraseTailStillAsks(after) && !messageHasAddressableContentBesidesDismissal(raw)) return true;
   }
 
   const hasExplicitPhrase = NOT_RELEVANT_CONTAINS.some((phrase) => t.includes(phrase));
@@ -460,6 +524,9 @@ export function matchesNotRelevantKeyword(text: string): boolean {
   // «האם זה לא רלוונטי למתחילים?» — שאלה על המוצר, לא סגירת ליד.
   // \b לא עובד על עברית (JS word chars הם ASCII).
   if (/^(האם)(?:\s|$)/u.test(t) || /^(is this|is it)\b/u.test(t)) return false;
+
+  // סגירה חלקית («לא מעוניין במנוי ארוך») כשיש בהודעה עוד שאלה או בקשה — עונים, לא מסמנים.
+  if (messageHasAddressableContentBesidesDismissal(raw)) return false;
 
   return true;
 }

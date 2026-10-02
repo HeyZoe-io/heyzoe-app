@@ -47,6 +47,22 @@ assert.equal(matchesNotRelevantKeyword("אפשר לשלם במזומן ?"), fals
 assert.equal(matchesNotRelevantKeyword("רחוק לי"), false);
 assert.equal(matchesNotRelevantKeyword("או פריפיט"), false);
 
+const denisGymInquiry = `שלום!
+עברתי לישראל לא מזמן, ואני מחפש חדר כושר לאימונים עצמאיים (בלי מאמן).
+המכון שלכם מצא חן בעיניי לפי התמונות, אבל לא הצלחתי למצוא מחירים באתר שלכם. אני לא מעוניין לחתום על מנוי לטווח ארוך (חצי שנה או שנה). מעניינות אותי כניסות חד-פעמיות או מנוי לחודש אחד בלי חידוש אוטומטי. אשמח אם תוכלו לומר לי אם יש לכם אפשרויות כאלה וכמה הן עולות. אני מעל גיל 18.
+בנוסף, רציתי לברר אם אוכל להתאמן אצלכם גם אם אני לא אזרח ישראלי.
+אם אני פשוט רוצה להגיע ולהתאמן בקצב שלי, האם יש מגבלות זמן כלשהן מלבד שעות הפתיחה של המכון?`;
+assert.equal(matchesNotRelevantKeyword(denisGymInquiry), false, "scoped disinterest plus other questions stays in conversation");
+assert.equal(
+  matchesNotRelevantKeyword("אני לא מעוניין לחתום על מנוי שנתי. כמה עולה כניסה חד פעמית?"),
+  false
+);
+assert.equal(matchesNotRelevantKeyword("לא רלוונטי. מתי יש שיעור?"), false);
+assert.equal(matchesNotRelevantKeyword("לא מעוניין במנוי שנתי, אשמח לדעת מחיר לכניסה חד פעמית"), false);
+assert.equal(matchesNotRelevantKeyword("פחות רלוונטי, אשמח לדעת את המחיר"), false);
+assert.equal(matchesNotRelevantKeyword("לא תודה מתי השיעור?"), false);
+assert.equal(userTextJustifiesNotRelevantMark(denisGymInquiry), false);
+
 assert.equal(
   assistantReplyIndicatesLeadNotRelevant("אין בעיה בכלל! אם משהו ישתנה בעתיד, אנחנו כאן 😊"),
   true
