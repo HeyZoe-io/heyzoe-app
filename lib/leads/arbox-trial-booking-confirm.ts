@@ -117,6 +117,11 @@ function isMissingSchema(message: string): boolean {
   return /arbox_trial_booking_confirm|schema cache|does not exist|42703|42P01/i.test(message);
 }
 
+/** Table exists from the first SQL, before confirm_status / template_status were added. */
+function isMissingPartColumns(message: string): boolean {
+  return /confirm_status|template_status/i.test(message) && isMissingSchema(message);
+}
+
 function parseUserId(raw: unknown): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -294,13 +299,30 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     return summary;
   }
 
-  const { data: existing, error: existingErr } = await admin
+  const fullSelect =
+    "user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status";
+  const legacySelect = "user_id, class_date, class_time, class_name, status, attempts";
+  let legacyLog = false;
+  let existing: LogRow[] | null = null;
+  let existingErr: { message: string } | null = null;
+  const fullRes = await admin
     .from(TABLE)
-    .select(
-      "user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status"
-    )
+    .select(fullSelect)
     .eq("business_id", businessId)
     .gte("class_date", today);
+  if (fullRes.error && isMissingPartColumns(fullRes.error.message)) {
+    legacyLog = true;
+    const legacyRes = await admin
+      .from(TABLE)
+      .select(legacySelect)
+      .eq("business_id", businessId)
+      .gte("class_date", today);
+    existing = (legacyRes.data ?? null) as LogRow[] | null;
+    existingErr = legacyRes.error;
+  } else {
+    existing = (fullRes.data ?? null) as LogRow[] | null;
+    existingErr = fullRes.error;
+  }
   if (existingErr) {
     if (isMissingSchema(existingErr.message)) {
       summary.skipped = true;
@@ -331,24 +353,27 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
     const phone = canonicalContactPhone(item.row.phone);
     if (!phone) {
-      await writeLog(admin, businessId, item, "no_phone", "skipped", "skipped", attempts, now);
+      await writeLog(admin, businessId, item, "no_phone", "skipped", "skipped", attempts, now, legacyLog);
       summary.no_phone += 1;
       continue;
     }
 
     if (!prior) {
-      const { error: claimErr } = await admin.from(TABLE).insert({
+      const claimRow: Record<string, unknown> = {
         business_id: businessId,
         user_id: item.userId,
         class_date: item.classDate,
         class_time: item.classTime,
         class_name: item.className,
         status: "pending",
-        confirm_status: "pending",
-        template_status: "pending",
         attempts: 0,
         processed_at: now.toISOString(),
-      });
+      };
+      if (!legacyLog) {
+        claimRow.confirm_status = "pending";
+        claimRow.template_status = "pending";
+      }
+      const { error: claimErr } = await admin.from(TABLE).insert(claimRow);
       if (claimErr) {
         if (claimErr.code === "23505") {
           summary.already += 1;
@@ -439,7 +464,17 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       nextAttempts = attempts + 1;
       status = nextAttempts >= ATTEMPT_CAP ? "abandoned" : "pending";
     }
-    await writeLog(admin, businessId, item, status, confirmStatus, templateStatus, nextAttempts, now);
+    await writeLog(
+      admin,
+      businessId,
+      item,
+      status,
+      confirmStatus,
+      templateStatus,
+      nextAttempts,
+      now,
+      legacyLog
+    );
     if (status === "abandoned") summary.abandoned += 1;
     else if (failed) summary.errors += 1;
   }
@@ -591,22 +626,30 @@ async function writeLog(
   confirmStatus: PartStatus,
   templateStatus: PartStatus,
   attempts: number,
-  now: Date
+  now: Date,
+  legacy = false
 ): Promise<void> {
-  const { error } = await admin.from(TABLE).upsert(
-    {
-      business_id: businessId,
-      user_id: item.userId,
-      class_date: item.classDate,
-      class_time: item.classTime,
-      class_name: item.className,
-      status,
-      confirm_status: confirmStatus,
-      template_status: templateStatus,
-      attempts,
-      processed_at: now.toISOString(),
-    },
-    { onConflict: "business_id,user_id,class_date,class_time,class_name" }
-  );
+  const base = {
+    business_id: businessId,
+    user_id: item.userId,
+    class_date: item.classDate,
+    class_time: item.classTime,
+    class_name: item.className,
+    status,
+    attempts,
+    processed_at: now.toISOString(),
+  };
+  const row = legacy
+    ? base
+    : { ...base, confirm_status: confirmStatus, template_status: templateStatus };
+  let { error } = await admin.from(TABLE).upsert(row, {
+    onConflict: "business_id,user_id,class_date,class_time,class_name",
+  });
+  if (error && isMissingPartColumns(error.message)) {
+    const retry = await admin.from(TABLE).upsert(base, {
+      onConflict: "business_id,user_id,class_date,class_time,class_name",
+    });
+    error = retry.error;
+  }
   if (error) console.error(LOG, "log upsert failed", error.message);
 }
