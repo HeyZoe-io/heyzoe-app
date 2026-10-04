@@ -5,9 +5,9 @@
  *
  * IO per trial-sync run, tights only: 1 bookingsReport (today…+14, usually 1–2
  * pages) + 1 membershipTypes. No extra calls for other businesses. First pass
- * seeds and sends nothing. Later passes, per new booking: the in-window
- * registration text, and the purchase template that matches a trial product
- * (works outside the 24h window too). The day-before trial_reminder still applies.
+ * seeds and sends nothing. Later passes send one message per booking: the
+ * registration text inside the 24h window, or the trial purchase template
+ * when that window is closed. The day-before trial_reminder still applies.
  */
 import { logMessage } from "@/lib/analytics";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
@@ -373,6 +373,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       templateStatus = templateStatus === "sent" ? "sent" : "skipped";
     }
 
+    if (confirmStatus === "sent") templateStatus = "skipped";
+
     if (confirmStatus === "pending") {
       const instagramFollowPromptSent = await instagramAlreadySent(admin, businessId, phone);
       const result = await sendTrialRegisteredWhatsAppReplyIfInWindow({
@@ -390,7 +392,11 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       });
       if (result.sent) {
         confirmStatus = "sent";
+        templateStatus = "skipped";
         summary.sent += 1;
+      } else if (result.reason === "opted_out" || result.reason === "trial_template_already_sent") {
+        confirmStatus = "skipped";
+        templateStatus = "skipped";
       } else if (trialBookingConfirmIsTerminalSkip(result)) {
         confirmStatus = "skipped";
         summary.skipped_window += 1;
@@ -399,7 +405,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
     }
 
-    if (templateStatus === "pending" && !optedOut.suppress) {
+    if (templateStatus === "pending" && confirmStatus === "skipped" && !failed) {
       const templateResult = await sendTrialBookingPurchaseTemplate({
         admin,
         businessId,
@@ -416,9 +422,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       if (templateResult === "sent") {
         templateStatus = "sent";
         summary.template_sent += 1;
-        if (confirmStatus !== "sent") {
-          await stampTrialSignupNotice(admin, businessId, phone, "template");
-        }
+        await stampTrialSignupNotice(admin, businessId, phone, "template");
       } else if (templateResult === "skipped") {
         templateStatus = "skipped";
       } else {
@@ -471,7 +475,7 @@ function bookingFullName(row: ArboxBookingReportRow): string | null {
 
 type TemplateSendOutcome = "sent" | "skipped" | "failed";
 
-/** Purchase template whose rule includes the studio's trial products. Sends outside the 24h window. */
+/** Purchase template for a trial product. Used only when the 24h registration text cannot be sent. */
 async function sendTrialBookingPurchaseTemplate(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;

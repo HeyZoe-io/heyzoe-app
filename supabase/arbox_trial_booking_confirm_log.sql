@@ -27,7 +27,7 @@ create table if not exists public.arbox_trial_booking_confirm_log (
 );
 
 comment on table public.arbox_trial_booking_confirm_log is
-  'Per future trial booking: in-window registration text plus the trial purchase template. PK business_id+user_id+class_date+class_time+class_name.';
+  'Per future trial booking: registration text inside 24h, otherwise the trial purchase template. PK business_id+user_id+class_date+class_time+class_name.';
 
 grant select, insert, update, delete
   on public.arbox_trial_booking_confirm_log
