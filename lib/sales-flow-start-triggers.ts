@@ -120,6 +120,21 @@ export function businessOpensSalesFlowOnAnyNewLeadMessage(slug?: string | null):
   return String(slug ?? "").trim().toLowerCase() === "pipman-team";
 }
 
+/**
+ * Omers Place: משפט הפתיחה של מודעת אינסטגרם, בנוסף לטריגרים המשותפים.
+ * אחרי נרמול (בלי סימני פיסוק): hello can i get more info on this
+ */
+const OMERS_PLACE_EXTRA_START_TRIGGERS = new Set(["hello can i get more info on this"]);
+
+function matchesOmersPlaceExtraStartTrigger(
+  normalized: string,
+  opts?: SalesFlowStartTriggerOpts
+): boolean {
+  const slug = String(opts?.slug ?? "").trim().toLowerCase();
+  if (slug !== "omers-place") return false;
+  return OMERS_PLACE_EXTRA_START_TRIGGERS.has(normalized);
+}
+
 /** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
 export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
   return String(slug ?? "").trim().toLowerCase() === "pipman-team";
@@ -170,6 +185,7 @@ export function messageEndsWithClassDetailsAsk(raw: string): boolean {
 export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
+  if (matchesOmersPlaceExtraStartTrigger(normalized, opts)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   if (withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting)) return true;

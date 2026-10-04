@@ -33,6 +33,20 @@ assert.equal(isSalesFlowStartTrigger("היי", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("שלום", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("מה המחיר", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים", { slug: yigalSlug }), true);
+assert.equal(
+  isSalesFlowStartTrigger("Hello! Can I get more info on this?", { slug: "omers-place" }),
+  true
+);
+assert.equal(
+  isSalesFlowStartTrigger("hello, can I get more info on this", { slug: "Omers-Place" }),
+  true
+);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים", { slug: "omers-place" }), true);
+assert.equal(
+  isSalesFlowStartTrigger("Hello! Can I get more info on this?", { slug: "limitless" }),
+  false
+);
+assert.equal(isSalesFlowStartTrigger("Hello! Can I get more info on this?"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);
 assert.equal(isSalesFlowStartTrigger("הצטרפות למנוי"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע"), true);
