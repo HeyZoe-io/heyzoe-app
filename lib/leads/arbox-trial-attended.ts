@@ -138,8 +138,16 @@ export function normalizeMembershipTypeName(raw: unknown): string {
 }
 
 /**
+ * Live bookingsReport omits the trial product name and sends this untranslated key
+ * (Tights, Oct 2026: every lead trial booking, is_first_session=Yes).
+ * Not the generic "trial" / "trial class" heuristic.
+ */
+const ARBOX_TRIAL_CLASS_TITLE_KEY = "trialclasstitle";
+
+/**
  * bookingsReport has membership_type_name only (no membership_type_id on live API).
  * Match by name set resolved from trial type ids; optional id match if field appears.
+ * When trial products are configured, also accept Arbox's `trialClassTitle` placeholder.
  */
 export function bookingMatchesTrialScope(
   row: ArboxBookingReportRow,
@@ -152,6 +160,7 @@ export function bookingMatchesTrialScope(
   const name = normalizeMembershipTypeName(row.membership_type_name);
   if (!name) return false;
   if (scope.trialTypeNamesNormalized.has(name)) return true;
+  if (scope.trialTypeIds.length > 0 && name === ARBOX_TRIAL_CLASS_TITLE_KEY) return true;
   return false;
 }
 

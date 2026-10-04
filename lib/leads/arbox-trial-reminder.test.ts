@@ -133,6 +133,13 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   assert.equal(bookingMatchesTrialScope(trialRow, scope), true);
   assert.equal(bookingMatchesTrialScope(membershipRow, scope), false);
   assert.equal(bookingMatchesTrialScope(englishTrialName, scope), false);
+  assert.equal(
+    bookingMatchesTrialScope(
+      { ...englishTrialName, user_id: 4, membership_type_name: "trialClassTitle" },
+      scope
+    ),
+    true
+  );
   assert.equal(membershipTypeNameLooksLikeTrial("trial class"), true);
   assert.equal(membershipTypeNameLooksLikeTrial("2 אימוני היכרות - כוח, פונקציונלי"), false);
 }

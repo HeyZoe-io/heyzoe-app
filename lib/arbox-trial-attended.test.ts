@@ -62,6 +62,22 @@ import { pickTrialAttendedTemplateTriggerRule } from "@/lib/template-triggers-ma
     true
   );
 
+  // Arbox sends this key instead of the configured product name.
+  assert.equal(
+    bookingMatchesTrialScope(
+      { user_id: 5, membership_type_name: "trialClassTitle", check_in: "No", date: "2026-10-05" },
+      scope
+    ),
+    true
+  );
+  assert.equal(
+    bookingMatchesTrialScope(
+      { user_id: 6, membership_type_name: "trialClassTitle", check_in: "No" },
+      { trialTypeIds: [], trialTypeNamesNormalized: new Set() }
+    ),
+    false
+  );
+
   assert.equal(membershipTypeNameLooksLikeTrial("שיעור ניסיון- זוג"), true);
   assert.equal(membershipTypeNameLooksLikeTrial("Unlimited | מנוי יחיד"), false);
   assert.equal(normalizeMembershipTypeName("Acroyoga pass (x10)\t- Couples"), "acroyoga pass (x10) - couples");
