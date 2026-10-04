@@ -108,6 +108,8 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   phone: string;
   instagramFollowPromptSent?: boolean;
   businessPlan?: unknown;
+  /** Calendar booking (no sale). Forces the schedule confirmation body. */
+  bookingSchedule?: { date: string; time: string; serviceName?: string };
 }): Promise<TrialRegisteredWaReplyResult> {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = Number(input.businessId);
@@ -167,9 +169,13 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   } else if (leadLang) {
     knowledge.leadUiLang = leadLang;
   }
-  const requestedDate = scheduleState.requestedDate;
-  const requestedTime = scheduleState.requestedTime;
+  const bookingDate = String(input.bookingSchedule?.date ?? "").trim();
+  const bookingTime = String(input.bookingSchedule?.time ?? "").trim();
+  const bookingService = String(input.bookingSchedule?.serviceName ?? "").trim();
+  const requestedDate = bookingDate || scheduleState.requestedDate;
+  const requestedTime = bookingTime || scheduleState.requestedTime;
   const hasScheduleSelection = Boolean(requestedDate && requestedTime);
+  const bookedSlot = Boolean(bookingDate && bookingTime);
 
   if (isDualBranchBusiness(businessSlug)) {
     const branch = await fetchLastDualBranchId({ business_slug: businessSlug, session_id: sessionId });
@@ -177,8 +183,9 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   }
 
   const salesFlowServices = knowledge.salesFlowServices ?? [];
-  const selectedServiceName =
-    salesFlowServices.length === 1
+  const selectedServiceName = bookingService
+    ? bookingService
+    : salesFlowServices.length === 1
       ? salesFlowServices[0]!.name
       : knowledge.openingServices.length === 1
         ? knowledge.openingServices[0]!.name
@@ -196,15 +203,17 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     selectedService?.name?.trim() || selectedServiceName.trim();
 
   const courseDatesOff = regOfferKind === "course" && selectedService?.courseDatesEnabled === false;
-  const includeScheduleInReg = shouldIncludeScheduleInRegistration({
-    offerKind: regOfferKind,
-    requestedDate,
-    requestedTime,
-    scheduleSlotCount: selectedService?.scheduleSlots?.length ?? 0,
-    courseDatesEnabled: selectedService?.courseDatesEnabled,
-  });
+  const includeScheduleInReg =
+    bookedSlot ||
+    shouldIncludeScheduleInRegistration({
+      offerKind: regOfferKind,
+      requestedDate,
+      requestedTime,
+      scheduleSlotCount: selectedService?.scheduleSlots?.length ?? 0,
+      courseDatesEnabled: selectedService?.courseDatesEnabled,
+    });
   const useScheduleRegistrationTemplate =
-    knowledge.scheduleDirectRegistration === false && includeScheduleInReg;
+    bookedSlot || (knowledge.scheduleDirectRegistration === false && includeScheduleInReg);
   const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
 
   let bodyTemplate = resolveAfterRegistrationBodyTemplate(

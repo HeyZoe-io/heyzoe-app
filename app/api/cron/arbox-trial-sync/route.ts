@@ -13,6 +13,10 @@ import {
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
 import {
+  syncTrialBookingConfirmForBusiness,
+  trialBookingConfirmEnabled,
+} from "@/lib/leads/arbox-trial-booking-confirm";
+import {
   canonicalContactPhone,
   contactPhoneLookupVariants,
 } from "@/lib/phone-normalize";
@@ -67,6 +71,7 @@ type BusinessSummary = {
   credit_refusal?: Awaited<ReturnType<typeof syncArboxCreditRefusalsForBusiness>>;
   new_lead?: Awaited<ReturnType<typeof syncArboxNewLeadsForBusiness>>;
   first_paid_purchase?: Awaited<ReturnType<typeof syncFirstPaidPurchasesForBusiness>>;
+  trial_booking_confirm?: Awaited<ReturnType<typeof syncTrialBookingConfirmForBusiness>>;
 };
 
 function authorizeCron(req: NextRequest): boolean {
@@ -588,6 +593,38 @@ export async function GET(req: NextRequest) {
         errors: 1,
         fetch_error: e instanceof Error ? e.message : String(e),
       };
+    }
+
+    if (trialBookingConfirmEnabled(business.slug)) {
+      try {
+        summary.trial_booking_confirm = await syncTrialBookingConfirmForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+          now,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] trial booking confirm threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.trial_booking_confirm = {
+          seeded: 0,
+          fetched: 0,
+          pages_fetched: 0,
+          trial_rows: 0,
+          sent: 0,
+          skipped_window: 0,
+          already: 0,
+          no_phone: 0,
+          abandoned: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
     summaries.push(summary);
