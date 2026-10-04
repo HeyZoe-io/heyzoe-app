@@ -448,7 +448,7 @@ export function resolveScheduleSlotPickTap<
 
 const TIMES_PER_WEEK_HE = ["", "פעם אחת בשבוע", "פעמיים בשבוע", "שלוש פעמים בשבוע", "ארבע פעמים בשבוע", "חמש פעמים בשבוע", "שש פעמים בשבוע", "שבע פעמים בשבוע"];
 
-/** כל מועדי הלוח של שיעור אחד — «מתקיים שלוש פעמים בשבוע: ביום ראשון ב-18:00, …». */
+/** כל מועדי הלוח של שיעור אחד — כל מועד בשורה. */
 export function formatWeeklyScheduleScopeReply(
   serviceName: string,
   slots: { day: string; time: string }[]
@@ -460,18 +460,16 @@ export function formatWeeklyScheduleScopeReply(
     )
   );
   if (!name || !configured.length) return "";
-  const bits = configured.map((s, i) => {
+  const lines = configured.map((s) => {
     const day = formatDayNameForScheduleDatePlaceholder(s.day);
-    const lead = i === configured.length - 1 && configured.length > 1 ? "וביום" : "ביום";
-    return `${lead} ${day} ב-${s.time}`;
+    return `ביום ${day} ב-${s.time}`;
   });
-  const list =
-    bits.length <= 2 ? bits.join(" ") : `${bits.slice(0, -1).join(", ")} ${bits[bits.length - 1]}`;
   const freq =
     configured.length < TIMES_PER_WEEK_HE.length
       ? TIMES_PER_WEEK_HE[configured.length]!
       : `${configured.length} פעמים בשבוע`;
-  return `${name} מתקיים ${freq}: ${list}.`;
+  if (lines.length === 1) return `${name} מתקיים ${freq}: ${lines[0]}.`;
+  return `${name} מתקיים ${freq}:\n${lines.join("\n")}`;
 }
 
 /** תשובה על שיעור שמציינת רק חלק ממועדי הלוח — מוחלפת ברשימה המלאה. */
@@ -494,10 +492,11 @@ export function rewriteFalseSingleWeeklySlotClaim(text: string, services: SfServ
   return formatWeeklyScheduleScopeReply(name, slots);
 }
 
-/** לפי שם שיעור: שם | {day-name} {HH:MM}, {day-name} {HH:MM} */
+/** לפי שם שיעור: מועד אחד בשורה «שם | יום שעה», וכמה מועדים — שורה לכל מועד. */
 export function formatNamedClassScheduleLine(serviceName: string, dayLetter: string, times: string[]): string {
   const labels = times.map((time) => formatScheduleSlotDisplayLabel({ day: dayLetter, time }));
-  return `${serviceName} | ${labels.join(", ")}`;
+  if (labels.length <= 1) return `${serviceName} | ${labels.join(", ")}`;
+  return `${serviceName}\n${labels.join("\n")}`;
 }
 
 /** אילו שיעורים ביום: {day-name} {HH:MM}, ואז שם השיעור. */
@@ -839,23 +838,22 @@ export async function tryBuildRelativeDayClassSlotsReply(
   );
   const stateMap = await resolveOccurrenceStatesForCandidates(candidates, input);
 
-  const foundBits: string[] = [];
+  const foundLines: string[] = [];
   for (const g of dayGroups) {
-    const labeled = g.slots.map((s) => {
+    for (const s of g.slots) {
       const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
-      return formatSlotLabelWithOccurrenceStatus({ day: g.day, time: s.time }, state);
-    });
-    if (!labeled.length) continue;
-    foundBits.push(labeled.join(", "));
+      foundLines.push(formatSlotLabelWithOccurrenceStatus({ day: g.day, time: s.time }, state));
+    }
   }
 
-  if (!foundBits.length && !missing.length) return null;
-  const text = [
-    foundBits.length ? `${serviceName} | ${foundBits.join(" | ")} 💜` : "",
-    ...missing,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  if (!foundLines.length && !missing.length) return null;
+  const listText =
+    foundLines.length === 1
+      ? `${serviceName} | ${foundLines[0]} 💜`
+      : foundLines.length > 1
+        ? `${serviceName}\n${foundLines.join("\n")} 💜`
+        : "";
+  const text = [listText, ...missing].filter(Boolean).join("\n\n");
   if (!text) return null;
   return { kind: "list", text, modelUsed: RELATIVE_DAY_CLASS_SLOTS_MODEL };
 }

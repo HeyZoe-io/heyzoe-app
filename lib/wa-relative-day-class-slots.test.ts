@@ -115,7 +115,7 @@ async function main() {
   );
   assert.equal(
     formatNamedClassScheduleLine("פילאטיס מכשירים", "ג", ["18:30", "19:30"]),
-    "פילאטיס מכשירים | שלישי 18:30, שלישי 19:30"
+    "פילאטיס מכשירים\nשלישי 18:30\nשלישי 19:30"
   );
   assert.equal(
     formatDayClassScheduleLine("ג", "18:30", "פילאטיס מזרן"),
@@ -870,7 +870,7 @@ async function main() {
     ]);
     assert.equal(
       formatWeeklyScheduleScopeReply(power.name, power.scheduleSlots),
-      "POWER - פילאטיס מזרן 3 מתקיים שלוש פעמים בשבוע: ביום ראשון ב-18:00, ביום שלישי ב-19:00 וביום רביעי ב-18:00."
+      "POWER - פילאטיס מזרן 3 מתקיים שלוש פעמים בשבוע:\nביום ראשון ב-18:00\nביום שלישי ב-19:00\nביום רביעי ב-18:00"
     );
     const askedWednesday = await tryBuildRelativeDayClassSlotsReply({
       text: "השבוע הבא יש פילאטיס מזרן POWER ביום רביעי ב-18:00?",

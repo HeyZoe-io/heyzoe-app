@@ -218,11 +218,11 @@ export function formatCycleSlotsPhrase(slots: ProductScheduleSlot[]): string {
   const configured = sortProductScheduleSlots(filterConfiguredProductScheduleSlots(slots));
   if (!configured.length) return "";
   return configured
-    .map((s, idx) => {
+    .map((s) => {
       const dayLabel = hebrewDayLabelForPhrase(s.day);
-      return idx === 0 ? `ביום ${dayLabel} בשעה ${s.time}` : `וביום ${dayLabel} בשעה ${s.time}`;
+      return `ביום ${dayLabel} בשעה ${s.time}`;
     })
-    .join("");
+    .join("\n");
 }
 
 /** פסקת מועדים לקורס לפני בחירת מחזור (ללא המילה «קורס» בתחילה) */
@@ -258,7 +258,7 @@ export function buildCourseScheduleInfoMessage(serviceName: string, cycles: Cour
       segment = `עד ה${end}`;
     }
     if (slotsPhrase) {
-      segment = segment ? `${segment}, ${slotsPhrase}` : slotsPhrase;
+      segment = segment ? `${segment}\n${slotsPhrase}` : slotsPhrase;
     }
     if (!segment) continue;
 
@@ -303,7 +303,7 @@ export function buildCourseSchedulePhraseForCycle(cycle: CourseCycle | null | un
   const lines = buildCourseSchedulePhraseLinesFromCycles([cycle]);
   if (!lines.length) return "";
   if (lines.length === 1) return lines[0]!;
-  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");
+  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join("\n");
 }
 
 /** CTA קורס אחרי בחירת מחזור — רק המועד שנבחר; אחרת כל המחזורים. */
@@ -356,7 +356,7 @@ export function buildCourseSchedulePhraseForCta(cycles: CourseCycle[]): string {
   const lines = buildCourseSchedulePhraseLinesFromCycles(sorted);
   if (!lines.length) return "";
   if (lines.length === 1) return lines[0]!;
-  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join(", ");
+  return lines.map((line, i) => (i === 0 ? line : `או ${line}`)).join("\n");
 }
 
 export function buildCourseCycleStartPickQuestion(): string {

@@ -26,6 +26,7 @@ import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dat
 import { rewriteFalseSingleWeeklySlotClaim } from "@/lib/wa-relative-day-class-slots";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { applyLeadAgeBandToReply, type LeadAgeBand } from "@/lib/wa-lead-audience";
+import { formatLongReplySpacing } from "@/lib/wa-reply-spacing";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -669,8 +670,9 @@ export function applyKnownAssistantReplyFixes(
     s = stripPrematureAfterRegistration(s);
     s = ensureScheduleWhenConvenientQuestion(s, lang);
   }
-  return stripModelThoughtLeak(s, {
+  s = stripModelThoughtLeak(s, {
     businessSlug: input.businessSlug ?? "",
     conversationId: input.conversationId ?? "",
   });
+  return formatLongReplySpacing(s);
 }
