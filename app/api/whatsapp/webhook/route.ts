@@ -210,6 +210,11 @@ import {
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
 import {
+  ARBOX_REGISTRATION_VERIFY_MODEL,
+  ARBOX_REGISTRATION_VERIFY_REPLY,
+  matchesArboxRegistrationVerifyAsk,
+} from "@/lib/wa-arbox-registration-verify";
+import {
   buildClassRescheduleTeamHandoffReply,
   resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
@@ -8409,6 +8414,32 @@ async function processIncoming(
       return;
     }
 
+    if (
+      knowledge?.hasArboxConnection === true &&
+      isSalesFlowFreeTextInbound(msg) &&
+      matchesArboxRegistrationVerifyAsk(msg.text)
+    ) {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          ARBOX_REGISTRATION_VERIFY_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send arbox registration verify failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: ARBOX_REGISTRATION_VERIFY_REPLY,
+        model_used: ARBOX_REGISTRATION_VERIFY_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
+
     const inboundForDaySlots = msg.text.trim();
     const shouldCheckRelativeDaySlots =
       shouldAnswerFromClassTimetable(inboundForDaySlots) &&
@@ -8455,6 +8486,20 @@ async function processIncoming(
             sessionId,
           });
           return;
+        }
+        const classListModels = new Set(["relative_day_class_slots", "weekly_schedule_scope"]);
+        if (knowledge && classListModels.has(relativeDayReply.modelUsed)) {
+          const listAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
+          const board = await sendScheduleBoardAfterOpening({
+            assets: listAssets,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+            modelUsed: "sales_flow_schedule_board_on_ask",
+          });
+          if (board !== "none") return;
         }
         try {
           await sendWhatsAppMessage(
