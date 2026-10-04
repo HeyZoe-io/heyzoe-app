@@ -19,13 +19,15 @@ create table if not exists public.arbox_trial_booking_confirm_log (
   processed_at timestamptz not null default now(),
   attempts int not null default 0,
   status text not null default 'pending',
+  confirm_status text not null default 'pending',
+  template_status text not null default 'pending',
   primary key (business_id, user_id, class_date, class_time, class_name),
   constraint arbox_trial_booking_confirm_log_status_check
     check (status in ('pending', 'seeded', 'sent', 'skipped', 'abandoned', 'no_phone'))
 );
 
 comment on table public.arbox_trial_booking_confirm_log is
-  'One registration confirmation per future trial booking (no sale required). PK business_id+user_id+class_date+class_time+class_name.';
+  'Per future trial booking: in-window registration text plus the trial purchase template. PK business_id+user_id+class_date+class_time+class_name.';
 
 grant select, insert, update, delete
   on public.arbox_trial_booking_confirm_log
@@ -37,3 +39,29 @@ grant select, insert, update, delete
 
 alter table public.arbox_trial_booking_confirm_log
   enable row level security;
+
+alter table public.arbox_trial_booking_confirm_log
+  add column if not exists confirm_status text not null default 'pending';
+
+alter table public.arbox_trial_booking_confirm_log
+  add column if not exists template_status text not null default 'pending';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'arbox_trial_booking_confirm_log_confirm_status_check'
+  ) then
+    alter table public.arbox_trial_booking_confirm_log
+      add constraint arbox_trial_booking_confirm_log_confirm_status_check
+      check (confirm_status in ('pending', 'sent', 'skipped'));
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'arbox_trial_booking_confirm_log_template_status_check'
+  ) then
+    alter table public.arbox_trial_booking_confirm_log
+      add constraint arbox_trial_booking_confirm_log_template_status_check
+      check (template_status in ('pending', 'sent', 'skipped'));
+  end if;
+end $$;

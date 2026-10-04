@@ -5,23 +5,36 @@
  *
  * IO per trial-sync run, tights only: 1 bookingsReport (today…+14, usually 1–2
  * pages) + 1 membershipTypes. No extra calls for other businesses. First pass
- * seeds and sends nothing. Later passes: one WhatsApp inside the 24h window
- * per new booking. Outside the window the day-before trial_reminder still applies.
+ * seeds and sends nothing. Later passes, per new booking: the in-window
+ * registration text, and the purchase template that matches a trial product
+ * (works outside the 24h window too). The day-before trial_reminder still applies.
  */
+import { logMessage } from "@/lib/analytics";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
+import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
   normalizeMembershipTypeName,
   parseClassDateYmd,
+  type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
-import { canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { computeDueAt, enqueueScheduledTemplateSend } from "@/lib/scheduled-template-sends";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
+import { stampTrialSignupNotice } from "@/lib/trial-signup-notice";
 import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
+import { delayDirectionForTrigger } from "@/lib/trigger-catalog";
+import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
 const CONFIRM_SLUGS = new Set(["tights"]);
@@ -37,6 +50,7 @@ export type TrialBookingConfirmSummary = {
   pages_fetched: number;
   trial_rows: number;
   sent: number;
+  template_sent: number;
   skipped_window: number;
   already: number;
   no_phone: number;
@@ -46,6 +60,7 @@ export type TrialBookingConfirmSummary = {
 };
 
 type LogStatus = "pending" | "seeded" | "sent" | "skipped" | "abandoned" | "no_phone";
+type PartStatus = "pending" | "sent" | "skipped";
 
 type LogRow = {
   user_id: number;
@@ -54,6 +69,8 @@ type LogRow = {
   class_name: string;
   status: LogStatus;
   attempts: number;
+  confirm_status?: PartStatus;
+  template_status?: PartStatus;
 };
 
 export function trialBookingConfirmEnabled(slug: string): boolean {
@@ -127,6 +144,7 @@ function emptySummary(): TrialBookingConfirmSummary {
     pages_fetched: 0,
     trial_rows: 0,
     sent: 0,
+    template_sent: 0,
     skipped_window: 0,
     already: 0,
     no_phone: 0,
@@ -278,7 +296,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
   const { data: existing, error: existingErr } = await admin
     .from(TABLE)
-    .select("user_id, class_date, class_time, class_name, status, attempts")
+    .select(
+      "user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status"
+    )
     .eq("business_id", businessId)
     .gte("class_date", today);
   if (existingErr) {
@@ -311,7 +331,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
     const phone = canonicalContactPhone(item.row.phone);
     if (!phone) {
-      await writeLog(admin, businessId, item, "no_phone", attempts, now);
+      await writeLog(admin, businessId, item, "no_phone", "skipped", "skipped", attempts, now);
       summary.no_phone += 1;
       continue;
     }
@@ -324,6 +344,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         class_time: item.classTime,
         class_name: item.className,
         status: "pending",
+        confirm_status: "pending",
+        template_status: "pending",
         attempts: 0,
         processed_at: now.toISOString(),
       });
@@ -337,36 +359,85 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
     }
 
-    const instagramFollowPromptSent = await instagramAlreadySent(admin, businessId, phone);
-    const result = await sendTrialRegisteredWhatsAppReplyIfInWindow({
-      admin,
-      businessId,
-      businessSlug,
-      phone,
-      instagramFollowPromptSent,
-      businessPlan: input.businessPlan,
-      bookingSchedule: {
-        date: formatTrialBookingConfirmDate(item.classDate),
-        time: formatTrialBookingConfirmTime(item.classTime),
-        serviceName: item.className,
-      },
-    });
+    let confirmStatus: PartStatus = prior?.confirm_status === "sent" || prior?.confirm_status === "skipped"
+      ? prior.confirm_status
+      : "pending";
+    let templateStatus: PartStatus = prior?.template_status === "sent" || prior?.template_status === "skipped"
+      ? prior.template_status
+      : "pending";
+    let failed = false;
 
-    if (result.sent) {
-      await writeLog(admin, businessId, item, "sent", attempts, now);
-      summary.sent += 1;
-      continue;
+    const optedOut = await evaluateSessionMessageSend({ admin, businessId, phone });
+    if (optedOut.suppress) {
+      confirmStatus = confirmStatus === "sent" ? "sent" : "skipped";
+      templateStatus = templateStatus === "sent" ? "sent" : "skipped";
     }
-    if (trialBookingConfirmIsTerminalSkip(result)) {
-      await writeLog(admin, businessId, item, "skipped", attempts, now);
-      summary.skipped_window += 1;
-      continue;
+
+    if (confirmStatus === "pending") {
+      const instagramFollowPromptSent = await instagramAlreadySent(admin, businessId, phone);
+      const result = await sendTrialRegisteredWhatsAppReplyIfInWindow({
+        admin,
+        businessId,
+        businessSlug,
+        phone,
+        instagramFollowPromptSent,
+        businessPlan: input.businessPlan,
+        bookingSchedule: {
+          date: formatTrialBookingConfirmDate(item.classDate),
+          time: formatTrialBookingConfirmTime(item.classTime),
+          serviceName: item.className,
+        },
+      });
+      if (result.sent) {
+        confirmStatus = "sent";
+        summary.sent += 1;
+      } else if (trialBookingConfirmIsTerminalSkip(result)) {
+        confirmStatus = "skipped";
+        summary.skipped_window += 1;
+      } else {
+        failed = true;
+      }
     }
-    const nextAttempts = attempts + 1;
-    const status: LogStatus = nextAttempts >= ATTEMPT_CAP ? "abandoned" : "pending";
-    await writeLog(admin, businessId, item, status, nextAttempts, now);
+
+    if (templateStatus === "pending" && !optedOut.suppress) {
+      const templateResult = await sendTrialBookingPurchaseTemplate({
+        admin,
+        businessId,
+        businessSlug,
+        phone,
+        fullName: bookingFullName(item.row),
+        trialTypeIds,
+        userId: item.userId,
+        classDate: item.classDate,
+        classTime: item.classTime,
+        className: item.className,
+        now,
+      });
+      if (templateResult === "sent") {
+        templateStatus = "sent";
+        summary.template_sent += 1;
+        if (confirmStatus !== "sent") {
+          await stampTrialSignupNotice(admin, businessId, phone, "template");
+        }
+      } else if (templateResult === "skipped") {
+        templateStatus = "skipped";
+      } else {
+        failed = true;
+      }
+    }
+
+    const settled = confirmStatus !== "pending" && templateStatus !== "pending";
+    let status: LogStatus = "pending";
+    let nextAttempts = attempts;
+    if (settled) {
+      status = confirmStatus === "sent" || templateStatus === "sent" ? "sent" : "skipped";
+    } else if (failed) {
+      nextAttempts = attempts + 1;
+      status = nextAttempts >= ATTEMPT_CAP ? "abandoned" : "pending";
+    }
+    await writeLog(admin, businessId, item, status, confirmStatus, templateStatus, nextAttempts, now);
     if (status === "abandoned") summary.abandoned += 1;
-    else summary.errors += 1;
+    else if (failed) summary.errors += 1;
   }
 
   return summary;
@@ -389,11 +460,132 @@ async function instagramAlreadySent(
   return row?.instagram_follow_prompt_sent === true;
 }
 
+function bookingFullName(row: ArboxBookingReportRow): string | null {
+  const full = String(row.full_name ?? "").trim();
+  if (full) return full;
+  const first = String(row.first_name ?? "").trim();
+  const last = String(row.last_name ?? "").trim();
+  const combined = [first, last].filter(Boolean).join(" ").trim();
+  return combined || null;
+}
+
+type TemplateSendOutcome = "sent" | "skipped" | "failed";
+
+/** Purchase template whose rule includes the studio's trial products. Sends outside the 24h window. */
+async function sendTrialBookingPurchaseTemplate(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  fullName: string | null;
+  trialTypeIds: number[];
+  userId: number;
+  classDate: string;
+  classTime: string;
+  className: string;
+  now: Date;
+}): Promise<TemplateSendOutcome> {
+  const trialId = input.trialTypeIds[0] ?? null;
+  const rule = await resolvePurchaseTemplateTriggerForSale({
+    admin: input.admin,
+    businessId: input.businessId,
+    membershipTypeId: trialId,
+    match: { trialMembershipTypeIds: input.trialTypeIds },
+  });
+  const templateName = rule?.template_name?.trim() || "";
+  if (!rule || !templateName) return "skipped";
+
+  if (rule.delay_days > 0) {
+    const dueAt = computeDueAt(
+      {
+        delay_days: rule.delay_days,
+        delay_direction: delayDirectionForTrigger("purchase", rule.delay_direction),
+      },
+      input.now
+    );
+    const enqueued = await enqueueScheduledTemplateSend({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: rule.id,
+      contactPhone: input.phone,
+      templateName,
+      dueAt,
+      dedupKey: `trial_booking:${input.businessId}:${rule.id}:${input.userId}:${input.classDate}:${input.classTime}`,
+    });
+    return enqueued.ok ? "sent" : "failed";
+  }
+
+  const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+  if (!phoneNumberId) return "skipped";
+
+  const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
+    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
+    input.admin
+      .from("whatsapp_templates")
+      .select("id, status, language, components")
+      .eq("business_id", input.businessId)
+      .eq("name", templateName)
+      .eq("status", "APPROVED")
+      .eq("disabled", false)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
+    .trim()
+    .replace(/\s+/g, "");
+  if (!wabaId || !approvedTpl?.id) return "skipped";
+
+  const firstName = resolveTemplateFirstName(null, input.fullName);
+  if (
+    !firstName &&
+    templateBodyUsesFirstNameSlot("purchase", (approvedTpl as { components?: unknown }).components)
+  ) {
+    console.info(LOG, "template skip", { reason: "no_valid_name", businessSlug: input.businessSlug });
+    return "skipped";
+  }
+
+  const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+  const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "purchase",
+    storedComponents,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
+  const sendResult = await sendBusinessTemplate({
+    to: input.phone,
+    phoneNumberId,
+    templateName,
+    languageCode,
+    ...(sendComponents ? { components: sendComponents } : {}),
+  });
+  if (!sendResult.ok) {
+    console.error(LOG, "template send failed", sendResult.error);
+    return "failed";
+  }
+
+  await logMessage({
+    business_slug: input.businessSlug,
+    role: "assistant",
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: storedComponents,
+      bodyParams,
+    }),
+    model_used: LEAD_TEMPLATE_MODEL,
+    session_id: buildWaSessionId(phoneNumberId, input.phone),
+  });
+  return "sent";
+}
+
 async function writeLog(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
   item: { userId: number; classDate: string; classTime: string; className: string },
   status: LogStatus,
+  confirmStatus: PartStatus,
+  templateStatus: PartStatus,
   attempts: number,
   now: Date
 ): Promise<void> {
@@ -405,6 +597,8 @@ async function writeLog(
       class_time: item.classTime,
       class_name: item.className,
       status,
+      confirm_status: confirmStatus,
+      template_status: templateStatus,
       attempts,
       processed_at: now.toISOString(),
     },

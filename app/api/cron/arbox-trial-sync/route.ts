@@ -617,6 +617,7 @@ export async function GET(req: NextRequest) {
           pages_fetched: 0,
           trial_rows: 0,
           sent: 0,
+          template_sent: 0,
           skipped_window: 0,
           already: 0,
           no_phone: 0,
