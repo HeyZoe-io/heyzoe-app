@@ -81,7 +81,10 @@ async function main() {
   assert.equal([...`${longestBase}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`].length, 19);
   assert.ok([...`${longestBase}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`].length <= 20);
 
-  assert.equal(SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE, "השיעור מלא, בוא נבחר מועד אחר!");
+  assert.equal(
+    SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE,
+    "אני מתנצלת נראה שהאימון הזה כבר מלא השבוע, אפשר לבחור מועד אחר!"
+  );
   assert.equal(SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE, "השיעור הזה לא מתקיים השבוע, בוא נבחר מועד אחר!");
   assert.equal(CHANGE, "בחירת אימון אחר");
   assert.equal(SCHEDULE_SLOT_PICK_MENU_PHASE, "schedule_date");
@@ -116,6 +119,17 @@ async function main() {
     assert.equal(fullTap.reason, "full");
     assert.equal(fullTap.notice, SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE);
     assert.equal(fullTap.slot.time, "18:30");
+
+    // Typed day+time without the (מלא) suffix still hits the full row.
+    const typedBase = resolveScheduleSlotPickTap({
+      inboundText: formatScheduleSlotDisplayLabel({ day: "ג", time: "18:30" }),
+      slotsForPick: annotated,
+      labels,
+    });
+    assert.equal(typedBase.kind, "blocked");
+    if (typedBase.kind !== "blocked") throw new Error("expected blocked");
+    assert.equal(typedBase.reason, "full");
+    assert.equal(typedBase.slot.time, "18:30");
 
     // Re-send uses the same annotate+labels path and restores schedule_date (menu writer).
     const resentPhase = SCHEDULE_SLOT_PICK_MENU_PHASE;
@@ -230,6 +244,29 @@ async function main() {
     assert.equal(tap.kind, "open");
     if (tap.kind !== "open") throw new Error("expected open");
     assert.equal(tap.timeTxt, "18:30");
+  }
+
+  // Menu already showed (מלא); a later Arbox miss must not book that row.
+  {
+    const { impl } = fakeRawDataFetcher({});
+    const annotated = await annotateScheduleSlotsByOccurrenceState([...rawThree], STAMP, {
+      ...OFFER_CTX_BASE,
+      now: tueMorning,
+      rawDataFetcherImpl: impl,
+    });
+    const labels = buildScheduleSlotPickMenuLabels(annotated, CHANGE);
+    const presented = labels.map((l, i) => (i === 0 ? `${l}${OCCURRENCE_STATUS_FULL_SUFFIX}` : l));
+    const tap = resolveScheduleSlotPickTap({
+      inboundText: formatScheduleSlotDisplayLabel({ day: "א", time: "18:00" }),
+      slotsForPick: annotated,
+      labels,
+      presentedLabels: presented,
+    });
+    assert.equal(tap.kind, "blocked");
+    if (tap.kind !== "blocked") throw new Error("expected blocked");
+    assert.equal(tap.reason, "full");
+    assert.equal(tap.notice, SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE);
+    assert.equal(tap.slot.time, "18:00");
   }
 
   // Fetch throw → fail-open, no suffix, tap proceeds as open.

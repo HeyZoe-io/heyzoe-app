@@ -263,6 +263,7 @@ import {
   isScheduleSlotPickAllFullResult,
   isRelativeDayCatalogAllFullReply,
   previousUserTextFromHistory,
+  parseScheduleSlotMenuLogLabels,
   resolveScheduleSlotPickTap,
   SCHEDULE_SLOT_PICK_ALL_FULL_MODEL,
   SCHEDULE_SLOT_PICK_ALL_FULL_NOTICE,
@@ -3613,6 +3614,37 @@ async function sendScheduleSlotPickMenu(input: {
     phone: input.msg.from,
     phase: SCHEDULE_SLOT_PICK_MENU_PHASE,
   });
+}
+
+/** One indexed row: the menu the lead is answering, so a (מלא) tap stays blocked if Arbox misses. */
+async function fetchLastScheduleSlotMenuLabels(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  sessionId: string;
+}): Promise<string[]> {
+  try {
+    const { data, error } = await input.supabase
+      .from("messages")
+      .select("content")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.sessionId)
+      .eq("role", "assistant")
+      .eq("model_used", SCHEDULE_SLOT_PICK_MENU_MODEL)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error("[WA Webhook] last schedule slot menu lookup failed:", error.message);
+      return [];
+    }
+    return parseScheduleSlotMenuLogLabels(String((data as { content?: unknown } | null)?.content ?? ""));
+  } catch (e) {
+    console.error(
+      "[WA Webhook] last schedule slot menu lookup failed:",
+      e instanceof Error ? e.message : String(e)
+    );
+    return [];
+  }
 }
 
 async function resolveArboxCredsForSlotPick(input: {
@@ -10428,11 +10460,17 @@ async function processIncoming(
             slotsForPick,
             schedulePickChangeServiceLabel(resolveBusinessContentLanguageFromKnowledge(knowledge))
           );
+          const presentedLabels = await fetchLastScheduleSlotMenuLabels({
+            supabase,
+            business_slug,
+            sessionId,
+          });
           const tap = resolveScheduleSlotPickTap({
             inboundText: msg.text.trim(),
             metaInteractiveReplyId: msg.metaInteractiveReplyId,
             slotsForPick,
             labels,
+            presentedLabels: presentedLabels.length ? presentedLabels : labels,
           });
 
           if (tap.kind === "change_service") {

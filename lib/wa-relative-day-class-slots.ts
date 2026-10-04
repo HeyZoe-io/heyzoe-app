@@ -183,7 +183,8 @@ async function resolveOccurrenceStatesForCandidates(
 export const OCCURRENCE_STATUS_FULL_SUFFIX = " (מלא)";
 export const OCCURRENCE_STATUS_CANCELLED_SUFFIX = " (מבוטל)";
 
-export const SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE = "השיעור מלא, בוא נבחר מועד אחר!";
+export const SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE =
+  "אני מתנצלת נראה שהאימון הזה כבר מלא השבוע, אפשר לבחור מועד אחר!";
 export const SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE = "השיעור הזה לא מתקיים השבוע, בוא נבחר מועד אחר!";
 
 /** sendScheduleSlotPickMenu always restores this so the next tap hits the same writer. */
@@ -198,6 +199,39 @@ export function appendOccurrenceStatusSuffix(
   if (state === "full") return `${t}${OCCURRENCE_STATUS_FULL_SUFFIX}`;
   if (state === "cancelled") return `${t}${OCCURRENCE_STATUS_CANCELLED_SUFFIX}`;
   return t;
+}
+
+export function stripOccurrenceStatusSuffix(label: string): string {
+  const t = String(label ?? "").trim();
+  if (t.endsWith(OCCURRENCE_STATUS_FULL_SUFFIX)) {
+    return t.slice(0, -OCCURRENCE_STATUS_FULL_SUFFIX.length).trim();
+  }
+  if (t.endsWith(OCCURRENCE_STATUS_CANCELLED_SUFFIX)) {
+    return t.slice(0, -OCCURRENCE_STATUS_CANCELLED_SUFFIX.length).trim();
+  }
+  return t;
+}
+
+export function occurrenceStatusFromLabel(label: string): "full" | "cancelled" | null {
+  const t = String(label ?? "").trim();
+  if (t.endsWith(OCCURRENCE_STATUS_FULL_SUFFIX)) return "full";
+  if (t.endsWith(OCCURRENCE_STATUS_CANCELLED_SUFFIX)) return "cancelled";
+  return null;
+}
+
+/** Button labels logged as `[כפתורים: א | ב]`. */
+export function parseScheduleSlotMenuLogLabels(content: string): string[] {
+  const m = String(content ?? "").match(/\[כפתורים:\s*([^\]]+)\]/);
+  if (!m?.[1]) return [];
+  return m[1]
+    .split("|")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function scheduleSlotPickLabelsMatchIgnoringStatus(a: string, b: string): boolean {
+  if (scheduleSlotPickLabelsMatch(a, b)) return true;
+  return scheduleSlotPickLabelsMatch(stripOccurrenceStatusSuffix(a), stripOccurrenceStatusSuffix(b));
 }
 
 export function formatTimeWithOccurrenceStatus(
@@ -349,8 +383,21 @@ export type ScheduleSlotPickTapResult<T> =
 
 /**
  * Resolve a slot-pick tap. Change-class is checked BEFORE any index-into-slots.
- * full/cancelled → blocked notice; open/unknown/error/timeout → proceed as open (fail-open).
+ * Live full/cancelled, or a row the sent menu already marked full/cancelled, → blocked notice.
+ * Unknown with no such mark still proceeds as open (fail-open).
  */
+function scheduleSlotPickBlockReason(
+  live: ArboxOccurrenceState,
+  presentedLabel: string | undefined,
+  inboundLabel: string
+): "full" | "cancelled" | null {
+  if (live === "full" || live === "cancelled") return live;
+  // The row the lead just chose was labeled full/cancelled on the menu we sent.
+  // A later Arbox miss (unknown) or a flip to open must not book that tap —
+  // we apologize and send a fresh menu instead.
+  return occurrenceStatusFromLabel(presentedLabel ?? "") ?? occurrenceStatusFromLabel(inboundLabel);
+}
+
 export function resolveScheduleSlotPickTap<
   T extends { day: string; time: string; occurrenceState: ArboxOccurrenceState },
 >(input: {
@@ -358,6 +405,8 @@ export function resolveScheduleSlotPickTap<
   metaInteractiveReplyId?: string;
   slotsForPick: readonly T[];
   labels: string[];
+  /** Labels from the menu already sent (with מלא/מבוטל). Falls back to `labels`. */
+  presentedLabels?: readonly string[];
 }): ScheduleSlotPickTapResult<T> {
   const resolved = resolveWaMenuChoice(
     input.inboundText,
@@ -373,14 +422,17 @@ export function resolveScheduleSlotPickTap<
   ) {
     return { kind: "change_service" };
   }
-  const idx = input.labels.findIndex((l) => scheduleSlotPickLabelsMatch(l, resolved));
+  const idx = input.labels.findIndex((l) => scheduleSlotPickLabelsMatchIgnoringStatus(l, resolved));
   if (idx < 0) return { kind: "unrecognized" };
   if (idx >= input.slotsForPick.length) return { kind: "change_service" };
   const slot = input.slotsForPick[idx]!;
-  if (slot.occurrenceState === "full") {
+  const presented = input.presentedLabels ?? input.labels;
+  const presentedLabel = presented.find((l) => scheduleSlotPickLabelsMatchIgnoringStatus(l, resolved));
+  const block = scheduleSlotPickBlockReason(slot.occurrenceState, presentedLabel, resolved);
+  if (block === "full") {
     return { kind: "blocked", reason: "full", notice: SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE, slot };
   }
-  if (slot.occurrenceState === "cancelled") {
+  if (block === "cancelled") {
     return { kind: "blocked", reason: "cancelled", notice: SCHEDULE_SLOT_PICK_CANCELLED_TAP_NOTICE, slot };
   }
   const dateTxt = formatDayNameForScheduleDatePlaceholder(slot.day);
