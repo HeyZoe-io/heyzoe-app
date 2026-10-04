@@ -71,6 +71,30 @@ function isGenericCatalogMatchToken(raw: string): boolean {
 }
 
 /**
+ * מילה שלמה בשם השיעור. «מתי» לא בוחרת «מתיחות».
+ * «בוקר» מתקפל ל«וקר» ו«בבוקר» ל«בוקר» — מותר הפרש של אות יחס אחת, לא תחילית מילולית.
+ */
+function catalogTokensAlign(nameTok: string, userTok: string): boolean {
+  if (!nameTok || !userTok) return false;
+  if (nameTok === userTok) return true;
+  if (nameTok.length === userTok.length + 1 && /^[הבל]/u.test(nameTok) && nameTok.slice(1) === userTok) {
+    return true;
+  }
+  if (userTok.length === nameTok.length + 1 && /^[הבל]/u.test(userTok) && userTok.slice(1) === nameTok) {
+    return true;
+  }
+  return false;
+}
+
+function foldedNameHasWholeToken(foldedName: string, tok: string): boolean {
+  if (!tok || tok.length < 3) return false;
+  return foldedName
+    .split(" ")
+    .map((w) => stripCatalogTokenPunctuation(foldHebrewServiceToken(w)))
+    .some((w) => catalogTokensAlign(w, tok));
+}
+
+/**
  * ברכת שעה — לא טוקן קטלוג.
  * «בוקר» נשאר מילה מזהה («אימון בבוקר», «בוקר» לבד).
  * רק הנוסחה «בוקר טוב» / «ערב טוב» / «צהריים טובים» יורדת לפני ההתאמה,
@@ -342,11 +366,7 @@ export function matchCatalogServicesFromFreeText(
         .filter((name) => {
           if (!name) return false;
           const folded = foldClassName(name);
-          const foldedToks = folded
-            .split(" ")
-            .map((w) => foldHebrewServiceToken(w))
-            .join(" ");
-          return folded.includes(tok) || foldedToks.includes(tok);
+          return foldedNameHasWholeToken(folded, tok);
         });
       if (names.length === 1) uniqueHits.push(names[0]!);
     }

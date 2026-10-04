@@ -44,6 +44,11 @@ assert.equal(classifyInboundSpeechAct("אשמח לפרטים", thu), "other");
 assert.equal(shouldAnswerFromClassTimetable(shir, thu), false);
 assert.equal(shouldAnswerFromClassTimetable("היה לי רק שיעור עם ליאת היום", thu), false);
 assert.equal(shouldAnswerFromClassTimetable("חולה", thu), false);
+const membershipExpiry =
+  "היוש מה נשמע? נראה שנגמר לי המנוי להיידי יש מצב? והוא מתחדש לי במהלך השבוע ואני רוצה לעשות אימון בראשון ברביעי מתי הוא נגמר?";
+assert.equal(classifyInboundSpeechAct(membershipExpiry, thu), "other");
+assert.equal(shouldAnswerFromClassTimetable(membershipExpiry, thu), false);
+assert.equal(shouldAnswerFromClassTimetable("מתי נגמר המנוי שלי?", thu), false);
 assert.equal(shouldAnswerFromClassTimetable("מתי יש אימון היום?", thu), true);
 assert.equal(shouldAnswerFromClassTimetable("כיסא", thu), true);
 assert.equal(shouldAnswerFromClassTimetable("ומחר?", thu), true);

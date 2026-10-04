@@ -33,9 +33,21 @@ export function isBookingMutationRequest(raw: string): boolean {
   return looksLikePersonalDoItRequest(t) && BOOKING_OBJECT_RE.test(t);
 }
 
+/**
+ * «נגמר לי המנוי» / «מתי הוא נגמר» על המנוי — לא שאלת לוח,
+ * גם אם באותה הודעה יש יום ו«אימון».
+ */
+export function looksLikeMembershipValidityAsk(raw: string): boolean {
+  const t = normalizeActText(raw).replace(/\s+/g, " ");
+  if (!t || t.length > 500) return false;
+  if (!/(?:מנוי|כרטיסי)/u.test(t)) return false;
+  return /נגמר|פג|תוקף|מתחדש|התחדש|חידוש|הסתיים|נסתיים/u.test(t);
+}
+
 export function isScheduleAsk(raw: string, now: Date = new Date()): boolean {
   const t = normalizeActText(raw);
   if (!t) return false;
+  if (looksLikeMembershipValidityAsk(t)) return false;
   if (looksLikeClassTimeQuestion(t) || asksWhichClassesOnDay(t)) return true;
   if (looksLikeWeeklyScheduleScopeAsk(t) || looksLikeBareNextWeekConfirm(t)) return true;
   if (parseRequestedClassDays(t, now).length === 0) return false;
@@ -67,6 +79,7 @@ function isTimetableFragment(raw: string, now: Date): boolean {
 export function shouldAnswerFromClassTimetable(raw: string, now: Date = new Date()): boolean {
   const t = normalizeActText(raw);
   if (!t) return false;
+  if (looksLikeMembershipValidityAsk(t)) return false;
   if (matchesBookedClassMoveIntent(t)) return false;
   const act = classifyInboundSpeechAct(t, now);
   if (act === "booking_mutation" || act === "illness_only") return false;

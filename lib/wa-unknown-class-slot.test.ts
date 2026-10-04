@@ -191,6 +191,21 @@ assert.equal(
   "פילאטיס מכשירים (כסא)"
 );
 
+const stretchLike = [svc("מתיחות וגמישות", [{ day: "ג", time: "16:30" }])];
+assert.equal(
+  matchCatalogServiceFromFreeText("מתי הוא נגמר", stretchLike),
+  null,
+  "question word מתי must not select מתיחות"
+);
+assert.equal(
+  matchCatalogServiceFromFreeText(
+    "היוש מה נשמע? נראה שנגמר לי המנוי להיידי יש מצב? והוא מתחדש לי במהלך השבוע ואני רוצה לעשות אימון בראשון ברביעי מתי הוא נגמר?",
+    stretchLike
+  ),
+  null
+);
+assert.equal(matchCatalogServiceFromFreeText("מתיחות", stretchLike), "מתיחות וגמישות");
+
 const joeLike: SfServiceRow[] = [
   svc("אקרו יוגה - ליחיד", []),
   svc("אקרו יוגה - לזוג", []),
