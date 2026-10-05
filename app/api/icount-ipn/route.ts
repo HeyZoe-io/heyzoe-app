@@ -16,6 +16,7 @@ import {
 } from "@/lib/marketing-whatsapp";
 import { introPaymentPatch } from "@/lib/intro-offer";
 import { businessPlanFromCheckout, planPriceIls } from "@/lib/plan-prices";
+import { withNewDashboardFollowupsOff } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 
@@ -688,11 +689,11 @@ export async function POST(req: NextRequest) {
             name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
             niche: String(sessionRow?.business_type ?? "").trim(),
             bot_name: "זואי",
-            social_links: {
+            social_links: withNewDashboardFollowupsOff({
               address: String(sessionRow?.address ?? "").trim(),
               tagline: String(sessionRow?.description ?? "").trim(),
               business_description: String(sessionRow?.description ?? "").trim(),
-            },
+            }),
             plan,
             plan_price,
             is_active: true,
@@ -800,11 +801,11 @@ export async function POST(req: NextRequest) {
       name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
       niche: String(sessionRow?.business_type ?? "").trim(),
       bot_name: "זואי",
-      social_links: {
+      social_links: withNewDashboardFollowupsOff({
         address: String(sessionRow?.address ?? "").trim(),
         tagline: String(sessionRow?.description ?? "").trim(),
         business_description: String(sessionRow?.description ?? "").trim(),
-      },
+      }),
       plan,
       plan_price,
       is_active: true,

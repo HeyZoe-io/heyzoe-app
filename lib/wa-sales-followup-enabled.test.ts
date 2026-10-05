@@ -4,6 +4,7 @@ import {
   resolveWaFollowupSendPlan,
   resolveWaSalesFollowupEnabled,
   socialFlagEnabled,
+  withNewDashboardFollowupsOff,
   WA_FOLLOWUP_MS_20_MIN,
   WA_FOLLOWUP_MS_2_H,
   WA_FOLLOWUP_MS_23_H,
@@ -14,6 +15,16 @@ assert.equal(socialFlagEnabled(undefined), true);
 assert.equal(socialFlagEnabled(null), true);
 assert.equal(socialFlagEnabled(true), true);
 assert.equal(socialFlagEnabled(false), false);
+
+assert.deepEqual(resolveWaSalesFollowupEnabled(withNewDashboardFollowupsOff()), {
+  e1: false,
+  e2: false,
+  e3: false,
+});
+assert.deepEqual(
+  resolveWaSalesFollowupEnabled(withNewDashboardFollowupsOff({ address: "תל אביב" })),
+  { e1: false, e2: false, e3: false }
+);
 
 assert.deepEqual(resolveWaSalesFollowupEnabled({}), { e1: true, e2: true, e3: true });
 assert.deepEqual(resolveWaSalesFollowupEnabled(null), { e1: true, e2: true, e3: true });

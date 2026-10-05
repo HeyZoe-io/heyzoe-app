@@ -54,9 +54,28 @@ export function resolveWaSalesFollowupTemplates(social: unknown): {
   };
 }
 
-/** ברירת מחדל: פעיל. רק `false` מפורש מכבה (עסקים קיימים בלי השדה ממשיכים לשלוח). */
+/**
+ * ברירת מחדל לעסק קיים בלי השדה: פעיל.
+ * דשבורד חדש נשמר עם `false` מפורש דרך `withNewDashboardFollowupsOff`.
+ */
 export function socialFlagEnabled(value: unknown): boolean {
   return value !== false;
+}
+
+/** שלושת פולואפי המכירה כבויים עד שהבעלים מפעיל אותם בטאגל. */
+export const NEW_DASHBOARD_WA_SALES_FOLLOWUPS_DISABLED = {
+  wa_sales_followup_1_enabled: false,
+  wa_sales_followup_2_enabled: false,
+  wa_sales_followup_3_enabled: false,
+} as const;
+
+export function withNewDashboardFollowupsOff(
+  social: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    ...social,
+    ...NEW_DASHBOARD_WA_SALES_FOLLOWUPS_DISABLED,
+  };
 }
 
 export type WaSalesFollowupEnabled = {

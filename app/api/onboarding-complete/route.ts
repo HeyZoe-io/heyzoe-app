@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { businessPlanFromCheckout } from "@/lib/plan-prices";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sendEmail, welcomeEmail } from "@/lib/email";
+import { withNewDashboardFollowupsOff } from "@/lib/wa-sales-followup-defaults";
 
 export const runtime = "nodejs";
 
@@ -97,11 +98,11 @@ export async function POST(req: NextRequest) {
         name: studio_name.trim(),
         niche: business_type?.trim() || "",
         bot_name: "זואי",
-        social_links: {
+        social_links: withNewDashboardFollowupsOff({
           address: address?.trim() || "",
           tagline: description?.trim() || "",
           business_description: description?.trim() || "",
-        },
+        }),
         plan: businessPlanFromCheckout(plan),
       } as any)
       .select("id, slug")
