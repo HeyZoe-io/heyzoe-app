@@ -694,6 +694,9 @@ export default function TemplatesClient({
       if (j.error === "trial_reminder_exists") {
         throw new Error("כבר קיים טריגר תזכורת לשיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
       }
+      if (j.error === "trial_booked_exists") {
+        throw new Error("כבר קיים טריגר נרשם לאימון ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
+      }
       if (j.error === "trainer_trial_heads_up_exists") {
         throw new Error("כבר קיים טריגר התראה למאמן על שיעור ניסיון — ערכו את הקיים במקום ליצור עוד אחד");
       }

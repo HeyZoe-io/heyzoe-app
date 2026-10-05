@@ -45,6 +45,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
   lost_lead: ["first_name"],
   trial_reminder: ["first_name", "class_name", "class_time"],
+  trial_booked: ["first_name", "class_name", "class_date", "class_time"],
   milestones: ["first_name"],
   nth_workout: ["first_name", "workout_n"],
   trainer_trial_heads_up: ["class_name", "class_time", "client_full_name", "client_general_notes"],
@@ -168,6 +169,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     name: "trial_reminder",
     category: "UTILITY",
     body: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!",
+  },
+  trial_booked: {
+    name: "trial_booked",
+    category: "UTILITY",
+    body: "היי {{1}}, קיבלנו את ההרשמה שלך לאימון הניסיון {{2}} בתאריך {{3}} בשעה {{4}}. מחכים לראותך בסטודיו.",
   },
   milestones: {
     name: "milestones",

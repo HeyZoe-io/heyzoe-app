@@ -24,6 +24,7 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledPurchaseTemplateTriggers,
+  loadTrialBookedBusinessIds,
   purchaseSaleMembershipScopeIsEmpty,
   resolvePurchaseSaleMembershipScope,
   saleMembershipTypeInScope,
@@ -296,6 +297,8 @@ export async function GET(req: NextRequest) {
     console.error("[cron/arbox-trial-sync] businesses query failed:", bizErr.message);
     return NextResponse.json({ ok: false, error: "businesses_query_failed" }, { status: 500 });
   }
+
+  const trialBookedBusinessIds = await loadTrialBookedBusinessIds(admin);
 
   const businesses: BusinessRow[] = [];
   for (const row of businessRows ?? []) {
@@ -595,7 +598,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    if (trialBookingConfirmEnabled(business.slug)) {
+    if (trialBookingConfirmEnabled(business.slug, trialBookedBusinessIds.has(business.id))) {
       try {
         summary.trial_booking_confirm = await syncTrialBookingConfirmForBusiness({
           admin,
@@ -604,6 +607,7 @@ export async function GET(req: NextRequest) {
           apiKey: business.crm_api_key,
           boxId: business.crm_box_id,
           trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+          hasTrialBookedRule: trialBookedBusinessIds.has(business.id),
           now,
         });
       } catch (e) {

@@ -805,6 +805,43 @@ export async function resolveTrialReminderTemplateTrigger(input: {
   return pickTrialReminderTemplateTriggerRule(rules);
 }
 
+/** Enabled trial_booked rules — registration confirm, not a purchase. */
+export async function loadEnabledTrialBookedTemplateTriggers(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<PurchaseTemplateTriggerRule[]> {
+  return loadEnabledTemplateTriggersByType(admin, businessId, "trial_booked");
+}
+
+export async function resolveTrialBookedTemplateTrigger(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+}): Promise<PurchaseTemplateTriggerRule | null> {
+  const rules = await loadEnabledTrialBookedTemplateTriggers(input.admin, input.businessId);
+  return pickCreditRefusalTemplateTriggerRule(rules);
+}
+
+/** One indexed read per trial-sync run. Bookings report runs only for these ids (plus Tights). */
+export async function loadTrialBookedBusinessIds(
+  admin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<Set<number>> {
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select("business_id")
+    .eq("trigger_type", "trial_booked")
+    .eq("enabled", true);
+  if (error) {
+    console.error("[template-triggers-match] load trial_booked businesses failed:", error.message);
+    return new Set();
+  }
+  const ids = new Set<number>();
+  for (const row of data ?? []) {
+    const id = Number((row as { business_id?: unknown }).business_id);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  }
+  return ids;
+}
+
 async function loadEnabledTemplateTriggersByType(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,

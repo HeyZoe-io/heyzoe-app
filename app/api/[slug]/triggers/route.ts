@@ -309,6 +309,10 @@ const UNIQUE_TRIGGER_EXISTS_MESSAGE: Record<string, { error: string; message: st
     error: "first_paid_purchase_exists",
     message: "כבר קיים טריגר הצטרפות ראשונה",
   },
+  trial_booked: {
+    error: "trial_booked_exists",
+    message: "כבר קיים טריגר נרשם לאימון ניסיון",
+  },
 };
 
 async function findExistingTrialReminderRule(

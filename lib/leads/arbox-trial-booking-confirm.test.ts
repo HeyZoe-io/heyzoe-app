@@ -9,6 +9,7 @@ import {
 assert.equal(trialBookingConfirmEnabled("tights"), true);
 assert.equal(trialBookingConfirmEnabled("Tights"), true);
 assert.equal(trialBookingConfirmEnabled("other"), false);
+assert.equal(trialBookingConfirmEnabled("other", true), true);
 
 assert.equal(formatTrialBookingConfirmDate("2026-10-07"), "07/10/2026");
 assert.equal(formatTrialBookingConfirmTime("08:30"), "8:30");

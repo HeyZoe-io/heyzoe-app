@@ -1,13 +1,14 @@
 /**
  * Registration confirmation when a trial class is on the calendar and there is
- * no sale. Studio Tights books trials (Arbox label trialClassTitle) and takes
- * payment outside Arbox, so the sale-based confirm never fires.
+ * no sale. A trial booking is not a purchase.
  *
- * IO per trial-sync run, tights only: 1 bookingsReport (today…+14, usually 1–2
- * pages) + 1 membershipTypes. No extra calls for other businesses. First pass
- * seeds and sends nothing. Later passes send the registration text only inside
- * the 24h window. No purchase template: a trial booking is not a sale.
- * Outside the window the day-before trial_reminder still applies.
+ * Tights also sends Zoe's in-window chat reply. Every Arbox business with an
+ * enabled trial_booked trigger gets the UTILITY template on the same 15-minute
+ * trial-sync cron (outside the 24h window, or when the chat reply was not sent).
+ *
+ * IO per run, only Tights plus businesses with an enabled trial_booked rule:
+ * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
+ * First pass seeds and sends nothing.
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import {
@@ -17,12 +18,22 @@ import {
   normalizeMembershipTypeName,
   parseClassDateYmd,
 } from "@/lib/leads/arbox-trial-attended";
-import { canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { logMessage } from "@/lib/analytics";
+import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
+import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import {
+  resolveTrialBookedTemplateTrigger,
+  type PurchaseTemplateTriggerRule,
+} from "@/lib/template-triggers-match";
 import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
+import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
@@ -62,7 +73,13 @@ type LogRow = {
   template_status?: PartStatus;
 };
 
-export function trialBookingConfirmEnabled(slug: string): boolean {
+/** Tights always gets the in-window chat reply. Other studios run only with a live rule. */
+export function trialBookingConfirmEnabled(slug: string, hasTrialBookedRule = false): boolean {
+  if (hasTrialBookedRule) return true;
+  return CONFIRM_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+}
+
+function trialBookingSessionConfirmEnabled(slug: string): boolean {
   return CONFIRM_SLUGS.has(String(slug ?? "").trim().toLowerCase());
 }
 
@@ -147,6 +164,104 @@ function emptySummary(): TrialBookingConfirmSummary {
   };
 }
 
+type ApprovedTrialBookedTemplate = {
+  name: string;
+  language: string;
+  components: unknown;
+};
+
+async function loadApprovedTrialBookedTemplate(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  rule: PurchaseTemplateTriggerRule | null;
+}): Promise<ApprovedTrialBookedTemplate | null> {
+  const templateName = input.rule?.template_name?.trim() || "";
+  if (!templateName) return null;
+  const { data } = await input.admin
+    .from("whatsapp_templates")
+    .select("name, language, components, status, disabled")
+    .eq("business_id", input.businessId)
+    .eq("name", templateName)
+    .eq("status", "APPROVED")
+    .eq("disabled", false)
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as { name?: unknown; language?: unknown; components?: unknown };
+  return {
+    name: String(row.name ?? templateName),
+    language: String(row.language ?? "he").trim() || "he",
+    components: row.components,
+  };
+}
+
+/**
+ * UTILITY template for a new trial-class booking. `waiting` means the template
+ * is not approved yet — leave the log pending without burning the attempt cap.
+ */
+async function sendTrialBookedTemplate(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  fullName: string;
+  className: string;
+  classDate: string;
+  classTime: string;
+  rule: PurchaseTemplateTriggerRule;
+  template: ApprovedTrialBookedTemplate;
+}): Promise<"sent" | "skipped" | "waiting" | "failed"> {
+  const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+  if (!phoneNumberId) return "waiting";
+
+  const { data: bizRow } = await input.admin
+    .from("businesses")
+    .select("name")
+    .eq("id", input.businessId)
+    .maybeSingle();
+  const firstName = resolveTemplateFirstName({ full_name: input.fullName }, null);
+  if (
+    !firstName &&
+    templateBodyUsesFirstNameSlot("trial_booked", input.template.components)
+  ) {
+    console.info(LOG, "skip", { reason: "no_valid_name", businessSlug: input.businessSlug });
+    return "skipped";
+  }
+  const { sendComponents, bodyParams } = templateSendPayload({
+    triggerType: "trial_booked",
+    storedComponents: input.template.components,
+    firstName,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+    className: input.className,
+    classTime: formatTrialBookingConfirmTime(input.classTime),
+    expiryDateYmd: input.classDate,
+  });
+  const sendResult = await sendBusinessTemplate({
+    to: input.phone,
+    phoneNumberId,
+    templateName: input.template.name,
+    languageCode: input.template.language,
+    ...(sendComponents ? { components: sendComponents } : {}),
+  });
+  if (!sendResult.ok) {
+    console.error(LOG, "template send failed:", sendResult.error);
+    return "failed";
+  }
+  await logMessage({
+    business_slug: input.businessSlug,
+    role: "assistant",
+    content: formatLeadTemplateMessageContent(input.template.name, {
+      firstName,
+      components: input.template.components,
+      bodyParams,
+    }),
+    model_used: LEAD_TEMPLATE_MODEL,
+    session_id: buildWaSessionId(phoneNumberId, input.phone),
+  });
+  return "sent";
+}
+
 export async function syncTrialBookingConfirmForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -155,11 +270,12 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   boxId: string;
   trialMembershipTypeIds?: unknown;
   businessPlan?: unknown;
+  hasTrialBookedRule?: boolean;
   now?: Date;
 }): Promise<TrialBookingConfirmSummary> {
   const summary = emptySummary();
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
-  if (!trialBookingConfirmEnabled(businessSlug)) {
+  if (!trialBookingConfirmEnabled(businessSlug, input.hasTrialBookedRule === true)) {
     summary.skipped = true;
     summary.skip_reason = "not_enabled";
     return summary;
@@ -327,6 +443,14 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     seen.set(logKey(Number(row.user_id), String(row.class_date), row.class_time, row.class_name), row);
   }
 
+  const trialBookedRule = await resolveTrialBookedTemplateTrigger({ admin, businessId });
+  const approvedTemplate = await loadApprovedTrialBookedTemplate({
+    admin,
+    businessId,
+    rule: trialBookedRule,
+  });
+  const runSessionConfirm = trialBookingSessionConfirmEnabled(businessSlug);
+
   for (const item of trials) {
     const key = logKey(item.userId, item.classDate, item.classTime, item.className);
     const prior = seen.get(key);
@@ -389,6 +513,10 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
     if (confirmStatus === "sent") templateStatus = "skipped";
 
+    if (!runSessionConfirm && confirmStatus === "pending") {
+      confirmStatus = "skipped";
+    }
+
     if (confirmStatus === "pending") {
       const instagramFollowPromptSent = await instagramAlreadySent(admin, businessId, phone);
       const result = await sendTrialRegisteredWhatsAppReplyIfInWindow({
@@ -413,10 +541,38 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         templateStatus = "skipped";
       } else if (trialBookingConfirmIsTerminalSkip(result)) {
         confirmStatus = "skipped";
-        templateStatus = "skipped";
         summary.skipped_window += 1;
       } else {
         failed = true;
+      }
+    }
+
+    if (templateStatus === "pending" && confirmStatus !== "pending") {
+      if (!trialBookedRule || confirmStatus === "sent") {
+        templateStatus = "skipped";
+      } else if (!approvedTemplate) {
+        // Meta has not approved the template yet. Retry next cron without burning attempts.
+      } else {
+        const outcome = await sendTrialBookedTemplate({
+          admin,
+          businessId,
+          businessSlug,
+          phone,
+          fullName: String(item.row.full_name ?? ""),
+          className: item.className,
+          classDate: item.classDate,
+          classTime: item.classTime,
+          rule: trialBookedRule,
+          template: approvedTemplate,
+        });
+        if (outcome === "sent") {
+          templateStatus = "sent";
+          summary.template_sent += 1;
+        } else if (outcome === "skipped") {
+          templateStatus = "skipped";
+        } else if (outcome === "failed") {
+          failed = true;
+        }
       }
     }
 

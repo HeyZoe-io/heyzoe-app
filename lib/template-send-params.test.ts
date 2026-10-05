@@ -180,6 +180,7 @@ import {
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],
     trial_reminder: ["דנה", "יוגה", "18:00"],
+    trial_booked: ["דנה", "יוגה", "15.09.2026", "18:00"],
     milestones: ["דנה"],
     nth_workout: ["דנה", "3"],
     trainer_trial_heads_up: ["יוגה", "18:00", "דנה כהן", "פציעה בברך"],
@@ -244,6 +245,10 @@ import {
     }
     if (type === "trial_reminder") {
       assert.deepEqual(slots, ["first_name", "class_name", "class_time"]);
+      continue;
+    }
+    if (type === "trial_booked") {
+      assert.deepEqual(slots, ["first_name", "class_name", "class_date", "class_time"]);
       continue;
     }
     if (type === "trainer_trial_heads_up") {
