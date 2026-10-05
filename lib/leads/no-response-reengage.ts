@@ -24,6 +24,7 @@ import {
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
