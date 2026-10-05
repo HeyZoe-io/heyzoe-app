@@ -31,6 +31,13 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  companionTemplateAlreadySent,
+  recordCompanionTemplateSent,
+  rulesForCompanionSend,
+  runCompanionTemplateSends,
+} from "@/lib/same-trigger-template-order";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledAttendanceGapTemplateTriggers,
@@ -347,12 +354,16 @@ async function dispatchGapTemplate(input: {
   tier: number;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
+  dueOffsetMs?: number;
 }): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
   // Tier lives in delay_days; send is immediate on detection day (not event+N).
-  const dueAt = computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now);
+  const dueAt = new Date(
+    computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now).getTime() +
+      Math.max(0, input.dueOffsetMs ?? 0)
+  );
 
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
@@ -453,16 +464,6 @@ function normalizeTiersFromRules(rules: PurchaseTemplateTriggerRule[]): number[]
     tiers.add(t);
   }
   return [...tiers].sort((a, b) => a - b);
-}
-
-function pickRuleForTier(
-  rules: PurchaseTemplateTriggerRule[],
-  tier: number
-): PurchaseTemplateTriggerRule | null {
-  const matching = rules
-    .filter((r) => r.template_name?.trim() && Math.max(1, Math.trunc(Number(r.delay_days) || 0)) === tier)
-    .sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")));
-  return matching[0] ?? null;
 }
 
 /** Soft-seed: tiers with zero sync_log rows for this business after global seed. */
@@ -664,8 +665,14 @@ export async function syncArboxAttendanceGapForBusiness(input: {
       if (state.gapDays < tier) continue;
       if (seedTiers.includes(tier)) continue;
 
-      const rule = pickRuleForTier(rules, tier);
-      if (!rule) continue;
+      const tierRules = rulesForCompanionSend(
+        rules.filter(
+          (candidate) =>
+            Boolean(candidate.template_name?.trim()) &&
+            Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier
+        )
+      );
+      if (!tierRules.length) continue;
 
       try {
         const { data: existing } = await input.admin
@@ -709,32 +716,70 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           continue;
         }
 
-        const send = await dispatchGapTemplate({
-          admin: input.admin,
-          businessId,
-          businessSlug,
-          phone: resolved.phone,
-          fullName: resolveReportFullName(state.sampleRow),
-          contactFullName: resolved.contact.full_name ?? null,
-          userId: state.userId,
-          gapStartDate: state.lastYesYmd,
-          tier,
-          rule,
-          now,
+        const sendPhone = resolved.phone;
+        const sendContact = resolved.contact;
+        if (!sendPhone || !sendContact) continue;
+
+        const sendDispatch = await runCompanionTemplateSends({
+          rules: tierRules,
+          dryRun: isArboxDailyDryRun(),
+          send: async (rule, ctx) => {
+            const send = await dispatchGapTemplate({
+              admin: input.admin,
+              businessId,
+              businessSlug,
+              phone: sendPhone,
+              fullName: resolveReportFullName(state.sampleRow),
+              contactFullName: sendContact.full_name ?? null,
+              userId: state.userId,
+              gapStartDate: state.lastYesYmd,
+              tier,
+              rule,
+              now,
+              dueOffsetMs: ctx.dueOffsetMs,
+            });
+            return send.dispatch;
+          },
+          alreadyDelivered: (rule) =>
+            companionTemplateAlreadySent(
+              input.admin,
+              buildAttendanceGapScheduledDedupKey(
+                businessId,
+                rule.id,
+                state.userId,
+                state.lastYesYmd,
+                tier
+              )
+            ),
+          recordDelivered: (rule) =>
+            recordCompanionTemplateSent(input.admin, {
+              dedupKey: buildAttendanceGapScheduledDedupKey(
+                businessId,
+                rule.id,
+                state.userId,
+                state.lastYesYmd,
+                tier
+              ),
+              businessId,
+              ruleId: rule.id,
+              phone: sendPhone,
+              templateName: String(rule.template_name ?? "").trim(),
+              nowIso,
+            }),
         });
 
         const mapped =
-          send.dispatch === "immediate"
+          sendDispatch === "immediate"
             ? ("immediate" as const)
-            : send.dispatch === "deferred"
+            : sendDispatch === "deferred"
               ? ("deferred" as const)
-              : send.dispatch === "gated"
+              : sendDispatch === "gated"
                 ? ("gated" as const)
-                : send.dispatch === "skipped"
+                : sendDispatch === "skipped"
                   ? ("skipped" as const)
-                  : send.dispatch === "send_failed"
-                  ? ("send_failed" as const)
-                  : ("gated" as const);
+                  : sendDispatch === "send_failed"
+                    ? ("send_failed" as const)
+                    : ("gated" as const);
 
         const next = nextCancellationSyncLogAfterDispatch({
           dispatch: mapped,
@@ -753,10 +798,10 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         });
 
         summary.processed += 1;
-        if (send.dispatch === "immediate") summary.notified += 1;
-        else if (send.dispatch === "deferred") summary.deferred += 1;
-        else if (send.dispatch === "gated") summary.gated += 1;
-        else if (send.dispatch === "send_failed") {
+        if (sendDispatch === "immediate") summary.notified += 1;
+        else if (sendDispatch === "deferred") summary.deferred += 1;
+        else if (sendDispatch === "gated") summary.gated += 1;
+        else if (sendDispatch === "send_failed") {
           if (next.hitCap) summary.abandoned += 1;
           else summary.errors += 1;
         }
@@ -768,7 +813,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           gap_days: state.gapDays,
           gap_start: state.lastYesYmd,
           contact: maskPhoneForLog(resolved.phone),
-          dispatch: send.dispatch,
+          dispatch: sendDispatch,
           status: next.status,
         });
       } catch (e) {

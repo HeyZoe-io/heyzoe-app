@@ -23,8 +23,15 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
-  resolveNoResponseTemplateTrigger,
+  companionTemplateAlreadySent,
+  recordCompanionTemplateSent,
+  rulesForCompanionSend,
+  runCompanionTemplateSends,
+} from "@/lib/same-trigger-template-order";
+import {
+  loadEnabledNoResponseTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import {
@@ -115,7 +122,7 @@ const MEMBER_SYNC_LOGS: { table: string; userIdColumn: "user_id" | null }[] = [
 const CANDIDATE_SELECT =
   "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, arbox_user_id";
 
-export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped";
+export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped" | "send_failed";
 
 export type NoResponseReengageSummary = {
   examined: number;
@@ -378,12 +385,23 @@ async function dispatchNoResponseTemplate(input: {
   templateName: string;
   lastUserAtIso: string;
   now: Date;
+  dueOffsetMs?: number;
+  /** Pair sends stamp the episode once, after every template in the pair. */
+  markEpisode?: boolean;
 }): Promise<NoResponseDispatch> {
   const phoneNorm =
     normalizePhone(input.contact.phone) ?? String(input.contact.phone ?? "").replace(/\D/g, "");
   if (!phoneNorm) return "skipped";
 
-  const dueAt = computeNoResponseDueAt(input.lastUserAtIso, input.rule.delay_days);
+  const markEpisode = input.markEpisode !== false;
+  const dueAt = new Date(
+    computeNoResponseDueAt(input.lastUserAtIso, input.rule.delay_days).getTime() +
+      Math.max(0, input.dueOffsetMs ?? 0)
+  );
+  const stampEpisode = () =>
+    markEpisode
+      ? markReengagedAt(input.admin, input.contact.id, input.now.toISOString())
+      : Promise.resolve();
   const episodeKey = silenceEpisodeKeyFromLastUserAt(input.lastUserAtIso);
 
   if (dueAt.getTime() > input.now.getTime()) {
@@ -411,8 +429,8 @@ async function dispatchNoResponseTemplate(input: {
       enqueue_ok: enqueueResult.ok,
       enqueue_inserted: enqueueResult.ok ? enqueueResult.inserted : false,
     });
-    if (!enqueueResult.ok) return "skipped";
-    await markReengagedAt(input.admin, input.contact.id, input.now.toISOString());
+    if (!enqueueResult.ok) return "send_failed";
+    await stampEpisode();
     return "deferred";
   }
 
@@ -459,7 +477,7 @@ async function dispatchNoResponseTemplate(input: {
       reason: "no_valid_name",
       contact_id: input.contact.id,
     });
-    await markReengagedAt(input.admin, input.contact.id, input.now.toISOString());
+    await stampEpisode();
     return "skipped";
   }
   const languageCode =
@@ -491,7 +509,7 @@ async function dispatchNoResponseTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[no-response-reengage] template send failed:", sendResult.error);
-    return "skipped";
+    return "send_failed";
   }
 
   const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);
@@ -507,7 +525,7 @@ async function dispatchNoResponseTemplate(input: {
     session_id: sessionId || null,
   });
 
-  await markReengagedAt(input.admin, input.contact.id, input.now.toISOString());
+  await stampEpisode();
   return "immediate";
 }
 
@@ -545,10 +563,10 @@ export async function syncNoResponseReengageForBusiness(input: {
   const nowMs = now.getTime();
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
 
-  const rule = await resolveNoResponseTemplateTrigger({
-    admin: input.admin,
-    businessId: input.businessId,
-  });
+  const rules = rulesForCompanionSend(
+    await loadEnabledNoResponseTemplateTriggers(input.admin, input.businessId)
+  );
+  const rule = rules[0] ?? null;
   const templateName = rule?.template_name?.trim() || null;
   if (!rule || !templateName) {
     bump(summary, "no_rule");
@@ -796,16 +814,50 @@ export async function syncNoResponseReengageForBusiness(input: {
         continue;
       }
 
-      const dispatch = await dispatchNoResponseTemplate({
-        admin: input.admin,
-        businessId: input.businessId,
-        businessSlug,
-        contact,
-        rule,
-        templateName,
-        lastUserAtIso,
-        now,
+      const phoneNorm =
+        normalizePhone(contact.phone) ?? String(contact.phone ?? "").replace(/\D/g, "");
+      const episodeKey = silenceEpisodeKeyFromLastUserAt(lastUserAtIso);
+      const markInside = rules.length < 2;
+      const dispatch = await runCompanionTemplateSends({
+        rules,
+        dryRun: isArboxDailyDryRun(),
+        send: (item, ctx) =>
+          dispatchNoResponseTemplate({
+            admin: input.admin,
+            businessId: input.businessId,
+            businessSlug,
+            contact,
+            rule: item,
+            templateName: String(item.template_name ?? "").trim(),
+            lastUserAtIso,
+            now,
+            dueOffsetMs: ctx.dueOffsetMs,
+            markEpisode: markInside,
+          }),
+        alreadyDelivered: (item) =>
+          companionTemplateAlreadySent(
+            input.admin,
+            buildNoResponseScheduledDedupKey(input.businessId, item.id, phoneNorm, episodeKey)
+          ),
+        recordDelivered: (item) =>
+          recordCompanionTemplateSent(input.admin, {
+            dedupKey: buildNoResponseScheduledDedupKey(
+              input.businessId,
+              item.id,
+              phoneNorm,
+              episodeKey
+            ),
+            businessId: input.businessId,
+            ruleId: item.id,
+            phone: phoneNorm,
+            templateName: String(item.template_name ?? "").trim(),
+            nowIso: now.toISOString(),
+          }),
       });
+
+      if (!markInside && (dispatch === "immediate" || dispatch === "deferred")) {
+        await markReengagedAt(input.admin, contactId, now.toISOString());
+      }
 
       if (dispatch === "immediate") summary.sent += 1;
       else if (dispatch === "deferred") summary.deferred += 1;

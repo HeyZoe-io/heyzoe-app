@@ -36,6 +36,11 @@ import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification"
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  createCompanionSendGate,
+  orderAllRulesWithCompanion,
+} from "@/lib/same-trigger-template-order";
 import {
   loadEnabledMilestonesTemplateTriggers,
   type PurchaseTemplateTriggerRule,
@@ -439,7 +444,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
   }
 
   const rules = await loadEnabledMilestonesTemplateTriggers(input.admin, businessId);
-  const rulesWithTemplate = rules.filter((r) => Boolean(r.template_name?.trim()) && r.id);
+  const rulesWithTemplate = orderAllRulesWithCompanion(rules);
   if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -587,6 +592,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
     if (member.userId === DAYS_IN_CLUB_SOFT_SEED_SENTINEL_USER_ID) continue;
 
     let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>> | undefined;
+    const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
@@ -663,6 +669,9 @@ export async function syncArboxDaysInClubForBusiness(input: {
           continue;
         }
 
+        const templateName = String(rule.template_name ?? "").trim();
+        if ((await companionGate.before(templateName)) === "skip") continue;
+
         const send = await dispatchDaysInClubTemplate({
           admin: input.admin,
           businessId,
@@ -672,6 +681,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
           contactFullName: resolved.contact?.full_name ?? null,
           rule,
         });
+        companionGate.after(templateName, send.dispatch);
 
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "gated") summary.gated += 1;

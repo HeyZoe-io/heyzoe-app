@@ -45,10 +45,17 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  companionTemplateAlreadySent,
+  recordCompanionTemplateSent,
+  rulesForCompanionSend,
+  runCompanionTemplateSends,
+  type CompanionDispatch,
+} from "@/lib/same-trigger-template-order";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledTrialReminderTemplateTriggers,
-  pickTrialReminderTemplateTriggerRule,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -308,12 +315,16 @@ async function dispatchTrialReminderTemplate(input: {
   classDateYmd: string;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
+  dueOffsetMs?: number;
 }): Promise<{ dispatch: TrialReminderDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
   // Detection delay already applied (due-day filter). Send on this cron run.
-  const dueAt = computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now);
+  const dueAt = new Date(
+    computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now).getTime() +
+      Math.max(0, input.dueOffsetMs ?? 0)
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -501,7 +512,8 @@ export async function syncArboxTrialReminderForBusiness(input: {
     return summary;
   }
 
-  const rule = pickTrialReminderTemplateTriggerRule(rulesWithTemplate);
+  const sendRules = rulesForCompanionSend(rulesWithTemplate);
+  const rule = sendRules[0] ?? null;
   if (!rule?.template_name?.trim()) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -749,20 +761,59 @@ export async function syncArboxTrialReminderForBusiness(input: {
         continue;
       }
 
-      const send = await dispatchTrialReminderTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveReportFullName(row),
-        contactFullName: resolved.contact?.full_name ?? null,
-        className,
-        classTime,
-        userId,
-        classDateYmd,
-        rule,
-        now,
+      const sendPhone = resolved.phone;
+      if (!sendPhone) continue;
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: sendRules,
+        dryRun: isArboxDailyDryRun(),
+        send: async (item, ctx) => {
+          const send = await dispatchTrialReminderTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone: sendPhone,
+            fullName: resolveReportFullName(row),
+            contactFullName: resolved.contact?.full_name ?? null,
+            className,
+            classTime,
+            userId,
+            classDateYmd,
+            rule: item,
+            now,
+            dueOffsetMs: ctx.dueOffsetMs,
+          });
+          return send.dispatch as CompanionDispatch;
+        },
+        alreadyDelivered: (item) =>
+          companionTemplateAlreadySent(
+            input.admin,
+            buildTrialReminderScheduledDedupKey(
+              businessId,
+              item.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            )
+          ),
+        recordDelivered: (item) =>
+          recordCompanionTemplateSent(input.admin, {
+            dedupKey: buildTrialReminderScheduledDedupKey(
+              businessId,
+              item.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            ),
+            businessId,
+            ruleId: item.id,
+            phone: sendPhone,
+            templateName: String(item.template_name ?? "").trim(),
+            nowIso,
+          }),
       });
+      const send = { dispatch: sendDispatch };
 
       console.info("[leads/arbox-trial-reminder] dispatch", {
         businessId,

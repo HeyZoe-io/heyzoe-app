@@ -38,6 +38,11 @@ import {
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  createCompanionSendGate,
+  orderAllRulesWithCompanion,
+} from "@/lib/same-trigger-template-order";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledLostLeadTemplateTriggers,
@@ -491,7 +496,7 @@ export async function syncArboxLostLeadForBusiness(input: {
   }
 
   const rules = await loadEnabledLostLeadTemplateTriggers(input.admin, businessId);
-  const rulesWithTemplate = rules.filter((r) => Boolean(r.template_name?.trim()));
+  const rulesWithTemplate = orderAllRulesWithCompanion(rules);
   if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -677,6 +682,7 @@ export async function syncArboxLostLeadForBusiness(input: {
 
     const eventYmd = reportTimestampToYmd(lostDate);
     let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>> | undefined;
+    const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
@@ -821,6 +827,9 @@ export async function syncArboxLostLeadForBusiness(input: {
           continue;
         }
 
+        const templateName = String(rule.template_name ?? "").trim();
+        if ((await companionGate.before(templateName)) === "skip") continue;
+
         const send = await dispatchLostLeadTemplate({
           admin: input.admin,
           businessId,
@@ -832,6 +841,7 @@ export async function syncArboxLostLeadForBusiness(input: {
           lostDate,
           rule,
         });
+        companionGate.after(templateName, send.dispatch);
 
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;

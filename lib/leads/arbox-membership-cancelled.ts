@@ -9,6 +9,11 @@ import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import {
+  createCompanionSendGate,
+  orderAllRulesWithCompanion,
+} from "@/lib/same-trigger-template-order";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledMembershipCancelledTemplateTriggers,
@@ -564,7 +569,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   }
 
   const rules = await loadEnabledMembershipCancelledTemplateTriggers(input.admin, businessId);
-  const rulesWithTemplate = rules.filter((r) => Boolean(r.template_name?.trim()));
+  const rulesWithTemplate = orderAllRulesWithCompanion(rules);
   if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -696,10 +701,12 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     const membershipTypeName = String(row.membership_type_name ?? "").trim();
     const endDateYmd = parseEndDateYmd(row.end_date);
     const eventYmd = reportTimestampToYmd(cancelledTime);
-    const matching = matchingMembershipCancelledTemplateTriggerRules(
-      rulesWithTemplate.filter((r) => !seededThisRun.has(r.id)),
-      membershipTypeName,
-      nameById
+    const matching = orderAllRulesWithCompanion(
+      matchingMembershipCancelledTemplateTriggerRules(
+        rulesWithTemplate.filter((r) => !seededThisRun.has(r.id)),
+        membershipTypeName,
+        nameById
+      )
     );
     if (!matching.length) {
       summary.skipped_filter += 1;
@@ -709,6 +716,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     let resolved:
       | Awaited<ReturnType<typeof resolveOrCreateContact>>
       | undefined;
+    const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of matching) {
       const logBase = {
@@ -783,6 +791,9 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
 
         logBase.contact = maskPhoneForLog(resolved.phone);
 
+        const templateName = String(rule.template_name ?? "").trim();
+        if ((await companionGate.before(templateName)) === "skip") continue;
+
         const send = await dispatchMembershipCancelledTemplate({
           admin: input.admin,
           businessId,
@@ -796,6 +807,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           endDateYmd,
           rule,
         });
+        companionGate.after(templateName, send.dispatch);
 
         summary.processed += 1;
         if (send.dispatch === "immediate") summary.notified += 1;

@@ -54,13 +54,18 @@ import {
   loadEnabledRegisteredAfterTrialTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
+import {
+  combineCompanionDispatches,
+  rulesForCompanionSend,
+  SAME_TRIGGER_TEMPLATE_GAP_MS,
+} from "@/lib/same-trigger-template-order";
 import { minDelayDaysForTrigger } from "@/lib/trigger-catalog";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
+export { SAME_TRIGGER_TEMPLATE_GAP_MS };
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SEED_SPAN_DAYS = 30;
-/** Gap between two WhatsApp templates that share one trigger, so the first arrives first. */
-export const SAME_TRIGGER_TEMPLATE_GAP_MS = 5_000;
 
 export type PostTrialTemplateDispatch =
   | "immediate"
@@ -378,32 +383,18 @@ async function upsertFollowupSyncLog(input: {
   return { ok: true };
 }
 
-/**
- * Several enabled rows on one trigger all send.
- * Name order puts `registered_after_trial` before `registered_after_trial1`.
- */
+/** @deprecated Use rulesForCompanionSend. Kept so existing tests import the pair order. */
 export function orderSameTriggerTemplateRules<
-  T extends { id?: string; template_name?: string | null; created_at?: string },
+  T extends { id?: string; template_name?: string | null; created_at?: string; updated_at?: string | null },
 >(rules: T[]): T[] {
-  return rules
-    .filter((rule) => Boolean(rule.id) && Boolean(rule.template_name?.trim()))
-    .sort((a, b) => {
-      const byName = String(a.template_name).trim().localeCompare(String(b.template_name).trim(), "en");
-      if (byName !== 0) return byName;
-      return String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
-    });
+  return rulesForCompanionSend(rules);
 }
 
 /** First failure blocks the attendance; a later template waits so order survives a retry. */
 export function combinePostTrialTemplateDispatches(
   results: PostTrialTemplateDispatch[]
 ): PostTrialTemplateDispatch {
-  if (results.length === 0) return "no_rule";
-  if (results.some((dispatch) => dispatch === "send_failed")) return "send_failed";
-  if (results.some((dispatch) => dispatch === "gated")) return "gated";
-  if (results.every((dispatch) => dispatch === "skipped" || dispatch === "no_rule")) return "skipped";
-  if (results.some((dispatch) => dispatch === "deferred")) return "deferred";
-  return "immediate";
+  return combineCompanionDispatches(results);
 }
 
 /** Catalog minimum per trigger. C6 may be 1 (morning after); C5 stays at 2. */
@@ -690,8 +681,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
     loadEnabledNotRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
   ]);
-  const registeredRules = orderSameTriggerTemplateRules(registeredLoaded);
-  const notRegisteredRules = orderSameTriggerTemplateRules(notRegisteredLoaded);
+  const registeredRules = rulesForCompanionSend(registeredLoaded);
+  const notRegisteredRules = rulesForCompanionSend(notRegisteredLoaded);
   if (!registeredRules.length && !notRegisteredRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";

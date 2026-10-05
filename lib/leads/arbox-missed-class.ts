@@ -43,9 +43,16 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
-  resolveMissedClassTemplateTrigger,
-  resolveMissedTrialTemplateTrigger,
+  companionTemplateAlreadySent,
+  recordCompanionTemplateSent,
+  rulesForCompanionSend,
+  runCompanionTemplateSends,
+} from "@/lib/same-trigger-template-order";
+import {
+  loadEnabledMissedClassTemplateTriggers,
+  loadEnabledMissedTrialTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
@@ -291,18 +298,21 @@ async function dispatchMissedTemplate(input: {
   kind: MissedClassKind;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
+  dueOffsetMs?: number;
 }): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const eventDate = parseClassDateAsEventDate(input.classDateYmd);
-  const dueAt = computeDueAt(
-    {
-      delay_days: delayDays,
-      delay_direction: delayDirectionForTrigger(input.kind, input.rule.delay_direction),
-    },
-    eventDate
+  const dueAt = new Date(
+    computeDueAt(
+      {
+        delay_days: delayDays,
+        delay_direction: delayDirectionForTrigger(input.kind, input.rule.delay_direction),
+      },
+      eventDate
+    ).getTime() + Math.max(0, input.dueOffsetMs ?? 0)
   );
 
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
@@ -512,10 +522,12 @@ export async function syncArboxMissedClassForBusiness(input: {
     return summary;
   }
 
-  const [classRule, trialRule] = await Promise.all([
-    resolveMissedClassTemplateTrigger({ admin: input.admin, businessId }),
-    resolveMissedTrialTemplateTrigger({ admin: input.admin, businessId }),
+  const [classRules, trialRules] = await Promise.all([
+    loadEnabledMissedClassTemplateTriggers(input.admin, businessId).then(rulesForCompanionSend),
+    loadEnabledMissedTrialTemplateTriggers(input.admin, businessId).then(rulesForCompanionSend),
   ]);
+  const classRule = classRules[0] ?? null;
+  const trialRule = trialRules[0] ?? null;
   const hasClass = Boolean(classRule?.template_name?.trim());
   const hasTrial = Boolean(trialRule?.template_name?.trim());
   if (!hasClass && !hasTrial) {
@@ -684,14 +696,14 @@ export async function syncArboxMissedClassForBusiness(input: {
         : bookingMatchesTrialScope(row, trialScope);
 
     let kind: MissedClassKind | null = null;
-    let rule: PurchaseTemplateTriggerRule | null = null;
-    if (isTrial && hasTrial && trialRule) {
+    let batch: PurchaseTemplateTriggerRule[] = [];
+    if (isTrial && hasTrial && trialRules.length) {
       kind = "missed_trial";
-      rule = trialRule;
+      batch = trialRules;
       summary.routed_trial += 1;
-    } else if (!isTrial && hasClass && classRule) {
+    } else if (!isTrial && hasClass && classRules.length) {
       kind = "missed_class";
-      rule = classRule;
+      batch = classRules;
       summary.routed_class += 1;
     } else {
       continue;
@@ -780,34 +792,85 @@ export async function syncArboxMissedClassForBusiness(input: {
         }
       }
 
-      const send = await dispatchMissedTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveReportFullName(row),
-        contactFullName: resolved.contact.full_name ?? null,
-        className,
-        userId,
-        classDateYmd,
-        classTime,
-        kind,
-        rule,
-        now,
+      if (!kind) continue;
+      const missedKind = kind;
+      const sendPhone = resolved.phone;
+      const sendContact = resolved.contact;
+      if (!sendPhone || !sendContact) continue;
+
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: batch,
+        dryRun: isArboxDailyDryRun(),
+        send: async (rule, ctx) => {
+          const send = await dispatchMissedTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone: sendPhone,
+            fullName: resolveReportFullName(row),
+            contactFullName: sendContact.full_name ?? null,
+            className,
+            userId,
+            classDateYmd,
+            classTime,
+            kind: missedKind,
+            rule,
+            now,
+            dueOffsetMs: ctx.dueOffsetMs,
+          });
+          console.info("[leads/arbox-missed-class] dispatch", {
+            businessId,
+            kind,
+            user_id: userId,
+            template_name: rule.template_name,
+            dispatch: send.dispatch,
+          });
+          return send.dispatch;
+        },
+        alreadyDelivered: (rule) =>
+          companionTemplateAlreadySent(
+            input.admin,
+            buildMissedClassScheduledDedupKey(
+              missedKind,
+              businessId,
+              rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            )
+          ),
+        recordDelivered: (rule) =>
+          recordCompanionTemplateSent(input.admin, {
+            dedupKey: buildMissedClassScheduledDedupKey(
+              missedKind,
+              businessId,
+              rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            ),
+            businessId,
+            ruleId: rule.id,
+            phone: sendPhone,
+            templateName: String(rule.template_name ?? "").trim(),
+            nowIso,
+          }),
       });
 
       const mapped =
-        send.dispatch === "immediate"
+        sendDispatch === "immediate"
           ? ("immediate" as const)
-          : send.dispatch === "deferred"
+          : sendDispatch === "deferred"
             ? ("deferred" as const)
-            : send.dispatch === "gated"
+            : sendDispatch === "gated"
               ? ("gated" as const)
-              : send.dispatch === "skipped"
+              : sendDispatch === "skipped"
                 ? ("skipped" as const)
-                : send.dispatch === "send_failed"
-                ? ("send_failed" as const)
-                : ("gated" as const);
+                : sendDispatch === "send_failed"
+                  ? ("send_failed" as const)
+                  : ("gated" as const);
 
       const next = nextCancellationSyncLogAfterDispatch({
         dispatch: mapped,
@@ -827,10 +890,10 @@ export async function syncArboxMissedClassForBusiness(input: {
       });
 
       summary.processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") {
+      if (sendDispatch === "immediate") summary.notified += 1;
+      else if (sendDispatch === "deferred") summary.deferred += 1;
+      else if (sendDispatch === "gated") summary.gated += 1;
+      else if (sendDispatch === "send_failed") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }
@@ -841,7 +904,8 @@ export async function syncArboxMissedClassForBusiness(input: {
         user_id: userId,
         class_date: classDateYmd,
         contact: maskPhoneForLog(resolved.phone),
-        dispatch: send.dispatch,
+        templates: batch.length,
+        dispatch: sendDispatch,
         status: next.status,
       });
     } catch (e) {
