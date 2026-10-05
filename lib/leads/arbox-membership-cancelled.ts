@@ -1,5 +1,5 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
-import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -804,6 +804,45 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
 
         const templateName = String(rule.template_name ?? "").trim();
         if ((await companionGate.before(templateName)) === "skip") continue;
+
+        if (!isArboxDailyDryRun()) {
+          const claim = await claimPendingSyncLog({
+            admin: input.admin,
+            table: "arbox_cancellation_sync_log",
+            insertRow: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              cancelled_time: cancelledTime,
+              contact_id: resolved.contact.id,
+              processed_at: nowIso,
+              status: "pending",
+              attempts: existingSeen ? existingAttempts : 0,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["user_id", userId],
+              ["cancelled_time", cancelledTime],
+            ],
+            existingAttempts: existingSeen ? existingAttempts : null,
+            nowIso,
+          });
+          if (claim !== "won") {
+            if (claim === "error") {
+              logDedupBlockedSend({
+                log: "[leads/arbox-membership-cancelled]",
+                businessId,
+                triggerId: rule.id,
+                reason: "claim_failed",
+              });
+              summary.errors += 1;
+            } else {
+              summary.already += 1;
+            }
+            continue;
+          }
+        }
 
         const send = await dispatchMembershipCancelledTemplate({
           admin: input.admin,

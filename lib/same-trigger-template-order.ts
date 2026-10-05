@@ -107,7 +107,8 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
   dryRun?: boolean;
   send: (rule: T, ctx: CompanionSendContext) => Promise<CompanionDispatch>;
   alreadyDelivered?: (rule: T) => Promise<boolean | null>;
-  recordDelivered?: (rule: T) => Promise<void>;
+  recordDelivered?: (rule: T) => Promise<boolean | null | void>;
+  settleDelivered?: (rule: T, status: "sent" | "failed" | "release") => Promise<void>;
 }): Promise<CompanionDispatch> {
   const rules = input.rules;
   if (rules.length === 0) return "no_rule";
@@ -136,15 +137,33 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
       }
     }
 
+    if (input.recordDelivered) {
+      const claimed = await input.recordDelivered(rule);
+      if (claimed === false || claimed === null) {
+        logDedupBlockedSend({
+          log: "[same-trigger-template-order]",
+          businessId: null,
+          triggerId: rule.id ?? null,
+          reason: claimed == null ? "dedup_claim_failed" : "claim_not_won",
+        });
+        results.push("skipped");
+        continue;
+      }
+    }
+
     if (gapBetweenSends && sentImmediateThisRun && !input.dryRun) {
       await waitMs(SAME_TRIGGER_TEMPLATE_GAP_MS);
     }
 
     const dispatch = await input.send(rule, { dueOffsetMs });
     results.push(dispatch);
+    if (input.settleDelivered && !input.dryRun) {
+      const settled =
+        dispatch === "immediate" ? "sent" : dispatch === "send_failed" ? "failed" : "release";
+      await input.settleDelivered(rule, settled);
+    }
 
-    if (dispatch === "immediate" && input.recordDelivered && !input.dryRun) {
-      if (input.recordDelivered) await input.recordDelivered(rule);
+    if (dispatch === "immediate" && !input.dryRun) {
       sentImmediateThisRun = true;
       dueOffsetMs += SAME_TRIGGER_TEMPLATE_GAP_MS;
       continue;
@@ -216,28 +235,68 @@ export async function recordCompanionTemplateSent(
     templateName: string;
     nowIso: string;
   }
-): Promise<void> {
-  if (isArboxDailyDryRun()) return;
+): Promise<boolean | null> {
+  if (isArboxDailyDryRun()) return true;
   const dedupKey = input.dedupKey.trim();
-  if (!dedupKey) return;
-  const { error } = await admin.from("scheduled_template_sends").upsert(
-    {
-      business_id: input.businessId,
-      trigger_id: input.ruleId,
-      contact_phone: input.phone,
-      template_name: input.templateName,
-      due_at: input.nowIso,
-      status: "sent",
-      dedup_key: dedupKey,
-      last_error: null,
-      updated_at: input.nowIso,
-    },
-    { onConflict: "dedup_key", ignoreDuplicates: true }
-  );
+  if (!dedupKey) return null;
+  const { error } = await admin.from("scheduled_template_sends").insert({
+    business_id: input.businessId,
+    trigger_id: input.ruleId,
+    contact_phone: input.phone,
+    template_name: input.templateName,
+    due_at: input.nowIso,
+    status: "canceled",
+    dedup_key: dedupKey,
+    last_error: "claim_held",
+    updated_at: input.nowIso,
+  });
+  if (!error) return true;
+  if (error.code === "23505" || /duplicate/i.test(error.message)) return false;
+  logDedupBlockedSend({
+    log: "[same-trigger-template-order]",
+    businessId: input.businessId,
+    triggerId: input.ruleId,
+    reason: error.message,
+  });
+  return null;
+}
+
+export async function settleCompanionTemplateSent(
+  admin: AdminClient,
+  dedupKey: string,
+  status: "sent" | "failed" | "release"
+): Promise<void> {
+  const key = dedupKey.trim();
+  if (!key) return;
+  if (status === "release") {
+    const { error } = await admin
+      .from("scheduled_template_sends")
+      .delete()
+      .eq("dedup_key", key)
+      .eq("last_error", "claim_held");
+    if (error) {
+      logDedupBlockedSend({
+        log: "[same-trigger-template-order]",
+        businessId: null,
+        reason: error.message,
+      });
+    }
+    return;
+  }
+  const { error } = await admin
+    .from("scheduled_template_sends")
+    .update({
+      status,
+      last_error: status === "failed" ? "send_failed" : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("dedup_key", key)
+    .eq("last_error", "claim_held");
   if (error) {
-    console.error("[same-trigger-template-order] dedup record failed:", error.message, {
-      dedup_key: dedupKey,
-      template_name: input.templateName,
+    logDedupBlockedSend({
+      log: "[same-trigger-template-order]",
+      businessId: null,
+      reason: error.message,
     });
   }
 }

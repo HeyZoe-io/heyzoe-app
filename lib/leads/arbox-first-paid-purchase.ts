@@ -563,6 +563,26 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
     }
 
     for (const rule of pending) {
+      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
+        business_id: input.businessId,
+        trigger_id: rule.id,
+        user_id: userId,
+        sale_id: saleId,
+        seeded: false,
+      });
+      if (claimErr) {
+        console.error(`${LOG} claim blocked send`, {
+          business_id: input.businessId,
+          trigger_id: rule.id,
+          reason: claimErr.message,
+        });
+        if (String(claimErr.code ?? "") === "23505" || /duplicate/i.test(claimErr.message)) {
+          seen.add(rule.id);
+        } else {
+          summary.errors += 1;
+        }
+        continue;
+      }
       const outcome = await sendWelcome({
         admin: input.admin,
         businessId: input.businessId,
@@ -571,45 +591,30 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
         fullName: reportFullName(row),
         templateName: String(rule.template_name ?? "").trim(),
       });
-      if (outcome === "skipped") {
-        const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
-          business_id: input.businessId,
-          trigger_id: rule.id,
-          user_id: userId,
-          sale_id: saleId,
-          seeded: false,
-        });
-        if (claimErr && String(claimErr.code ?? "") !== "23505" && !/duplicate/i.test(claimErr.message)) {
-          console.error(`${LOG} log insert failed after no_valid_name:`, claimErr.message, {
-            user_id: userId,
-            sale_id: saleId,
-          });
-          summary.errors += 1;
-        } else {
-          seen.add(rule.id);
-        }
-        continue;
-      }
-      if (outcome !== "sent") {
-        if (outcome === "gated") summary.gated += 1;
-        else summary.errors += 1;
-        continue;
-      }
       seen.add(rule.id);
-
-      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
-        business_id: input.businessId,
-        trigger_id: rule.id,
-        user_id: userId,
-        sale_id: saleId,
-        seeded: false,
-      });
-      if (claimErr && String(claimErr.code ?? "") !== "23505" && !/duplicate/i.test(claimErr.message)) {
-        console.error(`${LOG} log insert failed after send:`, claimErr.message, {
-          user_id: userId,
-          sale_id: saleId,
-        });
+      if (outcome === "gated") {
+        const { error: releaseErr } = await input.admin
+          .from("arbox_first_paid_purchase_log")
+          .delete()
+          .eq("business_id", input.businessId)
+          .eq("trigger_id", rule.id)
+          .eq("user_id", userId);
+        if (releaseErr) {
+          console.error(`${LOG} claim release failed`, {
+            business_id: input.businessId,
+            trigger_id: rule.id,
+            reason: releaseErr.message,
+          });
+        } else {
+          seen.delete(rule.id);
+        }
+        summary.gated += 1;
+        continue;
+      }
+      if (outcome === "skipped") continue;
+      if (outcome !== "sent") {
         summary.errors += 1;
+        continue;
       }
       summary.sent += 1;
     }

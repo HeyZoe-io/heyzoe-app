@@ -9,7 +9,7 @@
  * The wait sits in that business's daily worker (cap 285s).
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
-import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -1011,6 +1011,49 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
 
         if (sentImmediateThisRun && !isArboxDailyDryRun()) {
           await waitMs(SAME_TRIGGER_TEMPLATE_GAP_MS);
+        }
+
+        if (!isArboxDailyDryRun()) {
+          const attemptsSoFar = parseCancellationSyncAttempts(
+            (existing as { attempts?: unknown } | null)?.attempts
+          );
+          const claim = await claimPendingSyncLog({
+            admin: input.admin,
+            table: "arbox_post_trial_followup_sync_log",
+            insertRow: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: att.userId,
+              class_date: att.classDateYmd,
+              outcome,
+              contact_id: resolved.contact.id,
+              processed_at: nowIso,
+              attempts: existing ? attemptsSoFar : 0,
+              status: "pending",
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["user_id", att.userId],
+              ["class_date", att.classDateYmd],
+            ],
+            existingAttempts: existing ? attemptsSoFar : null,
+            nowIso,
+          });
+          if (claim !== "won") {
+            if (claim === "error") {
+              logDedupBlockedSend({
+                log: "[leads/arbox-post-trial-followup]",
+                businessId,
+                triggerId: rule.id,
+                reason: "claim_failed",
+              });
+              summary.errors += 1;
+            } else {
+              summary.already += 1;
+            }
+            continue;
+          }
         }
 
         const send = await dispatchFollowupTemplate({

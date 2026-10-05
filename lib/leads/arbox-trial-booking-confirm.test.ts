@@ -17,7 +17,8 @@ assert.equal(trialBookingConfirmEnabled(true), false);
 
 assert.equal(trialBookingAlreadyHandled("sent"), true);
 assert.equal(trialBookingAlreadyHandled("skipped"), true);
-assert.equal(trialBookingAlreadyHandled("pending"), false);
+assert.equal(trialBookingAlreadyHandled("pending"), true);
+assert.equal(trialBookingAlreadyHandled("failed"), true);
 assert.equal(trialBookingAlreadyHandled(undefined), false);
 
 const tenJerusalem = new Date("2026-10-05T07:00:00.000Z");

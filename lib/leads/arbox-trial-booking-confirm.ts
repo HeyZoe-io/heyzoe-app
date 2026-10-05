@@ -38,6 +38,7 @@ import {
 } from "@/lib/trial-registered-wa-reply";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
+import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
 import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
 import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -45,7 +46,6 @@ import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
 const FUTURE_DAYS = 14;
-const ATTEMPT_CAP = 3;
 const TABLE = "arbox_trial_booking_confirm_log";
 
 export type TrialBookingConfirmSummary = {
@@ -72,8 +72,8 @@ export type TrialBookingConfirmSummary = {
   fetch_error?: string;
 };
 
-type LogStatus = "pending" | "seeded" | "sent" | "skipped" | "abandoned" | "no_phone";
-type PartStatus = "pending" | "sent" | "skipped";
+type LogStatus = "pending" | "seeded" | "sent" | "skipped" | "abandoned" | "no_phone" | "failed";
+type PartStatus = "pending" | "sent" | "skipped" | "failed";
 
 type LogRow = {
   trigger_id?: string;
@@ -92,9 +92,9 @@ export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean
   return trialBookedSendsEnabled() && hasTrialBookedRule === true;
 }
 
-/** Settled log rows are not sent again. Only `pending` is retried. */
+/** A claim row exists. Pending is already taken and is not retried. */
 export function trialBookingAlreadyHandled(status: string | null | undefined): boolean {
-  return Boolean(status) && status !== "pending";
+  return Boolean(String(status ?? "").trim());
 }
 
 /** Class start in Asia/Jerusalem is strictly before `now`. The start minute itself still sends. */
@@ -438,7 +438,6 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   const trialRules = rulesForCompanionSend(
     await loadEnabledTrialBookedTemplateTriggers(admin, businessId)
   ).sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
-  const primaryRuleId = trialRules[0]?.id ?? "";
   const bookingTriggerIds = [
     SYNC_LOG_SENTINEL_TRIGGER_ID,
     ...trialRules.map((rule) => rule.id).filter(Boolean),
@@ -457,10 +456,13 @@ export async function syncTrialBookingConfirmForBusiness(input: {
           class_name: item.className,
           status: "seeded",
           attempts: 0,
+          confirm_status: "skipped",
+          template_status: "skipped",
+          channel: triggerId === SYNC_LOG_SENTINEL_TRIGGER_ID ? "free" : "template",
           processed_at: now.toISOString(),
         },
         {
-          onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+          onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name,channel",
           ignoreDuplicates: true,
         }
       );
@@ -495,7 +497,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   const { data: existing, error: existingErr } = await admin
     .from(TABLE)
     .select(
-      "trigger_id, user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status"
+      "trigger_id, user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status, channel"
     )
     .eq("business_id", businessId)
     .gte("class_date", today);
@@ -613,10 +615,6 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       continue;
     }
     const attempts = sentinel?.attempts ?? 0;
-    if (!sentinelSettled && attempts >= ATTEMPT_CAP) {
-      summary.abandoned += 1;
-      continue;
-    }
     if (trialBookingClassHasStarted(item.classDate, item.classTime, now)) {
       console.warn(LOG, "trial booking not sent", {
         reason: "skipped_stale",
@@ -640,54 +638,30 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       continue;
     }
 
-    if (!sentinel) {
-      const claimRow: Record<string, unknown> = {
-        business_id: businessId,
-        trigger_id: SYNC_LOG_SENTINEL_TRIGGER_ID,
-        user_id: item.userId,
-        class_date: item.classDate,
-        class_time: item.classTime,
-        class_name: item.className,
-        status: "pending",
-        attempts: 0,
-        processed_at: now.toISOString(),
-        confirm_status: "pending",
-        template_status: "pending",
-      };
-      const { error: claimErr } = await admin.from(TABLE).insert(claimRow);
-      if (claimErr) {
-        if (claimErr.code === "23505") {
-          summary.already += 1;
-          continue;
-        }
-        summary.errors += 1;
-        logDedupBlockedSend({
-          log: LOG,
-          businessId,
-          triggerId: SYNC_LOG_SENTINEL_TRIGGER_ID,
-          reason: claimErr.message,
-        });
-        continue;
-      }
-    }
-
-    let confirmStatus: PartStatus =
-      sentinel?.confirm_status === "sent" || sentinel?.confirm_status === "skipped"
-        ? sentinel.confirm_status
-        : "pending";
-
     const optedOut = await evaluateSessionMessageSend({ admin, businessId, phone });
     if (optedOut.suppress) {
-      const kept = confirmStatus === "sent" ? "sent" : "skipped";
       for (const triggerId of bookingTriggerIds) {
-        await writeLog(admin, businessId, item, triggerId, kept, kept, "skipped", attempts, now);
+        await writeLog(admin, businessId, item, triggerId, "skipped", "skipped", "skipped", attempts, now);
       }
+      continue;
+    }
+
+    const counts = await loadTrialMessageCounts({
+      admin,
+      businessId,
+      businessSlug,
+      phone,
+      classDate: item.classDate,
+      now,
+    });
+    if (!counts) {
+      summary.errors += 1;
       continue;
     }
 
     const signupNotice = await loadTrialSignupNotice(admin, businessId, phone);
     const freeAlreadySent =
-      confirmStatus === "sent" || trialPurchaseTemplateBlockedByZoe(signupNotice);
+      sentinelSettled || trialPurchaseTemplateBlockedByZoe(signupNotice) || counts.free >= 1;
     const sendFreeMessage = planTrialRegistrationSends({
       source: "booking",
       isTrialProduct: true,
@@ -698,58 +672,84 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       purchaseRuleCount: 0,
     }).freeMessage;
     if (sendFreeMessage) {
-      const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
-        admin,
-        businessId,
-        businessSlug,
-        phone,
-        instagramFollowPromptSent: await loadInstagramFollowPromptSent(admin, businessId, phone),
-        businessPlan,
-        bookingSchedule: {
-          date: item.classDate,
-          time: item.classTime,
-          serviceName: item.className,
-        },
+      const freeBlock = trialSendCapBlock({
+        channel: "free",
+        sentTemplatesForRule: 0,
+        sentFreeForContact: counts.free,
+        trialRelatedLast24h: counts.last24h,
       });
-      if (waResult.sent) {
-        confirmStatus = "sent";
-        summary.sent += 1;
-      } else if (trialBookingConfirmIsTerminalSkip(waResult)) {
-        confirmStatus = "skipped";
-        if (waResult.reason === "outside_24h_window") summary.skipped_window += 1;
+      if (freeBlock) {
+        logDedupBlockedSend({
+          log: LOG,
+          businessId,
+          triggerId: SYNC_LOG_SENTINEL_TRIGGER_ID,
+          reason: freeBlock,
+        });
+      } else {
+        const won = await claimTrialBookingSlot(admin, businessId, item, SYNC_LOG_SENTINEL_TRIGGER_ID, "free", now);
+        if (won) {
+          const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
+            admin,
+            businessId,
+            businessSlug,
+            phone,
+            instagramFollowPromptSent: await loadInstagramFollowPromptSent(admin, businessId, phone),
+            businessPlan,
+            bookingSchedule: {
+              date: item.classDate,
+              time: item.classTime,
+              serviceName: item.className,
+            },
+          });
+          if (waResult.sent) {
+            await writeLog(admin, businessId, item, SYNC_LOG_SENTINEL_TRIGGER_ID, "sent", "sent", "skipped", attempts, now);
+            summary.sent += 1;
+            counts.free += 1;
+            counts.last24h += 1;
+          } else {
+            await writeLog(
+              admin,
+              businessId,
+              item,
+              SYNC_LOG_SENTINEL_TRIGGER_ID,
+              "failed",
+              "failed",
+              "skipped",
+              attempts,
+              now
+            );
+            if (waResult.reason === "outside_24h_window") summary.skipped_window += 1;
+            summary.errors += 1;
+          }
+        }
       }
-    } else if (confirmStatus === "pending") {
-      confirmStatus = "skipped";
     }
-    const freeBlocked = false;
-    const settledConfirm: "sent" | "skipped" = confirmStatus === "sent" ? "sent" : "skipped";
-    const sentinelStatus: LogStatus = confirmStatus === "pending" ? "pending" : confirmStatus;
-    await writeLog(
-      admin,
-      businessId,
-      item,
-      SYNC_LOG_SENTINEL_TRIGGER_ID,
-      sentinelStatus,
-      confirmStatus,
-      "skipped",
-      attempts,
-      now
-    );
 
     for (const rule of pendingRules) {
       const approved = approvedByRule.get(rule.id) ?? null;
-      const followUp = trialBookingTemplateFollowUp({
-        confirmStatus: settledConfirm,
-        freeBlocked,
-        templateNameConfigured: Boolean(rule.template_name?.trim()),
-        templateApproved: Boolean(approved),
-        templateBesidesFreeMessage: trialRules.length > 1 && rule.id !== primaryRuleId,
-      });
-      if (followUp === "skip") {
-        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now);
+      if (!rule.template_name?.trim() || !approved) {
+        if (!rule.template_name?.trim()) {
+          await writeLog(admin, businessId, item, rule.id, "skipped", "skipped", "skipped", attempts, now);
+        }
         continue;
       }
-      if (followUp === "wait" || !approved) continue;
+      const templateBlock = trialSendCapBlock({
+        channel: "template",
+        sentTemplatesForRule: 0,
+        sentFreeForContact: counts.free,
+        trialRelatedLast24h: counts.last24h,
+      });
+      if (templateBlock) {
+        logDedupBlockedSend({
+          log: LOG,
+          businessId,
+          triggerId: rule.id,
+          reason: templateBlock,
+        });
+        continue;
+      }
+      const won = await claimTrialBookingSlot(admin, businessId, item, rule.id, "template", now);
+      if (!won) continue;
       const outcome = await sendTrialBookedTemplate({
         admin,
         businessId,
@@ -763,11 +763,11 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         template: approved,
       });
       if (outcome === "sent") {
-        await writeLog(admin, businessId, item, rule.id, "sent", settledConfirm, "sent", attempts, now);
+        await writeLog(admin, businessId, item, rule.id, "sent", "skipped", "sent", attempts, now);
         summary.template_sent += 1;
-      } else if (outcome === "skipped") {
-        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now);
-      } else if (outcome === "failed") {
+        counts.last24h += 1;
+      } else {
+        await writeLog(admin, businessId, item, rule.id, "failed", "skipped", "failed", attempts, now);
         summary.errors += 1;
       }
     }
@@ -777,6 +777,85 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 }
 
 
+
+async function claimTrialBookingSlot(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  item: { userId: number; classDate: string; classTime: string; className: string },
+  triggerId: string,
+  channel: "free" | "template",
+  now: Date
+): Promise<boolean> {
+  const { error } = await admin.from(TABLE).insert({
+    business_id: businessId,
+    trigger_id: triggerId,
+    user_id: item.userId,
+    class_date: item.classDate,
+    class_time: item.classTime,
+    class_name: item.className,
+    status: "pending",
+    attempts: 0,
+    confirm_status: "pending",
+    template_status: "pending",
+    channel,
+    processed_at: now.toISOString(),
+  });
+  if (!claimInsertAllowsSend(error)) {
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      triggerId,
+      reason: error?.message || "claim_not_won",
+    });
+    return false;
+  }
+  return true;
+}
+
+async function loadTrialMessageCounts(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  classDate: string;
+  now: Date;
+}): Promise<{ free: number; last24h: number } | null> {
+  const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
+  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+  const sessionId = phoneNumberId ? buildWaSessionId(phoneNumberId, input.phone) : "";
+  if (!sessionId) return { free: 0, last24h: 0 };
+  const since = new Date(input.now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const dateLabel = formatTrialBookingConfirmDate(input.classDate);
+  const { data, error } = await input.admin
+    .from("messages")
+    .select("model_used, content, created_at")
+    .eq("business_slug", input.businessSlug)
+    .eq("session_id", sessionId)
+    .in("model_used", ["sales_flow_after_trial_registered", "lead_template"])
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) {
+    logDedupBlockedSend({
+      log: LOG,
+      businessId: input.businessId,
+      reason: error.message,
+    });
+    return null;
+  }
+  let free = 0;
+  let last24h = 0;
+  for (const row of data ?? []) {
+    const model = String((row as { model_used?: unknown }).model_used ?? "");
+    const content = String((row as { content?: unknown }).content ?? "");
+    const created = String((row as { created_at?: unknown }).created_at ?? "");
+    const trialRelated =
+      model === "sales_flow_after_trial_registered" ||
+      (model === "lead_template" && (content.includes(dateLabel) || content.includes("איזה כיף")));
+    if (model === "sales_flow_after_trial_registered") free += 1;
+    if (trialRelated && created >= since) last24h += 1;
+  }
+  return { free, last24h };
+}
 
 async function loadInstagramFollowPromptSent(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -818,9 +897,12 @@ async function writeLog(
       attempts,
       confirm_status: confirmStatus,
       template_status: templateStatus,
+      channel: triggerId === SYNC_LOG_SENTINEL_TRIGGER_ID ? "free" : "template",
       processed_at: now.toISOString(),
     },
-    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
+    {
+      onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name,channel",
+    }
   );
   if (error) {
     logDedupBlockedSend({

@@ -6,7 +6,7 @@
  * 31-day cap, quiet 21:00–08:00). freeze_ending_* stays on the daily cron.
  */
 import { logMessage } from "@/lib/analytics";
-import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -14,6 +14,7 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
+  parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
@@ -919,7 +920,7 @@ export async function syncArboxFreezeForBusiness(input: {
       } else summary.errors += 1;
     } else if (createdRulesToSend.length && !seedCreated) {
       try {
-        const { data: existingRows } = await input.admin
+        const { data: existingRows, error: existingErr } = await input.admin
           .from("arbox_freeze_created_sync_log")
           .select("trigger_id, status, attempts")
           .eq("business_id", businessId)
@@ -928,13 +929,23 @@ export async function syncArboxFreezeForBusiness(input: {
             "trigger_id",
             createdRulesToSend.map((item) => item.id)
           );
+        if (existingErr) {
+          logDedupBlockedSend({
+            log: "[leads/arbox-freeze]",
+            businessId,
+            reason: existingErr.message,
+          });
+          summary.errors += 1;
+        }
         const terminalIds = new Set(
-          (existingRows ?? [])
-            .filter((log) => {
-              const status = String((log as { status?: unknown }).status ?? "");
-              return FREEZE_CREATED_TERMINAL.has(status);
-            })
-            .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+          existingErr
+            ? createdRulesToSend.map((item) => item.id)
+            : (existingRows ?? [])
+                .filter((log) => {
+                  const status = String((log as { status?: unknown }).status ?? "");
+                  return FREEZE_CREATED_TERMINAL.has(status);
+                })
+                .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
         );
         const pendingRules = createdRulesToSend.filter((item) => item.id && !terminalIds.has(item.id));
         if (!pendingRules.length) {
@@ -966,8 +977,55 @@ export async function syncArboxFreezeForBusiness(input: {
           } else {
             const sendPhone = resolved.phone;
             const sendContact = resolved.contact;
+            const claimedRules: typeof pendingRules = [];
+            for (const rule of pendingRules) {
+              if (isArboxDailyDryRun()) {
+                claimedRules.push(rule);
+                continue;
+              }
+              const prior = (existingRows ?? []).find(
+                (log) => String((log as { trigger_id?: unknown }).trigger_id ?? "") === rule.id
+              );
+              const priorAttempts = prior
+                ? parseCancellationSyncAttempts((prior as { attempts?: unknown }).attempts)
+                : null;
+              const claim = await claimPendingSyncLog({
+                admin: input.admin,
+                table: "arbox_freeze_created_sync_log",
+                insertRow: {
+                  business_id: businessId,
+                  trigger_id: rule.id,
+                  membership_hold_id: holdId,
+                  user_id: userId,
+                  contact_id: sendContact.id,
+                  processed_at: nowIso,
+                  attempts: priorAttempts ?? 0,
+                  status: "pending",
+                },
+                filters: [
+                  ["business_id", businessId],
+                  ["trigger_id", rule.id],
+                  ["membership_hold_id", holdId],
+                ],
+                existingAttempts: prior ? priorAttempts : null,
+                nowIso,
+              });
+              if (claim === "won") claimedRules.push(rule);
+              else if (claim === "error") {
+                logDedupBlockedSend({
+                  log: "[leads/arbox-freeze]",
+                  businessId,
+                  triggerId: rule.id,
+                  reason: "claim_failed",
+                });
+                summary.errors += 1;
+              }
+            }
+            if (!claimedRules.length) {
+              summary.already += 1;
+            } else {
             const sendDispatch = await runCompanionTemplateSends({
-              rules: pendingRules,
+              rules: claimedRules,
               dryRun: isArboxDailyDryRun(),
               send: (rule) =>
                 dispatchFreezeTemplate({
@@ -996,7 +1054,7 @@ export async function syncArboxFreezeForBusiness(input: {
               dispatch: mapDispatch(sendDispatch),
               attemptsSoFar,
             });
-            for (const rule of pendingRules) {
+            for (const rule of claimedRules) {
               await upsertCreatedLog({
                 admin: input.admin,
                 businessId,
@@ -1016,6 +1074,7 @@ export async function syncArboxFreezeForBusiness(input: {
             else if (sendDispatch === "send_failed") {
               if (next.hitCap) summary.abandoned += 1;
               else summary.errors += 1;
+            }
             }
           }
         }
@@ -1079,7 +1138,7 @@ export async function syncArboxFreezeForBusiness(input: {
     if (!dueRules.length) continue;
 
     try {
-      const { data: existingRows } = await input.admin
+      const { data: existingRows, error: existingErr } = await input.admin
         .from("arbox_freeze_ending_sync_log")
         .select("trigger_id, status, attempts, variant")
         .eq("business_id", businessId)
@@ -1089,6 +1148,15 @@ export async function syncArboxFreezeForBusiness(input: {
           "trigger_id",
           dueRules.map((item) => item.id)
         );
+      if (existingErr) {
+        logDedupBlockedSend({
+          log: "[leads/arbox-freeze]",
+          businessId,
+          reason: existingErr.message,
+        });
+        summary.errors += 1;
+        continue;
+      }
       const terminalIds = new Set(
         (existingRows ?? [])
           .filter((log) => {
@@ -1139,8 +1207,59 @@ export async function syncArboxFreezeForBusiness(input: {
         variant === "booked" ? "freeze_ending_booked" : "freeze_ending_unbooked";
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
+      const claimedRules: typeof pendingRules = [];
+      for (const rule of pendingRules) {
+        if (isArboxDailyDryRun()) {
+          claimedRules.push(rule);
+          continue;
+        }
+        const prior = (existingRows ?? []).find(
+          (log) => String((log as { trigger_id?: unknown }).trigger_id ?? "") === rule.id
+        );
+        const priorAttempts = prior
+          ? parseCancellationSyncAttempts((prior as { attempts?: unknown }).attempts)
+          : null;
+        const claim = await claimPendingSyncLog({
+          admin: input.admin,
+          table: "arbox_freeze_ending_sync_log",
+          insertRow: {
+            business_id: businessId,
+            trigger_id: rule.id,
+            membership_hold_id: holdId,
+            end_suspend_ymd: endYmd,
+            variant,
+            user_id: userId,
+            contact_id: sendContact.id,
+            processed_at: nowIso,
+            attempts: priorAttempts ?? 0,
+            status: "pending",
+          },
+          filters: [
+            ["business_id", businessId],
+            ["trigger_id", rule.id],
+            ["membership_hold_id", holdId],
+            ["end_suspend_ymd", endYmd],
+          ],
+          existingAttempts: prior ? priorAttempts : null,
+          nowIso,
+        });
+        if (claim === "won") claimedRules.push(rule);
+        else if (claim === "error") {
+          logDedupBlockedSend({
+            log: "[leads/arbox-freeze]",
+            businessId,
+            triggerId: rule.id,
+            reason: "claim_failed",
+          });
+          summary.errors += 1;
+        }
+      }
+      if (!claimedRules.length) {
+        summary.already += 1;
+        continue;
+      }
       const sendDispatch = await runCompanionTemplateSends({
-        rules: pendingRules,
+        rules: claimedRules,
         dryRun: isArboxDailyDryRun(),
         send: (rule) =>
           dispatchFreezeTemplate({
@@ -1170,7 +1289,7 @@ export async function syncArboxFreezeForBusiness(input: {
         dispatch: mapDispatch(sendDispatch),
         attemptsSoFar,
       });
-      for (const rule of pendingRules) {
+      for (const rule of claimedRules) {
         await upsertEndingLog({
           admin: input.admin,
           businessId,

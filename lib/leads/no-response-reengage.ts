@@ -28,6 +28,7 @@ import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
+  settleCompanionTemplateSent,
   rulesForCompanionSend,
   runCompanionTemplateSends,
 } from "@/lib/same-trigger-template-order";
@@ -809,6 +810,12 @@ export async function syncNoResponseReengageForBusiness(input: {
             templateName: String(item.template_name ?? "").trim(),
             nowIso: now.toISOString(),
           }),
+        settleDelivered: (item, status) =>
+          settleCompanionTemplateSent(
+            input.admin,
+            buildNoResponseScheduledDedupKey(input.businessId, item.id, phoneNorm, episodeKey),
+            status
+          ),
       });
 
       const laterRules = rules.filter((item) => !dueRules.some((due) => due.id === item.id));

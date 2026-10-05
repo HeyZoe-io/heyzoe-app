@@ -34,6 +34,7 @@ import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
+  settleCompanionTemplateSent,
   rulesForCompanionSend,
   runCompanionTemplateSends,
 } from "@/lib/same-trigger-template-order";
@@ -789,6 +790,18 @@ export async function syncArboxAttendanceGapForBusiness(input: {
               templateName: String(rule.template_name ?? "").trim(),
               nowIso,
             }),
+          settleDelivered: (rule, status) =>
+            settleCompanionTemplateSent(
+              input.admin,
+              buildAttendanceGapScheduledDedupKey(
+                businessId,
+                rule.id,
+                state.userId,
+                state.lastYesYmd,
+                tier
+              ),
+              status
+            ),
         });
 
         const mapped =

@@ -48,6 +48,7 @@ import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
+  settleCompanionTemplateSent,
   rulesForCompanionSend,
   runCompanionTemplateSends,
   type CompanionDispatch,
@@ -849,6 +850,19 @@ export async function syncArboxTrialReminderForBusiness(input: {
             templateName: String(item.template_name ?? "").trim(),
             nowIso,
           }),
+        settleDelivered: (_item, status) =>
+          settleCompanionTemplateSent(
+            input.admin,
+            buildTrialReminderScheduledDedupKey(
+              businessId,
+              _item.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            ),
+            status
+          ),
       });
       const send = { dispatch: sendDispatch };
 

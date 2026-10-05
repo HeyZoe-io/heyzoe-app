@@ -1,5 +1,5 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
-import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -715,17 +715,45 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
       const contactId = String(contact.id);
       const phone = resolved.phone;
 
+      const claimedRules: typeof pendingRules = [];
       for (const rule of pendingRules) {
-        await input.admin.from("arbox_credit_refusal_sync_log").upsert(
-          {
+        if (isArboxDailyDryRun()) {
+          claimedRules.push(rule);
+          continue;
+        }
+        const claim = await claimPendingSyncLog({
+          admin: input.admin,
+          table: "arbox_credit_refusal_sync_log",
+          insertRow: {
             business_id: businessId,
             trigger_id: rule.id,
             transaction_id: transactionId,
             contact_id: contactId,
             processed_at: nowIso,
           },
-          { onConflict: "business_id,trigger_id,transaction_id" }
-        );
+          filters: [
+            ["business_id", businessId],
+            ["trigger_id", rule.id],
+            ["transaction_id", transactionId],
+          ],
+          existingAttempts: null,
+          nowIso,
+        });
+        if (claim === "won") {
+          claimedRules.push(rule);
+          continue;
+        }
+        logDedupBlockedSend({
+          log: "[leads/arbox-credit-refusal]",
+          businessId,
+          triggerId: rule.id,
+          reason: claim === "lost" ? "claim_lost" : "claim_failed",
+        });
+        if (claim === "error") summary.errors += 1;
+      }
+      if (!claimedRules.length) {
+        summary.already += 1;
+        continue;
       }
 
       if (isWithinCreditRefusalThrottle(contact.credit_refusal_last_notified_at, now)) {
@@ -741,7 +769,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
       }
 
       const sendDispatch = await runCompanionTemplateSends({
-        rules: pendingRules,
+        rules: claimedRules,
         dryRun: isArboxDailyDryRun(),
         send: (rule) =>
           sendCreditRefusalTemplate({

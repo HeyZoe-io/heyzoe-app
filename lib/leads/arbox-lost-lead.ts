@@ -7,7 +7,7 @@
  * Seed 30d without WhatsApp; after seed lookback = max(3, max delay) capped at 30.
  */
 import { logMessage } from "@/lib/analytics";
-import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -840,6 +840,45 @@ export async function syncArboxLostLeadForBusiness(input: {
 
         const templateName = String(rule.template_name ?? "").trim();
         if ((await companionGate.before(templateName)) === "skip") continue;
+
+        if (!isArboxDailyDryRun()) {
+          const claim = await claimPendingSyncLog({
+            admin: input.admin,
+            table: "arbox_lost_lead_sync_log",
+            insertRow: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              lead_id: leadId,
+              lost_date: lostDate,
+              contact_id: resolved.contact?.id ?? null,
+              processed_at: nowIso,
+              status: "pending",
+              attempts: existing ? existingAttempts : 0,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["lead_id", leadId],
+              ["lost_date", lostDate],
+            ],
+            existingAttempts: existing ? existingAttempts : null,
+            nowIso,
+          });
+          if (claim !== "won") {
+            if (claim === "error") {
+              logDedupBlockedSend({
+                log: "[leads/arbox-lost-lead]",
+                businessId,
+                triggerId: rule.id,
+                reason: "claim_failed",
+              });
+              summary.errors += 1;
+            } else {
+              summary.already += 1;
+            }
+            continue;
+          }
+        }
 
         const send = await dispatchLostLeadTemplate({
           admin: input.admin,
