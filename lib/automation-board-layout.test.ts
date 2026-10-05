@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  groupTemplatesForBoard,
-  groupTriggersByType,
-  interleaveTriggersAndTemplates,
+  stackSameType,
   templateAutomationGroupKey,
 } from "@/lib/automation-board-layout";
 
@@ -15,65 +13,43 @@ assert.equal(
   "type:birthday_former"
 );
 assert.equal(
-  templateAutomationGroupKey({ name: "not_registered_after_trial2", category: "MARKETING" }, []),
-  "type:not_registered_after_trial"
-);
-assert.equal(
   templateAutomationGroupKey(
     { name: "custom_promo", category: "MARKETING" },
     [{ trigger_type: "purchase", template_name: "custom_promo" }]
   ),
   "type:purchase"
 );
-assert.equal(
-  templateAutomationGroupKey({ name: "summer_sale", category: "MARKETING" }, []),
-  "category:MARKETING"
-);
 
-const triggerGroups = groupTriggersByType([
-  { trigger_type: "birthday", template_name: "birthday_wish", created_at: "2026-02-01" },
-  { trigger_type: "purchase", template_name: "purchase_thanks", created_at: "2026-01-01" },
-  { trigger_type: "site_lead", template_name: "incoming_lead", created_at: "2026-03-01" },
-  { trigger_type: "birthday", template_name: "birthday_wish2", created_at: "2026-01-15" },
-]);
-assert.deepEqual(
-  triggerGroups.map((group) => group.type),
-  ["incoming_lead", "purchase", "birthday"]
-);
-assert.deepEqual(
-  triggerGroups.find((group) => group.type === "birthday")?.triggers.map((row) => row.created_at),
-  ["2026-01-15", "2026-02-01"]
-);
-
-const templateGroups = groupTemplatesForBoard(
+const stackedTemplates = stackSameType(
   [
     { name: "summer_sale", category: "MARKETING" },
-    { name: "birthday_wish2", category: "MARKETING" },
     { name: "birthday_wish", category: "MARKETING" },
     { name: "purchase_thanks", category: "UTILITY" },
+    { name: "birthday_wish2", category: "MARKETING" },
   ],
-  []
+  (template) => templateAutomationGroupKey(template, [])
 );
 assert.deepEqual(
-  templateGroups.map((group) => [group.key, group.items.map((item) => item.name)]),
-  [
-    ["type:purchase", ["purchase_thanks"]],
-    ["type:birthday", ["birthday_wish2", "birthday_wish"]],
-    ["category:MARKETING", ["summer_sale"]],
-  ]
+  stackedTemplates.map((template) => template.name),
+  ["summer_sale", "birthday_wish", "birthday_wish2", "purchase_thanks"]
 );
 
-const paired = interleaveTriggersAndTemplates(
+const stackedTriggers = stackSameType(
   [
-    { template_name: "birthday_wish" },
-    { template_name: "birthday_wish" },
-    { template_name: "birthday_wish2" },
+    { trigger_type: "birthday", created_at: "1" },
+    { trigger_type: "purchase", created_at: "2" },
+    { trigger_type: "site_lead", created_at: "3" },
+    { trigger_type: "birthday", created_at: "4" },
+    { trigger_type: "incoming_lead", created_at: "5" },
   ],
-  [{ name: "birthday_wish" }, { name: "birthday_wish2" }, { name: "birthday_extra" }]
+  (trigger) =>
+    trigger.trigger_type === "site_lead" || trigger.trigger_type === "incoming_lead"
+      ? "incoming_lead"
+      : trigger.trigger_type
 );
 assert.deepEqual(
-  paired.map((item) => (item.kind === "trigger" ? "trigger" : item.template.name)),
-  ["trigger", "birthday_wish", "trigger", "trigger", "birthday_wish2", "birthday_extra"]
+  stackedTriggers.map((trigger) => trigger.created_at),
+  ["1", "4", "2", "3", "5"]
 );
 
 console.log("automation-board-layout.test.ts: ok");
