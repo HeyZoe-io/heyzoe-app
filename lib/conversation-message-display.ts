@@ -6,6 +6,7 @@ import {
   parseWaUnsupportedKind,
   WA_ZOE_ADMIN_TEMPLATE_MODEL as WA_ZOE_ADMIN_TEMPLATE_MODEL_VALUE,
 } from "@/lib/wa-inbound-unsupported";
+import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 
 export type WaConversationButton = { label: string; url?: string };
 
@@ -196,6 +197,56 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
   }
 
   return { kind: "text", text: s };
+}
+
+/**
+ * לפני 10:45 (שעון ישראל) ב-5.10.2026 השליחה כיווצה כל רצף רווחים, כולל שורה ריקה.
+ * עד 11:30 נשמרו ירידות שורה, ועדיין כווצו רווחים רגילים כפולים.
+ */
+const SESSION_NEWLINES_PRESERVED_FROM_MS = Date.parse("2026-10-05T07:45:00.000Z");
+const SESSION_AUTHORED_SPACES_PRESERVED_FROM_MS = Date.parse("2026-10-05T08:30:00.000Z");
+
+const AS_SENT_SKIP_MODELS = new Set([
+  "wa_business_app",
+  "lead_template",
+  WA_ZOE_ADMIN_TEMPLATE_MODEL_VALUE,
+]);
+
+/** טקסט סשן כפי ש-Meta קיבלה — בלי סימני הכיוון הבלתי נראים. */
+export function conversationTextAsSent(text: string, sentAtIso?: string | null): string {
+  const prepared = sanitizeZoeOutboundLanguage(text);
+  const sentAt = sentAtIso ? Date.parse(sentAtIso) : Number.NaN;
+  if (!Number.isFinite(sentAt)) return prepared;
+  if (sentAt < SESSION_NEWLINES_PRESERVED_FROM_MS) {
+    return prepared.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1");
+  }
+  if (sentAt < SESSION_AUTHORED_SPACES_PRESERVED_FROM_MS) {
+    return prepared.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
+  }
+  return prepared;
+}
+
+/** בועת הדשבורד: מה שנשמר בלוג, אחרי אותו עיבוד שיצא לוואטסאפ. */
+export function parseConversationMessageForDashboard(input: {
+  role: string;
+  content: string;
+  createdAt?: string | null;
+  modelUsed?: string | null;
+}): ParsedWaConversationMessage {
+  const parsed = parseConversationMessageContent(input.content);
+  if (input.role !== "assistant") return parsed;
+  const model = String(input.modelUsed ?? "").trim();
+  if (AS_SENT_SKIP_MODELS.has(model)) return parsed;
+  const asSent = (value: string) => conversationTextAsSent(value, input.createdAt);
+  if (parsed.kind === "text") return { ...parsed, text: asSent(parsed.text) };
+  if (parsed.kind === "interactive") {
+    return {
+      ...parsed,
+      text: asSent(parsed.text),
+      ...(parsed.footerHint ? { footerHint: asSent(parsed.footerHint) } : {}),
+    };
+  }
+  return parsed;
 }
 
 /** model_used ב-messages — תשובת «סוג הודעה לא נתמך» מ-webhook. */

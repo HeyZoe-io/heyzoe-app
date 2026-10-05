@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { parseConversationMessageContent } from "@/lib/conversation-message-display";
+import {
+  parseConversationMessageContent,
+  parseConversationMessageForDashboard,
+} from "@/lib/conversation-message-display";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
 import { excerptForReactionQuote } from "@/lib/wa-inbound-reaction";
 
@@ -24,5 +27,52 @@ if (canonical.kind === "interactive") {
 
 assert.equal(stripAssistantInteractiveButtonsLog(limitlessFollowup).includes("[כפתור"), false);
 assert.equal(excerptForReactionQuote(limitlessFollowup).includes("[כפתור"), false);
+
+const spaced = "שורה ראשונה\n\nשורה שנייה  עם רווח";
+const beforeFix = parseConversationMessageForDashboard({
+  role: "assistant",
+  content: spaced,
+  createdAt: "2026-10-04T18:06:26.622Z",
+  modelUsed: "sales_flow",
+});
+assert.equal(beforeFix.kind, "text");
+if (beforeFix.kind === "text") assert.equal(beforeFix.text, "שורה ראשונה שורה שנייה עם רווח");
+
+const spacesStillCollapsed = parseConversationMessageForDashboard({
+  role: "assistant",
+  content: spaced,
+  createdAt: "2026-10-05T08:00:00.000Z",
+  modelUsed: "sales_flow",
+});
+assert.equal(spacesStillCollapsed.kind, "text");
+if (spacesStillCollapsed.kind === "text") {
+  assert.equal(spacesStillCollapsed.text, "שורה ראשונה\n\nשורה שנייה עם רווח");
+}
+
+const afterFix = parseConversationMessageForDashboard({
+  role: "assistant",
+  content: spaced,
+  createdAt: "2026-10-05T09:00:00.000Z",
+  modelUsed: "sales_flow",
+});
+assert.equal(afterFix.kind, "text");
+if (afterFix.kind === "text") assert.equal(afterFix.text, spaced);
+
+const fromApp = parseConversationMessageForDashboard({
+  role: "assistant",
+  content: spaced,
+  createdAt: "2026-10-04T18:06:26.622Z",
+  modelUsed: "wa_business_app",
+});
+assert.equal(fromApp.kind, "text");
+if (fromApp.kind === "text") assert.equal(fromApp.text, spaced);
+
+const inbound = parseConversationMessageForDashboard({
+  role: "user",
+  content: spaced,
+  createdAt: "2026-10-04T18:06:26.622Z",
+});
+assert.equal(inbound.kind, "text");
+if (inbound.kind === "text") assert.equal(inbound.text, spaced);
 
 console.log("conversation-message-display tests passed");

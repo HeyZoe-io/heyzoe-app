@@ -45,8 +45,6 @@ function fixBodiesPhrasing(text: string): string {
   s = s.replace(/\s*ו?לכל\s+סוגי\s+ה?גופים(?:\s+ו?ה?דרישות)?/giu, "");
   s = s.replace(/סוגי\s+ה?גופים/giu, "הרמות");
   s = s.replace(/גופים/giu, "רמות");
-  // רווחים אופקיים בלבד. `\s` כולל ירידות שורה, ומוחק פסקאות (`\n\n`) לפני השליחה לוואטסאפ.
-  s = s.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
   return s;
 }
 
@@ -98,21 +96,33 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(hebWord("נתחילי"), "נתחיל");
 }
 
-const LEAD_PLACEHOLDER_TOKEN_RE = /\{[A-Za-z][A-Za-z0-9_]*\}/g;
 const LEAD_FRIENDLY_PLACEHOLDERS = ["(שם האימון)", "(שם המוצר)"];
 
 /**
  * סוגריים של משתני תבנית ({serviceName}, (שם האימון)…) — אף פעם לא לליד.
  * שם שיעור אמיתי לא נמחק כאן; רק טוקנים טכניים שלא מולאו.
  */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function stripUnresolvedLeadPlaceholders(text: string): string {
   let s = String(text ?? "");
+  let removed = false;
   for (const token of LEAD_FRIENDLY_PLACEHOLDERS) {
-    if (s.includes(token)) s = s.split(token).join("");
+    if (!s.includes(token)) continue;
+    const next = s.replace(new RegExp(`[ \\t]*${escapeRegExp(token)}[ \\t]*`, "g"), " ");
+    if (next !== s) removed = true;
+    s = next;
   }
-  s = s.replace(LEAD_PLACEHOLDER_TOKEN_RE, "");
-  s = s.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
-  s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  const withoutTokens = s.replace(/[ \t]*\{[A-Za-z][A-Za-z0-9_]*\}[ \t]*/g, " ");
+  if (withoutTokens !== s) removed = true;
+  s = withoutTokens;
+  // רק החור שנשאר אחרי מחיקת משתנה שלא מולא — לא רווחים שהסטודיו כתב בכוונה.
+  if (removed) {
+    s = s.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
+    s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  }
   return s.trim();
 }
 

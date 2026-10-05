@@ -2,7 +2,7 @@
 
 import { CornerUpLeft } from "lucide-react";
 import {
-  parseConversationMessageContent,
+  parseConversationMessageForDashboard,
   WA_UNSUPPORTED_INBOUND_MODEL,
   WA_BUSINESS_APP_ECHO_MODEL,
   WA_ZOE_ADMIN_TEMPLATE_MODEL,
@@ -262,7 +262,12 @@ export function WaConversationMessage({
 
   const t = i18n[lang];
   const from = role === "user" ? "user" : "assistant";
-  const parsed = parseConversationMessageContent(content);
+  const parsed = parseConversationMessageForDashboard({
+    role,
+    content,
+    createdAt,
+    modelUsed,
+  });
   const time = createdAt ? formatTime(createdAt, lang) : undefined;
   const interactive = parsed.kind === "interactive" || parsed.kind === "media";
 

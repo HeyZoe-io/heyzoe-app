@@ -135,7 +135,7 @@ assert.equal(
 );
 assert.equal(
   sanitizeZoeOutboundLanguage("יש  רווח כפול\n\nופסקה"),
-  "יש רווח כפול\n\nופסקה"
+  "יש  רווח כפול\n\nופסקה"
 );
 
 console.log("zoe-text.test.ts: ok");
