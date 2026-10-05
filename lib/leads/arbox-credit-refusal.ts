@@ -1,4 +1,5 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -633,7 +634,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
     }
 
     try {
-      const { data: existingSeen } = await input.admin
+      const { data: existingSeen, error: seenErr } = await input.admin
         .from("arbox_credit_refusal_sync_log")
         .select("trigger_id")
         .eq("business_id", businessId)
@@ -642,6 +643,15 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
           "trigger_id",
           rules.map((item) => item.id)
         );
+      if (seenErr) {
+        logDedupBlockedSend({
+          log: "[leads/arbox-credit-refusal]",
+          businessId,
+          reason: seenErr.message,
+        });
+        summary.errors += 1;
+        continue;
+      }
       const seenIds = new Set(
         (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
       );

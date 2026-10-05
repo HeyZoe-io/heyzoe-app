@@ -372,7 +372,15 @@ export async function POST(req: NextRequest) {
     for (const rule of siteRules) {
       const ruleTemplate = String(rule.template_name ?? "").trim();
       const dedupKey = buildSiteLeadScheduledDedupKey(businessId, rule.id, phoneNorm, utcYmd(now));
-      if (await companionTemplateAlreadySent(admin, dedupKey)) {
+      const alreadySent = await companionTemplateAlreadySent(admin, dedupKey, {
+        businessId,
+        triggerId: rule.id,
+      });
+      if (alreadySent == null) {
+        hardError = "template_send_failed";
+        break;
+      }
+      if (alreadySent) {
         already += 1;
         continue;
       }

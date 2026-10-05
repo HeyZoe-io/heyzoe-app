@@ -876,7 +876,8 @@ export async function syncArboxMissedClassForBusiness(input: {
               classDateYmd,
               classTime,
               className
-            )
+            ),
+            { businessId, triggerId: rule.id }
           ),
         recordDelivered: (rule) =>
           recordCompanionTemplateSent(input.admin, {

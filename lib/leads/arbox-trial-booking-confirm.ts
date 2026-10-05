@@ -36,6 +36,7 @@ import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
 import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
@@ -54,7 +55,8 @@ export type TrialBookingConfirmSummary = {
     | "not_enabled"
     | "migration_missing"
     | "missing_credentials"
-    | "no_trial_scope";
+    | "no_trial_scope"
+    | "dedup_read_failed";
   seeded: number;
   fetched: number;
   pages_fetched: number;
@@ -187,11 +189,6 @@ function addDaysYmd(ymd: string, days: number): string {
 
 function isMissingSchema(message: string): boolean {
   return /arbox_trial_booking_confirm|schema cache|does not exist|42703|42P01/i.test(message);
-}
-
-/** Table exists from the first SQL, before confirm_status / template_status were added. */
-function isMissingPartColumns(message: string): boolean {
-  return /confirm_status|template_status/i.test(message) && isMissingSchema(message);
 }
 
 function parseUserId(raw: unknown): number | null {
@@ -495,38 +492,23 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     return summary;
   }
 
-  const fullSelect =
-    "trigger_id, user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status";
-  const legacySelect = "user_id, class_date, class_time, class_name, status, attempts";
-  let legacyLog = false;
-  let existing: LogRow[] | null = null;
-  let existingErr: { message: string } | null = null;
-  const fullRes = await admin
+  const { data: existing, error: existingErr } = await admin
     .from(TABLE)
-    .select(fullSelect)
+    .select(
+      "trigger_id, user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status"
+    )
     .eq("business_id", businessId)
     .gte("class_date", today);
-  if (fullRes.error && isMissingPartColumns(fullRes.error.message)) {
-    legacyLog = true;
-    const legacyRes = await admin
-      .from(TABLE)
-      .select(legacySelect)
-      .eq("business_id", businessId)
-      .gte("class_date", today);
-    existing = (legacyRes.data ?? null) as LogRow[] | null;
-    existingErr = legacyRes.error;
-  } else {
-    existing = (fullRes.data ?? null) as LogRow[] | null;
-    existingErr = fullRes.error;
-  }
   if (existingErr) {
-    if (isMissingSchema(existingErr.message)) {
-      summary.skipped = true;
-      summary.skip_reason = "migration_missing";
-      return summary;
-    }
+    summary.skipped = true;
+    summary.skip_reason = "dedup_read_failed";
     summary.errors += 1;
     summary.fetch_error = existingErr.message;
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      reason: existingErr.message,
+    });
     return summary;
   }
   const seen = new Map<string, LogRow[]>();
@@ -543,9 +525,17 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     .eq("business_id", businessId)
     .eq("status", "pending")
     .lt("class_date", today);
-  if (olderErr && !isMissingSchema(olderErr.message)) {
+  if (olderErr) {
+    summary.skipped = true;
+    summary.skip_reason = "dedup_read_failed";
     summary.errors += 1;
     summary.fetch_error = olderErr.message;
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      reason: olderErr.message,
+    });
+    return summary;
   }
   const staleKeys = new Set<string>();
   const staleCandidates = [
@@ -581,8 +571,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         "skipped",
         "skipped",
         Number(row.attempts) || 0,
-        now,
-        legacyLog
+        now
       );
     }
     summary.stale += 1;
@@ -636,7 +625,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         class_time: item.classTime,
       });
       for (const triggerId of bookingTriggerIds) {
-        await writeLog(admin, businessId, item, triggerId, "skipped", "skipped", "skipped", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, triggerId, "skipped", "skipped", "skipped", attempts, now);
       }
       summary.stale += 1;
       continue;
@@ -645,7 +634,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     const phone = canonicalContactPhone(item.row.phone);
     if (!phone) {
       for (const triggerId of bookingTriggerIds) {
-        await writeLog(admin, businessId, item, triggerId, "no_phone", "skipped", "skipped", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, triggerId, "no_phone", "skipped", "skipped", attempts, now);
       }
       summary.no_phone += 1;
       continue;
@@ -662,11 +651,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         status: "pending",
         attempts: 0,
         processed_at: now.toISOString(),
+        confirm_status: "pending",
+        template_status: "pending",
       };
-      if (!legacyLog) {
-        claimRow.confirm_status = "pending";
-        claimRow.template_status = "pending";
-      }
       const { error: claimErr } = await admin.from(TABLE).insert(claimRow);
       if (claimErr) {
         if (claimErr.code === "23505") {
@@ -674,6 +661,12 @@ export async function syncTrialBookingConfirmForBusiness(input: {
           continue;
         }
         summary.errors += 1;
+        logDedupBlockedSend({
+          log: LOG,
+          businessId,
+          triggerId: SYNC_LOG_SENTINEL_TRIGGER_ID,
+          reason: claimErr.message,
+        });
         continue;
       }
     }
@@ -687,7 +680,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     if (optedOut.suppress) {
       const kept = confirmStatus === "sent" ? "sent" : "skipped";
       for (const triggerId of bookingTriggerIds) {
-        await writeLog(admin, businessId, item, triggerId, kept, kept, "skipped", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, triggerId, kept, kept, "skipped", attempts, now);
       }
       continue;
     }
@@ -740,8 +733,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       confirmStatus,
       "skipped",
       attempts,
-      now,
-      legacyLog
+      now
     );
 
     for (const rule of pendingRules) {
@@ -754,7 +746,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         templateBesidesFreeMessage: trialRules.length > 1 && rule.id !== primaryRuleId,
       });
       if (followUp === "skip") {
-        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now);
         continue;
       }
       if (followUp === "wait" || !approved) continue;
@@ -771,10 +763,10 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         template: approved,
       });
       if (outcome === "sent") {
-        await writeLog(admin, businessId, item, rule.id, "sent", settledConfirm, "sent", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, rule.id, "sent", settledConfirm, "sent", attempts, now);
         summary.template_sent += 1;
       } else if (outcome === "skipped") {
-        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now, legacyLog);
+        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now);
       } else if (outcome === "failed") {
         summary.errors += 1;
       }
@@ -812,31 +804,32 @@ async function writeLog(
   confirmStatus: PartStatus,
   templateStatus: PartStatus,
   attempts: number,
-  now: Date,
-  legacy = false
-): Promise<void> {
-  const base = {
-    business_id: businessId,
-    trigger_id: triggerId,
-    user_id: item.userId,
-    class_date: item.classDate,
-    class_time: item.classTime,
-    class_name: item.className,
-    status,
-    attempts,
-    processed_at: now.toISOString(),
-  };
-  const row = legacy
-    ? base
-    : { ...base, confirm_status: confirmStatus, template_status: templateStatus };
-  let { error } = await admin.from(TABLE).upsert(row, {
-    onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
-  });
-  if (error && isMissingPartColumns(error.message)) {
-    const retry = await admin.from(TABLE).upsert(base, {
-      onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+  now: Date
+): Promise<boolean> {
+  const { error } = await admin.from(TABLE).upsert(
+    {
+      business_id: businessId,
+      trigger_id: triggerId,
+      user_id: item.userId,
+      class_date: item.classDate,
+      class_time: item.classTime,
+      class_name: item.className,
+      status,
+      attempts,
+      confirm_status: confirmStatus,
+      template_status: templateStatus,
+      processed_at: now.toISOString(),
+    },
+    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
+  );
+  if (error) {
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      triggerId,
+      reason: error.message,
     });
-    error = retry.error;
+    return false;
   }
-  if (error) console.error(LOG, "log upsert failed", error.message);
+  return true;
 }

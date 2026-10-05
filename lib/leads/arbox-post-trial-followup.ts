@@ -9,6 +9,7 @@
  * The wait sits in that business's daily worker (cap 285s).
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -538,7 +539,7 @@ async function postTrialTemplateAlreadyDelivered(input: {
   userId: number;
   classDateYmd: string;
   className: string | null;
-}): Promise<boolean> {
+}): Promise<boolean | null> {
   const dedupKey = buildPostTrialFollowupScheduledDedupKey(
     input.outcome,
     input.businessId,
@@ -553,10 +554,13 @@ async function postTrialTemplateAlreadyDelivered(input: {
     .eq("dedup_key", dedupKey)
     .maybeSingle();
   if (error) {
-    console.error("[leads/arbox-post-trial-followup] dedup lookup failed:", error.message, {
-      dedup_key: dedupKey,
+    logDedupBlockedSend({
+      log: "[leads/arbox-post-trial-followup]",
+      businessId: input.businessId,
+      triggerId: input.ruleId,
+      reason: error.message,
     });
-    return false;
+    return null;
   }
   return String((data as { status?: unknown } | null)?.status ?? "") === "sent";
 }
@@ -953,7 +957,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       let sentImmediateThisRun = false;
       const trackEachTemplate = dueRules.length > 1;
       for (const rule of dueRules) {
-        const { data: existing } = await input.admin
+        const { data: existing, error: existingErr } = await input.admin
           .from("arbox_post_trial_followup_sync_log")
           .select("status, attempts")
           .eq("business_id", businessId)
@@ -961,6 +965,16 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           .eq("user_id", att.userId)
           .eq("class_date", att.classDateYmd)
           .maybeSingle();
+        if (existingErr) {
+          logDedupBlockedSend({
+            log: "[leads/arbox-post-trial-followup]",
+            businessId,
+            triggerId: rule.id,
+            reason: existingErr.message,
+          });
+          summary.errors += 1;
+          continue;
+        }
         const status = String((existing as { status?: unknown } | null)?.status ?? "");
         if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
           summary.already += 1;
@@ -968,17 +982,21 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           continue;
         }
         const templateName = rule.template_name?.trim() || "";
-        const alreadyDelivered =
-          trackEachTemplate &&
-          (await postTrialTemplateAlreadyDelivered({
-            admin: input.admin,
-            outcome,
-            businessId,
-            ruleId: rule.id,
-            userId: att.userId,
-            classDateYmd: att.classDateYmd,
-            className: att.className,
-          }));
+        const alreadyDelivered = trackEachTemplate
+          ? await postTrialTemplateAlreadyDelivered({
+              admin: input.admin,
+              outcome,
+              businessId,
+              ruleId: rule.id,
+              userId: att.userId,
+              classDateYmd: att.classDateYmd,
+              className: att.className,
+            })
+          : false;
+        if (alreadyDelivered == null) {
+          summary.errors += 1;
+          continue;
+        }
         if (alreadyDelivered) {
           dispatches.push("immediate");
           console.info("[leads/arbox-post-trial-followup] dispatch", {

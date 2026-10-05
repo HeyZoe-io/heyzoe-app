@@ -9,6 +9,7 @@
  * does not repeat a send. That lookup is skipped when the trigger has one template.
  */
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -105,7 +106,7 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
   rules: T[];
   dryRun?: boolean;
   send: (rule: T, ctx: CompanionSendContext) => Promise<CompanionDispatch>;
-  alreadyDelivered?: (rule: T) => Promise<boolean>;
+  alreadyDelivered?: (rule: T) => Promise<boolean | null>;
   recordDelivered?: (rule: T) => Promise<void>;
 }): Promise<CompanionDispatch> {
   const rules = input.rules;
@@ -116,10 +117,23 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
   let sentImmediateThisRun = false;
 
   for (const rule of rules) {
-    if (input.alreadyDelivered && (await input.alreadyDelivered(rule))) {
-      results.push("immediate");
-      dueOffsetMs += SAME_TRIGGER_TEMPLATE_GAP_MS;
-      continue;
+    if (input.alreadyDelivered) {
+      const delivered = await input.alreadyDelivered(rule);
+      if (delivered == null) {
+        logDedupBlockedSend({
+          log: "[same-trigger-template-order]",
+          businessId: null,
+          triggerId: rule.id ?? null,
+          reason: "dedup_read_failed",
+        });
+        results.push("skipped");
+        continue;
+      }
+      if (delivered) {
+        results.push("immediate");
+        dueOffsetMs += SAME_TRIGGER_TEMPLATE_GAP_MS;
+        continue;
+      }
     }
 
     if (gapBetweenSends && sentImmediateThisRun && !input.dryRun) {
@@ -170,8 +184,9 @@ export function createCompanionSendGate(dryRun = false) {
 
 export async function companionTemplateAlreadySent(
   admin: AdminClient,
-  dedupKey: string
-): Promise<boolean> {
+  dedupKey: string,
+  ctx?: { businessId?: number; triggerId?: string }
+): Promise<boolean | null> {
   const key = dedupKey.trim();
   if (!key) return false;
   const { data, error } = await admin
@@ -180,10 +195,13 @@ export async function companionTemplateAlreadySent(
     .eq("dedup_key", key)
     .maybeSingle();
   if (error) {
-    console.error("[same-trigger-template-order] dedup lookup failed:", error.message, {
-      dedup_key: key,
+    logDedupBlockedSend({
+      log: "[same-trigger-template-order]",
+      businessId: ctx?.businessId ?? null,
+      triggerId: ctx?.triggerId ?? null,
+      reason: error.message,
     });
-    return false;
+    return null;
   }
   return String((data as { status?: unknown } | null)?.status ?? "") === "sent";
 }

@@ -23,7 +23,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
@@ -119,9 +119,6 @@ const MEMBER_SYNC_LOGS: { table: string; userIdColumn: "user_id" | null }[] = [
   { table: "arbox_credit_refusal_sync_log", userIdColumn: null },
 ];
 
-const CANDIDATE_SELECT =
-  "id, phone, full_name, last_contact_at, wa_last_reengaged_at, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, arbox_user_id";
-
 export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped" | "send_failed";
 
 export type NoResponseReengageSummary = {
@@ -208,35 +205,9 @@ type ContactCandidate = {
 
 type MemberLogHits = { contactIds: Set<string>; userIds: Set<string> };
 
-function candidateQuery(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  silenceCutoffIso: string,
-  includeMemberFlag: boolean
-) {
-  const select = includeMemberFlag ? `${CANDIDATE_SELECT}, arbox_is_member` : CANDIDATE_SELECT;
-  let query = admin
-    .from("contacts")
-    .select(select)
-    .eq("business_id", businessId)
-    .eq("source", "whatsapp")
-    .or("opted_out.eq.false,opted_out.is.null")
-    .is("not_relevant_at", null)
-    .is("human_requested_at", null)
-    .or("trial_registered.eq.false,trial_registered.is.null")
-    .or("session_phase.is.null,session_phase.neq.registered")
-    .not("last_contact_at", "is", null)
-    .lte("last_contact_at", silenceCutoffIso)
-    .order("last_contact_at", { ascending: true });
-  if (includeMemberFlag) query = query.eq("arbox_is_member", false);
-  return query;
-}
-
 /**
  * One indexed read of up to 200 open episodes.
- * PostgREST cannot compare wa_last_reengaged_at to last_contact_at, so the
- * filter lives in no_response_open_candidates. Until that function exists,
- * fall back to one unfiltered page and drop closed rows in memory.
+ * A missing RPC or a missing column is a failed read: this batch sends nothing.
  */
 async function loadCandidateBatch(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -248,33 +219,16 @@ async function loadCandidateBatch(
     p_silence_cutoff: silenceCutoffIso,
     p_limit: CANDIDATE_BATCH,
   });
-  if (!error) {
-    return {
-      rows: takeOpenNoResponseCandidates((data ?? []) as ContactCandidate[], CANDIDATE_BATCH),
-      error: null,
-    };
-  }
-  if (!isMissingNoResponseCandidatesRpc(error)) {
+  if (error) {
+    logDedupBlockedSend({
+      log: "[no-response-reengage]",
+      businessId,
+      reason: error.message,
+    });
     return { rows: [], error: { message: error.message } };
   }
-  console.error(
-    "[no-response-reengage] no_response_open_candidates missing — run supabase/contacts_no_response_open_candidates.sql",
-    { businessId }
-  );
-
-  let includeMemberFlag = true;
-  let page = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).limit(CANDIDATE_BATCH);
-  if (page.error && /arbox_is_member|schema cache|does not exist/i.test(page.error.message)) {
-    console.error(
-      "[no-response-reengage] arbox_is_member missing — run supabase/contacts_arbox_is_member.sql",
-      { businessId }
-    );
-    includeMemberFlag = false;
-    page = await candidateQuery(admin, businessId, silenceCutoffIso, includeMemberFlag).limit(CANDIDATE_BATCH);
-  }
-  if (page.error) return { rows: [], error: { message: page.error.message } };
   return {
-    rows: takeOpenNoResponseCandidates((page.data ?? []) as unknown as ContactCandidate[], CANDIDATE_BATCH),
+    rows: takeOpenNoResponseCandidates((data ?? []) as ContactCandidate[], CANDIDATE_BATCH),
     error: null,
   };
 }
@@ -307,11 +261,12 @@ async function loadMemberSyncLogHits(
       }
       const { data, error } = await query.limit(5000);
       if (error) {
-        console.error("[no-response-reengage] member log lookup failed:", error.message, {
+        logDedupBlockedSend({
+          log: "[no-response-reengage]",
           businessId,
-          table: log.table,
+          reason: `${log.table}: ${error.message}`,
         });
-        return;
+        throw new Error(error.message);
       }
       for (const row of data ?? []) {
         const contactId = String((row as { contact_id?: unknown }).contact_id ?? "").trim();
@@ -665,12 +620,18 @@ export async function syncNoResponseReengageForBusiness(input: {
         .filter((id) => /^\d+$/.test(id))
     ),
   ];
-  const memberLogs = await loadMemberSyncLogHits(
-    input.admin,
-    input.businessId,
-    [...aliasIds],
-    userIds
-  );
+  let memberLogs: MemberLogHits;
+  try {
+    memberLogs = await loadMemberSyncLogHits(
+      input.admin,
+      input.businessId,
+      [...aliasIds],
+      userIds
+    );
+  } catch {
+    bump(summary, "query_failed");
+    return summary;
+  }
   const memberLogCandidateIds = new Set<string>();
   for (const contactId of memberLogs.contactIds) {
     memberLogCandidateIds.add(contactId);
@@ -830,7 +791,8 @@ export async function syncNoResponseReengageForBusiness(input: {
         alreadyDelivered: (item) =>
           companionTemplateAlreadySent(
             input.admin,
-            buildNoResponseScheduledDedupKey(input.businessId, item.id, phoneNorm, episodeKey)
+            buildNoResponseScheduledDedupKey(input.businessId, item.id, phoneNorm, episodeKey),
+            { businessId: input.businessId, triggerId: item.id }
           ),
         recordDelivered: (item) =>
           recordCompanionTemplateSent(input.admin, {

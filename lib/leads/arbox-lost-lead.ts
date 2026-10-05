@@ -7,6 +7,7 @@
  * Seed 30d without WhatsApp; after seed lookback = max(3, max delay) capped at 30.
  */
 import { logMessage } from "@/lib/analytics";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -706,7 +707,7 @@ export async function syncArboxLostLeadForBusiness(input: {
       };
 
       try {
-        const { data: existing } = await input.admin
+        const { data: existing, error: existingErr } = await input.admin
           .from("arbox_lost_lead_sync_log")
           .select("status, attempts, contact_id")
           .eq("business_id", businessId)
@@ -714,6 +715,16 @@ export async function syncArboxLostLeadForBusiness(input: {
           .eq("lead_id", leadId)
           .eq("lost_date", lostDate)
           .maybeSingle();
+        if (existingErr) {
+          logDedupBlockedSend({
+            log: "[leads/arbox-lost-lead]",
+            businessId,
+            triggerId: rule.id,
+            reason: existingErr.message,
+          });
+          summary.errors += 1;
+          continue;
+        }
 
         const existingStatus = String((existing as { status?: unknown } | null)?.status ?? "").trim();
         const existingAttempts = parseCancellationSyncAttempts(

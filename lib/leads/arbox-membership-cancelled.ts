@@ -1,4 +1,5 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -733,7 +734,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
       }
 
       try {
-        const { data: existingSeen } = await input.admin
+        const { data: existingSeen, error: seenErr } = await input.admin
           .from("arbox_cancellation_sync_log")
           .select("user_id, status, attempts")
           .eq("business_id", businessId)
@@ -741,6 +742,16 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           .eq("user_id", userId)
           .eq("cancelled_time", cancelledTime)
           .maybeSingle();
+        if (seenErr) {
+          logDedupBlockedSend({
+            log: "[leads/arbox-membership-cancelled]",
+            businessId,
+            triggerId: rule.id,
+            reason: seenErr.message,
+          });
+          summary.errors += 1;
+          continue;
+        }
 
         const existingStatus = String(
           (existingSeen as { status?: unknown } | null)?.status ?? ""

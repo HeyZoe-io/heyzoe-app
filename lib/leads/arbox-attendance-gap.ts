@@ -771,7 +771,8 @@ export async function syncArboxAttendanceGapForBusiness(input: {
                 state.userId,
                 state.lastYesYmd,
                 tier
-              )
+              ),
+              { businessId, triggerId: rule.id }
             ),
           recordDelivered: (rule) =>
             recordCompanionTemplateSent(input.admin, {

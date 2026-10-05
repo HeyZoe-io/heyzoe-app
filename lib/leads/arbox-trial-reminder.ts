@@ -830,7 +830,8 @@ export async function syncArboxTrialReminderForBusiness(input: {
               classDateYmd,
               classTime,
               className
-            )
+            ),
+            { businessId, triggerId: item.id }
           ),
         recordDelivered: (item) =>
           recordCompanionTemplateSent(input.admin, {

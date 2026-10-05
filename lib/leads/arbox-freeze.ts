@@ -6,6 +6,7 @@
  * 31-day cap, quiet 21:00–08:00). freeze_ending_* stays on the daily cron.
  */
 import { logMessage } from "@/lib/analytics";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -792,8 +793,14 @@ export async function syncArboxFreezeForBusiness(input: {
         .select("membership_hold_id", { count: "exact", head: true })
         .eq("business_id", businessId);
       if (error) {
-        console.error("[leads/arbox-freeze] soft-seed created count failed:", error.message);
-        createdLogCount = 0;
+        logDedupBlockedSend({
+          log: "[leads/arbox-freeze]",
+          businessId,
+          reason: error.message,
+        });
+        summary.errors += 1;
+        summary.fetch_error = error.message;
+        return summary;
       } else createdLogCount = count ?? 0;
     }
     if (needsEnding) {
@@ -802,8 +809,14 @@ export async function syncArboxFreezeForBusiness(input: {
         .select("membership_hold_id", { count: "exact", head: true })
         .eq("business_id", businessId);
       if (error) {
-        console.error("[leads/arbox-freeze] soft-seed ending count failed:", error.message);
-        endingLogCount = 0;
+        logDedupBlockedSend({
+          log: "[leads/arbox-freeze]",
+          businessId,
+          reason: error.message,
+        });
+        summary.errors += 1;
+        summary.fetch_error = error.message;
+        return summary;
       } else endingLogCount = count ?? 0;
     }
     const soft = freezeTablesNeedingSoftSeed({
