@@ -3,6 +3,7 @@ import {
   formatTrialBookingConfirmDate,
   formatTrialBookingConfirmTime,
   trialBookingAlreadyHandled,
+  trialBookingClassHasStarted,
   trialBookingConfirmEnabled,
   trialBookingConfirmIsTerminalSkip,
   trialBookingTemplateFollowUp,
@@ -16,6 +17,13 @@ assert.equal(trialBookingAlreadyHandled("sent"), true);
 assert.equal(trialBookingAlreadyHandled("skipped"), true);
 assert.equal(trialBookingAlreadyHandled("pending"), false);
 assert.equal(trialBookingAlreadyHandled(undefined), false);
+
+const tenJerusalem = new Date("2026-10-05T07:00:00.000Z");
+const tenOhOneJerusalem = new Date("2026-10-05T07:01:00.000Z");
+assert.equal(trialBookingClassHasStarted("2026-10-05", "10:00", tenJerusalem), false);
+assert.equal(trialBookingClassHasStarted("2026-10-05", "10:00", tenOhOneJerusalem), true);
+assert.equal(trialBookingClassHasStarted("2026-10-04", "23:00", tenJerusalem), true);
+assert.equal(trialBookingClassHasStarted("2026-10-06", "08:00", tenJerusalem), false);
 
 assert.equal(trialPurchaseTemplateBlockedByZoe("zoe"), true);
 assert.equal(trialPurchaseTemplateBlockedByZoe(null), false);

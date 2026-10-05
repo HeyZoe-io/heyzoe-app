@@ -61,6 +61,7 @@ export type TrialBookingConfirmSummary = {
   already: number;
   no_phone: number;
   abandoned: number;
+  stale: number;
   errors: number;
   fetch_error?: string;
 };
@@ -87,6 +88,38 @@ export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean
 /** Settled log rows are not sent again. Only `pending` is retried. */
 export function trialBookingAlreadyHandled(status: string | null | undefined): boolean {
   return Boolean(status) && status !== "pending";
+}
+
+/** Class start in Asia/Jerusalem is strictly before `now`. The start minute itself still sends. */
+export function trialBookingClassHasStarted(classDate: string, classTime: string, now: Date): boolean {
+  const date = String(classDate ?? "").trim().slice(0, 10);
+  const time = padClassHm(classTime);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !time) return false;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  const hour = pick("hour") === "24" ? "00" : pick("hour").padStart(2, "0");
+  const nowYmd = `${pick("year")}-${pick("month")}-${pick("day")}`;
+  const nowHm = `${hour}:${pick("minute").padStart(2, "0")}`;
+  if (date < nowYmd) return true;
+  if (date > nowYmd) return false;
+  return time < nowHm;
+}
+
+function padClassHm(raw: string): string | null {
+  const match = String(raw ?? "").trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
 }
 
 export type TrialBookingTemplateFollowUp = "skip" | "send" | "wait";
@@ -186,6 +219,7 @@ function emptySummary(): TrialBookingConfirmSummary {
     already: 0,
     no_phone: 0,
     abandoned: 0,
+    stale: 0,
     errors: 0,
   };
 }
@@ -469,6 +503,56 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     seen.set(logKey(Number(row.user_id), String(row.class_date), row.class_time, row.class_name), row);
   }
 
+  const { data: olderPending, error: olderErr } = await admin
+    .from(TABLE)
+    .select("user_id, class_date, class_time, class_name, status, attempts")
+    .eq("business_id", businessId)
+    .eq("status", "pending")
+    .lt("class_date", today);
+  if (olderErr && !isMissingSchema(olderErr.message)) {
+    summary.errors += 1;
+    summary.fetch_error = olderErr.message;
+  }
+  const staleCandidates = [
+    ...((olderPending ?? []) as LogRow[]),
+    ...[...seen.values()].filter((row) => row.status === "pending"),
+  ];
+  for (const row of staleCandidates) {
+    const classDate = String(row.class_date);
+    const classTime = String(row.class_time);
+    if (!trialBookingClassHasStarted(classDate, classTime, now)) continue;
+    const staleItem = {
+      userId: Number(row.user_id),
+      classDate,
+      classTime,
+      className: String(row.class_name),
+    };
+    console.warn(LOG, "trial booking not sent", {
+      reason: "skipped_stale",
+      businessSlug,
+      class_date: classDate,
+      class_time: classTime,
+    });
+    await writeLog(
+      admin,
+      businessId,
+      staleItem,
+      "skipped",
+      "skipped",
+      "skipped",
+      Number(row.attempts) || 0,
+      now,
+      legacyLog
+    );
+    summary.stale += 1;
+    seen.set(logKey(staleItem.userId, staleItem.classDate, staleItem.classTime, staleItem.className), {
+      ...row,
+      status: "skipped",
+      confirm_status: "skipped",
+      template_status: "skipped",
+    });
+  }
+
   const trialBookedRule = await resolveTrialBookedTemplateTrigger({ admin, businessId });
   const approvedTemplate = await loadApprovedTrialBookedTemplate({
     admin,
@@ -487,6 +571,17 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     const attempts = prior?.attempts ?? 0;
     if (attempts >= ATTEMPT_CAP) {
       summary.abandoned += 1;
+      continue;
+    }
+    if (trialBookingClassHasStarted(item.classDate, item.classTime, now)) {
+      console.warn(LOG, "trial booking not sent", {
+        reason: "skipped_stale",
+        businessSlug,
+        class_date: item.classDate,
+        class_time: item.classTime,
+      });
+      await writeLog(admin, businessId, item, "skipped", "skipped", "skipped", attempts, now, legacyLog);
+      summary.stale += 1;
       continue;
     }
 

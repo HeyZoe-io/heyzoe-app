@@ -690,6 +690,7 @@ export async function runArboxTrialSyncForBusiness(input: {
           already: 0,
           no_phone: 0,
           abandoned: 0,
+          stale: 0,
           errors: 1,
           fetch_error: e instanceof Error ? e.message : String(e),
         };
