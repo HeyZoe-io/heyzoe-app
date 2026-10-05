@@ -17,6 +17,7 @@ import {
   MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY,
   MARKETING_TEMPLATE_PRESETS,
 } from "@/lib/marketing-template-presets";
+import { MARKETING_OPT_OUT_BUTTON_HE } from "@/lib/meta-marketing-opt-out-button";
 
 assert.equal(TEMPLATE_PRESETS.incoming_lead.body, TEMPLATE_PRESETS.arbox_new_lead.body);
 assert.equal(TEMPLATE_PRESETS.incoming_lead.category, "MARKETING");
@@ -214,6 +215,46 @@ assert.equal(parsed.buttons[0]?.kind, "QUICK_REPLY");
 assert.equal(parsed.buttons[0]?.text, "בואו נתחיל");
 assert.deepEqual(parsed.exampleValues, ["דנה"]);
 
+const withOptOut = parseDashboardTemplateComponents([
+  {
+    type: "BUTTONS",
+    buttons: [
+      { type: "QUICK_REPLY", text: "אשמח שיחזרו אליי" },
+      { type: "QUICK_REPLY", text: MARKETING_OPT_OUT_BUTTON_HE },
+    ],
+  },
+]);
+assert.ok(withOptOut);
+assert.deepEqual(
+  withOptOut.buttons.map((button) => button.text),
+  ["אשמח שיחזרו אליי"]
+);
+assert.ok(
+  parseDashboardTemplateComponents([
+    {
+      type: "BUTTONS",
+      buttons: [
+        { type: "QUICK_REPLY", text: "אחד" },
+        { type: "QUICK_REPLY", text: "שניים" },
+        { type: "QUICK_REPLY", text: MARKETING_OPT_OUT_BUTTON_HE },
+      ],
+    },
+  ])
+);
+assert.equal(
+  parseDashboardTemplateComponents([
+    {
+      type: "BUTTONS",
+      buttons: [
+        { type: "QUICK_REPLY", text: "אחד" },
+        { type: "QUICK_REPLY", text: "שניים" },
+        { type: "QUICK_REPLY", text: "שלושה" },
+      ],
+    },
+  ]),
+  null
+);
+
 assert.equal(
   parseDashboardTemplateComponents([{ type: "HEADER", format: "IMAGE" }]),
   null
@@ -254,6 +295,7 @@ assert.equal(templateTextEdgeVariableMessage("היי {{1}}, נתראה מחר.")
 assert.equal(templateTextEdgeVariableMessage("{{1}} היי"), "גוף ההודעה מתחיל במשתנה. הוסיפו מילה לפניו.");
 assert.match(hebrewMetaTemplateApiError("error_subcode\":2388299") ?? "", /נגמר במשתנה/);
 assert.match(hebrewMetaTemplateApiError("error_subcode\":2388043") ?? "", /דוגמה תואמת/);
+assert.match(hebrewMetaTemplateApiError("(#80008) too many calls") ?? "", /יותר מדי קריאות/);
 assert.equal(hebrewMetaTemplateApiError("something else"), null);
 
 for (const [key, preset] of Object.entries(TEMPLATE_PRESETS)) {

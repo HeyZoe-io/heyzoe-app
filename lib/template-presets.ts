@@ -1,3 +1,4 @@
+import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
 import { isArboxDependentTriggerType, type TriggerType } from "@/lib/template-trigger-types";
 
 export type TemplatePresetCategory = "MARKETING" | "UTILITY";
@@ -451,6 +452,9 @@ export function hebrewMetaTemplateApiError(detail: string): string | null {
   if (text.includes("2388043") || /missing expected field\(s\) \(example\)/i.test(text)) {
     return "מטא דחתה את הטמפלייט כי חסרה דוגמה תואמת לכל משתנה. השתמשו ב־{{1}}, {{2}} ברצף, בלי לדלג על מספר.";
   }
+  if (text.includes("80008") || /too many calls/i.test(text)) {
+    return "מטא חסמה זמנית את חשבון הוואטסאפ כי היו יותר מדי קריאות. חכי כמה דקות ונסי שוב. הטקסט עצמו לא נדחה.";
+  }
   return null;
 }
 
@@ -538,11 +542,16 @@ export function parseDashboardTemplateComponents(
     }
     if (type === "BUTTONS") {
       const list = Array.isArray(c.buttons) ? c.buttons : [];
-      if (list.length > DASHBOARD_MAX_BUTTONS) return null;
+      const editable = list.filter((bRaw) => {
+        if (!bRaw || typeof bRaw !== "object") return false;
+        return !isMarketingOptOutButtonText(String((bRaw as { text?: unknown }).text ?? ""));
+      });
+      if (editable.length > DASHBOARD_MAX_BUTTONS) return null;
       for (const bRaw of list) {
         if (!bRaw || typeof bRaw !== "object") continue;
         const b = bRaw as Record<string, unknown>;
         const bType = String(b.type ?? "").toUpperCase();
+        if (isMarketingOptOutButtonText(String(b.text ?? ""))) continue;
         if (!DASHBOARD_BUTTON_TYPES.has(bType)) return null;
         buttons.push({
           kind: bType === "URL" ? "URL" : "QUICK_REPLY",

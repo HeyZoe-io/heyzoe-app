@@ -5,6 +5,11 @@
  * inline "create new" path inside the trigger card so the two UIs cannot diverge.
  */
 
+import {
+  isMarketingOptOutButtonText,
+  marketingOptOutButtonText,
+} from "@/lib/meta-marketing-opt-out-button";
+
 export type TemplateButtonDraft = {
   kind: "QUICK_REPLY" | "URL";
   text: string;
@@ -66,6 +71,13 @@ export function TemplateDraftFields({
   nameHint?: string;
 }) {
   const nameValid = isTemplateDraftNameValid(value.name);
+  const optOutLabel = marketingOptOutButtonText(value.language);
+  const showMarketingOptOut = value.category === "MARKETING";
+  const editableButtons = value.buttons
+    .map((button, index) => ({ button, index }))
+    .filter(
+      ({ button }) => !(showMarketingOptOut && isMarketingOptOutButtonText(button.text))
+    );
 
   function patch(partial: Partial<TemplateDraftValue>) {
     onChange({ ...value, ...partial });
@@ -183,7 +195,7 @@ export function TemplateDraftFields({
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <label className="text-sm font-medium text-zinc-800">כפתורים (אופציונלי)</label>
-          {value.buttons.length < 2 && (
+          {editableButtons.length < 2 && (
             <button
               type="button"
               className="text-xs text-[#7133da] hover:underline"
@@ -195,7 +207,21 @@ export function TemplateDraftFields({
             </button>
           )}
         </div>
-        {value.buttons.map((b, idx) => (
+        {showMarketingOptOut ? (
+          <div className="space-y-1 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+            <p className="text-xs font-medium text-zinc-700">כפתור אוטומטי</p>
+            <input
+              value={optOutLabel}
+              readOnly
+              disabled
+              className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
+            />
+            <p className="text-xs text-zinc-500">
+              נוסף לבד בכל טמפלייט שיווקי. הטקסט קבוע לפי שפה, ואין צורך להוסיף אותו ידנית.
+            </p>
+          </div>
+        ) : null}
+        {editableButtons.map(({ button: b, index: idx }) => (
           <div key={idx} className="rounded-xl border border-zinc-100 p-3 space-y-2">
             <div className="flex gap-2">
               <select
