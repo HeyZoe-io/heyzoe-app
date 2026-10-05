@@ -21,7 +21,6 @@ export const ARBOX_DAILY_TRIGGER_TYPES = [
   "registered_after_trial",
   "not_registered_after_trial",
   "nth_workout",
-  "freeze_created",
   "freeze_ending_booked",
   "freeze_ending_unbooked",
   "trial_reminder",

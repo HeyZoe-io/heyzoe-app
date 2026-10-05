@@ -271,7 +271,7 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "freeze_created",
     uiOrder: 15,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: "נשלח עד כ־15 דקות אחרי רישום ההקפאה, בין 08:00 ל־21:00 (שעון ישראל)",
   },
   {
     type: "freeze_ending_unbooked",

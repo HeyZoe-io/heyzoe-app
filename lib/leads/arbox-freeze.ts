@@ -1,7 +1,9 @@
 /**
  * Freeze cluster: A8 freeze_created + C14 freeze_ending_unbooked + C15 freeze_ending_booked.
- * Shared membersOnHoldReport; future bookings split for ending (cron prefetch when
- * freeze ending needs it — not shared with attendance_gap).
+ * membersOnHoldReport has fromDate/toDate and only start/end suspend times — no
+ * registration timestamp — so the filter is the freeze start. freeze_created runs
+ * on the 15-minute trial-sync worker (yesterday…today+60, two calls under the
+ * 31-day cap, quiet 21:00–08:00). freeze_ending_* stays on the daily cron.
  */
 import { logMessage } from "@/lib/analytics";
 import {
@@ -36,7 +38,11 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import {
+  freezeCreatedTemplateParamValues,
+  templateBodyUsesFirstNameSlot,
+  templateSendPayload,
+} from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadEnabledFreezeCreatedTemplateTriggers,
@@ -50,12 +56,17 @@ import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const HOLD_LOOKBACK_PAST_DAYS = 7;
+/** Arbox fromDate→toDate difference. 30 days apart is 31 inclusive dates. */
+const FREEZE_CREATED_SPAN_CAP_DAYS = 30;
+/** Start-date horizon when the report cannot filter by registration time. */
+const FREEZE_CREATED_FUTURE_DAYS = 60;
+const ISRAEL_TZ = "Asia/Jerusalem";
 
 export type FreezeEndingVariant = "booked" | "unbooked";
 
 export type FreezeSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "quiet_hours";
   lookback_from?: string;
   lookback_to?: string;
   future_from?: string;
@@ -119,6 +130,67 @@ export function isFreezeEndingDue(input: {
   const notifyFrom = addDaysYmd(input.endYmd, -days);
   if (!notifyFrom) return false;
   return input.todayYmd >= notifyFrom;
+}
+
+/** Quiet hours are 21:00–08:00 Asia/Jerusalem. The 08:00 run is the first that sends. */
+export function isFreezeCreatedQuietHours(now: Date): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: ISRAEL_TZ,
+      hour: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .find((part) => part.type === "hour")?.value
+  );
+  return hour >= 21 || hour < 8;
+}
+
+/**
+ * membersOnHoldReport cannot filter by registration time. Two GETs cover
+ * yesterday through today+60 without crossing the 31-day cap.
+ */
+export function freezeCreatedReportWindows(now: Date): { fromDate: string; toDate: string }[] {
+  const today = formatDateYmdIsrael(now);
+  const from = addDaysYmd(today, -1);
+  const end = addDaysYmd(today, FREEZE_CREATED_FUTURE_DAYS);
+  if (!from || !end) return [];
+  const windows: { fromDate: string; toDate: string }[] = [];
+  let cursor = from;
+  while (cursor <= end) {
+    const chunkEnd = addDaysYmd(cursor, FREEZE_CREATED_SPAN_CAP_DAYS);
+    if (!chunkEnd) break;
+    const toDate = chunkEnd < end ? chunkEnd : end;
+    windows.push({ fromDate: cursor, toDate });
+    if (toDate >= end) break;
+    const next = addDaysYmd(toDate, 1);
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+  return windows;
+}
+
+/** Freeze start inside yesterday…today+60. That is the registration proxy. */
+export function freezeCreatedStartInSpan(startYmd: string, now: Date): boolean {
+  const windows = freezeCreatedReportWindows(now);
+  const from = windows[0]?.fromDate;
+  const to = windows[windows.length - 1]?.toDate;
+  if (!from || !to) return false;
+  return startYmd >= from && startYmd <= to;
+}
+
+const FREEZE_CREATED_TERMINAL = new Set(["seeded", "sent", "abandoned", "no_phone", "skipped"]);
+
+/** A logged hold is not sent again. Quiet hours leave it for the 08:00 run. */
+export function freezeCreatedShouldNotify(input: {
+  startYmd: string;
+  now: Date;
+  priorStatus: string | null;
+}): "send" | "skip_quiet" | "skip_already" | "skip_window" {
+  if (isFreezeCreatedQuietHours(input.now)) return "skip_quiet";
+  if (input.priorStatus && FREEZE_CREATED_TERMINAL.has(input.priorStatus)) return "skip_already";
+  if (!freezeCreatedStartInSpan(input.startYmd, input.now)) return "skip_window";
+  return "send";
 }
 
 export function freezeReportFetchWindow(input: {
@@ -444,15 +516,43 @@ async function dispatchFreezeTemplate(input: {
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
-      const { sendComponents, bodyParams } = templateSendPayload({
-    triggerType: input.triggerType,
-    storedComponents,
-    firstName,
-    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-    className: input.className,
-    startDateYmd: input.startYmd,
-    expiryDateYmd: input.endYmd,
-  });
+  const businessName = String((bizRow as { name?: unknown } | null)?.name ?? "");
+  let sendComponents: { type: "body"; parameters: { type: "text"; text: string }[] }[] | undefined;
+  let bodyParams: string[] = [];
+  if (input.triggerType === "freeze_created") {
+    const planned = freezeCreatedTemplateParamValues({
+      storedComponents,
+      firstName,
+      startYmd: input.startYmd,
+      endYmd: input.endYmd,
+    });
+    if (!planned.ok) {
+      console.error("[leads/arbox-freeze] template param mismatch", {
+        businessId: input.businessId,
+        templateName,
+        varCount: planned.varCount,
+      });
+      return { dispatch: "skipped", ok: false };
+    }
+    bodyParams = planned.values;
+    if (planned.values.length) {
+      sendComponents = [
+        { type: "body", parameters: planned.values.map((text) => ({ type: "text" as const, text })) },
+      ];
+    }
+  } else {
+    const payload = templateSendPayload({
+      triggerType: input.triggerType,
+      storedComponents,
+      firstName,
+      businessName,
+      className: input.className,
+      startDateYmd: input.startYmd,
+      expiryDateYmd: input.endYmd,
+    });
+    sendComponents = payload.sendComponents;
+    bodyParams = payload.bodyParams;
+  }
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,
@@ -498,6 +598,8 @@ export async function syncArboxFreezeForBusiness(input: {
   boxId: string;
   freezeSeeded: boolean;
   now?: Date;
+  /** created = 15-minute worker. ending = daily cron. Never both in one call. */
+  part: "created" | "ending";
   prefetchedFutureRows?: ArboxBookingReportRow[];
   prefetchedFuturePages?: number;
 }): Promise<FreezeSyncSummary> {
@@ -534,10 +636,17 @@ export async function syncArboxFreezeForBusiness(input: {
     return summary;
   }
 
+  const part = input.part === "created" ? "created" : "ending";
   const [createdRules, endingBookedRules, endingUnbookedRules] = await Promise.all([
-    loadEnabledFreezeCreatedTemplateTriggers(input.admin, businessId),
-    loadEnabledFreezeEndingBookedTemplateTriggers(input.admin, businessId),
-    loadEnabledFreezeEndingUnbookedTemplateTriggers(input.admin, businessId),
+    part === "created"
+      ? loadEnabledFreezeCreatedTemplateTriggers(input.admin, businessId)
+      : Promise.resolve([]),
+    part === "ending"
+      ? loadEnabledFreezeEndingBookedTemplateTriggers(input.admin, businessId)
+      : Promise.resolve([]),
+    part === "ending"
+      ? loadEnabledFreezeEndingUnbookedTemplateTriggers(input.admin, businessId)
+      : Promise.resolve([]),
   ]);
   const createdSendRules = rulesForCompanionSend(createdRules);
   const endingBookedSend = rulesForCompanionSend(endingBookedRules);
@@ -545,6 +654,12 @@ export async function syncArboxFreezeForBusiness(input: {
   if (!createdSendRules.length && !endingBookedSend.length && !endingUnbookedSend.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
+    return summary;
+  }
+
+  if (part === "created" && isFreezeCreatedQuietHours(now)) {
+    summary.skipped = true;
+    summary.skip_reason = "quiet_hours";
     return summary;
   }
 
@@ -556,23 +671,52 @@ export async function syncArboxFreezeForBusiness(input: {
   );
   const needsEnding = endingBookedSend.length > 0 || endingUnbookedSend.length > 0;
 
-  const holdWindow = freezeReportFetchWindow({ now, maxEndingDelayDays: maxEndingDelay || 14 });
-  summary.lookback_from = holdWindow.fromDate;
-  summary.lookback_to = holdWindow.toDate;
-
-  const holdReport = await fetchArboxMembersOnHoldReport({
-    apiKey,
-    fromDate: holdWindow.fromDate,
-    toDate: holdWindow.toDate,
-    locationId: boxId,
-  });
-  summary.pages_fetched = holdReport.pagesFetched;
-  if (!holdReport.ok) {
-    summary.fetch_error = holdReport.error;
-    summary.errors += 1;
-    return summary;
+  let holdRows: ArboxMembersOnHoldRow[] = [];
+  if (part === "created") {
+    const windows = freezeCreatedReportWindows(now);
+    summary.lookback_from = windows[0]?.fromDate;
+    summary.lookback_to = windows[windows.length - 1]?.toDate;
+    const seenHolds = new Set<number>();
+    for (const window of windows) {
+      const holdReport = await fetchArboxMembersOnHoldReport({
+        apiKey,
+        fromDate: window.fromDate,
+        toDate: window.toDate,
+        locationId: boxId,
+      });
+      summary.pages_fetched += holdReport.pagesFetched;
+      if (!holdReport.ok) {
+        summary.fetch_error = holdReport.error;
+        summary.errors += 1;
+        return summary;
+      }
+      for (const row of holdReport.rows) {
+        const holdId = parseHoldId(row.membership_hold_id);
+        const startYmd = parseClassDateYmd(row.start_suspend_time);
+        if (holdId == null || !startYmd || seenHolds.has(holdId)) continue;
+        if (!freezeCreatedStartInSpan(startYmd, now)) continue;
+        seenHolds.add(holdId);
+        holdRows.push(row);
+      }
+    }
+  } else {
+    const holdWindow = freezeReportFetchWindow({ now, maxEndingDelayDays: maxEndingDelay || 14 });
+    summary.lookback_from = holdWindow.fromDate;
+    summary.lookback_to = holdWindow.toDate;
+    const holdReport = await fetchArboxMembersOnHoldReport({
+      apiKey,
+      fromDate: holdWindow.fromDate,
+      toDate: holdWindow.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched = holdReport.pagesFetched;
+    if (!holdReport.ok) {
+      summary.fetch_error = holdReport.error;
+      summary.errors += 1;
+      return summary;
+    }
+    holdRows = holdReport.rows;
   }
-  const holdRows = holdReport.rows;
   summary.fetched_holds = holdRows.length;
 
   let futureByUser = new Map<number, { className: string | null }>();
@@ -690,7 +834,7 @@ export async function syncArboxFreezeForBusiness(input: {
           (existingRows ?? [])
             .filter((log) => {
               const status = String((log as { status?: unknown }).status ?? "");
-              return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+              return FREEZE_CREATED_TERMINAL.has(status);
             })
             .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
         );

@@ -2,13 +2,20 @@ import assert from "node:assert/strict";
 import {
   addDaysYmd,
   endingVariantForUser,
+  freezeCreatedReportWindows,
+  freezeCreatedShouldNotify,
+  freezeCreatedStartInSpan,
   freezeReportFetchWindow,
   freezeTablesNeedingSoftSeed,
   futureBookingUserIds,
+  isFreezeCreatedQuietHours,
   isFreezeEndingDue,
   isHoldEndInFuture,
   parseHoldId,
 } from "@/lib/leads/arbox-freeze";
+import { ARBOX_DAILY_TRIGGER_TYPES } from "@/lib/leads/arbox-daily-triggers-dispatch";
+import { ARBOX_TRIAL_SYNC_TRIGGER_TYPES } from "@/lib/leads/arbox-trial-sync-run";
+import { freezeCreatedTemplateParamValues } from "@/lib/template-send-params";
 import { buildMembersOnHoldReportPath } from "@/lib/leads/arbox-members-on-hold-report";
 import {
   buildFreezeCreatedScheduledDedupKey,
@@ -255,7 +262,7 @@ assert.equal(isHoldEndInFuture("2026-09-05", "2026-09-06"), false);
       startDateYmd: "2026-09-01",
       expiryDateYmd: "2026-09-20",
     }),
-    ["דנה", "01.09.2026", "20.09.2026"]
+    ["דנה", "01/09/2026", "20/09/2026"]
   );
   assert.deepEqual(
     resolveTemplateBodyParamValues({
@@ -279,6 +286,92 @@ assert.equal(isHoldEndInFuture("2026-09-05", "2026-09-06"), false);
       expiryDateYmd: "2026-09-20",
     }),
     ["דנה", "יוגה", "20.09.2026"]
+  );
+}
+
+{
+  const daytime = new Date("2026-10-05T10:00:00+03:00");
+  const windows = freezeCreatedReportWindows(daytime);
+  assert.equal(windows.length, 2, "yesterday..today+60 is two calls under the 31-day cap");
+  assert.equal(windows[0]?.fromDate, "2026-10-04");
+  assert.equal(windows[1]?.toDate, "2026-12-04");
+  for (const window of windows) {
+    const from = Date.parse(`${window.fromDate}T00:00:00Z`);
+    const to = Date.parse(`${window.toDate}T00:00:00Z`);
+    assert.ok((to - from) / 86_400_000 <= 30);
+  }
+  assert.equal(freezeCreatedStartInSpan("2026-11-05", daytime), true, "start next month is in the window");
+  assert.equal(
+    freezeCreatedShouldNotify({ startYmd: "2026-11-05", now: daytime, priorStatus: null }),
+    "send"
+  );
+  assert.equal(
+    freezeCreatedShouldNotify({ startYmd: "2026-11-05", now: daytime, priorStatus: "sent" }),
+    "skip_already"
+  );
+  const night = new Date("2026-10-05T23:30:00+03:00");
+  assert.equal(isFreezeCreatedQuietHours(night), true);
+  assert.equal(
+    freezeCreatedShouldNotify({ startYmd: "2026-11-05", now: night, priorStatus: null }),
+    "skip_quiet"
+  );
+  const afterEight = new Date("2026-10-06T08:00:00+03:00");
+  assert.equal(isFreezeCreatedQuietHours(afterEight), false);
+  assert.equal(
+    freezeCreatedShouldNotify({ startYmd: "2026-11-05", now: afterEight, priorStatus: null }),
+    "send"
+  );
+  assert.equal(
+    (ARBOX_DAILY_TRIGGER_TYPES as readonly string[]).includes("freeze_created"),
+    false
+  );
+  assert.equal(
+    (ARBOX_TRIAL_SYNC_TRIGGER_TYPES as readonly string[]).includes("freeze_created"),
+    true
+  );
+  assert.equal(
+    (ARBOX_DAILY_TRIGGER_TYPES as readonly string[]).includes("freeze_ending_booked"),
+    true
+  );
+}
+
+{
+  const components = (body: string) => [{ type: "BODY", text: body }];
+  assert.deepEqual(
+    freezeCreatedTemplateParamValues({
+      storedComponents: components("ההקפאה נרשמה."),
+      firstName: "דנה כהן",
+      startYmd: "2026-11-05",
+      endYmd: "2026-12-01",
+    }),
+    { ok: true, values: [] }
+  );
+  assert.deepEqual(
+    freezeCreatedTemplateParamValues({
+      storedComponents: components("היי {{1}}"),
+      firstName: "דנה כהן",
+      startYmd: "2026-11-05",
+      endYmd: "2026-12-01",
+    }),
+    { ok: true, values: ["דנה"] }
+  );
+  assert.deepEqual(
+    freezeCreatedTemplateParamValues({
+      storedComponents: components(TEMPLATE_PRESETS.freeze_created.body),
+      firstName: "דנה כהן",
+      startYmd: "2026-11-05",
+      endYmd: "2026-12-01",
+    }),
+    { ok: true, values: ["דנה", "05/11/2026", "01/12/2026"] }
+  );
+  assert.deepEqual(
+    freezeCreatedTemplateParamValues({
+      storedComponents: components("היי {{1}} עד {{2}}"),
+      firstName: "דנה",
+      startYmd: "2026-11-05",
+      endYmd: "2026-12-01",
+    }),
+    { ok: false, varCount: 2 }
   );
 }
 

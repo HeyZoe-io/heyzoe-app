@@ -653,13 +653,14 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("manual_membership"), /ידנית/);
   assert.match(triggerSendScheduleHintHe("membership_expiring"), /09:00/);
   assert.match(triggerSendScheduleHintHe("attendance_gap"), /09:00/);
-  assert.match(triggerSendScheduleHintHe("freeze_created"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("freeze_created"), /08:00/);
+  assert.match(triggerSendScheduleHintHe("freeze_created"), /21:00/);
   assert.match(triggerSendScheduleHintHe("lost_lead"), /09:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
   assert.match(triggerSendScheduleHintHe("milestones"), /09:00/);
   assert.match(triggerSendScheduleHintHe("nth_workout"), /09:00/);
   assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);
-  assert.equal(
+  assert.notEqual(
     triggerSendScheduleHintHe("freeze_created"),
     triggerSendScheduleHintHe("membership_expiring")
   );

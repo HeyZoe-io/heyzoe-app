@@ -857,7 +857,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
 
-  // --- Step: freeze_created + freeze_ending_* (A8 / C14 / C15) ---
+  // --- Step: freeze_ending_* only. freeze_created runs on arbox-trial-sync. ---
   try {
     entry.freeze = await timeStep(timings, business.id, "freeze", () => syncArboxFreezeForBusiness({
       admin,
@@ -866,6 +866,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       apiKey: business.crm_api_key,
       boxId: business.crm_box_id,
       freezeSeeded: business.arbox_freeze_seeded,
+      part: "ending",
       now,
       ...(freezePlan.needsEndingFuture && prefetchedFutureRows
         ? {

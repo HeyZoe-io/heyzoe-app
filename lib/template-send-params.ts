@@ -32,6 +32,13 @@ export type TemplateSendParamContext = {
 
 export const TEMPLATE_GENERAL_NOTES_FALLBACK = "אין הערות";
 
+/** Freeze confirmation dates (YYYY-MM-DD → DD/MM/YYYY). */
+export function formatFreezeCreatedDate(ymd: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? "").trim());
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 /** Israel-facing expiry for {{3}} (YYYY-MM-DD → DD.MM.YYYY). */
 export function formatTemplateExpiryDate(ymd: string | null | undefined): string {
   const s = String(ymd ?? "").trim();
@@ -264,7 +271,14 @@ export function resolveTemplateSlotValue(
     return "3";
   }
   if (slot === "start_date") {
-    const formatted = formatTemplateExpiryDate(ctx.startDateYmd);
+    const formatted =
+      ctx.triggerType === "freeze_created"
+        ? formatFreezeCreatedDate(ctx.startDateYmd)
+        : formatTemplateExpiryDate(ctx.startDateYmd);
+    return formatted || TEMPLATE_EXPIRY_FALLBACK;
+  }
+  if (ctx.triggerType === "freeze_created") {
+    const formatted = formatFreezeCreatedDate(ctx.expiryDateYmd);
     return formatted || TEMPLATE_EXPIRY_FALLBACK;
   }
   const formatted = formatTemplateExpiryDate(ctx.expiryDateYmd);
@@ -295,6 +309,37 @@ export function buildTemplateSendBodyComponents(
       parameters: values.map((text) => ({ type: "text" as const, text })),
     },
   ];
+}
+
+/**
+ * freeze_created body variables: none, {{1}} first name, or {{1}} name +
+ * {{2}} start + {{3}} end as DD/MM/YYYY. Any other shape is a mismatch.
+ */
+export function freezeCreatedTemplateParamValues(input: {
+  storedComponents: unknown;
+  firstName: string | null;
+  startYmd: string | null;
+  endYmd: string | null;
+}): { ok: true; values: string[] } | { ok: false; varCount: number } {
+  const body = bodyTextFromTemplateComponents(input.storedComponents) ?? "";
+  const found = new Set<number>();
+  for (const match of body.matchAll(/\{\{(\d+)\}\}/g)) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0) found.add(n);
+  }
+  const indexes = [...found].sort((a, b) => a - b);
+  const contiguous = indexes.every((n, i) => n === i + 1);
+  const count = indexes.length;
+  if (!contiguous || (count !== 0 && count !== 1 && count !== 3)) {
+    return { ok: false, varCount: count };
+  }
+  if (count === 0) return { ok: true, values: [] };
+  const first = firstNameFromFullName(String(input.firstName ?? "").trim()) || TEMPLATE_NAME_FALLBACK;
+  if (count === 1) return { ok: true, values: [first] };
+  const start = formatFreezeCreatedDate(input.startYmd);
+  const end = formatFreezeCreatedDate(input.endYmd);
+  if (!start || !end) return { ok: false, varCount: count };
+  return { ok: true, values: [first, start, end] };
 }
 
 export function templateSendPayload(ctx: TemplateSendParamContext): {

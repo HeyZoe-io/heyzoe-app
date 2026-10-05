@@ -175,7 +175,7 @@ import {
     missed_class: ["דנה", "יוגה"],
     missed_trial: ["דנה", "יוגה"],
     attendance_gap: ["דנה", "Limitless"],
-    freeze_created: ["דנה", "01.09.2026", "15.09.2026"],
+    freeze_created: ["דנה", "01/09/2026", "15/09/2026"],
     freeze_ending_unbooked: ["דנה", "15.09.2026"],
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],

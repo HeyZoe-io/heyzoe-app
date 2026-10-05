@@ -148,7 +148,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   freeze_created: {
     name: "freeze_created",
     category: "UTILITY",
-    body: "היי {{1}}, ההקפאה שלך עודכנה במערכת — מתאריך {{2}} עד {{3}}. האימון יתחדש אחרי התאריך הזה.",
+    body: "היי {{1}}, ההקפאה שלך נרשמה ל-{{2}} עד {{3}}.",
   },
   freeze_ending_unbooked: {
     name: "freeze_ending_unbooked",
