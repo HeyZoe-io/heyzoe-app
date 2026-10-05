@@ -106,6 +106,42 @@ export function normalizeRequestedDateForTemplate(stored: string): string {
   return m ? m[1]!.trim() : t;
 }
 
+/** תאריך מספרי (5.10 / 05/10/2026) — אסור «ביום 5.10», רק «בתאריך …». */
+const NUMERIC_CALENDAR_DATE_RE = /^\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?$/u;
+
+export function looksLikeNumericCalendarDate(value: string): boolean {
+  return NUMERIC_CALENDAR_DATE_RE.test(String(value ?? "").trim());
+}
+
+/**
+ * תבניות עם «ביום {requested_date}» נשברות כש־sf_requested_date הוא 5.10.
+ * מחליף רק «ביום» שלפני מספר לוח — לא «ביום ראשון».
+ */
+export function rewriteNumericDayPreposition(text: string): string {
+  return String(text ?? "").replace(
+    /ביום\s+(\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)/gu,
+    "בתאריך $1"
+  );
+}
+
+/**
+ * תווית ל־sf_requested_date אחרי בחירת תאריך חופשי (D.M):
+ * «ראשון 5.10» → בתבנית «ביום ראשון 5.10» (לא «ביום 5.10»).
+ */
+export function formatFreeTextScheduleDateForContact(
+  dayMonth: string,
+  weekdayLongOrName: string | null | undefined
+): string {
+  const dm = String(dayMonth ?? "").trim();
+  if (!dm) return "";
+  const raw = String(weekdayLongOrName ?? "").trim();
+  if (!raw) return dm;
+  const name = normalizeRequestedDateForTemplate(raw);
+  if (!name || looksLikeNumericCalendarDate(name)) return dm;
+  if (name.includes(dm)) return name;
+  return `${name} ${dm}`;
+}
+
 /** תווית כפתור: «שישי 18:30» */
 export function formatSlotPickButtonLabel(slot: { day: string; time: string }): string {
   return truncateWaButtonLabel(formatScheduleSlotDisplayLabel(slot));

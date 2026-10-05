@@ -130,6 +130,15 @@ assert.equal(sanitizeZoeOutboundLanguage("בואי נתחילי!"), "בואו נ
 assert.equal(sanitizeZoeOutboundLanguage("אז נתחילי עכשיו"), "אז נתחיל עכשיו");
 
 assert.equal(
+  sanitizeZoeOutboundLanguage("נשמח לראותך ביום 5.10 בשעה 19:00"),
+  "נשמח לראותך בתאריך 5.10 בשעה 19:00"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("נשמח לראותך ביום ראשון בשעה 19:00"),
+  "נשמח לראותך ביום ראשון בשעה 19:00"
+);
+
+assert.equal(
   sanitizeZoeOutboundLanguage("שורה ראשונה\n\nשורה שנייה\nשורה שלישית"),
   "שורה ראשונה\n\nשורה שנייה\nשורה שלישית"
 );

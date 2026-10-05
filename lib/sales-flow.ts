@@ -12,6 +12,7 @@ import {
 import {
   buildCourseSchedulePhraseForCta,
   normalizeRequestedDateForTemplate,
+  rewriteNumericDayPreposition,
   type CourseCycle,
 } from "@/lib/product-schedule-slots";
 import {
@@ -1487,10 +1488,11 @@ export function fillAfterScheduleSelectionTemplate(
   const date = normalizeRequestedDateForTemplate(requestedDate);
   const time = String(requestedTime ?? "").trim();
   const service = serviceName.trim() || "האימון";
-  return String(template ?? "")
+  const filled = String(template ?? "")
     .replace(/\{serviceName\}/g, service)
     .replace(/\{requested_date\}/g, date)
     .replace(/\{requested_time\}/g, time);
+  return rewriteNumericDayPreposition(filled);
 }
 
 export function resolveAfterScheduleSelectionTemplate(
@@ -3304,18 +3306,22 @@ function fillAfterTrialSchedulePlaceholders(body: string, fill: AfterTrialSchedu
         ? `, ${courseSched}`
         : `, ${courseSched}`
       : "";
-    return t
-      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
-      .replace(/\s*בשעה\s*\{requested_time\}/gu, courseSchedSuffix)
-      .replaceAll(REQUESTED_TIME_PLACEHOLDER, "")
-      .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, courseSchedSuffix);
+    return rewriteNumericDayPreposition(
+      t
+        .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
+        .replace(/\s*בשעה\s*\{requested_time\}/gu, courseSchedSuffix)
+        .replaceAll(REQUESTED_TIME_PLACEHOLDER, "")
+        .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, courseSchedSuffix)
+    );
   }
 
   if (date && time) {
-    return t
-      .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
-      .replaceAll(REQUESTED_TIME_PLACEHOLDER, time)
-      .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, "");
+    return rewriteNumericDayPreposition(
+      t
+        .replaceAll(REQUESTED_DATE_PLACEHOLDER, date)
+        .replaceAll(REQUESTED_TIME_PLACEHOLDER, time)
+        .replaceAll(COURSE_SCHEDULE_PLACEHOLDER, "")
+    );
   }
 
   t = t
