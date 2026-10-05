@@ -71,7 +71,7 @@ assert.deepEqual(
     templateNameConfigured: true,
     templateApproved: true,
   }),
-  "skip"
+  "send"
 );
 assert.equal(
   trialBookingTemplateFollowUp({
@@ -91,7 +91,7 @@ assert.equal(
     templateApproved: true,
     templateBesidesFreeMessage: true,
   }),
-  "skip"
+  "send"
 );
 
 assert.equal(formatTrialBookingConfirmDate("2026-10-07"), "07/10/2026");

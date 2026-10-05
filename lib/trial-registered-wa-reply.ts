@@ -28,7 +28,7 @@ import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import {
   loadTrialSignupNotice,
   stampTrialSignupNotice,
-  zoeRegistrationConfirmBlockedByTrialTemplate,
+  trialPurchaseTemplateBlockedByZoe,
 } from "@/lib/trial-signup-notice";
 import {
   resolveTwilioAccountSid,
@@ -116,8 +116,8 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   if (!businessSlug || !businessId) return { sent: false, reason: "no_channel" };
 
   const signupNotice = await loadTrialSignupNotice(input.admin, businessId, input.phone);
-  if (zoeRegistrationConfirmBlockedByTrialTemplate(signupNotice)) {
-    console.info("[trial-registered-wa-reply] skip, trial purchase template already sent", {
+  if (trialPurchaseTemplateBlockedByZoe(signupNotice)) {
+    console.info("[trial-registered-wa-reply] skip, free registration message already sent", {
       businessSlug,
     });
     return { sent: false, reason: "trial_template_already_sent" };

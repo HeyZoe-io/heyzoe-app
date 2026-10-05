@@ -2,9 +2,10 @@
  * Registration confirmation when a trial class is on the calendar.
  * A trial booking is not a purchase.
  *
- * Always sends the trial_booked template. Does not send the sales-flow
- * «נרשמת בהצלחה» text, and a prior purchase confirmation does not block it.
- * That text is only for a trial purchase, which does not also send its template.
+ * Every enabled trial_booked rule sends its template, in or out of the 24h
+ * window. Inside the window the free sales-flow message is sent as well,
+ * once per contact (a trial purchase may already have sent it). A class that
+ * already started sends nothing.
  *
  * IO per run, only businesses with an enabled trial_booked rule:
  * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
@@ -22,7 +23,7 @@ import { SYNC_LOG_SENTINEL_TRIGGER_ID } from "@/lib/multi-rule-dedup";
 import { logMessage } from "@/lib/analytics";
 import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
+import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
@@ -31,7 +32,12 @@ import {
   loadEnabledTrialBookedTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
-import { type TrialRegisteredWaReplyResult } from "@/lib/trial-registered-wa-reply";
+import {
+  sendTrialRegisteredWhatsAppReplyIfInWindow,
+  type TrialRegisteredWaReplyResult,
+} from "@/lib/trial-registered-wa-reply";
+import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
+import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
@@ -118,10 +124,9 @@ function padClassHm(raw: string): string | null {
 export type TrialBookingTemplateFollowUp = "skip" | "send" | "wait";
 
 /**
- * A calendar registration sends its template.
- * The sales-flow confirmation is a purchase message and does not replace this.
- * Skip only when the send is blocked, the rule has no template name, or the
- * template is not approved yet.
+ * A calendar registration sends every configured trial_booked template.
+ * The free in-window message is additional and does not replace a template.
+ * Skip only when the rule has no template name, or the template is not approved yet.
  */
 export function trialBookingTemplateFollowUp(input: {
   confirmStatus: "sent" | "skipped";
@@ -130,7 +135,9 @@ export function trialBookingTemplateFollowUp(input: {
   templateApproved: boolean;
   templateBesidesFreeMessage?: boolean;
 }): TrialBookingTemplateFollowUp {
-  if (input.freeBlocked) return "skip";
+  void input.confirmStatus;
+  void input.freeBlocked;
+  void input.templateBesidesFreeMessage;
   if (!input.templateNameConfigured) return "skip";
   if (!input.templateApproved) return "wait";
   return "send";
@@ -413,6 +420,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   });
   summary.trial_rows = trials.length;
 
+  const { data: bizPlanRow } = await admin.from("businesses").select("plan").eq("id", businessId).maybeSingle();
+  const businessPlan = (bizPlanRow as { plan?: unknown } | null)?.plan;
+
   const trialRules = rulesForCompanionSend(
     await loadEnabledTrialBookedTemplateTriggers(admin, businessId)
   ).sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
@@ -667,18 +677,52 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       continue;
     }
 
-    // Calendar registration sends the template only. The sales-flow text is for a purchase.
-    if (confirmStatus === "pending") confirmStatus = "skipped";
+    const signupNotice = await loadTrialSignupNotice(admin, businessId, phone);
+    const freeAlreadySent =
+      confirmStatus === "sent" || trialPurchaseTemplateBlockedByZoe(signupNotice);
+    const sendFreeMessage = planTrialRegistrationSends({
+      source: "booking",
+      isTrialProduct: true,
+      inWindow: true,
+      freeAlreadySent,
+      classStarted: false,
+      trialBookedRuleCount: pendingRules.length,
+      purchaseRuleCount: 0,
+    }).freeMessage;
+    if (sendFreeMessage) {
+      const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
+        admin,
+        businessId,
+        businessSlug,
+        phone,
+        instagramFollowPromptSent: await loadInstagramFollowPromptSent(admin, businessId, phone),
+        businessPlan,
+        bookingSchedule: {
+          date: item.classDate,
+          time: item.classTime,
+          serviceName: item.className,
+        },
+      });
+      if (waResult.sent) {
+        confirmStatus = "sent";
+        summary.sent += 1;
+      } else if (trialBookingConfirmIsTerminalSkip(waResult)) {
+        confirmStatus = "skipped";
+        if (waResult.reason === "outside_24h_window") summary.skipped_window += 1;
+      }
+    } else if (confirmStatus === "pending") {
+      confirmStatus = "skipped";
+    }
     const freeBlocked = false;
-
     const settledConfirm: "sent" | "skipped" = confirmStatus === "sent" ? "sent" : "skipped";
+    const sentinelStatus: LogStatus = confirmStatus === "pending" ? "pending" : confirmStatus;
     await writeLog(
       admin,
       businessId,
       item,
       SYNC_LOG_SENTINEL_TRIGGER_ID,
-      settledConfirm,
-      settledConfirm,
+      sentinelStatus,
+      confirmStatus,
       "skipped",
       attempts,
       now,
@@ -726,6 +770,23 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 }
 
 
+
+async function loadInstagramFollowPromptSent(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  phone: string
+): Promise<boolean> {
+  const variants = contactPhoneLookupVariants(phone);
+  if (!variants.length) return false;
+  const { data } = await admin
+    .from("contacts")
+    .select("instagram_follow_prompt_sent")
+    .eq("business_id", businessId)
+    .in("phone", variants)
+    .limit(1)
+    .maybeSingle();
+  return (data as { instagram_follow_prompt_sent?: boolean } | null)?.instagram_follow_prompt_sent === true;
+}
 
 async function writeLog(
   admin: ReturnType<typeof createSupabaseAdminClient>,
