@@ -12,7 +12,7 @@ import {
 
 export const DUPLICATE_ALARM_TEMPLATE = "admin_duplicate_send_blocked";
 export const DUPLICATE_ALARM_TEMPLATE_BODY =
-  "היי ליאור, נחסמה שליחה כפולה. עסק {{1}}, טריגר {{2}}, נחסמו {{3}} שליחות, שעה {{4}}.";
+  "היי ליאור, נחסמה שליחה כפולה. עסק {{1}}, טריגר {{2}}, נחסמו {{3}} שליחות, בשעה {{4}}. כדאי לבדוק את הלוגים.";
 
 const ALARM_REASONS = new Set([
   "template_rule_cap",
@@ -163,6 +163,7 @@ async function flushDuplicateBlockAlarms(batch: Pending[]): Promise<void> {
     }
     const groups = mergeDuplicateBlocks(resolved);
     const now = new Date();
+    await flushPendingDuplicateAlarms();
     for (const group of groups) {
       await sendOneAlarm(admin, group, now);
     }
@@ -186,23 +187,30 @@ async function sendOneAlarm(
     from: (table: string) => {
       select: (columns: string) => AlarmQuery;
       insert: (row: Record<string, unknown>) => PromiseLike<{ error: { message?: string } | null }>;
+      update: (row: Record<string, unknown>) => AlarmQuery;
     };
   };
   const sessionId = `dup:${group.businessId}:${group.triggerType}`;
   const since = new Date(now.getTime() - THROTTLE_MS).toISOString();
   const { data: recent, error: recentErr } = await db
     .from("messages")
-    .select("id")
+    .select("id, error_code")
     .eq("business_slug", THROTTLE_SLUG)
     .eq("session_id", sessionId)
     .eq("role", "assistant")
     .gte("created_at", since)
-    .limit(1);
+    .limit(5);
   if (recentErr) {
     console.error("[duplicate-block-alarm] throttle read failed", recentErr.message);
     return;
   }
-  if (Array.isArray(recent) && recent.length > 0) return;
+  const recentRows = Array.isArray(recent)
+    ? (recent as Array<{ id?: unknown; error_code?: unknown }>)
+    : [];
+  if (recentRows.some((row) => String(row.error_code ?? "") !== "admin_alert_pending")) return;
+  const pendingId = String(
+    recentRows.find((row) => String(row.error_code ?? "") === "admin_alert_pending")?.id ?? ""
+  ).trim();
 
   const { data: biz, error: bizErr } = await db
     .from("businesses")
@@ -227,6 +235,12 @@ async function sendOneAlarm(
   const disabled = Boolean((tpl as { disabled?: unknown } | null)?.disabled);
   const approved = !tplErr && status === "APPROVED" && !disabled;
 
+  const content = JSON.stringify({
+    slug,
+    trigger_type: group.triggerType,
+    blocked_count: countText,
+    time: when,
+  });
   if (!approved) {
     console.error("admin_alert_pending", {
       template_name: DUPLICATE_ALARM_TEMPLATE,
@@ -240,26 +254,127 @@ async function sendOneAlarm(
       time: when,
       lookup_error: tplErr?.message ?? null,
     });
-  } else {
-    const sent = await sendAdminWhatsAppTemplate({
-      to: ADMIN_SUPPORT_ALERT_WHATSAPP,
-      templateName: DUPLICATE_ALARM_TEMPLATE,
-      languageCode: "he",
-      bodyParams: [slug, group.triggerType, countText, when],
+    await rememberAlarm(db, {
+      id: pendingId,
+      sessionId,
+      content,
+      errorCode: "admin_alert_pending",
     });
-    if (!sent.ok) {
-      console.error("[duplicate-block-alarm] whatsapp failed", sent.error);
-      return;
-    }
+    return;
   }
 
-  const { error: markErr } = await db.from("messages").insert({
+  const sent = await sendAdminWhatsAppTemplate({
+    to: ADMIN_SUPPORT_ALERT_WHATSAPP,
+    templateName: DUPLICATE_ALARM_TEMPLATE,
+    languageCode: "he",
+    bodyParams: [slug, group.triggerType, countText, when],
+  });
+  if (!sent.ok) {
+    console.error("[duplicate-block-alarm] whatsapp failed", sent.error);
+    await rememberAlarm(db, {
+      id: pendingId,
+      sessionId,
+      content,
+      errorCode: "admin_alert_pending",
+    });
+    return;
+  }
+  await rememberAlarm(db, { id: pendingId, sessionId, content, errorCode: null });
+}
+
+async function rememberAlarm(
+  db: {
+    from: (table: string) => {
+      insert: (row: Record<string, unknown>) => PromiseLike<{ error: { message?: string } | null }>;
+      update: (row: Record<string, unknown>) => {
+        eq: (column: string, value: unknown) => PromiseLike<{ error: { message?: string } | null }>;
+      };
+    };
+  },
+  input: { id: string; sessionId: string; content: string; errorCode: string | null }
+): Promise<void> {
+  const row = {
     business_slug: THROTTLE_SLUG,
     role: "assistant",
-    session_id: sessionId,
+    session_id: input.sessionId,
     model_used: "admin_duplicate_alarm",
-    content: `${slug} ${group.triggerType} blocked ${countText} at ${when}`,
-    error_code: approved ? null : "admin_alert_pending",
-  });
-  if (markErr) console.error("[duplicate-block-alarm] throttle write failed", markErr.message);
+    content: input.content,
+    error_code: input.errorCode,
+  };
+  const { error } = input.id
+    ? await db.from("messages").update({ content: input.content, error_code: input.errorCode }).eq("id", input.id)
+    : await db.from("messages").insert(row);
+  if (error) console.error("[duplicate-block-alarm] throttle write failed", error.message);
+}
+
+/** Sends stored admin_alert_pending rows after Meta approves the template. */
+export async function flushPendingDuplicateAlarms(): Promise<number> {
+  try {
+    const { createSupabaseAdminClient } = await import("@/lib/supabase-admin");
+    const admin = createSupabaseAdminClient();
+    const { data: tpl, error: tplErr } = await admin
+      .from("marketing_whatsapp_templates")
+      .select("status, disabled")
+      .eq("name", DUPLICATE_ALARM_TEMPLATE)
+      .eq("language", "he")
+      .maybeSingle();
+    if (tplErr) {
+      console.error("[duplicate-block-alarm] pending template lookup failed", tplErr.message);
+      return 0;
+    }
+    const status = String((tpl as { status?: unknown } | null)?.status ?? "").toUpperCase();
+    const disabled = Boolean((tpl as { disabled?: unknown } | null)?.disabled);
+    if (status !== "APPROVED" || disabled) return 0;
+
+    const { data, error } = await admin
+      .from("messages")
+      .select("id, content")
+      .eq("business_slug", THROTTLE_SLUG)
+      .eq("model_used", "admin_duplicate_alarm")
+      .eq("error_code", "admin_alert_pending")
+      .order("created_at", { ascending: true })
+      .limit(20);
+    if (error) {
+      console.error("[duplicate-block-alarm] pending read failed", error.message);
+      return 0;
+    }
+    let sentCount = 0;
+    for (const row of data ?? []) {
+      const id = String((row as { id?: unknown }).id ?? "").trim();
+      let parsed: { slug?: unknown; trigger_type?: unknown; blocked_count?: unknown; time?: unknown };
+      try {
+        parsed = JSON.parse(String((row as { content?: unknown }).content ?? "")) as typeof parsed;
+      } catch {
+        continue;
+      }
+      const slug = String(parsed.slug ?? "").trim();
+      const triggerType = String(parsed.trigger_type ?? "").trim();
+      const countText = String(parsed.blocked_count ?? "").trim();
+      const when = String(parsed.time ?? "").trim();
+      if (!id || !slug || !triggerType || !countText || !when) continue;
+      const sent = await sendAdminWhatsAppTemplate({
+        to: ADMIN_SUPPORT_ALERT_WHATSAPP,
+        templateName: DUPLICATE_ALARM_TEMPLATE,
+        languageCode: "he",
+        bodyParams: [slug, triggerType, countText, when],
+      });
+      if (!sent.ok) {
+        console.error("[duplicate-block-alarm] pending whatsapp failed", sent.error);
+        continue;
+      }
+      const { error: markErr } = await admin
+        .from("messages")
+        .update({ error_code: null })
+        .eq("id", id);
+      if (markErr) {
+        console.error("[duplicate-block-alarm] pending mark failed", markErr.message);
+        continue;
+      }
+      sentCount += 1;
+    }
+    return sentCount;
+  } catch (e) {
+    console.error("[duplicate-block-alarm] pending flush failed", e);
+    return 0;
+  }
 }

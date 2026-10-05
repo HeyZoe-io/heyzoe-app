@@ -28,6 +28,7 @@ import { type SfServiceRow } from "@/lib/sf-service-rows";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
 import { stampTemplateRulesActivated } from "@/lib/rule-activation";
+import { flushPendingDuplicateAlarms, DUPLICATE_ALARM_TEMPLATE } from "@/lib/leads/duplicate-block-alarm";
 import {
   BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
   buildInactiveBusinessAutoReply,
@@ -5783,6 +5784,15 @@ async function handleMessageTemplateStatusUpdate(
     }
   } catch (e) {
     console.warn("[WA Webhook] marketing template_status update skipped:", e);
+  }
+
+  if (
+    newStatus.toUpperCase() === "APPROVED" &&
+    ev.message_template_name === DUPLICATE_ALARM_TEMPLATE
+  ) {
+    await flushPendingDuplicateAlarms().catch((e) =>
+      console.error("[duplicate-block-alarm] flush after approval failed", e)
+    );
   }
 
   if (matched === 0 && ev.message_template_name && ev.message_template_language && ev.waba_id) {
