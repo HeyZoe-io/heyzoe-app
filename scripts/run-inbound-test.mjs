@@ -71,8 +71,13 @@ const CONTACT_FIELDS = [
   "human_requested_at",
   "wa_next_followup_at",
   "wa_no_response_due_at",
+  "wa_no_response_at",
   "wa_followup_stage",
+  "wa_followup_1_sent_at",
+  "wa_followup_2_sent_at",
+  "wa_followup_3_sent_at",
   "followup_sent",
+  "last_contact_at",
   "last_zoe_reply_at",
 ].join(", ");
 
@@ -192,6 +197,7 @@ for (let i = 0; i < texts.length; i++) {
   rows.push({
     text,
     http: http.status,
+    httpBody: http.snippet,
     route: parsed.route,
     tagStatus: parsed.tagStatus,
     model: parsed.model || null,
