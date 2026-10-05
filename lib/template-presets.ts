@@ -244,6 +244,67 @@ export function templateComponentsEdgeVariableMessage(components: unknown): stri
   return null;
 }
 
+/** Whitespace tokens Meta counts: a word of 2+ letters, or a standalone dash. */
+function countMetaStaticWords(text: string): number {
+  const cleaned = String(text ?? "").replace(/\{\{\s*\d+\s*\}\}/g, " ");
+  let count = 0;
+  for (const token of cleaned.split(/\s+/)) {
+    if (!token) continue;
+    const letters = token.match(/[\u0590-\u05FFa-zA-Z]/g);
+    if (letters && letters.length >= 2) {
+      count += 1;
+      continue;
+    }
+    if (/^[-–—]+$/u.test(token)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Meta 2388293. Empirically: static words + variables >= 3×variables + 1.
+ * A one-letter token such as "ב-" does not count; a spaced hyphen does.
+ */
+export function templateTextVariableDensityMessage(text: string): string | null {
+  const params = [...String(text ?? "").matchAll(/\{\{\s*\d+\s*\}\}/g)].length;
+  if (!params) return null;
+  const words = countMetaStaticWords(text);
+  if (words + params < params * 3 + 1) {
+    return "יש יותר מדי משתנים ביחס לאורך הטקסט. הוסיפו משפט קבוע בלי משתנה נוסף.";
+  }
+  return null;
+}
+
+export function templateTextMetaPolicyMessage(
+  text: string,
+  part: "body" | "header" = "body"
+): string | null {
+  const edge = templateTextEdgeVariableMessage(text, part);
+  if (edge) return edge;
+  if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(text)) {
+    const where = part === "header" ? "בכותרת" : "בגוף ההודעה";
+    return `שני משתנים צמודים ${where}. שימו מילה ביניהם.`;
+  }
+  if (part === "body") return templateTextVariableDensityMessage(text);
+  return null;
+}
+
+export function templateComponentsMetaPolicyMessage(components: unknown): string | null {
+  if (!Array.isArray(components)) return null;
+  for (const raw of components) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as { type?: unknown; text?: unknown; format?: unknown };
+    const type = String(c.type ?? "").toUpperCase();
+    if (type !== "BODY" && type !== "HEADER") continue;
+    if (type === "HEADER" && String(c.format ?? "TEXT").toUpperCase() !== "TEXT") continue;
+    const message = templateTextMetaPolicyMessage(
+      String(c.text ?? ""),
+      type === "HEADER" ? "header" : "body"
+    );
+    if (message) return message;
+  }
+  return null;
+}
+
 /** Maps Meta template-create errors the dashboard can show without the raw Graph payload. */
 export function hebrewMetaTemplateApiError(detail: string): string | null {
   const text = String(detail ?? "");

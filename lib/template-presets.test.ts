@@ -9,8 +9,13 @@ import {
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
   templateTextEdgeVariableMessage,
+  templateTextMetaPolicyMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
+import {
+  MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY,
+  MARKETING_TEMPLATE_PRESETS,
+} from "@/lib/marketing-template-presets";
 
 assert.equal(TEMPLATE_PRESETS.incoming_lead.body, TEMPLATE_PRESETS.arbox_new_lead.body);
 assert.equal(TEMPLATE_PRESETS.incoming_lead.category, "MARKETING");
@@ -248,5 +253,29 @@ assert.equal(templateTextEdgeVariableMessage("היי {{1}}, נתראה מחר.")
 assert.equal(templateTextEdgeVariableMessage("{{1}} היי"), "גוף ההודעה מתחיל במשתנה. הוסיפו מילה לפניו.");
 assert.match(hebrewMetaTemplateApiError("error_subcode\":2388299") ?? "", /נגמר במשתנה/);
 assert.equal(hebrewMetaTemplateApiError("something else"), null);
+
+for (const [key, preset] of Object.entries(TEMPLATE_PRESETS)) {
+  assert.equal(templateTextMetaPolicyMessage(preset.body), null, key);
+}
+for (const [key, preset] of Object.entries(MARKETING_TEMPLATE_PRESETS)) {
+  assert.equal(templateTextMetaPolicyMessage(preset.body), null, `marketing:${key}`);
+}
+assert.equal(templateTextMetaPolicyMessage(MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY), null);
+assert.equal(
+  templateTextMetaPolicyMessage("שים לב - השיעור {{1}} בתאריך {{2}} בשעה {{3}} בוטל."),
+  null
+);
+assert.match(
+  templateTextMetaPolicyMessage("היי {{1}}, עד תאריך {{2}} כולל.") ?? "",
+  /יותר מדי משתנים/
+);
+assert.match(
+  templateTextMetaPolicyMessage("היי {{1}}, השיעור {{2}} בתאריך {{3}} בשעה {{4}} בוטל.") ?? "",
+  /יותר מדי משתנים/
+);
+assert.match(
+  templateTextMetaPolicyMessage("היי! מגיע {{1}} {{2}} לאימון.") ?? "",
+  /צמודים/
+);
 
 console.log("template-presets.test.ts: ok");

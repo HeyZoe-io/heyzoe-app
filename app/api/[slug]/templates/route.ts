@@ -6,7 +6,7 @@ import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@
 import {
   hebrewMetaTemplateApiError,
   isMetaTemplateContentEditable,
-  templateComponentsEdgeVariableMessage,
+  templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
-  const edgeMessage = templateComponentsEdgeVariableMessage(components);
+  const edgeMessage = templateComponentsMetaPolicyMessage(components);
   if (edgeMessage) {
     return NextResponse.json(
       { error: "template_edge_variable", detail: edgeMessage },
@@ -326,7 +326,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     nextCategory === "MARKETING"
       ? withMarketingOptOutButton(styled, language || existingLanguage || "he")
       : styled;
-  const edgeMessage = templateComponentsEdgeVariableMessage(components);
+  const edgeMessage = templateComponentsMetaPolicyMessage(components);
   if (edgeMessage) {
     return NextResponse.json(
       { error: "template_edge_variable", detail: edgeMessage },

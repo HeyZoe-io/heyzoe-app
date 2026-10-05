@@ -20,7 +20,7 @@ import {
   presetExampleForSlot,
   presetVarHint,
   TEMPLATE_PRESETS,
-  templateComponentsEdgeVariableMessage,
+  templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
@@ -248,15 +248,17 @@ function ModalShell({
   onClose,
   children,
   widthClass = "max-w-lg",
+  layer = "z-[2147483000]",
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   widthClass?: string;
+  layer?: string;
 }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[2147483000]">
+    <div className={`fixed inset-0 ${layer}`}>
       <button
         type="button"
         aria-label="סגירה"
@@ -737,7 +739,7 @@ export default function TemplatesClient({
           buttons: inlineDraft.buttons,
           exampleValues,
         });
-        const edgeMessage = templateComponentsEdgeVariableMessage(components);
+        const edgeMessage = templateComponentsMetaPolicyMessage(components);
         if (edgeMessage) throw new Error(edgeMessage);
         const tplRes = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
           method: "POST",
@@ -1249,7 +1251,7 @@ export default function TemplatesClient({
         buttons,
         exampleValues,
       });
-      const edgeMessage = templateComponentsEdgeVariableMessage(components);
+      const edgeMessage = templateComponentsMetaPolicyMessage(components);
       if (edgeMessage) throw new Error(edgeMessage);
       const res = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
         method: isEditing ? "PUT" : "POST",
@@ -1394,17 +1396,11 @@ export default function TemplatesClient({
         </p>
       </header>
 
-      {(error || success) && (
-        <div
-          className={`rounded-xl border px-3 py-2 text-sm ${
-            error
-              ? "border-red-200 bg-red-50 text-red-800"
-              : "border-emerald-200 bg-emerald-50 text-emerald-800"
-          }`}
-        >
-          {error || success}
+      {success ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {success}
         </div>
-      )}
+      ) : null}
 
       <section className="rounded-2xl border border-[#7133da]/20 bg-white/85 p-4 sm:p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2617,6 +2613,26 @@ export default function TemplatesClient({
           </div>
         </ModalShell>
       )}
+
+      {error ? (
+        <ModalShell
+          title="שגיאה"
+          onClose={() => setError(null)}
+          widthClass="max-w-md"
+          layer="z-[2147483001]"
+        >
+          <p className="text-sm leading-relaxed text-zinc-800 whitespace-pre-wrap">{error}</p>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="rounded-xl bg-[#7133da] px-4 py-2 text-sm font-medium text-white hover:bg-[#5f28c0]"
+            >
+              הבנתי
+            </button>
+          </div>
+        </ModalShell>
+      ) : null}
     </div>
   );
 }
