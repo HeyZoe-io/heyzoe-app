@@ -5,36 +5,25 @@
  *
  * IO per trial-sync run, tights only: 1 bookingsReport (today…+14, usually 1–2
  * pages) + 1 membershipTypes. No extra calls for other businesses. First pass
- * seeds and sends nothing. Later passes send one message per booking: the
- * registration text inside the 24h window, or the trial purchase template
- * when that window is closed. The day-before trial_reminder still applies.
+ * seeds and sends nothing. Later passes send the registration text only inside
+ * the 24h window. No purchase template: a trial booking is not a sale.
+ * Outside the window the day-before trial_reminder still applies.
  */
-import { logMessage } from "@/lib/analytics";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
-import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
   normalizeMembershipTypeName,
   parseClassDateYmd,
-  type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
-import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
-import { computeDueAt, enqueueScheduledTemplateSend } from "@/lib/scheduled-template-sends";
+import { canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { resolveTemplateFirstName } from "@/lib/template-first-name";
-import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
-import { resolvePurchaseTemplateTriggerForSale } from "@/lib/template-triggers-match";
-import { stampTrialSignupNotice } from "@/lib/trial-signup-notice";
 import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
-import { delayDirectionForTrigger } from "@/lib/trigger-catalog";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
-import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
 const CONFIRM_SLUGS = new Set(["tights"]);
@@ -424,32 +413,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         templateStatus = "skipped";
       } else if (trialBookingConfirmIsTerminalSkip(result)) {
         confirmStatus = "skipped";
-        summary.skipped_window += 1;
-      } else {
-        failed = true;
-      }
-    }
-
-    if (templateStatus === "pending" && confirmStatus === "skipped" && !failed) {
-      const templateResult = await sendTrialBookingPurchaseTemplate({
-        admin,
-        businessId,
-        businessSlug,
-        phone,
-        fullName: bookingFullName(item.row),
-        trialTypeIds,
-        userId: item.userId,
-        classDate: item.classDate,
-        classTime: item.classTime,
-        className: item.className,
-        now,
-      });
-      if (templateResult === "sent") {
-        templateStatus = "sent";
-        summary.template_sent += 1;
-        await stampTrialSignupNotice(admin, businessId, phone, "template");
-      } else if (templateResult === "skipped") {
         templateStatus = "skipped";
+        summary.skipped_window += 1;
       } else {
         failed = true;
       }
@@ -497,125 +462,6 @@ async function instagramAlreadySent(
     .limit(1);
   const row = (data ?? [])[0] as { instagram_follow_prompt_sent?: boolean } | undefined;
   return row?.instagram_follow_prompt_sent === true;
-}
-
-function bookingFullName(row: ArboxBookingReportRow): string | null {
-  const full = String(row.full_name ?? "").trim();
-  if (full) return full;
-  const first = String(row.first_name ?? "").trim();
-  const last = String(row.last_name ?? "").trim();
-  const combined = [first, last].filter(Boolean).join(" ").trim();
-  return combined || null;
-}
-
-type TemplateSendOutcome = "sent" | "skipped" | "failed";
-
-/** Purchase template for a trial product. Used only when the 24h registration text cannot be sent. */
-async function sendTrialBookingPurchaseTemplate(input: {
-  admin: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: number;
-  businessSlug: string;
-  phone: string;
-  fullName: string | null;
-  trialTypeIds: number[];
-  userId: number;
-  classDate: string;
-  classTime: string;
-  className: string;
-  now: Date;
-}): Promise<TemplateSendOutcome> {
-  const trialId = input.trialTypeIds[0] ?? null;
-  const rule = await resolvePurchaseTemplateTriggerForSale({
-    admin: input.admin,
-    businessId: input.businessId,
-    membershipTypeId: trialId,
-    match: { trialMembershipTypeIds: input.trialTypeIds },
-  });
-  const templateName = rule?.template_name?.trim() || "";
-  if (!rule || !templateName) return "skipped";
-
-  if (rule.delay_days > 0) {
-    const dueAt = computeDueAt(
-      {
-        delay_days: rule.delay_days,
-        delay_direction: delayDirectionForTrigger("purchase", rule.delay_direction),
-      },
-      input.now
-    );
-    const enqueued = await enqueueScheduledTemplateSend({
-      admin: input.admin,
-      businessId: input.businessId,
-      triggerId: rule.id,
-      contactPhone: input.phone,
-      templateName,
-      dueAt,
-      dedupKey: `trial_booking:${input.businessId}:${rule.id}:${input.userId}:${input.classDate}:${input.classTime}`,
-    });
-    return enqueued.ok ? "sent" : "failed";
-  }
-
-  const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
-  const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
-  if (!phoneNumberId) return "skipped";
-
-  const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id, name").eq("id", input.businessId).maybeSingle(),
-    input.admin
-      .from("whatsapp_templates")
-      .select("id, status, language, components")
-      .eq("business_id", input.businessId)
-      .eq("name", templateName)
-      .eq("status", "APPROVED")
-      .eq("disabled", false)
-      .limit(1)
-      .maybeSingle(),
-  ]);
-  const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
-    .trim()
-    .replace(/\s+/g, "");
-  if (!wabaId || !approvedTpl?.id) return "skipped";
-
-  const firstName = resolveTemplateFirstName(null, input.fullName);
-  if (
-    !firstName &&
-    templateBodyUsesFirstNameSlot("purchase", (approvedTpl as { components?: unknown }).components)
-  ) {
-    console.info(LOG, "template skip", { reason: "no_valid_name", businessSlug: input.businessSlug });
-    return "skipped";
-  }
-
-  const languageCode = String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
-  const storedComponents = (approvedTpl as { components?: unknown }).components;
-  const { sendComponents, bodyParams } = templateSendPayload({
-    triggerType: "purchase",
-    storedComponents,
-    firstName,
-    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-  });
-  const sendResult = await sendBusinessTemplate({
-    to: input.phone,
-    phoneNumberId,
-    templateName,
-    languageCode,
-    ...(sendComponents ? { components: sendComponents } : {}),
-  });
-  if (!sendResult.ok) {
-    console.error(LOG, "template send failed", sendResult.error);
-    return "failed";
-  }
-
-  await logMessage({
-    business_slug: input.businessSlug,
-    role: "assistant",
-    content: formatLeadTemplateMessageContent(templateName, {
-      firstName,
-      components: storedComponents,
-      bodyParams,
-    }),
-    model_used: LEAD_TEMPLATE_MODEL,
-    session_id: buildWaSessionId(phoneNumberId, input.phone),
-  });
-  return "sent";
 }
 
 async function writeLog(
