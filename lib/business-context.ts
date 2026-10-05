@@ -32,6 +32,7 @@ import {
   scheduleTimesReplyCaption,
   scheduleTimesReplyUsesImage,
 } from "@/lib/wa-studio-schedule-cta";
+import { buildReplyRoutePromptBlock } from "@/lib/wa-reply-route";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { buildLeadAgeBandPromptRule } from "@/lib/wa-lead-audience";
 import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
@@ -1023,7 +1024,7 @@ ${formatSalesFlowBlocksForPrompt(knowledge?.salesFlowBlocks ?? [])}
 - נסחי בהתאם לסגנון הדיבור שנבחר למעלה.`;
 
   const classTimesImageRule = scheduleTimesReplyUsesImage(slug)
-    ? `\n- כשעונים על מועדי אימונים (מה יש ביום, מתי יש שיעור, לוח, או כל פירוט שעות): אסור לכתוב שעות או רשימת אימונים. המערכת שולחת תמונת מערכת שעות עם המשפט «${scheduleTimesReplyCaption(slug)}».`
+    ? `\n- רק כשהתג הוא schedule: אל תכתבי שעות או רשימת אימונים בגוף. המערכת שולחת תמונת מערכת שעות עם המשפט «${scheduleTimesReplyCaption(slug)}». תג answer או booking_change לא שולח את התמונה, גם אם בגוף יש שעה.`
     : "";
 
   if (!isWhatsApp) {
@@ -1034,6 +1035,8 @@ ${saleFlowExtra}`;
   const salesMeta = getZoePlatformCategoryBlock(guidelines, "sales_flow_meta");
   const bookingTruthBlock = buildBookingTruthPromptBlock(waCtx);
   return `${base}
+
+${buildReplyRoutePromptBlock()}
 
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה של העסק):
 ${salesMeta || "- הודעת הפתיחה נשלחת אוטומטית מהמערכת — אל תחזירי אותה מחדש אלא אם התבקשת במפורש."}

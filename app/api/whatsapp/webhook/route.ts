@@ -103,12 +103,20 @@ import {
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
 import {
-  assistantReplyListsClassTimes,
   scheduleCtaImageFollowUpLinkText,
   scheduleCtaSendsImageAndLink,
   scheduleTimesReplyCaption,
   scheduleTimesReplyUsesImage,
 } from "@/lib/wa-studio-schedule-cta";
+import {
+  appendRouteToModelUsed,
+  assistantModelOrFilter,
+  decideReplyRouteAction,
+  extractReplyRoute,
+  modelUsedBase,
+  resolveRouteBookingChangeReply,
+  type ExtractedReplyRoute,
+} from "@/lib/wa-reply-route";
 import {
   applyCallScheduleCtaLabelOverride,
   CALL_SCHEDULE_CTA_LABEL,
@@ -850,7 +858,7 @@ const CTA_MENU_SENT_MODELS = new Set([
 ]);
 
 function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
-  const m = String(model ?? "").trim();
+  const m = modelUsedBase(model);
   return m === CLAUDE_WHATSAPP_MODEL || m === GEMINI_WHATSAPP_MODEL;
 }
 
@@ -2195,6 +2203,7 @@ async function sendClassTimesAsScheduleImage(input: {
   business_slug: string;
   sessionId: string;
   blockMedia: boolean;
+  modelUsed?: string;
 }): Promise<ScheduleBoardDelivery> {
   const caption = scheduleTimesReplyCaption(input.business_slug) ?? SCHEDULE_BOARD_CAPTION;
   const forceImage = scheduleTimesReplyUsesImage(input.business_slug);
@@ -2216,7 +2225,7 @@ async function sendClassTimesAsScheduleImage(input: {
     authToken: input.authToken,
     business_slug: input.business_slug,
     sessionId: input.sessionId,
-    modelUsed: "sales_flow_schedule_board_on_ask",
+    modelUsed: input.modelUsed ?? "sales_flow_schedule_board_on_ask",
     caption,
   });
   if (delivery !== "none") return delivery;
@@ -2229,7 +2238,7 @@ async function sendClassTimesAsScheduleImage(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: caption,
-    model_used: "sales_flow_schedule_board_on_ask",
+    model_used: input.modelUsed ?? "sales_flow_schedule_board_on_ask",
     session_id: input.sessionId,
   });
   return "link";
@@ -2244,6 +2253,10 @@ const SCHEDULE_BOARD_SENT_MODELS = new Set([
   "sales_flow_schedule_board_warmup_ask",
   "sales_flow_schedule_board_on_ask",
 ]);
+
+function isScheduleBoardModel(model: unknown): boolean {
+  return SCHEDULE_BOARD_SENT_MODELS.has(modelUsedBase(String(model ?? "")));
+}
 
 async function ensureScheduleBoardSentOnce(input: {
   supabase: ReturnType<typeof createSupabaseAdminClient>;
@@ -2263,19 +2276,23 @@ async function ensureScheduleBoardSentOnce(input: {
       .eq("business_slug", business_slug)
       .eq("session_id", sessionId)
       .eq("role", "assistant")
-      .in("model_used", [
-        ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
-        "greeting",
-        "default_opening",
-      ])
+      .or(
+        assistantModelOrFilter([
+          ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
+          "greeting",
+          "default_opening",
+        ])
+      )
       .order("created_at", { ascending: false })
       .limit(60);
     const lastResetAt =
-      (markers ?? []).find((m: any) => m?.model_used === "greeting" || m?.model_used === "default_opening")
-        ?.created_at ?? null;
+      (markers ?? []).find(
+        (m: any) =>
+          modelUsedBase(String(m?.model_used ?? "")) === "greeting" ||
+          modelUsedBase(String(m?.model_used ?? "")) === "default_opening"
+      )?.created_at ?? null;
     const lastScheduleAt =
-      (markers ?? []).find((m: any) => SCHEDULE_BOARD_SENT_MODELS.has(String(m?.model_used ?? "")))?.created_at ??
-      null;
+      (markers ?? []).find((m: any) => isScheduleBoardModel(m?.model_used))?.created_at ?? null;
     const alreadySent = Boolean(lastScheduleAt && (!lastResetAt || String(lastScheduleAt) > String(lastResetAt)));
     if (alreadySent) return "none";
   } catch (e) {
@@ -2305,25 +2322,25 @@ async function wasScheduleBoardSentInSession(input: {
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.sessionId)
       .eq("role", "assistant")
-      .in("model_used", [
-        ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
-        "greeting",
-        "default_opening",
-        "sales_flow_schedule_board_before_service_pick",
-      ])
+      .or(
+        assistantModelOrFilter([
+          ...Array.from(SCHEDULE_BOARD_SENT_MODELS),
+          "greeting",
+          "default_opening",
+          "sales_flow_schedule_board_before_service_pick",
+        ])
+      )
       .order("created_at", { ascending: false })
       .limit(60);
     const lastResetAt =
       (markers ?? []).find((m: { model_used?: unknown }) => {
-        const mu = String(m?.model_used ?? "");
+        const mu = modelUsedBase(String(m?.model_used ?? ""));
         return mu === "greeting" || mu === "default_opening";
       })?.created_at ?? null;
     const lastScheduleAt =
       (markers ?? []).find((m: { model_used?: unknown }) => {
-        const mu = String(m?.model_used ?? "");
-        return (
-          SCHEDULE_BOARD_SENT_MODELS.has(mu) || mu === "sales_flow_schedule_board_before_service_pick"
-        );
+        const mu = modelUsedBase(String(m?.model_used ?? ""));
+        return isScheduleBoardModel(mu) || mu === "sales_flow_schedule_board_before_service_pick";
       })?.created_at ?? null;
     return Boolean(lastScheduleAt && (!lastResetAt || String(lastScheduleAt) > String(lastResetAt)));
   } catch (e) {
@@ -8575,7 +8592,12 @@ async function processIncoming(
     }
 
     const inboundForDaySlots = msg.text.trim();
+    // Tights: a day plus a question mark is not precise enough to send the timetable.
+    // Only an explicit schedule phrase skips Claude. Anything else waits for the route tag.
+    const tightsDefersBroadTimetable =
+      scheduleTimesReplyUsesImage(business_slug) && !isScheduleIntent(inboundForDaySlots);
     const shouldCheckRelativeDaySlots =
+      !tightsDefersBroadTimetable &&
       shouldAnswerFromClassTimetable(inboundForDaySlots) &&
       (parseRequestedClassDays(inboundForDaySlots).length > 0 ||
         matchCatalogServiceFromFreeText(inboundForDaySlots, salesFlowServices) != null ||
@@ -12419,7 +12441,7 @@ async function processIncoming(
         .eq("business_slug", business_slug)
         .eq("session_id", sessionId)
         .eq("role", "assistant")
-        .in("model_used", [CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL])
+        .or(assistantModelOrFilter([CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL]))
         .gte("created_at", sinceIso);
       const recentAiCount = typeof count === "number" ? count : 0;
       if (recentAiCount >= WA_AI_REPLIES_PER_ROLLING_24H && !isWaAi24hLimitExempt(msg.from)) {
@@ -12948,6 +12970,19 @@ async function processIncoming(
     ...(contactSessionPhase === "cta" ? ctaMenuLabelsForAi : []),
   ].filter(Boolean);
 
+  let waReplyRoute: ExtractedReplyRoute = extractReplyRoute("");
+  if (!isFallbackErrorReply && didCallClaude && !matched?.reply) {
+    waReplyRoute = extractReplyRoute(replyCore);
+    replyCore = waReplyRoute.body;
+    if (waReplyRoute.tagStatus !== "ok") {
+      console.info("[WA Webhook] reply route tag", {
+        business_slug,
+        sessionId,
+        tagStatus: waReplyRoute.tagStatus,
+      });
+    }
+  }
+
   const shouldStripModelNumberedChoices =
     !isFallbackErrorReply && (contactTrialRegistered === true || stripCandidates.length > 0);
   let replyCoreForMenu = shouldStripModelNumberedChoices
@@ -12980,81 +13015,6 @@ async function processIncoming(
     const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
     replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
     console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
-  }
-
-  const inboundForClassTimes = msg.type === "text" ? msg.text : incomingRaw;
-  if (
-    !isFallbackErrorReply &&
-    knowledge &&
-    scheduleTimesReplyUsesImage(business_slug) &&
-    contactSessionPhase !== "schedule_date" &&
-    contactSessionPhase !== "schedule_time" &&
-    assistantReplyListsClassTimes(replyCoreClean) &&
-    matchesBookedClassMoveIntent(inboundForClassTimes)
-  ) {
-    const useAppReply =
-      !inboundSaysClassChangeAppFailed(inboundForClassTimes) &&
-      knowledge.hasArboxConnection === true;
-    const handoffTxt = useAppReply
-      ? buildBookedClassMoveAppReply(inboundForClassTimes)
-      : buildNonArboxClassChangeTeamHandoffReply(inboundForClassTimes);
-    const notifyTeam = !useAppReply;
-    if (notifyTeam && businessId) {
-      try {
-        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        await handleLeadHumanRequested({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          nowIso,
-          sessionId,
-        });
-      } catch (e) {
-        console.error("[WA Webhook] class-move schedule-swap human_requested failed:", e);
-      }
-    }
-    console.info("[WA Webhook] class-move reply kept off the schedule image", {
-      business_slug,
-      sessionId,
-    });
-    try {
-      await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
-    } catch (e) {
-      console.error("[WA Webhook] Send class-move instead of schedule image failed:", e);
-    }
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: handoffTxt,
-      model_used: notifyTeam ? "class_reschedule_team_handoff" : BOOKED_CLASS_MOVE_APP_MODEL,
-      session_id: sessionId,
-    });
-    return;
-  }
-
-  if (
-    !isFallbackErrorReply &&
-    knowledge &&
-    scheduleTimesReplyUsesImage(business_slug) &&
-    contactSessionPhase !== "schedule_date" &&
-    contactSessionPhase !== "schedule_time" &&
-    assistantReplyListsClassTimes(replyCoreClean)
-  ) {
-    console.info("[WA Webhook] class-times text replaced with schedule image", {
-      business_slug,
-      sessionId,
-    });
-    await sendClassTimesAsScheduleImage({
-      knowledge,
-      msg,
-      accountSid,
-      authToken,
-      business_slug,
-      sessionId,
-      blockMedia: starterBlocksMedia,
-    });
-    return;
   }
 
   if (
@@ -13240,10 +13200,72 @@ async function processIncoming(
       business_slug,
       role: "assistant",
       content: bookingHandoffTxt,
-      model_used: "class_reschedule_team_handoff",
+      model_used: didCallClaude
+        ? appendRouteToModelUsed("class_reschedule_team_handoff", waReplyRoute)
+        : "class_reschedule_team_handoff",
       session_id: sessionId,
     });
     return;
+  }
+
+  if (!isFallbackErrorReply && didCallClaude && !matched?.reply && knowledge) {
+    const routeAction = decideReplyRouteAction({
+      extracted: waReplyRoute,
+      scheduleImageEnabled: scheduleTimesReplyUsesImage(business_slug),
+      suppressTimetable:
+        contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time",
+    });
+    if (routeAction.kind === "timetable") {
+      console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });
+      await sendClassTimesAsScheduleImage({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+        modelUsed: appendRouteToModelUsed("sales_flow_schedule_board_on_ask", waReplyRoute),
+      });
+      return;
+    }
+    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff") {
+      const outbound =
+        routeAction.kind === "handoff" && replyCoreClean.trim()
+          ? replyCoreClean.trim()
+          : resolveRouteBookingChangeReply(knowledge);
+      if (businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] route handoff human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send route handoff failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: outbound,
+        model_used: appendRouteToModelUsed(
+          routeAction.kind === "booking_change" ? "class_reschedule_team_handoff" : "wa_route_handoff",
+          waReplyRoute
+        ),
+        session_id: sessionId,
+      });
+      return;
+    }
   }
 
   if (
@@ -13972,7 +13994,11 @@ async function processIncoming(
       business_slug,
       role: "assistant",
       content: replyText,
-      model_used: matched?.reply ? "static" : replyModelUsed,
+      model_used: matched?.reply
+        ? "static"
+        : didCallClaude
+          ? appendRouteToModelUsed(replyModelUsed, waReplyRoute)
+          : replyModelUsed,
       session_id: sessionId,
       error_code: replyErrorCode,
     });

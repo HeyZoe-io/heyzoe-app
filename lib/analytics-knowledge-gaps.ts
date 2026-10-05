@@ -10,6 +10,7 @@ import { UNKNOWN_CLASS_SLOT_HANDOFF_MODEL } from "@/lib/wa-unknown-class-slot";
 import { UNKNOWN_OFFER_POLICY_HANDOFF_MODEL } from "@/lib/wa-unknown-offer-policy";
 import { isUnclearClarifyAsk } from "@/lib/wa-unclear-intent";
 import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
+import { modelUsedBase } from "@/lib/wa-reply-route";
 
 /** זואי אמרה שאין לה מידע — שאלה להוסיף לידע. */
 const EXPLICIT_KNOWLEDGE_GAP_NEEDLES = [
@@ -118,14 +119,14 @@ export function resolveKnowledgeGapKind(input: {
   question: string;
   modelUsed?: string | null;
 }): KnowledgeGapKind {
-  if (String(input.modelUsed ?? "").trim() === UNKNOWN_CLASS_SLOT_HANDOFF_MODEL) {
+  if (modelUsedBase(input.modelUsed) === UNKNOWN_CLASS_SLOT_HANDOFF_MODEL) {
     return "schedule_request";
   }
   return looksLikeScheduleRequest(input.question) ? "schedule_request" : "question";
 }
 
 function isOperationalTeamHandoffText(content: string, modelUsed?: string | null): boolean {
-  const model = String(modelUsed ?? "").trim();
+  const model = modelUsedBase(modelUsed);
   if (model && OPERATIONAL_HANDOFF_MODELS.has(model)) return true;
   const t = String(content ?? "").trim();
   if (!t) return false;
@@ -139,7 +140,7 @@ function isOperationalTeamHandoffText(content: string, modelUsed?: string | null
 }
 
 export function isKnowledgeGapAssistantText(content: string, modelUsed?: string | null): boolean {
-  const model = String(modelUsed ?? "").trim();
+  const model = modelUsedBase(modelUsed);
   if (model && EXCLUDED_MODELS.has(model)) return false;
   if (isOperationalTeamHandoffText(content, modelUsed)) return false;
   if (model && KNOWLEDGE_GAP_MODELS.has(model)) return true;
@@ -219,7 +220,7 @@ function assistantTextIsExplicitKnowledgeGap(
   content: string,
   modelUsed?: string | null
 ): boolean {
-  const model = String(modelUsed ?? "").trim();
+  const model = modelUsedBase(modelUsed);
   if (model && KNOWLEDGE_GAP_MODELS.has(model)) return true;
   const lower = String(content ?? "").trim().toLowerCase();
   if (!lower) return false;
