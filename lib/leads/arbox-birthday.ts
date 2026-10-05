@@ -12,6 +12,7 @@ import {
 } from "@/lib/leads/arbox-active-product";
 import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildBirthdayScheduledDedupKey,
@@ -655,10 +656,48 @@ export async function syncArboxBirthdaysForBusiness(input: {
   }
   summary.fetched = rowsByUser.size;
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(
+    input.admin,
+    "arbox_birthday_sync_log",
+    businessId,
+    [...memberRules, ...formerRules]
+  );
+  if (!activeRuleIds) {
+    summary.errors += 1;
+    summary.fetch_error = "activation_read_failed";
+    return summary;
+  }
+  const freshMember = memberRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  const freshFormer = formerRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if ((freshMember.length || freshFormer.length) && !isArboxDailyDryRun()) {
+    for (const [userId] of rowsByUser) {
+      const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
+      const fresh = kind === "members" ? freshMember : freshFormer;
+      if (!fresh.length) continue;
+      const syncYear = birthdaySyncLogYear(celebrationYear, kind);
+      for (const rule of fresh) {
+        const { error } = await input.admin.from("arbox_birthday_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            user_id: userId,
+            birthday_year: syncYear,
+            contact_id: null,
+            processed_at: now.toISOString(),
+          },
+          { onConflict: "business_id,trigger_id,user_id,birthday_year", ignoreDuplicates: true }
+        );
+        if (error) summary.errors += 1;
+      }
+    }
+  }
+
   for (const [userId, row] of rowsByUser) {
     const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
     const audienceRules = kind === "members" ? memberRules : formerRules;
-    const dueRules = audienceRules.filter((item) => isBirthdayTriggerDueToday(row.birthday, item, now));
+    const dueRules = audienceRules.filter(
+      (item) => activeRuleIds.has(item.id) && isBirthdayTriggerDueToday(row.birthday, item, now)
+    );
     if (!dueRules.length) continue;
     summary.due_today += 1;
     if (kind === "members") summary.members_due += 1;

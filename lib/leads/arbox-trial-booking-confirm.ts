@@ -37,6 +37,7 @@ import {
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
 import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
@@ -494,6 +495,50 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     return summary;
   }
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(admin, TABLE, businessId, trialRules);
+  if (!activeRuleIds) {
+    summary.skipped = true;
+    summary.skip_reason = "dedup_read_failed";
+    summary.errors += 1;
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      reason: "activation_read_failed",
+    });
+    return summary;
+  }
+  const freshRules = trialRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if (freshRules.length) {
+    for (const item of trials) {
+      const triggerIds = freshRules.map((rule) => rule.id);
+      if (freshRules.length === trialRules.length) triggerIds.push(SYNC_LOG_SENTINEL_TRIGGER_ID);
+      for (const triggerId of triggerIds) {
+        const { error } = await admin.from(TABLE).upsert(
+          {
+            business_id: businessId,
+            trigger_id: triggerId,
+            user_id: item.userId,
+            class_date: item.classDate,
+            class_time: item.classTime,
+            class_name: item.className,
+            status: "seeded",
+            attempts: 0,
+            confirm_status: "skipped",
+            template_status: "skipped",
+            channel: triggerId === SYNC_LOG_SENTINEL_TRIGGER_ID ? "free" : "template",
+            processed_at: now.toISOString(),
+          },
+          {
+            onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name,channel",
+            ignoreDuplicates: true,
+          }
+        );
+        if (error) summary.errors += 1;
+        else summary.seeded += 1;
+      }
+    }
+  }
+
   const { data: existing, error: existingErr } = await admin
     .from(TABLE)
     .select(
@@ -606,6 +651,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       (row) => String(row.trigger_id ?? SYNC_LOG_SENTINEL_TRIGGER_ID) === SYNC_LOG_SENTINEL_TRIGGER_ID
     );
     const pendingRules = trialRules.filter((rule) => {
+      if (!activeRuleIds.has(rule.id)) return false;
       const prior = priorRows.find((row) => row.trigger_id === rule.id);
       return !prior || !trialBookingAlreadyHandled(prior.status);
     });
@@ -662,7 +708,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     const signupNotice = await loadTrialSignupNotice(admin, businessId, phone);
     const freeAlreadySent =
       sentinelSettled || trialPurchaseTemplateBlockedByZoe(signupNotice) || counts.free >= 1;
-    const sendFreeMessage = planTrialRegistrationSends({
+    const sendFreeMessage =
+      activeRuleIds.size > 0 &&
+      planTrialRegistrationSends({
       source: "booking",
       isTrialProduct: true,
       inWindow: true,

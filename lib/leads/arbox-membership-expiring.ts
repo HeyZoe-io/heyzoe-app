@@ -8,6 +8,7 @@ import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
   isIntroWorkoutProductName,
@@ -531,6 +532,41 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     });
   }
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(
+    input.admin,
+    "arbox_expiring_sync_log",
+    businessId,
+    rules
+  );
+  if (!activeRuleIds) {
+    summary.errors += 1;
+    summary.fetch_error = "activation_read_failed";
+    console.error("[leads/arbox-membership-expiring] activation read failed", { businessId });
+    return summary;
+  }
+  const freshRules = rules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if (freshRules.length && !isArboxDailyDryRun()) {
+    for (const row of report.rows) {
+      const membershipUserIdRaw = Number(row.membership_user_id);
+      const endDateYmd = parseEndDateYmd(row.end_date);
+      if (!Number.isFinite(membershipUserIdRaw) || membershipUserIdRaw <= 0 || !endDateYmd) continue;
+      for (const rule of freshRules) {
+        const { error } = await input.admin.from("arbox_expiring_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            membership_user_id: Math.trunc(membershipUserIdRaw),
+            end_date: endDateYmd,
+            contact_id: null,
+            processed_at: now.toISOString(),
+          },
+          { onConflict: "business_id,trigger_id,membership_user_id,end_date", ignoreDuplicates: true }
+        );
+        if (error) summary.errors += 1;
+      }
+    }
+  }
+
   for (const row of report.rows) {
     const membershipUserIdRaw = Number(row.membership_user_id);
     if (!Number.isFinite(membershipUserIdRaw) || membershipUserIdRaw <= 0) {
@@ -635,6 +671,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     }
 
     const dueRules = rules.filter((rule) => {
+      if (!activeRuleIds.has(rule.id)) return false;
       const dueAt = computeMembershipExpiringDueAt(endDateYmd, rule);
       return !isMembershipExpiringPastDue(dueAt, now);
     });

@@ -11,6 +11,7 @@
  * Businesses without an enabled rule: 0 Arbox calls.
  */
 import { ARBOX_API_BASE } from "@/lib/crm/adapters/arbox";
+import { eventBeforeRuleActivation, ruleActivationMs } from "@/lib/rule-activation";
 import {
   decideScheduledDrainDispatch,
   decideScheduledSendGate,
@@ -621,6 +622,7 @@ type SnapshotDbRow = SnapshotLogicRow & {
   class_name: string;
   class_time: string;
   attempts: number;
+  class_cancelled_at: string | null;
 };
 
 function maskPhone(phone: string): string {
@@ -638,7 +640,7 @@ async function loadWorkingSnapshot(
   const { data, error } = await admin
     .from("arbox_future_booking_snapshot")
     .select(
-      "schedule_id, user_id, class_date, class_time, class_name, phone, first_name, disappeared_at, notify_status, attempts"
+      "schedule_id, user_id, class_date, class_time, class_name, phone, first_name, disappeared_at, notify_status, attempts, class_cancelled_at"
     )
     .eq("business_id", businessId)
     .gte("class_date", from);
@@ -656,6 +658,7 @@ async function loadWorkingSnapshot(
       disappeared_at: r.disappeared_at == null ? null : String(r.disappeared_at),
       notify_status: r.notify_status == null ? null : String(r.notify_status),
       attempts: Number(r.attempts ?? 0) || 0,
+      class_cancelled_at: r.class_cancelled_at == null ? null : String(r.class_cancelled_at),
     };
   });
   return { ok: true, rows };
@@ -761,7 +764,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
 
   const { data: ruleRows, error: ruleErr } = await input.admin
     .from("template_triggers")
-    .select("id, template_name, enabled, created_at")
+    .select("id, template_name, enabled, created_at, updated_at")
     .eq("business_id", businessId)
     .eq("trigger_type", "class_cancelled_customer")
     .eq("enabled", true)
@@ -776,12 +779,12 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     return summary;
   }
   const rules = rulesForCompanionSend(
-    ((ruleRows ?? []) as Array<{ id?: string; template_name?: string | null; created_at?: string }>).flatMap(
+    ((ruleRows ?? []) as Array<{ id?: string; template_name?: string | null; created_at?: string; updated_at?: string }>).flatMap(
       (row) => {
         const id = String(row.id ?? "").trim();
         const templateName = String(row.template_name ?? "").trim();
         if (!id || !templateName) return [];
-        return [{ id, template_name: templateName, created_at: row.created_at }];
+        return [{ id, template_name: templateName, created_at: row.created_at, updated_at: row.updated_at }];
       }
     )
   );
@@ -792,7 +795,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
   }
 
   const createdMs = rules
-    .map((rule) => new Date(String(rule.created_at ?? "")).getTime())
+    .map((rule) => ruleActivationMs(rule))
     .filter((ms) => Number.isFinite(ms));
   const ruleCreatedAt = new Date(createdMs.length ? Math.min(...createdMs) : Number.NaN);
   const window = classCancelSnapshotWindow(now);
@@ -1070,7 +1073,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
 
 const CLASS_CANCEL_NOTIFY_LOG = "arbox_class_cancelled_customer_notify_log";
 
-type ClassCancelRule = { id: string; template_name: string; created_at?: string };
+type ClassCancelRule = { id: string; template_name: string; created_at?: string; updated_at?: string };
 
 async function loggedCancelTriggerIds(
   admin: Db,
@@ -1211,7 +1214,12 @@ async function sendPending(input: {
       (await resolveSendChannelForContact(input.admin, input.businessId, phone)) ??
       (await resolveDefaultSendChannel(input.admin, input.businessId));
     const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
-    const pending = input.rules.filter((rule) => !logged.has(rule.id));
+    const cancelledAt = row.class_cancelled_at ? new Date(String(row.class_cancelled_at)) : null;
+    const pending = input.rules.filter((rule) => {
+      if (logged.has(rule.id)) return false;
+      if (!cancelledAt || Number.isNaN(cancelledAt.getTime())) return false;
+      return !eventBeforeRuleActivation(cancelledAt, rule);
+    });
     const companion = createCompanionSendGate();
     let anyFailed = false;
     let failedTransient = true;

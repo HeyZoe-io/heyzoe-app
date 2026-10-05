@@ -1,5 +1,6 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -801,6 +802,21 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
         }
 
         logBase.contact = maskPhoneForLog(resolved.phone);
+
+        if (eventBeforeRuleActivation(parseReportEventInstant(cancelledTime), rule)) {
+          await upsertCancellationSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            cancelledTime,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "skipped",
+            attempts: existingAttempts,
+          });
+          continue;
+        }
 
         const templateName = String(rule.template_name ?? "").trim();
         if ((await companionGate.before(templateName)) === "skip") continue;

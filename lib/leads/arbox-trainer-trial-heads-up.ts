@@ -12,6 +12,7 @@ import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
 } from "@/lib/arbox-membership-types";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
@@ -357,6 +358,59 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(
+    input.admin,
+    "scheduled_template_sends",
+    businessId,
+    sendRules,
+    "updated_at"
+  );
+  if (!activeRuleIds) {
+    summary.errors += 1;
+    return summary;
+  }
+  const freshRules = sendRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if (freshRules.length) {
+    for (const row of reportRows) {
+      const userId = parseTrialReminderUserId(row.user_id);
+      const classDateYmd = parseClassDateYmd(row.date);
+      const classTime = normalizeTrialReminderClassTimePk(row.time);
+      const className = normalizeTrialReminderClassNamePk(row.class_name);
+      const trainerPhone = staffPhoneFromBooking(row);
+      if (userId == null || !classDateYmd || !classTime || !className || !trainerPhone) continue;
+      if (!bookingMatchesTrialScope(row, trialScope)) continue;
+      for (const rule of freshRules) {
+        const templateName = String(rule.template_name ?? "").trim();
+        if (!templateName) continue;
+        const dedupKey = buildTrainerTrialHeadsUpScheduledDedupKey({
+          businessId,
+          triggerId: rule.id,
+          trainerPhone,
+          userId,
+          classDateYmd,
+          classTime,
+          clientFirstName: clientFullNameFromBookingRow(row),
+          className,
+        });
+        const { error } = await input.admin.from("scheduled_template_sends").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            contact_phone: trainerPhone,
+            template_name: templateName,
+            due_at: now.toISOString(),
+            status: "canceled",
+            dedup_key: dedupKey,
+            last_error: "activation_seed",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "dedup_key", ignoreDuplicates: true }
+        );
+        if (error) summary.errors += 1;
+      }
+    }
+  }
+
   for (const row of reportRows) {
     const userId = parseTrialReminderUserId(row.user_id);
     const classDateYmd = parseClassDateYmd(row.date);
@@ -370,6 +424,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
     summary.trial_rows += 1;
 
     const dueRules = sendRules.filter((item) => {
+      if (!activeRuleIds.has(item.id)) return false;
       const ids = parseIdList(item.product_filter);
       if (ids.length) {
         const names = new Set<string>();

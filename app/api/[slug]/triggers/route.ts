@@ -333,6 +333,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     lookback_days: lookbackDays,
     template_name: templateName,
     enabled,
+    updated_at: new Date().toISOString(),
   };
 
   const { data: created, error: insertErr } = await admin
@@ -534,6 +535,30 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   if (body.enabled !== undefined) {
     patch.enabled = Boolean(body.enabled);
   }
+
+  let activationTouch = false;
+  if (body.template_name !== undefined || body.enabled !== undefined) {
+    const { data: existingClock } = await admin
+      .from("template_triggers")
+      .select("template_name, enabled")
+      .eq("id", id)
+      .eq("business_id", business.id)
+      .maybeSingle();
+    const previousName = String(
+      (existingClock as { template_name?: unknown } | null)?.template_name ?? ""
+    ).trim();
+    const previousEnabled = Boolean(
+      (existingClock as { enabled?: unknown } | null)?.enabled
+    );
+    if (body.template_name !== undefined) {
+      const nextName = patch.template_name == null ? "" : String(patch.template_name).trim();
+      if (nextName !== previousName) activationTouch = true;
+    }
+    if (body.enabled !== undefined && patch.enabled === true && !previousEnabled) {
+      activationTouch = true;
+    }
+  }
+  if (activationTouch) patch.updated_at = new Date().toISOString();
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });

@@ -13,6 +13,7 @@
  * Soft-seed: flag true + empty log for that trigger_id → same past-X mark.
  */
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -596,6 +597,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
+      if (eventBeforeRuleActivation(parseReportEventInstant(member.memberSinceYmd), rule)) continue;
       const delayDays = daysInClubDelayDays(rule.delay_days);
       if (
         !isDaysInClubDueToday({

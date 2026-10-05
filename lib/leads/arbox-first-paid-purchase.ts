@@ -36,6 +36,7 @@ import {
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
 import { rulesNotYetHandled } from "@/lib/multi-rule-dedup";
+import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activation";
 import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -542,7 +543,10 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
       continue;
     }
     const seen = known.get(userId) ?? new Set<string>();
-    const pending = rulesNotYetHandled(rules, seen);
+    const pending = rulesOpenForEvent(
+      rulesNotYetHandled(rules, seen),
+      parseReportEventInstant(row.date)
+    );
     if (!pending.length) {
       summary.already += 1;
       continue;

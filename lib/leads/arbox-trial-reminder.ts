@@ -9,6 +9,7 @@
  * when trial ids are set (same as C4). No salesReport join.
  */
 import { logMessage } from "@/lib/analytics";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -80,7 +81,7 @@ export type TrialReminderDispatch =
 
 export type TrialReminderSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope";
+  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope" | "activation_read_failed";
   lookback_from?: string;
   lookback_to?: string;
   fetched: number;
@@ -699,6 +700,52 @@ export async function syncArboxTrialReminderForBusiness(input: {
     return summary;
   }
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(
+    input.admin,
+    "arbox_trial_reminder_sync_log",
+    businessId,
+    sendRules
+  );
+  if (!activeRuleIds) {
+    summary.skipped = true;
+    summary.skip_reason = "activation_read_failed";
+    summary.errors += 1;
+    return summary;
+  }
+  const freshRules = sendRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if (freshRules.length) {
+    for (const row of reportRows) {
+      const userId = parseTrialReminderUserId(row.user_id);
+      const classDateYmd = parseClassDateYmd(row.date);
+      const classTime = normalizeTrialReminderClassTimePk(row.time);
+      const className = normalizeTrialReminderClassNamePk(row.class_name);
+      if (userId == null || !classDateYmd || !classTime || !className) continue;
+      if (userId === TRIAL_REMINDER_SOFT_SEED_SENTINEL_USER_ID) continue;
+      if (!bookingMatchesTrialScope(row, trialScope)) continue;
+      for (const rule of freshRules) {
+        const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            user_id: userId,
+            class_date: classDateYmd,
+            class_time: classTime,
+            class_name: className,
+            contact_id: null,
+            processed_at: nowIso,
+            attempts: 0,
+            status: "seeded",
+          },
+          {
+            onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+            ignoreDuplicates: true,
+          }
+        );
+        if (error) summary.errors += 1;
+      }
+    }
+  }
+
   for (const row of reportRows) {
     const userId = parseTrialReminderUserId(row.user_id);
     const classDateYmd = parseClassDateYmd(row.date);
@@ -713,6 +760,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
     summary.trial_rows += 1;
 
     const dueRules = sendRules.filter((item) => {
+      if (!activeRuleIds.has(item.id)) return false;
       const ids = parseIdList(item.product_filter);
       if (ids.length) {
         const names = new Set<string>();

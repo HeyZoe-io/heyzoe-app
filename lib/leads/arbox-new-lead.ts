@@ -15,6 +15,7 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { rulesNotYetHandled } from "@/lib/multi-rule-dedup";
+import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activation";
 import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -703,7 +704,22 @@ export async function syncArboxNewLeadsForBusiness(input: {
       summary.errors += 1;
       continue;
     }
-    const pending = rulesNotYetHandled(rules, seenIds);
+    const pendingAll = rulesNotYetHandled(rules, seenIds);
+    const pending = rulesOpenForEvent(pendingAll, parseReportEventInstant(row.created_at));
+    const blockedIds = pendingAll
+      .filter((rule) => !pending.some((open) => open.id === rule.id))
+      .map((rule) => rule.id);
+    if (blockedIds.length) {
+      const marked = await markArboxNewLeadSeen({
+        admin: input.admin,
+        businessId,
+        leadId,
+        triggerIds: blockedIds,
+        contactId: null,
+        nowIso,
+      });
+      if (!marked.ok) summary.errors += 1;
+    }
     if (!pending.length) {
       summary.already += 1;
       console.info("[leads/arbox-new-lead] dispatch", {

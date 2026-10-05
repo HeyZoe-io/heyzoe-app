@@ -8,6 +8,7 @@
  */
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -835,6 +836,22 @@ export async function syncArboxLostLeadForBusiness(input: {
             phone: maskPhoneForLog(phone),
             dispatch: "skipped_active" satisfies LostLeadDispatch,
           });
+          continue;
+        }
+
+        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "skipped",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
           continue;
         }
 

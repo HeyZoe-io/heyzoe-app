@@ -5,6 +5,7 @@
  * sync_log still stores variant='unbooked' (PK column kept; no migration).
  */
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -685,7 +686,8 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         rules.filter(
           (candidate) =>
             Boolean(candidate.template_name?.trim()) &&
-            Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier
+            Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier &&
+            !eventBeforeRuleActivation(parseReportEventInstant(state.lastYesYmd), candidate)
         )
       );
       if (!tierRules.length) continue;

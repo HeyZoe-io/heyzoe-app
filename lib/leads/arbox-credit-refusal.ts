@@ -17,6 +17,7 @@ import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/templa
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activation";
 import {
   loadEnabledCreditRefusalTemplateTriggers,
   type PurchaseTemplateTriggerRule,
@@ -655,7 +656,10 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
       const seenIds = new Set(
         (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
       );
-      const pendingRules = rules.filter((item) => item.id && !seenIds.has(item.id));
+      const pendingRules = rulesOpenForEvent(
+        rules.filter((item) => item.id && !seenIds.has(item.id)),
+        parseReportEventInstant(row.transaction_date)
+      );
       if (!pendingRules.length) {
         summary.already += 1;
         console.info("[leads/arbox-credit-refusal] dispatch", {

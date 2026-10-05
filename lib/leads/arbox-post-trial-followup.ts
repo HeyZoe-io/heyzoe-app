@@ -10,6 +10,7 @@
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -842,12 +843,13 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     if (!enabledOutcomes.includes(outcome)) continue;
 
     const rules = outcome === "registered" ? registeredRules : notRegisteredRules;
-    const dueRules = rules.filter((rule) =>
-      isPostTrialDecisionDue({
-        classDateYmd: att.classDateYmd,
-        delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
-        todayYmd,
-      })
+    const dueRules = rules.filter(
+      (rule) =>
+        isPostTrialDecisionDue({
+          classDateYmd: att.classDateYmd,
+          delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
+          todayYmd,
+        }) && !eventBeforeRuleActivation(parseReportEventInstant(att.classDateYmd), rule)
     );
     if (!dueRules.length) continue;
     summary.due += 1;

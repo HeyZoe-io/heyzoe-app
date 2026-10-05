@@ -27,6 +27,7 @@ import { knowledgeQaTextBlob, lookupKnowledgeQaAnswerForInbound } from "@/lib/kn
 import { type SfServiceRow } from "@/lib/sf-service-rows";
 import { loadZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { getWhatsAppOpeningBodyAndMenuLabels } from "@/lib/whatsapp-opening";
+import { stampTemplateRulesActivated } from "@/lib/rule-activation";
 import {
   BUSINESS_INACTIVE_AUTO_REPLY_MODEL,
   buildInactiveBusinessAutoReply,
@@ -5725,6 +5726,12 @@ async function handleMessageTemplateStatusUpdate(
           .eq("id", bizId)
           .maybeSingle();
         businessSlug = String((biz as { slug?: string } | null)?.slug ?? "").trim() || null;
+        if (newStatus.toUpperCase() === "APPROVED" && ev.message_template_name) {
+          await stampTemplateRulesActivated(admin, {
+            businessId: bizId,
+            templateName: ev.message_template_name,
+          });
+        }
       }
     }
   }
@@ -5796,7 +5803,15 @@ async function handleMessageTemplateStatusUpdate(
         return;
       }
       matched = data?.length ?? 0;
-      if (matched > 0) matchPath = "name_language";
+      if (matched > 0) {
+        matchPath = "name_language";
+        if (newStatus.toUpperCase() === "APPROVED" && ev.message_template_name) {
+          await stampTemplateRulesActivated(admin, {
+            businessId: Number(biz.id),
+            templateName: ev.message_template_name,
+          });
+        }
+      }
     }
   } else if (matched === 0 && ev.waba_id) {
     const { data: biz } = await admin

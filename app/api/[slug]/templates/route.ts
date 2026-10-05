@@ -13,6 +13,7 @@ import {
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
+import { stampTemplateRulesActivated } from "@/lib/rule-activation";
 
 export const runtime = "nodejs";
 
@@ -374,6 +375,12 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     console.error("[api/templates] PUT db update failed:", updErr.message);
     return NextResponse.json({ error: "template_upsert_failed" }, { status: 500 });
   }
+  if (nextStatus.toUpperCase() === "APPROVED" && existingStatus.toUpperCase() !== "APPROVED") {
+    const templateName = String((existing as { name?: unknown }).name ?? "").trim();
+    if (templateName) {
+      await stampTemplateRulesActivated(admin, { businessId: business.id, templateName });
+    }
+  }
 
   return NextResponse.json({ template: updated ?? { ...existing, components, status: nextStatus } });
 }
@@ -404,6 +411,21 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const name = String(body.name ?? "").trim();
   const language = String(body.language ?? "").trim();
 
+  let currentQuery = admin
+    .from("whatsapp_templates")
+    .select("name, disabled")
+    .eq("business_id", business.id);
+  if (id) currentQuery = currentQuery.eq("id", id);
+  else if (name) {
+    currentQuery = currentQuery.eq("name", name);
+    if (language) currentQuery = currentQuery.eq("language", language);
+  } else {
+    return NextResponse.json({ error: "missing_template_ref" }, { status: 400 });
+  }
+  const { data: current } = await currentQuery.maybeSingle();
+  const wasDisabled = Boolean((current as { disabled?: unknown } | null)?.disabled);
+  const currentName = String((current as { name?: unknown } | null)?.name ?? name).trim();
+
   let query = admin
     .from("whatsapp_templates")
     .update({
@@ -432,6 +454,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const updated = Array.isArray(updatedRows) ? updatedRows[0] : null;
   if (!updated?.id) {
     return NextResponse.json({ error: "template_not_found" }, { status: 404 });
+  }
+  if (body.disabled === false && wasDisabled && currentName) {
+    await stampTemplateRulesActivated(admin, { businessId: business.id, templateName: currentName });
   }
 
   return NextResponse.json({ template: updated });

@@ -7,6 +7,7 @@
  */
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -947,7 +948,12 @@ export async function syncArboxFreezeForBusiness(input: {
                 })
                 .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
         );
-        const pendingRules = createdRulesToSend.filter((item) => item.id && !terminalIds.has(item.id));
+        const pendingRules = createdRulesToSend.filter(
+          (item) =>
+            item.id &&
+            !terminalIds.has(item.id) &&
+            !eventBeforeRuleActivation(parseReportEventInstant(startYmd), item)
+        );
         if (!pendingRules.length) {
           summary.already += 1;
         } else {
@@ -1165,7 +1171,12 @@ export async function syncArboxFreezeForBusiness(input: {
           })
           .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
       );
-      const pendingRules = dueRules.filter((item) => item.id && !terminalIds.has(item.id));
+      const pendingRules = dueRules.filter(
+        (item) =>
+          item.id &&
+          !terminalIds.has(item.id) &&
+          !eventBeforeRuleActivation(parseReportEventInstant(startYmd), item)
+      );
       if (!pendingRules.length) {
         summary.already += 1;
         continue;

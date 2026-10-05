@@ -8,6 +8,7 @@
  * C7-only: +1 memberships +1 bookings (30d). No per-user Arbox calls.
  */
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -634,6 +635,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
+      if (eventBeforeRuleActivation(parseReportEventInstant(member.memberSinceYmd), rule)) continue;
       const n = nthWorkoutN(rule.delay_days);
       const lookbackDays = nthWorkoutLookbackDays(rule.lookback_days);
       if (

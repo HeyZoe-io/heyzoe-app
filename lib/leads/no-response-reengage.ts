@@ -9,6 +9,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import {
   buildWaSessionId,
@@ -724,8 +725,10 @@ export async function syncNoResponseReengageForBusiness(input: {
         continue;
       }
 
-      const dueRules = rules.filter((item) =>
-        isSilentLongEnough(lastUserAtIso, item.delay_days, nowMs)
+      const dueRules = rules.filter(
+        (item) =>
+          isSilentLongEnough(lastUserAtIso, item.delay_days, nowMs) &&
+          !eventBeforeRuleActivation(parseReportEventInstant(lastUserAtIso), item)
       );
       if (!dueRules.length) {
         bump(summary, "not_silent_long_enough");

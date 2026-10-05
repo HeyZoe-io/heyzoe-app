@@ -8,6 +8,7 @@ import {
   type ActiveProductKeys,
 } from "@/lib/leads/arbox-active-product";
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -755,7 +756,12 @@ export async function syncArboxMissedClassForBusiness(input: {
           })
           .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );
-      const pendingRules = batch.filter((item) => item.id && !terminalIds.has(item.id));
+      const pendingRules = batch.filter(
+        (item) =>
+          item.id &&
+          !terminalIds.has(item.id) &&
+          !eventBeforeRuleActivation(parseReportEventInstant(classDateYmd), item)
+      );
       if (!pendingRules.length) {
         summary.already += 1;
         continue;

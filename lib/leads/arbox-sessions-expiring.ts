@@ -17,6 +17,7 @@ import {
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
   isIntroWorkoutProductName,
@@ -513,6 +514,42 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     });
   }
 
+  const activeRuleIds = await ruleIdsActiveSinceActivation(
+    input.admin,
+    "arbox_sessions_expiring_sync_log",
+    businessId,
+    rules
+  );
+  if (!activeRuleIds) {
+    summary.errors += 1;
+    summary.fetch_error = "activation_read_failed";
+    return summary;
+  }
+  const freshRules = rules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  if (freshRules.length && !isArboxDailyDryRun()) {
+    for (const row of report.rows) {
+      const userIdRaw = Number(row.user_id);
+      const startDateYmd = parseEndDateYmd(row.start_date);
+      const endDateYmd = parseEndDateYmd(row.end_date);
+      if (!Number.isFinite(userIdRaw) || userIdRaw <= 0 || !startDateYmd || !endDateYmd) continue;
+      for (const rule of freshRules) {
+        const { error } = await input.admin.from("arbox_sessions_expiring_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            user_id: Math.trunc(userIdRaw),
+            start_date: startDateYmd,
+            end_date: endDateYmd,
+            contact_id: null,
+            processed_at: now.toISOString(),
+          },
+          { onConflict: "business_id,trigger_id,user_id,start_date,end_date", ignoreDuplicates: true }
+        );
+        if (error) summary.errors += 1;
+      }
+    }
+  }
+
   for (const row of report.rows) {
     const userIdRaw = Number(row.user_id);
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
@@ -639,6 +676,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     }
 
     const dueRules = rules.filter((rule) => {
+      if (!activeRuleIds.has(rule.id)) return false;
       const dueAt = computeSessionsExpiringDueAt(endDateYmd, rule);
       return !isMembershipExpiringPastDue(dueAt, now, SESSIONS_EXPIRING_PAST_DUE_GRACE_MS);
     });

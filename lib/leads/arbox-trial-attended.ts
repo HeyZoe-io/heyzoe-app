@@ -2,6 +2,7 @@ import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { logMessage } from "@/lib/analytics";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -687,6 +688,10 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       continue;
     }
     summary.trial_attended += 1;
+    if (eventBeforeRuleActivation(parseReportEventInstant(classDateYmd), rule)) {
+      summary.dedup += 1;
+      continue;
+    }
 
     try {
       const { data: existingSeen } = await input.admin
