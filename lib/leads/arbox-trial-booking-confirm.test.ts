@@ -11,9 +11,9 @@ import {
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 
-assert.equal(trialBookedSendsEnabled(), false);
+assert.equal(trialBookedSendsEnabled(), true);
 assert.equal(trialBookingConfirmEnabled(false), false);
-assert.equal(trialBookingConfirmEnabled(true), false);
+assert.equal(trialBookingConfirmEnabled(true), true);
 
 assert.equal(trialBookingAlreadyHandled("sent"), true);
 assert.equal(trialBookingAlreadyHandled("skipped"), true);

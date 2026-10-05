@@ -132,7 +132,8 @@ assert.equal(
     templateNameConfigured: true,
     templateApproved: true,
   }),
-  "skip"
+  "send",
+  "a sent free confirmation does not replace the trial_booked template"
 );
 assert.equal(
   trialBookingTemplateFollowUp({

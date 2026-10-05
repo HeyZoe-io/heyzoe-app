@@ -61,35 +61,21 @@ if (!url || !key) {
 }
 const admin = createClient(url, key, { auth: { persistSession: false } });
 
-const CONTACT_FIELDS = [
-  "id",
-  "session_phase",
-  "flow_step",
-  "warmup_extra_awaiting_idx",
-  "sf_requested_date",
-  "sf_requested_time",
-  "human_requested_at",
-  "wa_next_followup_at",
-  "wa_no_response_due_at",
-  "wa_no_response_at",
-  "wa_followup_stage",
-  "wa_followup_1_sent_at",
-  "wa_followup_2_sent_at",
-  "wa_followup_3_sent_at",
-  "followup_sent",
-  "last_contact_at",
-  "last_zoe_reply_at",
-].join(", ");
-
 async function loadContact() {
   const { data, error } = await admin
     .from("contacts")
-    .select(CONTACT_FIELDS)
+    .select("*")
     .eq("business_id", businessId)
     .eq("phone", PHONE)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data;
+}
+
+function contactRestorePayload(row) {
+  const restore = { ...row };
+  delete restore.id;
+  return restore;
 }
 
 function webhookUrl() {
@@ -165,6 +151,35 @@ function isTimetable(row) {
   );
 }
 
+async function waitForTurn(sinceIso) {
+  const started = Date.now();
+  const deadline = started + 90000;
+  let lastSig = "";
+  let stableSince = started;
+  let sawLock = false;
+  while (Date.now() < deadline) {
+    const contact = await loadContact();
+    const until = contact?.processing_claimed_until
+      ? new Date(contact.processing_claimed_until).getTime()
+      : 0;
+    const locked = Number.isFinite(until) && until > Date.now();
+    if (locked) sawLock = true;
+    const msgs = await messagesSince(sinceIso);
+    const sig = msgs.map((m) => m.id).join(",");
+    if (sig !== lastSig) {
+      lastSig = sig;
+      stableSince = Date.now();
+    }
+    const stableFor = Date.now() - stableSince;
+    const hasReply = msgs.some((m) => m.role === "assistant" || m.role === "event");
+    const elapsed = Date.now() - started;
+    if (!locked && stableFor >= 2500 && (hasReply || (sawLock && elapsed >= 4000) || elapsed >= 20000)) {
+      return;
+    }
+    await sleep(400);
+  }
+}
+
 async function messagesSince(sinceIso) {
   const { data, error } = await admin
     .from("messages")
@@ -182,12 +197,13 @@ const contactBefore = await loadContact();
 const rows = [];
 const ts = Date.now();
 
+try {
 for (let i = 0; i < texts.length; i++) {
   assertWarmupTestPhone(PHONE, `run-inbound-test step ${i}`);
   const text = texts[i];
   const before = new Date().toISOString();
   const http = await postText(`wamid.INBOUND_TEST_${ts}_${i + 1}`, text);
-  await sleep(1500);
+  await waitForTurn(before);
   const msgs = await messagesSince(before);
   const assistants = msgs.filter((m) => m.role === "assistant" || m.role === "event");
   const reply = assistants.find((m) => m.role === "assistant") ?? null;
@@ -208,27 +224,37 @@ for (let i = 0; i < texts.length; i++) {
   console.log(JSON.stringify(rows[rows.length - 1]));
   if (i < texts.length - 1) await sleep(SLEEP_MS);
 }
-
-const created = await messagesSince(startedAt);
-if (created.length) {
-  const { error } = await admin.from("messages").delete().in(
-    "id",
-    created.map((m) => m.id)
-  );
-  if (error) console.error("cleanup messages failed:", error.message);
+} finally {
+let created = [];
+try {
+  created = await messagesSince(startedAt);
+  if (created.length) {
+    const { error } = await admin.from("messages").delete().in(
+      "id",
+      created.map((m) => m.id)
+    );
+    if (error) console.error("cleanup messages failed:", error.message);
+  }
+} catch (e) {
+  console.error("cleanup messages failed:", e instanceof Error ? e.message : e);
 }
 
-if (contactBefore) {
-  const restore = { ...contactBefore };
-  delete restore.id;
-  const { error } = await admin.from("contacts").update(restore).eq("id", contactBefore.id);
-  if (error) console.error("cleanup contact failed:", error.message);
-} else {
-  const createdContact = await loadContact();
-  if (createdContact?.id) {
-    const { error } = await admin.from("contacts").delete().eq("id", createdContact.id);
-    if (error) console.error("cleanup new contact failed:", error.message);
+try {
+  if (contactBefore) {
+    const { error } = await admin
+      .from("contacts")
+      .update(contactRestorePayload(contactBefore))
+      .eq("id", contactBefore.id);
+    if (error) console.error("cleanup contact failed:", error.message);
+  } else {
+    const createdContact = await loadContact();
+    if (createdContact?.id) {
+      const { error } = await admin.from("contacts").delete().eq("id", createdContact.id);
+      if (error) console.error("cleanup new contact failed:", error.message);
+    }
   }
+} catch (e) {
+  console.error("cleanup contact failed:", e instanceof Error ? e.message : e);
 }
 
 console.log(
@@ -245,3 +271,4 @@ console.log(
     2
   )
 );
+}
