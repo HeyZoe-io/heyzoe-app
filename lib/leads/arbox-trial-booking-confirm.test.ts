@@ -35,7 +35,7 @@ assert.deepEqual(
     templateNameConfigured: true,
     templateApproved: true,
   }),
-  "skip"
+  "send"
 );
 assert.deepEqual(
   trialBookingTemplateFollowUp({
