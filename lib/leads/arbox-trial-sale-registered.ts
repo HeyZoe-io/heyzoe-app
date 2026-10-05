@@ -736,51 +736,62 @@ export async function handleArboxTrialSaleRegistered(input: {
         contact_created: contactCreated,
       };
     }
-    const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
-      admin: input.admin,
-      businessId,
-      businessSlug,
-      phone: canonicalPhone,
-      instagramFollowPromptSent,
-      businessPlan: (business as { plan?: unknown } | null)?.plan,
-    });
-
-    if (waResult.sent) {
-      whatsapp = "sent";
-    } else if (waResult.reason === "trial_template_already_sent") {
-      whatsapp = "skipped_trial_template";
-    } else if (waResult.reason === "send_failed") {
-      whatsapp = "send_failed";
-    } else if (waResult.reason === "opted_out") {
-      whatsapp = "opted_out";
-    } else if (
-      canonicalPhone &&
-      (await trialProductAlreadyConfirmedByZoe({
-        admin: input.admin,
-        businessId,
+    const priorNotice = canonicalPhone
+      ? await loadTrialSignupNotice(input.admin, businessId, canonicalPhone)
+      : null;
+    if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
+      console.info("[leads/arbox-trial-sale-registered] skip free confirm, booking or purchase already sent", {
         businessSlug,
-        phone: canonicalPhone,
-        sessionId,
-      }))
-    ) {
+        sale_id: saleId,
+      });
       whatsapp = "skipped_zoe_confirm";
     } else {
-      const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+      const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
         admin: input.admin,
         businessId,
         businessSlug,
         phone: canonicalPhone,
-        saleId,
-        saleDate: input.row.date,
-        membershipTypeId,
-        itemType: itemTypeRaw,
-        phoneNumberId,
-        fullName,
-        sessionId,
-        match: input.purchaseMatch,
-        isTrialProduct: true,
+        instagramFollowPromptSent,
+        businessPlan: (business as { plan?: unknown } | null)?.plan,
       });
-      whatsapp = templateResult.outcome;
+
+      if (waResult.sent) {
+        whatsapp = "sent";
+      } else if (waResult.reason === "trial_template_already_sent") {
+        whatsapp = "skipped_trial_template";
+      } else if (waResult.reason === "send_failed") {
+        whatsapp = "send_failed";
+      } else if (waResult.reason === "opted_out") {
+        whatsapp = "opted_out";
+      } else if (
+        canonicalPhone &&
+        (await trialProductAlreadyConfirmedByZoe({
+          admin: input.admin,
+          businessId,
+          businessSlug,
+          phone: canonicalPhone,
+          sessionId,
+        }))
+      ) {
+        whatsapp = "skipped_zoe_confirm";
+      } else {
+        const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+          admin: input.admin,
+          businessId,
+          businessSlug,
+          phone: canonicalPhone,
+          saleId,
+          saleDate: input.row.date,
+          membershipTypeId,
+          itemType: itemTypeRaw,
+          phoneNumberId,
+          fullName,
+          sessionId,
+          match: input.purchaseMatch,
+          isTrialProduct: true,
+        });
+        whatsapp = templateResult.outcome;
+      }
     }
   } else {
     // Non-trial purchase (membership/punch-card): template-only — skip trial freeform

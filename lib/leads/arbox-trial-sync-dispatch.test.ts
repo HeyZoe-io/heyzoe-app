@@ -9,7 +9,6 @@ import { trialSyncBusinessNeedsWorker } from "@/lib/leads/arbox-trial-sync-run";
 
 assert.equal(
   trialSyncBusinessNeedsWorker({
-    slug: "other",
     trialMembershipTypeIds: [],
     enabledTriggerTypes: [],
   }),
@@ -17,7 +16,6 @@ assert.equal(
 );
 assert.equal(
   trialSyncBusinessNeedsWorker({
-    slug: "other",
     trialMembershipTypeIds: [],
     enabledTriggerTypes: ["purchase"],
   }),
@@ -25,15 +23,13 @@ assert.equal(
 );
 assert.equal(
   trialSyncBusinessNeedsWorker({
-    slug: "tights",
     trialMembershipTypeIds: [],
-    enabledTriggerTypes: [],
+    enabledTriggerTypes: ["trial_booked"],
   }),
   true
 );
 assert.equal(
   trialSyncBusinessNeedsWorker({
-    slug: "acrobyjoe",
     trialMembershipTypeIds: [12],
     enabledTriggerTypes: [],
   }),

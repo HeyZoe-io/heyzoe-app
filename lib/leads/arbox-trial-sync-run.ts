@@ -303,11 +303,9 @@ function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
 
 /** True when this cron would call Arbox for the business. */
 export function trialSyncBusinessNeedsWorker(input: {
-  slug: string;
   trialMembershipTypeIds: readonly number[];
   enabledTriggerTypes: readonly string[];
 }): boolean {
-  if (trialBookingConfirmEnabled(input.slug, false)) return true;
   if (input.trialMembershipTypeIds.length > 0) return true;
   return input.enabledTriggerTypes.some((type) =>
     (ARBOX_TRIAL_SYNC_TRIGGER_TYPES as readonly string[]).includes(type)
@@ -316,8 +314,9 @@ export function trialSyncBusinessNeedsWorker(input: {
 
 /**
  * Arbox businesses that would make an Arbox call in this cron.
- * Enabled rule with a template name, the Tights session confirm, or configured
- * trial membership ids (the sales report still runs for those without a purchase rule).
+ * Enabled rule with a template name, or configured trial membership ids
+ * (the sales report still runs for those without a purchase rule).
+ * The trial-booking step itself runs only for an enabled trial_booked rule.
  */
 export async function listArboxTrialSyncBusinessIds(
   admin: ReturnType<typeof createSupabaseAdminClient>
@@ -364,7 +363,6 @@ export async function listArboxTrialSyncBusinessIds(
     ids: businesses
       .filter((b) =>
         trialSyncBusinessNeedsWorker({
-          slug: b.slug,
           trialMembershipTypeIds: b.arbox_trial_membership_type_ids,
           enabledTriggerTypes: typesByBusiness.get(b.id) ?? [],
         })
@@ -664,7 +662,7 @@ export async function runArboxTrialSyncForBusiness(input: {
       };
     }
 
-    if (trialBookingConfirmEnabled(business.slug, trialBookedBusinessIds.has(business.id))) {
+    if (trialBookingConfirmEnabled(trialBookedBusinessIds.has(business.id))) {
       try {
         summary.trial_booking_confirm = await syncTrialBookingConfirmForBusiness({
           admin,

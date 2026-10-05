@@ -821,7 +821,7 @@ export async function resolveTrialBookedTemplateTrigger(input: {
   return pickCreditRefusalTemplateTriggerRule(rules);
 }
 
-/** One indexed read per trial-sync run. Bookings report runs only for these ids (plus Tights). */
+/** One indexed read per trial-sync run. Bookings report runs only for these ids. */
 export async function loadTrialBookedBusinessIds(
   admin: ReturnType<typeof createSupabaseAdminClient>
 ): Promise<Set<number>> {

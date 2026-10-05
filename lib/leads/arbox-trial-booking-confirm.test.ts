@@ -2,14 +2,69 @@ import assert from "node:assert/strict";
 import {
   formatTrialBookingConfirmDate,
   formatTrialBookingConfirmTime,
+  trialBookingAlreadyHandled,
   trialBookingConfirmEnabled,
   trialBookingConfirmIsTerminalSkip,
+  trialBookingTemplateFollowUp,
 } from "@/lib/leads/arbox-trial-booking-confirm";
+import { trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 
-assert.equal(trialBookingConfirmEnabled("tights"), true);
-assert.equal(trialBookingConfirmEnabled("Tights"), true);
-assert.equal(trialBookingConfirmEnabled("other"), false);
-assert.equal(trialBookingConfirmEnabled("other", true), true);
+assert.equal(trialBookingConfirmEnabled(false), false);
+assert.equal(trialBookingConfirmEnabled(true), true);
+
+assert.equal(trialBookingAlreadyHandled("sent"), true);
+assert.equal(trialBookingAlreadyHandled("skipped"), true);
+assert.equal(trialBookingAlreadyHandled("pending"), false);
+assert.equal(trialBookingAlreadyHandled(undefined), false);
+
+assert.equal(trialPurchaseTemplateBlockedByZoe("zoe"), true);
+assert.equal(trialPurchaseTemplateBlockedByZoe(null), false);
+
+assert.deepEqual(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "sent",
+    freeBlocked: false,
+    templateNameConfigured: true,
+    templateApproved: true,
+  }),
+  "skip"
+);
+assert.deepEqual(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "skipped",
+    freeBlocked: false,
+    templateNameConfigured: true,
+    templateApproved: true,
+  }),
+  "send"
+);
+assert.deepEqual(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "skipped",
+    freeBlocked: false,
+    templateNameConfigured: true,
+    templateApproved: false,
+  }),
+  "wait"
+);
+assert.deepEqual(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "skipped",
+    freeBlocked: false,
+    templateNameConfigured: false,
+    templateApproved: false,
+  }),
+  "skip"
+);
+assert.deepEqual(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "skipped",
+    freeBlocked: true,
+    templateNameConfigured: true,
+    templateApproved: true,
+  }),
+  "skip"
+);
 
 assert.equal(formatTrialBookingConfirmDate("2026-10-07"), "07/10/2026");
 assert.equal(formatTrialBookingConfirmTime("08:30"), "8:30");

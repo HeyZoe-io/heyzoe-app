@@ -1,12 +1,15 @@
 /**
- * Registration confirmation when a trial class is on the calendar and there is
- * no sale. A trial booking is not a purchase.
+ * Registration confirmation when a trial class is on the calendar.
+ * A trial booking is not a purchase.
  *
- * Tights also sends Zoe's in-window chat reply. Every Arbox business with an
- * enabled trial_booked trigger gets the UTILITY template on the same 15-minute
- * trial-sync cron (outside the 24h window, or when the chat reply was not sent).
+ * Runs only for an enabled trial_booked rule.
+ * Inside the 24h customer-service window: the sales-flow "after registration"
+ * chat message, and no template. Outside that window: the rule's template,
+ * or nothing if it has no template / is not approved yet.
+ * Never both. If the purchase path already sent the free message, this step
+ * sends nothing (purchase wins, one free message per contact).
  *
- * IO per run, only Tights plus businesses with an enabled trial_booked rule:
+ * IO per run, only businesses with an enabled trial_booked rule:
  * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
  * First pass seeds and sends nothing.
  */
@@ -33,11 +36,14 @@ import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
+import {
+  loadTrialSignupNotice,
+  trialPurchaseTemplateBlockedByZoe,
+} from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
-const CONFIRM_SLUGS = new Set(["tights"]);
 const FUTURE_DAYS = 14;
 const ATTEMPT_CAP = 3;
 const TABLE = "arbox_trial_booking_confirm_log";
@@ -73,14 +79,34 @@ type LogRow = {
   template_status?: PartStatus;
 };
 
-/** Tights always gets the in-window chat reply. Other studios run only with a live rule. */
-export function trialBookingConfirmEnabled(slug: string, hasTrialBookedRule = false): boolean {
-  if (hasTrialBookedRule) return true;
-  return CONFIRM_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+/** The step runs only when this business has an enabled trial_booked rule. */
+export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean {
+  return hasTrialBookedRule === true;
 }
 
-function trialBookingSessionConfirmEnabled(slug: string): boolean {
-  return CONFIRM_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+/** Settled log rows are not sent again. Only `pending` is retried. */
+export function trialBookingAlreadyHandled(status: string | null | undefined): boolean {
+  return Boolean(status) && status !== "pending";
+}
+
+export type TrialBookingTemplateFollowUp = "skip" | "send" | "wait";
+
+/**
+ * After the free-message attempt has settled.
+ * A sent or blocked free message never gets a template.
+ * Outside the window: send the template, wait if it is not approved, or skip
+ * when the rule has no template name.
+ */
+export function trialBookingTemplateFollowUp(input: {
+  confirmStatus: "sent" | "skipped";
+  freeBlocked: boolean;
+  templateNameConfigured: boolean;
+  templateApproved: boolean;
+}): TrialBookingTemplateFollowUp {
+  if (input.confirmStatus === "sent" || input.freeBlocked) return "skip";
+  if (!input.templateNameConfigured) return "skip";
+  if (!input.templateApproved) return "wait";
+  return "send";
 }
 
 /** DD/MM/YYYY for the registration body («ביום …»). */
@@ -275,7 +301,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 }): Promise<TrialBookingConfirmSummary> {
   const summary = emptySummary();
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
-  if (!trialBookingConfirmEnabled(businessSlug, input.hasTrialBookedRule === true)) {
+  if (!trialBookingConfirmEnabled(input.hasTrialBookedRule === true)) {
     summary.skipped = true;
     summary.skip_reason = "not_enabled";
     return summary;
@@ -449,12 +475,12 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     businessId,
     rule: trialBookedRule,
   });
-  const runSessionConfirm = trialBookingSessionConfirmEnabled(businessSlug);
+  const templateNameConfigured = Boolean(trialBookedRule?.template_name?.trim());
 
   for (const item of trials) {
     const key = logKey(item.userId, item.classDate, item.classTime, item.className);
     const prior = seen.get(key);
-    if (prior && prior.status !== "pending") {
+    if (prior && trialBookingAlreadyHandled(prior.status)) {
       summary.already += 1;
       continue;
     }
@@ -513,8 +539,13 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
     if (confirmStatus === "sent") templateStatus = "skipped";
 
-    if (!runSessionConfirm && confirmStatus === "pending") {
-      confirmStatus = "skipped";
+    let freeBlocked = false;
+    if (confirmStatus === "pending") {
+      const priorNotice = await loadTrialSignupNotice(admin, businessId, phone);
+      if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
+        confirmStatus = "skipped";
+        templateStatus = "skipped";
+      }
     }
 
     if (confirmStatus === "pending") {
@@ -539,6 +570,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       } else if (result.reason === "opted_out" || result.reason === "trial_template_already_sent") {
         confirmStatus = "skipped";
         templateStatus = "skipped";
+        freeBlocked = true;
       } else if (trialBookingConfirmIsTerminalSkip(result)) {
         confirmStatus = "skipped";
         summary.skipped_window += 1;
@@ -547,11 +579,17 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
     }
 
-    if (templateStatus === "pending" && confirmStatus !== "pending") {
-      if (!trialBookedRule || confirmStatus === "sent") {
+    if (templateStatus === "pending" && (confirmStatus === "sent" || confirmStatus === "skipped")) {
+      const followUp = trialBookingTemplateFollowUp({
+        confirmStatus,
+        freeBlocked,
+        templateNameConfigured,
+        templateApproved: Boolean(approvedTemplate),
+      });
+      if (followUp === "skip") {
         templateStatus = "skipped";
-      } else if (!approvedTemplate) {
-        // Meta has not approved the template yet. Retry next cron without burning attempts.
+      } else if (followUp === "wait" || !approvedTemplate || !trialBookedRule) {
+        // Named template is not approved yet. Retry next cron without burning attempts.
       } else {
         const outcome = await sendTrialBookedTemplate({
           admin,

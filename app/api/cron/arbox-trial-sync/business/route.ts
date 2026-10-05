@@ -11,10 +11,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * One Arbox business for the 15-minute trial sync.
  * Called by the dispatcher (and by ?dry_run=1). Same Bearer CRON_SECRET.
  * Scheduling stays on GET /api/cron/arbox-trial-sync via cron-job.org.
+ * maxDuration 60 covers one studio's Arbox reports on the paid plan.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) {
