@@ -28,9 +28,9 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { dispatchStaffTemplateImmediate } from "@/lib/staff-template-dispatch";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import {
   loadEnabledClassCancelledStaffTemplateTriggers,
-  pickClassCancelledStaffTemplateTriggerRule,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 
@@ -336,8 +336,8 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
     return summary;
   }
 
-  const rule = pickClassCancelledStaffTemplateTriggerRule(rulesWithTemplate);
-  if (!rule?.template_name?.trim()) {
+  const sendRules = rulesForCompanionSend(rulesWithTemplate);
+  if (!sendRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
@@ -406,17 +406,20 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
     }
 
     try {
-      const send = await dispatchClassCancelledStaff({
-        admin: input.admin,
-        businessId,
-        phone: trainerPhone,
-        scheduleId,
-        className,
-        classDateYmd,
-        classTime,
-        rule,
-        now,
-      });
+      let send: { dispatch: string } = { dispatch: "skipped" };
+      for (const rule of sendRules) {
+        send = await dispatchClassCancelledStaff({
+          admin: input.admin,
+          businessId,
+          phone: trainerPhone,
+          scheduleId,
+          className,
+          classDateYmd,
+          classTime,
+          rule,
+          now,
+        });
+      }
 
       console.info("[leads/arbox-class-cancelled-staff] dispatch", {
         businessId,

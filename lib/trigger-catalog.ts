@@ -73,8 +73,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "none",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "hide",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "first_paid_purchase",
@@ -186,8 +185,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "after",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "warn",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "arbox_new_lead",
@@ -219,8 +217,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: false,
     delay: "after",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "hide",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "incoming_lead",
@@ -415,8 +412,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "before",
     showProductFilter: true,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "warn",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "trial_reminder",
@@ -432,8 +428,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "none",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "hide",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "trial_booked",
@@ -465,8 +460,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "before",
     showProductFilter: true,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "warn",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "staff",
     presetKey: "trainer_trial_heads_up",
@@ -482,8 +476,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "after",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "warn",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "staff",
     presetKey: "class_cancelled_staff",
@@ -499,8 +492,7 @@ export const TRIGGER_CATALOG = [
     arboxOnly: true,
     delay: "none",
     showProductFilter: false,
-    uniquePerBusiness: true,
-    uniqueCreateMode: "hide",
+    uniquePerBusiness: false,
     minDelayDays: 0,
     recipient: "customer",
     presetKey: "class_cancelled_customer",
@@ -692,8 +684,7 @@ export function creatableTriggerOptionsForCell(input: {
 
 /**
  * Implemented creatable catalog entries for a cell that should show a «צור טריגר» card.
- * Unique types already present in `existingTriggerTypes` are omitted (no second create card).
- * Non-unique types always appear (create-another), even when active rows exist.
+ * Every type stays in the list so a business can add another rule of the same type.
  */
 export function creatableCatalogEntriesForCell(input: {
   activation: TriggerActivation;
@@ -896,20 +887,33 @@ export function defaultDelayDirection(triggerType: string): DelayDirection {
 export function uniqueCreateModeFor(
   triggerType: string
 ): TriggerUniqueCreateMode | undefined {
-  const e = triggerCatalogEntry(triggerType);
-  if (!e || !("uniqueCreateMode" in e)) return undefined;
-  return e.uniqueCreateMode;
+  void triggerType;
+  return undefined;
 }
 
 export function isUniquePerBusinessTriggerType(triggerType: string): boolean {
-  return triggerCatalogEntry(triggerType)?.uniquePerBusiness === true;
+  void triggerType;
+  return false;
 }
 
-/** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
+/**
+ * incoming_lead / no_response / arbox_new_lead and the former single-rule types
+ * that have no product filter: force after + hide the product picker.
+ * uniquePerBusiness is no longer the signal — several rules of one type are allowed.
+ */
+const FORCE_AFTER_NO_PRODUCT_FILTER = new Set([
+  "first_paid_purchase",
+  "arbox_new_lead",
+  "incoming_lead",
+  "trial_booked",
+  "class_cancelled_staff",
+  "class_cancelled_customer",
+]);
+
 export function forcesAfterNoProductFilter(triggerType: string): boolean {
   const e = triggerCatalogEntry(triggerType);
-  if (!e) return false;
-  return !e.showProductFilter && (e.uniquePerBusiness || e.minDelayDays > 0);
+  if (!e || e.showProductFilter) return false;
+  return FORCE_AFTER_NO_PRODUCT_FILTER.has(e.type) || e.minDelayDays > 0;
 }
 
 export function triggerTypeLabel(triggerType: string): string {

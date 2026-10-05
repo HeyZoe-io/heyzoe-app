@@ -2,12 +2,9 @@
  * Registration confirmation when a trial class is on the calendar.
  * A trial booking is not a purchase.
  *
- * Runs only for an enabled trial_booked rule.
- * Inside the 24h customer-service window: the sales-flow "after registration"
- * chat message, and no template. Outside that window: the rule's template,
- * or nothing if it has no template / is not approved yet.
- * Never both. If the purchase path already sent the free message, this step
- * sends nothing (purchase wins, one free message per contact).
+ * Always sends the trial_booked template. Does not send the sales-flow
+ * «נרשמת בהצלחה» text, and a prior purchase confirmation does not block it.
+ * That text is only for a trial purchase, which does not also send its template.
  *
  * IO per run, only businesses with an enabled trial_booked rule:
  * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
@@ -21,25 +18,20 @@ import {
   normalizeMembershipTypeName,
   parseClassDateYmd,
 } from "@/lib/leads/arbox-trial-attended";
+import { SYNC_LOG_SENTINEL_TRIGGER_ID } from "@/lib/multi-rule-dedup";
 import { logMessage } from "@/lib/analytics";
 import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import {
-  resolveTrialBookedTemplateTrigger,
+  loadEnabledTrialBookedTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
-import {
-  sendTrialRegisteredWhatsAppReplyIfInWindow,
-  type TrialRegisteredWaReplyResult,
-} from "@/lib/trial-registered-wa-reply";
-import {
-  loadTrialSignupNotice,
-  trialPurchaseTemplateBlockedByZoe,
-} from "@/lib/trial-signup-notice";
+import { type TrialRegisteredWaReplyResult } from "@/lib/trial-registered-wa-reply";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
@@ -70,6 +62,7 @@ type LogStatus = "pending" | "seeded" | "sent" | "skipped" | "abandoned" | "no_p
 type PartStatus = "pending" | "sent" | "skipped";
 
 type LogRow = {
+  trigger_id?: string;
   user_id: number;
   class_date: string;
   class_time: string;
@@ -126,17 +119,18 @@ export type TrialBookingTemplateFollowUp = "skip" | "send" | "wait";
 
 /**
  * After the free-message attempt has settled.
- * A sent or blocked free message never gets a template.
- * Outside the window: send the template, wait if it is not approved, or skip
- * when the rule has no template name.
+ * A single rule skips its template when the free message was sent.
+ * Extra rules still send. A blocked free message skips every template.
  */
 export function trialBookingTemplateFollowUp(input: {
   confirmStatus: "sent" | "skipped";
   freeBlocked: boolean;
   templateNameConfigured: boolean;
   templateApproved: boolean;
+  templateBesidesFreeMessage?: boolean;
 }): TrialBookingTemplateFollowUp {
-  if (input.confirmStatus === "sent" || input.freeBlocked) return "skip";
+  if (input.freeBlocked) return "skip";
+  if (input.confirmStatus === "sent" && !input.templateBesidesFreeMessage) return "skip";
   if (!input.templateNameConfigured) return "skip";
   if (!input.templateApproved) return "wait";
   return "send";
@@ -419,11 +413,22 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   });
   summary.trial_rows = trials.length;
 
+  const trialRules = rulesForCompanionSend(
+    await loadEnabledTrialBookedTemplateTriggers(admin, businessId)
+  ).sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+  const primaryRuleId = trialRules[0]?.id ?? "";
+  const bookingTriggerIds = [
+    SYNC_LOG_SENTINEL_TRIGGER_ID,
+    ...trialRules.map((rule) => rule.id).filter(Boolean),
+  ];
+
   if (!seeded) {
     for (const item of trials) {
+      for (const triggerId of bookingTriggerIds) {
       const { error } = await admin.from(TABLE).upsert(
         {
           business_id: businessId,
+          trigger_id: triggerId,
           user_id: item.userId,
           class_date: item.classDate,
           class_time: item.classTime,
@@ -433,7 +438,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
           processed_at: now.toISOString(),
         },
         {
-          onConflict: "business_id,user_id,class_date,class_time,class_name",
+          onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
           ignoreDuplicates: true,
         }
       );
@@ -447,6 +452,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         continue;
       }
       summary.seeded += 1;
+      }
     }
     const { error: flagUpErr } = await admin
       .from("businesses")
@@ -465,7 +471,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   }
 
   const fullSelect =
-    "user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status";
+    "trigger_id, user_id, class_date, class_time, class_name, status, attempts, confirm_status, template_status";
   const legacySelect = "user_id, class_date, class_time, class_name, status, attempts";
   let legacyLog = false;
   let existing: LogRow[] | null = null;
@@ -498,14 +504,17 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     summary.fetch_error = existingErr.message;
     return summary;
   }
-  const seen = new Map<string, LogRow>();
+  const seen = new Map<string, LogRow[]>();
   for (const row of (existing ?? []) as LogRow[]) {
-    seen.set(logKey(Number(row.user_id), String(row.class_date), row.class_time, row.class_name), row);
+    const key = logKey(Number(row.user_id), String(row.class_date), row.class_time, row.class_name);
+    const list = seen.get(key) ?? [];
+    list.push(row);
+    seen.set(key, list);
   }
 
   const { data: olderPending, error: olderErr } = await admin
     .from(TABLE)
-    .select("user_id, class_date, class_time, class_name, status, attempts")
+    .select("trigger_id, user_id, class_date, class_time, class_name, status, attempts")
     .eq("business_id", businessId)
     .eq("status", "pending")
     .lt("class_date", today);
@@ -513,9 +522,10 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     summary.errors += 1;
     summary.fetch_error = olderErr.message;
   }
+  const staleKeys = new Set<string>();
   const staleCandidates = [
     ...((olderPending ?? []) as LogRow[]),
-    ...[...seen.values()].filter((row) => row.status === "pending"),
+    ...[...seen.values()].flat().filter((row) => row.status === "pending"),
   ];
   for (const row of staleCandidates) {
     const classDate = String(row.class_date);
@@ -527,49 +537,69 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       classTime,
       className: String(row.class_name),
     };
+    const staleKey = logKey(staleItem.userId, staleItem.classDate, staleItem.classTime, staleItem.className);
+    if (staleKeys.has(staleKey)) continue;
+    staleKeys.add(staleKey);
     console.warn(LOG, "trial booking not sent", {
       reason: "skipped_stale",
       businessSlug,
       class_date: classDate,
       class_time: classTime,
     });
-    await writeLog(
-      admin,
-      businessId,
-      staleItem,
-      "skipped",
-      "skipped",
-      "skipped",
-      Number(row.attempts) || 0,
-      now,
-      legacyLog
-    );
+    for (const triggerId of bookingTriggerIds) {
+      await writeLog(
+        admin,
+        businessId,
+        staleItem,
+        triggerId,
+        "skipped",
+        "skipped",
+        "skipped",
+        Number(row.attempts) || 0,
+        now,
+        legacyLog
+      );
+    }
     summary.stale += 1;
-    seen.set(logKey(staleItem.userId, staleItem.classDate, staleItem.classTime, staleItem.className), {
-      ...row,
-      status: "skipped",
-      confirm_status: "skipped",
-      template_status: "skipped",
-    });
+    seen.set(
+      staleKey,
+      bookingTriggerIds.map((triggerId) => ({
+        trigger_id: triggerId,
+        user_id: staleItem.userId,
+        class_date: staleItem.classDate,
+        class_time: staleItem.classTime,
+        class_name: staleItem.className,
+        status: "skipped" as const,
+        attempts: Number(row.attempts) || 0,
+        confirm_status: "skipped" as const,
+        template_status: "skipped" as const,
+      }))
+    );
   }
 
-  const trialBookedRule = await resolveTrialBookedTemplateTrigger({ admin, businessId });
-  const approvedTemplate = await loadApprovedTrialBookedTemplate({
-    admin,
-    businessId,
-    rule: trialBookedRule,
-  });
-  const templateNameConfigured = Boolean(trialBookedRule?.template_name?.trim());
+  const approvedByRule = new Map<string, ApprovedTrialBookedTemplate>();
+  for (const rule of trialRules) {
+    const approved = await loadApprovedTrialBookedTemplate({ admin, businessId, rule });
+    if (approved) approvedByRule.set(rule.id, approved);
+  }
 
   for (const item of trials) {
     const key = logKey(item.userId, item.classDate, item.classTime, item.className);
-    const prior = seen.get(key);
-    if (prior && trialBookingAlreadyHandled(prior.status)) {
+    const priorRows = seen.get(key) ?? [];
+    const sentinel = priorRows.find(
+      (row) => String(row.trigger_id ?? SYNC_LOG_SENTINEL_TRIGGER_ID) === SYNC_LOG_SENTINEL_TRIGGER_ID
+    );
+    const pendingRules = trialRules.filter((rule) => {
+      const prior = priorRows.find((row) => row.trigger_id === rule.id);
+      return !prior || !trialBookingAlreadyHandled(prior.status);
+    });
+    const sentinelSettled = Boolean(sentinel && trialBookingAlreadyHandled(sentinel.status));
+    if (sentinelSettled && pendingRules.length === 0) {
       summary.already += 1;
       continue;
     }
-    const attempts = prior?.attempts ?? 0;
-    if (attempts >= ATTEMPT_CAP) {
+    const attempts = sentinel?.attempts ?? 0;
+    if (!sentinelSettled && attempts >= ATTEMPT_CAP) {
       summary.abandoned += 1;
       continue;
     }
@@ -580,21 +610,26 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         class_date: item.classDate,
         class_time: item.classTime,
       });
-      await writeLog(admin, businessId, item, "skipped", "skipped", "skipped", attempts, now, legacyLog);
+      for (const triggerId of bookingTriggerIds) {
+        await writeLog(admin, businessId, item, triggerId, "skipped", "skipped", "skipped", attempts, now, legacyLog);
+      }
       summary.stale += 1;
       continue;
     }
 
     const phone = canonicalContactPhone(item.row.phone);
     if (!phone) {
-      await writeLog(admin, businessId, item, "no_phone", "skipped", "skipped", attempts, now, legacyLog);
+      for (const triggerId of bookingTriggerIds) {
+        await writeLog(admin, businessId, item, triggerId, "no_phone", "skipped", "skipped", attempts, now, legacyLog);
+      }
       summary.no_phone += 1;
       continue;
     }
 
-    if (!prior) {
+    if (!sentinel) {
       const claimRow: Record<string, unknown> = {
         business_id: businessId,
+        trigger_id: SYNC_LOG_SENTINEL_TRIGGER_ID,
         user_id: item.userId,
         class_date: item.classDate,
         class_time: item.classTime,
@@ -618,145 +653,85 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
     }
 
-    let confirmStatus: PartStatus = prior?.confirm_status === "sent" || prior?.confirm_status === "skipped"
-      ? prior.confirm_status
-      : "pending";
-    let templateStatus: PartStatus = prior?.template_status === "sent" || prior?.template_status === "skipped"
-      ? prior.template_status
-      : "pending";
-    let failed = false;
+    let confirmStatus: PartStatus =
+      sentinel?.confirm_status === "sent" || sentinel?.confirm_status === "skipped"
+        ? sentinel.confirm_status
+        : "pending";
 
     const optedOut = await evaluateSessionMessageSend({ admin, businessId, phone });
     if (optedOut.suppress) {
-      confirmStatus = confirmStatus === "sent" ? "sent" : "skipped";
-      templateStatus = templateStatus === "sent" ? "sent" : "skipped";
-    }
-
-    if (confirmStatus === "sent") templateStatus = "skipped";
-
-    let freeBlocked = false;
-    if (confirmStatus === "pending") {
-      const priorNotice = await loadTrialSignupNotice(admin, businessId, phone);
-      if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
-        confirmStatus = "skipped";
-        templateStatus = "skipped";
+      const kept = confirmStatus === "sent" ? "sent" : "skipped";
+      for (const triggerId of bookingTriggerIds) {
+        await writeLog(admin, businessId, item, triggerId, kept, kept, "skipped", attempts, now, legacyLog);
       }
+      continue;
     }
 
-    if (confirmStatus === "pending") {
-      const instagramFollowPromptSent = await instagramAlreadySent(admin, businessId, phone);
-      const result = await sendTrialRegisteredWhatsAppReplyIfInWindow({
-        admin,
-        businessId,
-        businessSlug,
-        phone,
-        instagramFollowPromptSent,
-        businessPlan: input.businessPlan,
-        bookingSchedule: {
-          date: formatTrialBookingConfirmDate(item.classDate),
-          time: formatTrialBookingConfirmTime(item.classTime),
-          serviceName: item.className,
-        },
-      });
-      if (result.sent) {
-        confirmStatus = "sent";
-        templateStatus = "skipped";
-        summary.sent += 1;
-      } else if (result.reason === "opted_out" || result.reason === "trial_template_already_sent") {
-        confirmStatus = "skipped";
-        templateStatus = "skipped";
-        freeBlocked = true;
-      } else if (trialBookingConfirmIsTerminalSkip(result)) {
-        confirmStatus = "skipped";
-        summary.skipped_window += 1;
-      } else {
-        failed = true;
-      }
-    }
+    // Calendar registration sends the template only. The sales-flow text is for a purchase.
+    if (confirmStatus === "pending") confirmStatus = "skipped";
+    const freeBlocked = false;
 
-    if (templateStatus === "pending" && (confirmStatus === "sent" || confirmStatus === "skipped")) {
-      const followUp = trialBookingTemplateFollowUp({
-        confirmStatus,
-        freeBlocked,
-        templateNameConfigured,
-        templateApproved: Boolean(approvedTemplate),
-      });
-      if (followUp === "skip") {
-        templateStatus = "skipped";
-      } else if (followUp === "wait" || !approvedTemplate || !trialBookedRule) {
-        // Named template is not approved yet. Retry next cron without burning attempts.
-      } else {
-        const outcome = await sendTrialBookedTemplate({
-          admin,
-          businessId,
-          businessSlug,
-          phone,
-          fullName: String(item.row.full_name ?? ""),
-          className: item.className,
-          classDate: item.classDate,
-          classTime: item.classTime,
-          rule: trialBookedRule,
-          template: approvedTemplate,
-        });
-        if (outcome === "sent") {
-          templateStatus = "sent";
-          summary.template_sent += 1;
-        } else if (outcome === "skipped") {
-          templateStatus = "skipped";
-        } else if (outcome === "failed") {
-          failed = true;
-        }
-      }
-    }
 
-    const settled = confirmStatus !== "pending" && templateStatus !== "pending";
-    let status: LogStatus = "pending";
-    let nextAttempts = attempts;
-    if (settled) {
-      status = confirmStatus === "sent" || templateStatus === "sent" ? "sent" : "skipped";
-    } else if (failed) {
-      nextAttempts = attempts + 1;
-      status = nextAttempts >= ATTEMPT_CAP ? "abandoned" : "pending";
-    }
+    const settledConfirm: "sent" | "skipped" = confirmStatus === "sent" ? "sent" : "skipped";
     await writeLog(
       admin,
       businessId,
       item,
-      status,
-      confirmStatus,
-      templateStatus,
-      nextAttempts,
+      SYNC_LOG_SENTINEL_TRIGGER_ID,
+      settledConfirm,
+      settledConfirm,
+      "skipped",
+      attempts,
       now,
       legacyLog
     );
-    if (status === "abandoned") summary.abandoned += 1;
-    else if (failed) summary.errors += 1;
+
+    for (const rule of pendingRules) {
+      const approved = approvedByRule.get(rule.id) ?? null;
+      const followUp = trialBookingTemplateFollowUp({
+        confirmStatus: settledConfirm,
+        freeBlocked,
+        templateNameConfigured: Boolean(rule.template_name?.trim()),
+        templateApproved: Boolean(approved),
+        templateBesidesFreeMessage: trialRules.length > 1 && rule.id !== primaryRuleId,
+      });
+      if (followUp === "skip") {
+        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now, legacyLog);
+        continue;
+      }
+      if (followUp === "wait" || !approved) continue;
+      const outcome = await sendTrialBookedTemplate({
+        admin,
+        businessId,
+        businessSlug,
+        phone,
+        fullName: String(item.row.full_name ?? ""),
+        className: item.className,
+        classDate: item.classDate,
+        classTime: item.classTime,
+        rule,
+        template: approved,
+      });
+      if (outcome === "sent") {
+        await writeLog(admin, businessId, item, rule.id, "sent", settledConfirm, "sent", attempts, now, legacyLog);
+        summary.template_sent += 1;
+      } else if (outcome === "skipped") {
+        await writeLog(admin, businessId, item, rule.id, "skipped", settledConfirm, "skipped", attempts, now, legacyLog);
+      } else if (outcome === "failed") {
+        summary.errors += 1;
+      }
+    }
   }
 
   return summary;
 }
 
-async function instagramAlreadySent(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  phone: string
-): Promise<boolean> {
-  const variants = contactPhoneLookupVariants(phone);
-  if (!variants.length) return false;
-  const { data } = await admin
-    .from("contacts")
-    .select("instagram_follow_prompt_sent")
-    .eq("business_id", businessId)
-    .in("phone", variants)
-    .limit(1);
-  const row = (data ?? [])[0] as { instagram_follow_prompt_sent?: boolean } | undefined;
-  return row?.instagram_follow_prompt_sent === true;
-}
 
 async function writeLog(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
   item: { userId: number; classDate: string; classTime: string; className: string },
+  triggerId: string,
   status: LogStatus,
   confirmStatus: PartStatus,
   templateStatus: PartStatus,
@@ -766,6 +741,7 @@ async function writeLog(
 ): Promise<void> {
   const base = {
     business_id: businessId,
+    trigger_id: triggerId,
     user_id: item.userId,
     class_date: item.classDate,
     class_time: item.classTime,
@@ -778,11 +754,11 @@ async function writeLog(
     ? base
     : { ...base, confirm_status: confirmStatus, template_status: templateStatus };
   let { error } = await admin.from(TABLE).upsert(row, {
-    onConflict: "business_id,user_id,class_date,class_time,class_name",
+    onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
   });
   if (error && isMissingPartColumns(error.message)) {
     const retry = await admin.from(TABLE).upsert(base, {
-      onConflict: "business_id,user_id,class_date,class_time,class_name",
+      onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
     });
     error = retry.error;
   }

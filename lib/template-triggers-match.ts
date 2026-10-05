@@ -209,6 +209,31 @@ export function pickPurchaseTemplateTriggerRule(
   return matching[0] ?? null;
 }
 
+/**
+ * Every enabled rule in the winning tier.
+ * Any product-specific match (product ids and/or item class) wins over catch-all:
+ * all matching specific rules fire, and catch-all rules do not.
+ * With no specific match, every catch-all rule fires.
+ */
+export function matchingPurchaseTemplateTriggerRules(
+  rules: PurchaseTemplateTriggerRule[],
+  membershipTypeId: number | null,
+  itemType?: string | null,
+  ctx?: PurchaseMatchContext
+): PurchaseTemplateTriggerRule[] {
+  const matching = rules.filter(
+    (rule) =>
+      Boolean(rule.template_name?.trim()) &&
+      (membershipTypeId == null
+        ? purchaseRuleMatchesSale(rule, null, itemType, ctx)
+        : purchaseRuleMatchesSale(rule, membershipTypeId, itemType, ctx))
+  );
+  if (!matching.length) return [];
+  const specific = matching.filter((rule) => purchaseRuleSpecificity(rule) > 0);
+  const pool = specific.length ? specific : matching;
+  return [...pool].sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+}
+
 const PURCHASE_RULE_SELECT =
   "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at, updated_at";
 

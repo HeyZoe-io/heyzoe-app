@@ -35,6 +35,8 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
+import { rulesNotYetHandled } from "@/lib/multi-rule-dedup";
+import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { PurchaseTemplateTriggerRule } from "@/lib/template-triggers-match";
@@ -139,10 +141,10 @@ function saleIdOf(row: Record<string, unknown>): number | null {
   return Math.trunc(n);
 }
 
-async function loadEnabledRule(
+async function loadEnabledRules(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
-): Promise<PurchaseTemplateTriggerRule | null> {
+): Promise<PurchaseTemplateTriggerRule[]> {
   const { data, error } = await admin
     .from("template_triggers")
     .select(
@@ -151,32 +153,39 @@ async function loadEnabledRule(
     .eq("business_id", businessId)
     .eq("trigger_type", "first_paid_purchase")
     .eq("enabled", true)
-    .order("updated_at", { ascending: false })
-    .limit(1);
+    .order("created_at", { ascending: true });
 
   if (error) {
     console.error(`${LOG} load rule failed:`, error.message);
-    return null;
+    return [];
   }
-  const row = (data ?? [])[0] as PurchaseTemplateTriggerRule | undefined;
-  return row?.template_name?.trim() ? row : null;
+  return rulesForCompanionSend((data ?? []) as PurchaseTemplateTriggerRule[]);
 }
 
 async function upsertUserIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
   userIds: number[],
+  triggerIds: string[],
   seeded: boolean
 ): Promise<{ ok: boolean; error?: string }> {
-  for (let i = 0; i < userIds.length; i += UPSERT_CHUNK) {
-    const chunk = userIds.slice(i, i + UPSERT_CHUNK).map((user_id) => ({
-      business_id: businessId,
-      user_id,
-      sale_id: null,
-      seeded,
-    }));
-    const { error } = await admin.from("arbox_first_paid_purchase_log").upsert(chunk, {
-      onConflict: "business_id,user_id",
+  const ids = triggerIds.filter(Boolean);
+  if (!ids.length || !userIds.length) return { ok: true };
+  const rows: Array<{
+    business_id: number;
+    trigger_id: string;
+    user_id: number;
+    sale_id: null;
+    seeded: boolean;
+  }> = [];
+  for (const user_id of userIds) {
+    for (const trigger_id of ids) {
+      rows.push({ business_id: businessId, trigger_id, user_id, sale_id: null, seeded });
+    }
+  }
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+    const { error } = await admin.from("arbox_first_paid_purchase_log").upsert(rows.slice(i, i + UPSERT_CHUNK), {
+      onConflict: "business_id,trigger_id,user_id",
       ignoreDuplicates: true,
     });
     if (error) return { ok: false, error: error.message };
@@ -190,6 +199,7 @@ async function seedExistingCustomers(input: {
   apiKey: string;
   boxId: string;
   trialMembershipTypeIds: readonly number[];
+  triggerIds: string[];
   now: Date;
 }): Promise<{ ok: boolean; seeded: number; error?: string }> {
   const memberships = await fetchArboxActiveMembershipsReport({
@@ -226,21 +236,25 @@ async function seedExistingCustomers(input: {
     trialMembershipTypeIds: input.trialMembershipTypeIds,
     todayYmd: formatDateYmdIsrael(input.now),
   });
-  const saved = await upsertUserIds(input.admin, input.businessId, userIds, true);
+  const saved = await upsertUserIds(input.admin, input.businessId, userIds, input.triggerIds, true);
   if (!saved.ok) {
     console.error(`${LOG} seed upsert failed:`, saved.error);
     return { ok: false, seeded: 0, error: saved.error };
   }
 
-  const { error: flagErr } = await input.admin.from("arbox_first_paid_purchase_log").upsert(
-    {
-      business_id: input.businessId,
-      user_id: SEED_SENTINEL_USER_ID,
-      sale_id: null,
-      seeded: true,
-    },
-    { onConflict: "business_id,user_id", ignoreDuplicates: true }
-  );
+  const flagRows = input.triggerIds.filter(Boolean).map((trigger_id) => ({
+    business_id: input.businessId,
+    trigger_id,
+    user_id: SEED_SENTINEL_USER_ID,
+    sale_id: null,
+    seeded: true,
+  }));
+  const { error: flagErr } = flagRows.length
+    ? await input.admin.from("arbox_first_paid_purchase_log").upsert(flagRows, {
+        onConflict: "business_id,trigger_id,user_id",
+        ignoreDuplicates: true,
+      })
+    : { error: null };
   if (flagErr) {
     console.error(`${LOG} seed marker failed:`, flagErr.message);
     return { ok: false, seeded: userIds.length, error: flagErr.message };
@@ -248,21 +262,55 @@ async function seedExistingCustomers(input: {
   return { ok: true, seeded: userIds.length };
 }
 
-async function isCustomerSeedDone(
+async function seedMarkerTriggerIds(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
-): Promise<boolean> {
+): Promise<Set<string>> {
   const { data, error } = await admin
     .from("arbox_first_paid_purchase_log")
-    .select("user_id")
+    .select("trigger_id")
     .eq("business_id", businessId)
-    .eq("user_id", SEED_SENTINEL_USER_ID)
-    .maybeSingle();
+    .eq("user_id", SEED_SENTINEL_USER_ID);
   if (error) {
     console.error(`${LOG} seed marker lookup failed:`, error.message);
     throw new Error(error.message);
   }
-  return Boolean(data);
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    const id = String((row as { trigger_id?: unknown }).trigger_id ?? "").trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/** A new rule must inherit the seeded customer list. No second Arbox fetch. */
+async function copyLoggedUsersOntoTriggers(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  sourceTriggerId: string;
+  targetTriggerIds: string[];
+}): Promise<{ ok: boolean; error?: string }> {
+  const userIds: number[] = [];
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await input.admin
+      .from("arbox_first_paid_purchase_log")
+      .select("user_id")
+      .eq("business_id", input.businessId)
+      .eq("trigger_id", input.sourceTriggerId)
+      .order("user_id", { ascending: true })
+      .range(from, from + page - 1);
+    if (error) {
+      console.error(`${LOG} copy seed lookup failed:`, error.message);
+      return { ok: false, error: error.message };
+    }
+    for (const row of data ?? []) {
+      const id = Number((row as { user_id?: unknown }).user_id);
+      if (Number.isFinite(id)) userIds.push(id);
+    }
+    if ((data ?? []).length < page) break;
+  }
+  return upsertUserIds(input.admin, input.businessId, userIds, input.targetTriggerIds, true);
 }
 
 export async function hasEnabledFirstPaidPurchaseTrigger(
@@ -283,17 +331,17 @@ export async function hasEnabledFirstPaidPurchaseTrigger(
   return (data ?? []).length > 0;
 }
 
-async function knownUserIds(
+async function knownTriggerIdsByUser(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
   userIds: number[]
-): Promise<Set<number>> {
-  const known = new Set<number>();
+): Promise<Map<number, Set<string>>> {
+  const known = new Map<number, Set<string>>();
   for (let i = 0; i < userIds.length; i += UPSERT_CHUNK) {
     const chunk = userIds.slice(i, i + UPSERT_CHUNK);
     const { data, error } = await admin
       .from("arbox_first_paid_purchase_log")
-      .select("user_id")
+      .select("user_id, trigger_id")
       .eq("business_id", businessId)
       .in("user_id", chunk);
     if (error) {
@@ -302,7 +350,11 @@ async function knownUserIds(
     }
     for (const row of data ?? []) {
       const id = Number((row as { user_id?: unknown }).user_id);
-      if (Number.isFinite(id)) known.add(id);
+      const triggerId = String((row as { trigger_id?: unknown }).trigger_id ?? "");
+      if (!Number.isFinite(id) || !triggerId) continue;
+      const set = known.get(id) ?? new Set<string>();
+      set.add(triggerId);
+      known.set(id, set);
     }
   }
   return known;
@@ -410,16 +462,17 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
     errors: 0,
   };
 
-  const rule = await loadEnabledRule(input.admin, input.businessId);
-  if (!rule) {
+  const rules = await loadEnabledRules(input.admin, input.businessId);
+  const triggerIds = rules.map((rule) => rule.id).filter(Boolean);
+  if (!rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
   }
 
-  let alreadySeeded = false;
+  let marked: Set<string>;
   try {
-    alreadySeeded = await isCustomerSeedDone(input.admin, input.businessId);
+    marked = await seedMarkerTriggerIds(input.admin, input.businessId);
   } catch {
     summary.skipped = true;
     summary.skip_reason = "seed_failed";
@@ -427,17 +480,33 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
     return summary;
   }
 
-  if (!alreadySeeded) {
+  const missingSeed = triggerIds.filter((id) => !marked.has(id));
+  if (marked.size === 0) {
     const seed = await seedExistingCustomers({
       admin: input.admin,
       businessId: input.businessId,
       apiKey: input.apiKey,
       boxId: input.boxId,
       trialMembershipTypeIds: input.trialMembershipTypeIds,
+      triggerIds,
       now: input.now,
     });
     summary.seeded_customers = seed.seeded;
     if (!seed.ok) {
+      summary.skipped = true;
+      summary.skip_reason = "seed_failed";
+      summary.errors += 1;
+      return summary;
+    }
+  } else if (missingSeed.length) {
+    const sourceTriggerId = [...marked][0];
+    const copied = await copyLoggedUsersOntoTriggers({
+      admin: input.admin,
+      businessId: input.businessId,
+      sourceTriggerId,
+      targetTriggerIds: missingSeed,
+    });
+    if (!copied.ok) {
       summary.skipped = true;
       summary.skip_reason = "seed_failed";
       summary.errors += 1;
@@ -456,9 +525,9 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
     ...new Set(qualifying.map(saleUserId).filter((id): id is number => id != null)),
   ];
 
-  let known: Set<number>;
+  let known: Map<number, Set<string>>;
   try {
-    known = await knownUserIds(input.admin, input.businessId, userIds);
+    known = await knownTriggerIdsByUser(input.admin, input.businessId, userIds);
   } catch {
     summary.errors += 1;
     return summary;
@@ -472,11 +541,13 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
       summary.errors += 1;
       continue;
     }
-    if (known.has(userId)) {
+    const seen = known.get(userId) ?? new Set<string>();
+    const pending = rulesNotYetHandled(rules, seen);
+    if (!pending.length) {
       summary.already += 1;
       continue;
     }
-    known.add(userId);
+    known.set(userId, seen);
 
     if (!input.salesSyncSeeded) {
       toRemember.push(userId);
@@ -491,63 +562,61 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
       continue;
     }
 
-    const outcome = await sendWelcome({
-      admin: input.admin,
-      businessId: input.businessId,
-      businessSlug: input.businessSlug,
-      phone,
-      fullName: reportFullName(row),
-      templateName: String(rule.template_name ?? "").trim(),
-    });
-    if (outcome === "skipped") {
-      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
-        business_id: input.businessId,
-        user_id: userId,
-        sale_id: saleId,
-        seeded: false,
+    for (const rule of pending) {
+      const outcome = await sendWelcome({
+        admin: input.admin,
+        businessId: input.businessId,
+        businessSlug: input.businessSlug,
+        phone,
+        fullName: reportFullName(row),
+        templateName: String(rule.template_name ?? "").trim(),
       });
-      if (claimErr) {
-        const duplicate = String(claimErr.code ?? "") === "23505" || /duplicate/i.test(claimErr.message);
-        if (!duplicate) {
+      if (outcome === "skipped") {
+        const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
+          business_id: input.businessId,
+          trigger_id: rule.id,
+          user_id: userId,
+          sale_id: saleId,
+          seeded: false,
+        });
+        if (claimErr && String(claimErr.code ?? "") !== "23505" && !/duplicate/i.test(claimErr.message)) {
           console.error(`${LOG} log insert failed after no_valid_name:`, claimErr.message, {
             user_id: userId,
             sale_id: saleId,
           });
           summary.errors += 1;
-          known.delete(userId);
+        } else {
+          seen.add(rule.id);
         }
+        continue;
       }
-      console.info(`${LOG} skip`, { reason: "no_valid_name", user_id: userId, sale_id: saleId });
-      continue;
-    }
-    if (outcome !== "sent") {
-      if (outcome === "gated") summary.gated += 1;
-      else summary.errors += 1;
-      known.delete(userId);
-      continue;
-    }
+      if (outcome !== "sent") {
+        if (outcome === "gated") summary.gated += 1;
+        else summary.errors += 1;
+        continue;
+      }
+      seen.add(rule.id);
 
-    const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
-      business_id: input.businessId,
-      user_id: userId,
-      sale_id: saleId,
-      seeded: false,
-    });
-    if (claimErr) {
-      const duplicate = String(claimErr.code ?? "") === "23505" || /duplicate/i.test(claimErr.message);
-      if (!duplicate) {
+      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
+        business_id: input.businessId,
+        trigger_id: rule.id,
+        user_id: userId,
+        sale_id: saleId,
+        seeded: false,
+      });
+      if (claimErr && String(claimErr.code ?? "") !== "23505" && !/duplicate/i.test(claimErr.message)) {
         console.error(`${LOG} log insert failed after send:`, claimErr.message, {
           user_id: userId,
           sale_id: saleId,
         });
         summary.errors += 1;
       }
+      summary.sent += 1;
     }
-    summary.sent += 1;
   }
 
   if (toRemember.length) {
-    const saved = await upsertUserIds(input.admin, input.businessId, toRemember, true);
+    const saved = await upsertUserIds(input.admin, input.businessId, toRemember, triggerIds, true);
     if (!saved.ok) {
       summary.errors += 1;
       console.error(`${LOG} remember users failed:`, saved.error);

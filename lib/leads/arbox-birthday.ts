@@ -20,9 +20,11 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
-  resolveBirthdayFormerTemplateTrigger,
-  resolveBirthdayTemplateTrigger,
+  loadEnabledBirthdayFormerTemplateTriggers,
+  loadEnabledBirthdayTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -105,12 +107,6 @@ export type BirthdaySyncSummary = {
   skipped_active?: number;
   fetch_error?: string;
 };
-
-function maskPhoneForLog(phone: string): string {
-  const d = phone.replace(/\D/g, "");
-  if (d.length < 4) return "***";
-  return `***${d.slice(-4)}`;
-}
 
 export function formatDateYmdIsrael(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -498,11 +494,14 @@ export async function businessNeedsBirthdayCustomerSet(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<boolean> {
-  const [membersRule, formerRule] = await Promise.all([
-    resolveBirthdayTemplateTrigger({ admin, businessId }),
-    resolveBirthdayFormerTemplateTrigger({ admin, businessId }),
+  const [memberRules, formerRules] = await Promise.all([
+    loadEnabledBirthdayTemplateTriggers(admin, businessId),
+    loadEnabledBirthdayFormerTemplateTriggers(admin, businessId),
   ]);
-  return Boolean(membersRule?.template_name?.trim() || formerRule?.template_name?.trim());
+  return Boolean(
+    memberRules.some((item) => item.template_name?.trim()) ||
+      formerRules.some((item) => item.template_name?.trim())
+  );
 }
 
 /**
@@ -555,12 +554,12 @@ export async function syncArboxBirthdaysForBusiness(input: {
     return summary;
   }
 
-  const [membersRule, formerRule] = await Promise.all([
-    resolveBirthdayTemplateTrigger({ admin: input.admin, businessId }),
-    resolveBirthdayFormerTemplateTrigger({ admin: input.admin, businessId }),
+  const [memberRules, formerRules] = await Promise.all([
+    loadEnabledBirthdayTemplateTriggers(input.admin, businessId).then(rulesForCompanionSend),
+    loadEnabledBirthdayFormerTemplateTriggers(input.admin, businessId).then(rulesForCompanionSend),
   ]);
-  const membersOk = Boolean(membersRule?.template_name?.trim());
-  const formerOk = Boolean(formerRule?.template_name?.trim());
+  const membersOk = memberRules.length > 0;
+  const formerOk = formerRules.length > 0;
   if (!membersOk && !formerOk) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -628,50 +627,39 @@ export async function syncArboxBirthdaysForBusiness(input: {
     }
   }
 
-  const windowKeys = new Map<string, { fromDate: string; toDate: string }>();
-  for (const rule of [membersOk ? membersRule : null, formerOk ? formerRule : null]) {
-    if (!rule) continue;
+  let fromDate = "";
+  let toDate = "";
+  for (const rule of [...memberRules, ...formerRules]) {
     const w = birthdayReportFetchWindowForRule(rule, now);
-    windowKeys.set(`${w.fromDate}|${w.toDate}`, w);
+    if (!fromDate || w.fromDate < fromDate) fromDate = w.fromDate;
+    if (!toDate || w.toDate > toDate) toDate = w.toDate;
   }
 
   const rowsByUser = new Map<number, ArboxBirthdayReportRow>();
-  for (const w of windowKeys.values()) {
-    const report = await fetchBirthdayReportRows({
-      apiKey,
-      fromDate: w.fromDate,
-      toDate: w.toDate,
-      locationId: boxId,
-    });
-    summary.pages_fetched += report.pagesFetched;
-    if (!report.ok) {
-      summary.fetch_error = report.error;
-      summary.errors += 1;
-      return summary;
-    }
-    for (const row of report.rows) {
-      const userIdRaw = Number(row.user_id);
-      if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) continue;
-      rowsByUser.set(Math.trunc(userIdRaw), row);
-    }
+  const report = await fetchBirthdayReportRows({
+    apiKey,
+    fromDate,
+    toDate,
+    locationId: boxId,
+  });
+  summary.pages_fetched += report.pagesFetched;
+  if (!report.ok) {
+    summary.fetch_error = report.error;
+    summary.errors += 1;
+    return summary;
+  }
+  for (const row of report.rows) {
+    const userIdRaw = Number(row.user_id);
+    if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) continue;
+    rowsByUser.set(Math.trunc(userIdRaw), row);
   }
   summary.fetched = rowsByUser.size;
 
   for (const [userId, row] of rowsByUser) {
     const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
-    const rule = kind === "members" ? (membersOk ? membersRule : null) : formerOk ? formerRule : null;
-    if (!rule) continue;
-
-    if (!isBirthdayTriggerDueToday(row.birthday, rule, now)) {
-      console.info("[leads/arbox-birthday] dispatch", {
-        businessId,
-        user_id: userId,
-        audience: kind,
-        contact: null,
-        dispatch: "not_due",
-      });
-      continue;
-    }
+    const audienceRules = kind === "members" ? memberRules : formerRules;
+    const dueRules = audienceRules.filter((item) => isBirthdayTriggerDueToday(row.birthday, item, now));
+    if (!dueRules.length) continue;
     summary.due_today += 1;
     if (kind === "members") summary.members_due += 1;
     else summary.former_due += 1;
@@ -682,21 +670,20 @@ export async function syncArboxBirthdaysForBusiness(input: {
     try {
       const { data: existingSeen } = await input.admin
         .from("arbox_birthday_sync_log")
-        .select("user_id")
+        .select("trigger_id")
         .eq("business_id", businessId)
         .eq("user_id", userId)
         .eq("birthday_year", syncYear)
-        .maybeSingle();
-
-      if (existingSeen) {
+        .in(
+          "trigger_id",
+          dueRules.map((item) => item.id)
+        );
+      const seenIds = new Set(
+        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const pendingRules = dueRules.filter((item) => item.id && !seenIds.has(item.id));
+      if (!pendingRules.length) {
         summary.dedup += 1;
-        console.info("[leads/arbox-birthday] dispatch", {
-          businessId,
-          user_id: userId,
-          audience: kind,
-          contact: null,
-          dispatch: "dedup",
-        });
         continue;
       }
 
@@ -747,53 +734,63 @@ export async function syncArboxBirthdaysForBusiness(input: {
         continue;
       }
 
-      const send = await sendBirthdayTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveReportFullName(row),
-        contactFullName: resolved.contact.full_name ?? null,
-        userId,
-        birthdayYear: celebrationYear,
-        birthdayRaw: row.birthday,
-        rule,
-        triggerType,
-        now,
+      const sendPhone = resolved.phone;
+      const sendContact = resolved.contact;
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: pendingRules,
+        dryRun: isArboxDailyDryRun(),
+        send: (rule) =>
+          sendBirthdayTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone: sendPhone,
+            fullName: resolveReportFullName(row),
+            contactFullName: sendContact.full_name ?? null,
+            userId,
+            birthdayYear: celebrationYear,
+            birthdayRaw: row.birthday,
+            rule,
+            triggerType,
+            now,
+          }).then((send) =>
+            send.dispatch === "immediate" ||
+            send.dispatch === "deferred" ||
+            send.dispatch === "gated" ||
+            send.dispatch === "skipped" ||
+            send.dispatch === "send_failed"
+              ? send.dispatch
+              : "skipped"
+          ),
       });
 
       summary.processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
-
-      console.info("[leads/arbox-birthday] dispatch", {
-        businessId,
-        user_id: userId,
-        audience: kind,
-        trigger_type: triggerType,
-        contact: maskPhoneForLog(resolved.phone),
-        dispatch: send.dispatch,
-      });
+      if (sendDispatch === "immediate") summary.notified += 1;
+      else if (sendDispatch === "deferred") summary.deferred += 1;
+      else if (sendDispatch === "gated") summary.gated += 1;
+      else if (sendDispatch === "send_failed") summary.errors += 1;
 
       if (
-        send.dispatch === "skipped" ||
-        (send.ok && (send.dispatch === "immediate" || send.dispatch === "deferred"))
+        sendDispatch === "skipped" ||
+        sendDispatch === "immediate" ||
+        sendDispatch === "deferred"
       ) {
-        const { error: logErr } = await input.admin.from("arbox_birthday_sync_log").upsert(
-          {
-            business_id: businessId,
-            user_id: userId,
-            birthday_year: syncYear,
-            contact_id: resolved.contact.id,
-            processed_at: now.toISOString(),
-          },
-          { onConflict: "business_id,user_id,birthday_year" }
-        );
-        if (logErr) {
-          console.error("[leads/arbox-birthday] sync_log upsert failed:", logErr.message);
-          summary.errors += 1;
+        for (const rule of pendingRules) {
+          const { error: logErr } = await input.admin.from("arbox_birthday_sync_log").upsert(
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              birthday_year: syncYear,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+            },
+            { onConflict: "business_id,trigger_id,user_id,birthday_year" }
+          );
+          if (logErr) {
+            console.error("[leads/arbox-birthday] sync_log upsert failed:", logErr.message);
+            summary.errors += 1;
+          }
         }
       }
     } catch (e) {

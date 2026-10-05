@@ -221,8 +221,8 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
 
 {
   assert.equal(showsProductFilter("trial_reminder"), true);
-  assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
-  assert.equal(uniqueCreateModeFor("trial_reminder"), "warn");
+  assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), false);
+  assert.equal(uniqueCreateModeFor("trial_reminder"), undefined);
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
   assert.equal(defaultDelayDirection("trial_reminder"), "before");

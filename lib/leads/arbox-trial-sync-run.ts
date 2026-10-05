@@ -213,6 +213,8 @@ async function seedTrialSalesForBusiness(input: {
   businessSlug: string;
   trialRows: Record<string, unknown>[];
   nowIso: string;
+  /** Enabled purchase rules seeded alongside the sale so a later run does not send them. */
+  purchaseRuleIds?: readonly string[];
 }): Promise<{ seeded: number; seed_without_contact: number; seed_errors: number }> {
   let seeded = 0;
   let seed_without_contact = 0;
@@ -241,15 +243,27 @@ async function seedTrialSalesForBusiness(input: {
 
     if (!contactId) seed_without_contact += 1;
 
-    const { error: upsertErr } = await input.admin.from("arbox_trial_sync_log").upsert(
-      {
-        business_id: input.businessId,
-        sale_id: saleId,
-        contact_id: contactId,
-        processed_at: input.nowIso,
-      },
-      { onConflict: "business_id,sale_id" }
-    );
+    const triggerIds = [
+      "00000000-0000-0000-0000-000000000000",
+      ...(input.purchaseRuleIds ?? []).filter(Boolean),
+    ];
+    let upsertErr: { message: string } | null = null;
+    for (const triggerId of triggerIds) {
+      const upserted = await input.admin.from("arbox_trial_sync_log").upsert(
+        {
+          business_id: input.businessId,
+          sale_id: saleId,
+          trigger_id: triggerId,
+          contact_id: contactId,
+          processed_at: input.nowIso,
+        },
+        { onConflict: "business_id,sale_id,trigger_id" }
+      );
+      if (upserted.error) {
+        upsertErr = upserted.error;
+        break;
+      }
+    }
 
     if (upsertErr) {
       seed_errors += 1;
@@ -513,6 +527,7 @@ export async function runArboxTrialSyncForBusiness(input: {
           businessSlug: business.slug,
           trialRows: relevantRows,
           nowIso,
+          purchaseRuleIds: purchaseRules.map((rule) => rule.id).filter(Boolean),
         });
         summary.seeded = seedResult.seeded;
         summary.seed_without_contact = seedResult.seed_without_contact;

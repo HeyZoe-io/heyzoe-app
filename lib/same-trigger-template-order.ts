@@ -34,12 +34,6 @@ function templateNameOf(rule: NamedRule): string {
   return String(rule.template_name ?? "").trim();
 }
 
-function updatedMs(rule: NamedRule): number {
-  const raw = rule.updated_at || rule.created_at || "";
-  const ts = Date.parse(raw);
-  return Number.isFinite(ts) ? ts : 0;
-}
-
 function namedRules<T extends NamedRule>(rules: T[]): T[] {
   return rules.filter((rule) => Boolean(rule.id) && Boolean(templateNameOf(rule)));
 }
@@ -78,33 +72,11 @@ export function orderAllRulesWithCompanion<T extends NamedRule>(rules: T[]): T[]
 }
 
 /**
- * Triggers that send a single slot: a `name` + `name1` pair both go out,
- * original first. With no such pair, only the newest template goes out.
+ * Every named rule fires. A `name` + `name1` pair stays ordered original then follow-up.
+ * Independent rules (different delays, tiers, products) stay in the list.
  */
 export function rulesForCompanionSend<T extends NamedRule>(rules: T[]): T[] {
-  const named = namedRules(rules);
-  const names = new Set(named.map((rule) => templateNameOf(rule)));
-  const used = new Set<string>();
-  const pairs: T[] = [];
-  const bases = named
-    .filter((rule) => names.has(`${templateNameOf(rule)}1`))
-    .sort((a, b) => templateNameOf(a).localeCompare(templateNameOf(b), "en"));
-  for (const base of bases) {
-    const baseName = templateNameOf(base);
-    if (used.has(String(base.id))) continue;
-    const follow = named.find(
-      (rule) => !used.has(String(rule.id)) && templateNameOf(rule) === `${baseName}1`
-    );
-    if (!follow) continue;
-    pairs.push(base, follow);
-    used.add(String(base.id));
-    used.add(String(follow.id));
-  }
-  const unpaired = named
-    .filter((rule) => !used.has(String(rule.id)))
-    .sort((a, b) => updatedMs(b) - updatedMs(a) || templateNameOf(a).localeCompare(templateNameOf(b), "en"));
-  const newest = unpaired[0];
-  return newest ? [...pairs, newest] : pairs;
+  return orderAllRulesWithCompanion(rules);
 }
 
 export function combineCompanionDispatches(results: CompanionDispatch[]): CompanionDispatch {
@@ -138,26 +110,26 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
 }): Promise<CompanionDispatch> {
   const rules = input.rules;
   if (rules.length === 0) return "no_rule";
-  const track = rules.length > 1;
+  const gapBetweenSends = rules.length > 1;
   const results: CompanionDispatch[] = [];
   let dueOffsetMs = 0;
   let sentImmediateThisRun = false;
 
   for (const rule of rules) {
-    if (track && input.alreadyDelivered && (await input.alreadyDelivered(rule))) {
+    if (input.alreadyDelivered && (await input.alreadyDelivered(rule))) {
       results.push("immediate");
       dueOffsetMs += SAME_TRIGGER_TEMPLATE_GAP_MS;
       continue;
     }
 
-    if (track && sentImmediateThisRun && !input.dryRun) {
+    if (gapBetweenSends && sentImmediateThisRun && !input.dryRun) {
       await waitMs(SAME_TRIGGER_TEMPLATE_GAP_MS);
     }
 
     const dispatch = await input.send(rule, { dueOffsetMs });
     results.push(dispatch);
 
-    if (dispatch === "immediate" && track && !input.dryRun) {
+    if (dispatch === "immediate" && input.recordDelivered && !input.dryRun) {
       if (input.recordDelivered) await input.recordDelivered(rule);
       sentImmediateThisRun = true;
       dueOffsetMs += SAME_TRIGGER_TEMPLATE_GAP_MS;

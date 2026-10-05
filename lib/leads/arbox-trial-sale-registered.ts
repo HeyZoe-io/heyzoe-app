@@ -12,8 +12,10 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import {
-  resolvePurchaseTemplateTriggerForSale,
+  loadEnabledPurchaseTemplateTriggers,
+  matchingPurchaseTemplateTriggerRules,
   type PurchaseMatchContext,
+  type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import {
   loadTrialSignupNotice,
@@ -28,6 +30,30 @@ import {
   contactPhoneLookupVariants,
 } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+const SALE_LOG_SENTINEL_TRIGGER_ID = "00000000-0000-0000-0000-000000000000";
+
+async function markPurchaseSaleSeen(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  saleId: number;
+  triggerId: string;
+  contactId: string | null;
+  nowIso: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await input.admin.from("arbox_trial_sync_log").upsert(
+    {
+      business_id: input.businessId,
+      sale_id: input.saleId,
+      trigger_id: input.triggerId,
+      contact_id: input.contactId,
+      processed_at: input.nowIso,
+    },
+    { onConflict: "business_id,sale_id,trigger_id" }
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -162,19 +188,49 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   match?: PurchaseMatchContext;
   /** Configured trial product — stamp so Zoe's registration confirmation does not also send. */
   isTrialProduct?: boolean;
+  /** Rules that already have a sync-log row for this sale. */
+  skipTriggerIds?: ReadonlySet<string>;
 }): Promise<OpeningTemplateResult> {
-  const matchedRule = await resolvePurchaseTemplateTriggerForSale({
-    admin: input.admin,
-    businessId: input.businessId,
-    membershipTypeId: input.membershipTypeId,
-    itemType: input.itemType,
-    match: input.match,
-  });
+  const allRules = await loadEnabledPurchaseTemplateTriggers(input.admin, input.businessId);
+  const matchedRules = matchingPurchaseTemplateTriggerRules(
+    allRules,
+    input.membershipTypeId,
+    input.itemType,
+    input.match
+  ).filter((rule) => !input.skipTriggerIds?.has(rule.id));
 
-  const templateName = matchedRule?.template_name?.trim() || null;
+  if (!matchedRules.length) {
+    return { outcome: "no_matching_rule", dispatch: "no_rule" };
+  }
+
+  let result: OpeningTemplateResult = { outcome: "no_matching_rule", dispatch: "no_rule" };
+  for (const matchedRule of matchedRules) {
+    result = await sendOnePurchaseTemplate({ ...input, matchedRule });
+    if (result.outcome === "send_failed") return result;
+  }
+  return result;
+}
+
+async function sendOnePurchaseTemplate(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  businessSlug: string;
+  phone: string;
+  saleId: number;
+  saleDate: unknown;
+  membershipTypeId: number | null;
+  itemType: string | null;
+  phoneNumberId: string;
+  fullName: string | null;
+  sessionId: string | null;
+  isTrialProduct?: boolean;
+  matchedRule: PurchaseTemplateTriggerRule;
+}): Promise<OpeningTemplateResult> {
+  const matchedRule = input.matchedRule;
+  const templateName = matchedRule.template_name?.trim() || null;
   let dispatch: OpeningTemplateDispatch = "no_rule";
 
-  if (!matchedRule || !templateName) {
+  if (!templateName) {
     console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
       businessId: input.businessId,
       sale_id: input.saleId,
@@ -223,11 +279,19 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
     if (!enqueueResult.ok) {
       return { outcome: "send_failed", dispatch: "deferred" };
     }
-    if (input.isTrialProduct && input.phone) {
-      await stampTrialSignupNotice(input.admin, input.businessId, input.phone, "template");
-    }
-    return { outcome: "deferred", dispatch };
+  if (input.isTrialProduct && input.phone) {
+    await stampTrialSignupNotice(input.admin, input.businessId, input.phone, "template");
   }
+  await markPurchaseSaleSeen({
+    admin: input.admin,
+    businessId: input.businessId,
+    saleId: input.saleId,
+    triggerId: matchedRule.id,
+    contactId: null,
+    nowIso: new Date().toISOString(),
+  });
+  return { outcome: "deferred", dispatch };
+}
 
   const phoneNumberId = String(input.phoneNumberId ?? "").trim();
   if (!phoneNumberId) {
@@ -333,6 +397,14 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
     });
   }
 
+  await markPurchaseSaleSeen({
+    admin: input.admin,
+    businessId: input.businessId,
+    saleId: input.saleId,
+    triggerId: matchedRule.id,
+    contactId: null,
+    nowIso: new Date().toISOString(),
+  });
   return { outcome: "sent" };
 }
 
@@ -394,21 +466,23 @@ export async function handleArboxTrialSaleRegistered(input: {
   const membershipTypeId = parseMembershipTypeId(input.row.membership_type_id);
   const itemTypeRaw = String(input.row.item_type ?? "").trim().toLowerCase() || null;
 
-  // 1) Seen check — per sale
+  // 1) Seen check — one row per sale per rule. Any row means trial side effects already ran.
   const { data: existingSeen, error: seenErr } = await input.admin
     .from("arbox_trial_sync_log")
-    .select("sale_id")
+    .select("trigger_id")
     .eq("business_id", businessId)
-    .eq("sale_id", saleId)
-    .maybeSingle();
+    .eq("sale_id", saleId);
 
   if (seenErr) {
     console.error("[leads/arbox-trial-sale-registered] seen check failed:", seenErr.message);
     return { ok: false, error: "seen_check_failed" };
   }
-  if (existingSeen) {
-    return { ok: true, already: true };
-  }
+  const seenTriggerIds = new Set(
+    (existingSeen ?? [])
+      .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "").trim())
+      .filter(Boolean)
+  );
+  const saleAlreadyHandled = seenTriggerIds.size > 0;
 
   // 2) Contact lookup
   const contactSelect =
@@ -492,6 +566,40 @@ export async function handleArboxTrialSaleRegistered(input: {
     return { ok: false, error: "invalid_phone" };
   }
 
+  if (saleAlreadyHandled) {
+    const canonicalPhone = String(existing?.phone ?? phoneNorm ?? "").trim();
+    if (!canonicalPhone) return { ok: true, already: true };
+    const channel = await resolveSendChannelForContact(input.admin, businessId, canonicalPhone);
+    const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+    const sessionId =
+      phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
+    const configuredTrial =
+      membershipTypeId != null && (input.trialMembershipTypeIds ?? []).includes(membershipTypeId);
+    const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+      admin: input.admin,
+      businessId,
+      businessSlug,
+      phone: canonicalPhone,
+      saleId,
+      saleDate: input.row.date,
+      membershipTypeId,
+      itemType: itemTypeRaw,
+      phoneNumberId,
+      fullName,
+      sessionId,
+      match: input.purchaseMatch,
+      isTrialProduct: configuredTrial,
+      skipTriggerIds: seenTriggerIds,
+    });
+    if (templateResult.outcome === "no_matching_rule") return { ok: true, already: true };
+    return {
+      ok: true,
+      trial_registered_at: new Date().toISOString(),
+      whatsapp: templateResult.outcome,
+      contact_created: false,
+    };
+  }
+
   const alreadyRegistered =
     existing?.trial_registered === true ||
     String(existing?.session_phase ?? "").trim() === "registered";
@@ -501,17 +609,16 @@ export async function handleArboxTrialSaleRegistered(input: {
     // Dedup stays per sale_id (checked above).
     const nowIso = new Date().toISOString();
     const contactId = String(existing.id);
-    const { error: seenUpsertErr } = await input.admin.from("arbox_trial_sync_log").upsert(
-      {
-        business_id: businessId,
-        sale_id: saleId,
-        contact_id: contactId,
-        processed_at: nowIso,
-      },
-      { onConflict: "business_id,sale_id" }
-    );
-    if (seenUpsertErr) {
-      console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenUpsertErr.message);
+    const seenMark = await markPurchaseSaleSeen({
+      admin: input.admin,
+      businessId,
+      saleId,
+      triggerId: SALE_LOG_SENTINEL_TRIGGER_ID,
+      contactId,
+      nowIso,
+    });
+    if (!seenMark.ok) {
+      console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenMark.error);
       return { ok: false, error: "seen_upsert_failed" };
     }
 
@@ -538,6 +645,7 @@ export async function handleArboxTrialSaleRegistered(input: {
       sessionId,
       match: input.purchaseMatch,
       isTrialProduct: configuredTrial,
+      skipTriggerIds: seenTriggerIds,
     });
     if (templateResult.outcome === "no_matching_rule") {
       return { ok: true, already: true };
@@ -626,17 +734,16 @@ export async function handleArboxTrialSaleRegistered(input: {
   }
 
   // 4) Mark sale as seen
-  const { error: seenUpsertErr } = await input.admin.from("arbox_trial_sync_log").upsert(
-    {
-      business_id: businessId,
-      sale_id: saleId,
-      contact_id: contactId,
-      processed_at: nowIso,
-    },
-    { onConflict: "business_id,sale_id" }
-  );
-  if (seenUpsertErr) {
-    console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenUpsertErr.message);
+  const seenMark = await markPurchaseSaleSeen({
+    admin: input.admin,
+    businessId,
+    saleId,
+    triggerId: SALE_LOG_SENTINEL_TRIGGER_ID,
+    contactId,
+    nowIso,
+  });
+  if (!seenMark.ok) {
+    console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenMark.error);
     return { ok: false, error: "seen_upsert_failed" };
   }
 
@@ -703,27 +810,12 @@ export async function handleArboxTrialSaleRegistered(input: {
       ? await loadTrialSignupNotice(input.admin, businessId, canonicalPhone)
       : null;
     if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
-      // Class was already confirmed in chat. The purchase template is a separate message.
-      console.info("[leads/arbox-trial-sale-registered] registration already sent, purchase template still sends", {
+      // The in-window purchase confirmation already went out. Do not also send the purchase template.
+      console.info("[leads/arbox-trial-sale-registered] trial purchase already confirmed in chat, skip template", {
         businessSlug,
         sale_id: saleId,
       });
-      const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: canonicalPhone,
-        saleId,
-        saleDate: input.row.date,
-        membershipTypeId,
-        itemType: itemTypeRaw,
-        phoneNumberId,
-        fullName,
-        sessionId,
-        match: input.purchaseMatch,
-        isTrialProduct: true,
-      });
-      whatsapp = templateResult.outcome;
+      whatsapp = "skipped_trial_template";
     } else {
       const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
         admin: input.admin,

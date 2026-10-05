@@ -37,9 +37,9 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { dispatchStaffTemplateImmediate } from "@/lib/staff-template-dispatch";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import {
   loadEnabledTrainerTrialHeadsUpTemplateTriggers,
-  pickTrainerTrialHeadsUpTemplateTriggerRule,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 
@@ -268,8 +268,8 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
     return summary;
   }
 
-  const rule = pickTrainerTrialHeadsUpTemplateTriggerRule(rulesWithTemplate);
-  if (!rule?.template_name?.trim()) {
+  const sendRules = rulesForCompanionSend(rulesWithTemplate);
+  if (!sendRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
@@ -285,7 +285,9 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
     businessTrialIds = (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
       ?.arbox_trial_membership_type_ids;
   }
-  const productFilterIds = parseIdList(rule.product_filter);
+  const trialFilters = sendRules.map((item) => parseIdList(item.product_filter));
+  const anyTrialCatchAll = trialFilters.some((ids) => ids.length === 0);
+  const productFilterIds = anyTrialCatchAll ? [] : [...new Set(trialFilters.flat())];
   const businessIds = parseIdList(businessTrialIds);
 
   let trialTypeIds: number[];
@@ -354,7 +356,6 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   }
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
-  const delayDays = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
 
   for (const row of reportRows) {
     const userId = parseTrialReminderUserId(row.user_id);
@@ -368,7 +369,30 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
     if (!bookingMatchesTrialScope(row, trialScope)) continue;
     summary.trial_rows += 1;
 
-    if (!isTrialReminderDue({ classDateYmd, todayYmd, delayDays })) continue;
+    const dueRules = sendRules.filter((item) => {
+      const ids = parseIdList(item.product_filter);
+      if (ids.length) {
+        const names = new Set<string>();
+        for (const id of ids) {
+          const name = nameById.get(id);
+          if (name) names.add(normalizeMembershipTypeName(name));
+        }
+        if (
+          !bookingMatchesTrialScope(row, {
+            trialTypeIds: ids,
+            trialTypeNamesNormalized: names,
+          })
+        ) {
+          return false;
+        }
+      }
+      return isTrialReminderDue({
+        classDateYmd,
+        todayYmd,
+        delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+      });
+    });
+    if (!dueRules.length) continue;
     summary.due += 1;
     summary.processed += 1;
 
@@ -385,19 +409,22 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       }
 
       const clientFullName = clientFullNameFromBookingRow(row);
-      const send = await dispatchTrainerTrialHeadsUp({
-        admin: input.admin,
-        businessId,
-        phone: trainerPhone,
-        clientFullName,
-        className,
-        classTime,
-        userId,
-        classDateYmd,
-        apiKey,
-        rule,
-        now,
-      });
+      let send: { dispatch: string } = { dispatch: "skipped" };
+      for (const rule of dueRules) {
+        send = await dispatchTrainerTrialHeadsUp({
+          admin: input.admin,
+          businessId,
+          phone: trainerPhone,
+          clientFullName,
+          className,
+          classTime,
+          userId,
+          classDateYmd,
+          apiKey,
+          rule,
+          now,
+        });
+      }
 
       console.info("[leads/arbox-trainer-trial-heads-up] dispatch", {
         businessId,

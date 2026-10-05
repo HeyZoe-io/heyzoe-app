@@ -14,10 +14,12 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
+import { rulesNotYetHandled } from "@/lib/multi-rule-dedup";
+import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
-  resolveArboxNewLeadTemplateTrigger,
+  loadEnabledArboxNewLeadTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -502,23 +504,48 @@ async function markArboxNewLeadSeen(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   leadId: number;
+  triggerIds: string[];
   contactId: string | null;
   nowIso: string;
 }): Promise<{ ok: boolean }> {
+  const ids = [...new Set(input.triggerIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return { ok: true };
   const { error } = await input.admin.from("arbox_new_lead_sync_log").upsert(
-    {
+    ids.map((trigger_id) => ({
       business_id: input.businessId,
+      trigger_id,
       lead_id: input.leadId,
       contact_id: input.contactId,
       processed_at: input.nowIso,
-    },
-    { onConflict: "business_id,lead_id" }
+    })),
+    { onConflict: "business_id,trigger_id,lead_id" }
   );
   if (error) {
     console.error("[leads/arbox-new-lead] sync_log upsert failed:", error.message);
     return { ok: false };
   }
   return { ok: true };
+}
+
+async function seenArboxNewLeadTriggerIds(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  leadId: number;
+}): Promise<Set<string> | null> {
+  const { data, error } = await input.admin
+    .from("arbox_new_lead_sync_log")
+    .select("trigger_id")
+    .eq("business_id", input.businessId)
+    .eq("lead_id", input.leadId);
+  if (error) {
+    console.error("[leads/arbox-new-lead] sync_log lookup failed:", error.message);
+    return null;
+  }
+  return new Set(
+    (data ?? [])
+      .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "").trim())
+      .filter(Boolean)
+  );
 }
 
 /**
@@ -533,7 +560,7 @@ async function markArboxNewLeadSeen(input: {
  * IO at 10x clients: 1 GET allLeadsReport per 15 min (paginated, BUG-1 contract).
  * activeMembershipsReport + sessionsReport only when at least one unseen non-Zoe
  * lead remains. Profile GET /v3/users/{id} only when the report row has no phone.
- * WhatsApp: 1 template per lead ever (dedup log after successful send).
+ * WhatsApp: 1 template per lead per rule (dedup log after a successful send or enqueue).
  */
 export async function syncArboxNewLeadsForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -572,11 +599,11 @@ export async function syncArboxNewLeadsForBusiness(input: {
     return summary;
   }
 
-  const rule = await resolveArboxNewLeadTemplateTrigger({
-    admin: input.admin,
-    businessId,
-  });
-  if (!rule?.template_name?.trim()) {
+  const rules = rulesForCompanionSend(
+    await loadEnabledArboxNewLeadTemplateTriggers(input.admin, businessId)
+  );
+  const triggerIds = rules.map((rule) => rule.id).filter(Boolean);
+  if (!rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     console.info("[leads/arbox-new-lead] skip — no enabled arbox_new_lead rule", {
@@ -621,6 +648,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
         admin: input.admin,
         businessId,
         leadId,
+        triggerIds,
         contactId: null,
         nowIso,
       });
@@ -650,7 +678,12 @@ export async function syncArboxNewLeadsForBusiness(input: {
     return summary;
   }
 
-  type Candidate = { row: ArboxAllLeadsReportRow; leadId: number; userId: string };
+  type Candidate = {
+    row: ArboxAllLeadsReportRow;
+    leadId: number;
+    userId: string;
+    pending: PurchaseTemplateTriggerRule[];
+  };
   const unseenNonZoe: Candidate[] = [];
 
   for (const row of rows) {
@@ -661,14 +694,17 @@ export async function syncArboxNewLeadsForBusiness(input: {
       continue;
     }
 
-    const { data: existingSeen } = await input.admin
-      .from("arbox_new_lead_sync_log")
-      .select("lead_id")
-      .eq("business_id", businessId)
-      .eq("lead_id", leadId)
-      .maybeSingle();
-
-    if (existingSeen) {
+    const seenIds = await seenArboxNewLeadTriggerIds({
+      admin: input.admin,
+      businessId,
+      leadId,
+    });
+    if (!seenIds) {
+      summary.errors += 1;
+      continue;
+    }
+    const pending = rulesNotYetHandled(rules, seenIds);
+    if (!pending.length) {
       summary.already += 1;
       console.info("[leads/arbox-new-lead] dispatch", {
         businessId,
@@ -685,6 +721,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
         admin: input.admin,
         businessId,
         leadId,
+        triggerIds: pending.map((rule) => rule.id),
         contactId: null,
         nowIso,
       });
@@ -704,7 +741,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
       continue;
     }
 
-    unseenNonZoe.push({ row, leadId, userId });
+    unseenNonZoe.push({ row, leadId, userId, pending });
   }
 
   if (!shouldFetchArboxCustomerSet(unseenNonZoe.length)) {
@@ -730,7 +767,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
   }
   const activeKeys = customers.keys;
 
-  for (const { row, leadId, userId } of unseenNonZoe) {
+  for (const { row, leadId, userId, pending } of unseenNonZoe) {
     try {
       const reportPhone =
         normalizePhone(row.phone) ?? normalizePhone(row.additional_phone);
@@ -757,6 +794,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
           admin: input.admin,
           businessId,
           leadId,
+          triggerIds: pending.map((rule) => rule.id),
           contactId: existingContact?.id ? String(existingContact.id) : null,
           nowIso,
         });
@@ -790,6 +828,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
           admin: input.admin,
           businessId,
           leadId,
+          triggerIds: pending.map((rule) => rule.id),
           contactId: null,
           nowIso,
         });
@@ -803,55 +842,6 @@ export async function syncArboxNewLeadsForBusiness(input: {
         continue;
       }
 
-      const send = await sendArboxNewLeadTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone,
-        fullName,
-        leadId,
-        createdAt: row.created_at,
-        rule,
-      });
-
-      if (send.dispatch === "skipped") {
-        summary.processed += 1;
-        await markArboxNewLeadSeen({
-          admin: input.admin,
-          businessId,
-          leadId,
-          contactId: null,
-          nowIso,
-        });
-        console.info("[leads/arbox-new-lead] dispatch", {
-          businessId,
-          lead_id: leadId,
-          user_id: userId,
-          lead_source: row.lead_source ?? null,
-          campaign: row.campaign ?? null,
-          contact: maskPhoneForLog(phone),
-          dispatch: send.dispatch,
-          reason: "no_valid_name",
-        });
-        continue;
-      }
-
-      if (send.dispatch === "gated" || send.dispatch === "send_failed") {
-        summary.processed += 1;
-        if (send.dispatch === "gated") summary.gated += 1;
-        else summary.errors += 1;
-        console.info("[leads/arbox-new-lead] dispatch", {
-          businessId,
-          lead_id: leadId,
-          user_id: userId,
-          lead_source: row.lead_source ?? null,
-          campaign: row.campaign ?? null,
-          contact: maskPhoneForLog(phone),
-          dispatch: send.dispatch,
-        });
-        continue;
-      }
-
       const resolved = await resolveOrUpsertContact({
         admin: input.admin,
         businessId,
@@ -860,32 +850,64 @@ export async function syncArboxNewLeadsForBusiness(input: {
         nowIso,
       });
       const contactId = resolved.contact?.id ? String(resolved.contact.id) : null;
+      const companion = createCompanionSendGate();
 
-      const marked = await markArboxNewLeadSeen({
-        admin: input.admin,
-        businessId,
-        leadId,
-        contactId,
-        nowIso,
-      });
-      if (!marked.ok) {
-        summary.errors += 1;
-        continue;
+      for (const rule of pending) {
+        const slot = await companion.before(String(rule.template_name ?? ""));
+        if (slot === "skip") continue;
+        const send = await sendArboxNewLeadTemplate({
+          admin: input.admin,
+          businessId,
+          businessSlug,
+          phone,
+          fullName,
+          leadId,
+          createdAt: row.created_at,
+          rule,
+        });
+        companion.after(String(rule.template_name ?? ""), send.dispatch === "immediate" ? "immediate" : send.dispatch);
+
+        if (send.dispatch === "gated" || send.dispatch === "send_failed") {
+          summary.processed += 1;
+          if (send.dispatch === "gated") summary.gated += 1;
+          else summary.errors += 1;
+          console.info("[leads/arbox-new-lead] dispatch", {
+            businessId,
+            lead_id: leadId,
+            user_id: userId,
+            trigger_id: rule.id,
+            contact: maskPhoneForLog(phone),
+            dispatch: send.dispatch,
+          });
+          continue;
+        }
+
+        const marked = await markArboxNewLeadSeen({
+          admin: input.admin,
+          businessId,
+          leadId,
+          triggerIds: [rule.id],
+          contactId,
+          nowIso,
+        });
+        if (!marked.ok) {
+          summary.errors += 1;
+          continue;
+        }
+        summary.processed += 1;
+        if (send.dispatch === "immediate") summary.notified += 1;
+        else if (send.dispatch === "deferred") summary.deferred += 1;
+        console.info("[leads/arbox-new-lead] dispatch", {
+          businessId,
+          lead_id: leadId,
+          user_id: userId,
+          trigger_id: rule.id,
+          lead_source: row.lead_source ?? null,
+          campaign: row.campaign ?? null,
+          contact: maskPhoneForLog(phone),
+          dispatch: send.dispatch,
+        });
       }
-
-      summary.processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-
-      console.info("[leads/arbox-new-lead] dispatch", {
-        businessId,
-        lead_id: leadId,
-        user_id: userId,
-        lead_source: row.lead_source ?? null,
-        campaign: row.campaign ?? null,
-        contact: maskPhoneForLog(phone),
-        dispatch: send.dispatch,
-      });
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-new-lead] row threw", {

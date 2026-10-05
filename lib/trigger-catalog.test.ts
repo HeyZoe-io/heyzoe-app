@@ -274,7 +274,7 @@ function triggerCatalogAudience(type: string) {
     hasArbox: true,
     existingTriggerTypes: ["site_lead"],
   }).map((e) => e.type);
-  assert.ok(!leadsWithIncoming.includes("incoming_lead"), "unique incoming_lead: no create card");
+  assert.ok(leadsWithIncoming.includes("incoming_lead"), "incoming_lead stays creatable");
   assert.ok(leadsWithIncoming.includes("registered_after_trial"), "non-unique still creatable");
 
   const leadsWithArboxNew = creatableCatalogEntriesForCell({
@@ -283,7 +283,7 @@ function triggerCatalogAudience(type: string) {
     hasArbox: true,
     existingTriggerTypes: ["arbox_new_lead"],
   }).map((e) => e.type);
-  assert.ok(!leadsWithArboxNew.includes("arbox_new_lead"));
+  assert.ok(leadsWithArboxNew.includes("arbox_new_lead"));
 
   const leadsWithLostLead = creatableCatalogEntriesForCell({
     activation: "automatic",
@@ -300,8 +300,8 @@ function triggerCatalogAudience(type: string) {
     existingTriggerTypes: ["trial_reminder"],
   }).map((e) => e.type);
   assert.ok(
-    !leadsWithTrialReminder.includes("trial_reminder"),
-    "unique trial_reminder: no create card"
+    leadsWithTrialReminder.includes("trial_reminder"),
+    "trial_reminder stays creatable"
   );
 
   const membersWithPurchase = creatableCatalogEntriesForCell({
@@ -443,27 +443,27 @@ function triggerCatalogAudience(type: string) {
 }
 
 {
-  assert.equal(uniqueCreateModeFor("incoming_lead"), "hide");
-  assert.equal(uniqueCreateModeFor("arbox_new_lead"), "warn");
+  assert.equal(uniqueCreateModeFor("incoming_lead"), undefined);
+  assert.equal(uniqueCreateModeFor("arbox_new_lead"), undefined);
   assert.equal(uniqueCreateModeFor("lost_lead"), undefined);
-  assert.equal(uniqueCreateModeFor("trial_reminder"), "warn");
-  assert.equal(uniqueCreateModeFor("trial_booked"), "hide");
-  assert.equal(isUniquePerBusinessTriggerType("trial_booked"), true);
+  assert.equal(uniqueCreateModeFor("trial_reminder"), undefined);
+  assert.equal(uniqueCreateModeFor("trial_booked"), undefined);
+  assert.equal(isUniquePerBusinessTriggerType("trial_booked"), false);
   assert.equal(triggerTypeLabel("trial_booked"), "נרשם לאימון ניסיון");
   assert.equal(formatDelayLabel("trial_booked", 0, "after"), "נשלח מיד");
   assert.match(triggerSendScheduleHintHe("trial_booked"), /15/);
-  assert.equal(uniqueCreateModeFor("trainer_trial_heads_up"), "warn");
-  assert.equal(uniqueCreateModeFor("class_cancelled_staff"), "warn");
+  assert.equal(uniqueCreateModeFor("trainer_trial_heads_up"), undefined);
+  assert.equal(uniqueCreateModeFor("class_cancelled_staff"), undefined);
   assert.equal(uniqueCreateModeFor("purchase"), undefined);
-  assert.equal(isUniquePerBusinessTriggerType("incoming_lead"), true);
-  assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), true);
+  assert.equal(isUniquePerBusinessTriggerType("incoming_lead"), false);
+  assert.equal(isUniquePerBusinessTriggerType("arbox_new_lead"), false);
   assert.equal(isUniquePerBusinessTriggerType("lost_lead"), false);
   assert.equal(isUniquePerBusinessTriggerType("membership_cancelled"), false);
   assert.equal(isUniquePerBusinessTriggerType("milestones"), false);
   assert.equal(isUniquePerBusinessTriggerType("nth_workout"), false);
-  assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), true);
-  assert.equal(isUniquePerBusinessTriggerType("trainer_trial_heads_up"), true);
-  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_staff"), true);
+  assert.equal(isUniquePerBusinessTriggerType("trial_reminder"), false);
+  assert.equal(isUniquePerBusinessTriggerType("trainer_trial_heads_up"), false);
+  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_staff"), false);
   assert.equal(isStaffRecipientTriggerType("trainer_trial_heads_up"), true);
   assert.equal(isStaffRecipientTriggerType("class_cancelled_staff"), true);
   assert.equal(isStaffRecipientTriggerType("trial_reminder"), false);
@@ -516,8 +516,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(defaultDelayDirection("class_cancelled_customer"), "after");
   assert.equal(formatDelayLabel("class_cancelled_customer", 3, "before"), "נשלח מיד");
   assert.equal(triggerTypeLabel("class_cancelled_customer"), "שיעור בוטל - הודעה לנרשמים");
-  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_customer"), true);
-  assert.equal(uniqueCreateModeFor("class_cancelled_customer"), "hide");
+  assert.equal(isUniquePerBusinessTriggerType("class_cancelled_customer"), false);
+  assert.equal(uniqueCreateModeFor("class_cancelled_customer"), undefined);
   assert.equal(forcesAfterNoProductFilter("class_cancelled_customer"), true);
   assert.equal(showsProductFilter("class_cancelled_customer"), false);
   assert.equal(isStaffRecipientTriggerType("class_cancelled_customer"), false);

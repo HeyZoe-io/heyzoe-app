@@ -24,8 +24,14 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  companionTemplateAlreadySent,
+  createCompanionSendGate,
+  recordCompanionTemplateSent,
+  rulesForCompanionSend,
+} from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
-import { resolveSiteLeadTemplateTrigger } from "@/lib/template-triggers-match";
+import { loadEnabledSiteLeadTemplateTriggers } from "@/lib/template-triggers-match";
 import { buildWaSessionId, normalizePhone } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -234,13 +240,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "business_lookup_failed" }, { status: 500 });
   }
 
-  const matchedRule = await resolveSiteLeadTemplateTrigger({ admin, businessId });
-  const ruleTemplate = matchedRule?.template_name?.trim() || null;
+  const siteRules = rulesForCompanionSend(
+    await loadEnabledSiteLeadTemplateTriggers(admin, businessId)
+  );
   const fallbackTemplate = String(
     (business as { lead_template_name?: string | null }).lead_template_name ?? ""
   ).trim();
-  const templateName = ruleTemplate || fallbackTemplate;
-  const usingRule = Boolean(matchedRule && ruleTemplate);
+  const usingRule = siteRules.length > 0;
+  const templateName = usingRule
+    ? String(siteRules[0]?.template_name ?? "").trim()
+    : fallbackTemplate;
 
   if (!templateName) {
     await writeIncomingAudit({
@@ -352,173 +361,176 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatch: "skipped_active" });
   }
 
-  // Rule path with delay → enqueue (Stage C queue).
-  if (usingRule && matchedRule && matchedRule.delay_days > 0) {
-    const dueAt = computeDueAt(
-      { delay_days: matchedRule.delay_days, delay_direction: "after" },
-      now
-    );
-    const enqueueResult = await enqueueScheduledTemplateSend({
-      admin,
-      businessId,
-      triggerId: matchedRule.id,
-      contactPhone: phoneNorm,
-      templateName,
-      dueAt,
-      dedupKey: buildSiteLeadScheduledDedupKey(
-        businessId,
-        matchedRule.id,
-        phoneNorm,
-        utcYmd(now)
-      ),
-    });
+  if (usingRule) {
+    const companion = createCompanionSendGate();
+    let sentImmediate = 0;
+    let deferred = 0;
+    let gated = 0;
+    let already = 0;
+    let hardError: "enqueue_failed" | "template_send_failed" | null = null;
 
-    console.info("[api/leads/incoming] template trigger resolution", {
-      businessId,
-      matched_rule_id: matchedRule.id,
-      template_name: templateName,
-      dispatch: "deferred" satisfies DispatchOutcome,
-      delay_days: matchedRule.delay_days,
-      due_at: dueAt.toISOString(),
-      enqueue_ok: enqueueResult.ok,
-      enqueue_inserted: enqueueResult.ok ? enqueueResult.inserted : false,
-      enqueue_error: enqueueResult.ok ? undefined : enqueueResult.error,
-      contact_source: contactSource,
-    });
+    for (const rule of siteRules) {
+      const ruleTemplate = String(rule.template_name ?? "").trim();
+      const dedupKey = buildSiteLeadScheduledDedupKey(businessId, rule.id, phoneNorm, utcYmd(now));
+      if (await companionTemplateAlreadySent(admin, dedupKey)) {
+        already += 1;
+        continue;
+      }
 
-    if (!enqueueResult.ok) {
-      await writeIncomingAudit({
-        admin,
-        body: bodyRecord,
-        result: "error",
-        statusCode: 502,
-        errorDetail: "enqueue_failed",
+      if (rule.delay_days > 0) {
+        const dueAt = computeDueAt(
+          { delay_days: rule.delay_days, delay_direction: "after" },
+          now
+        );
+        const enqueueResult = await enqueueScheduledTemplateSend({
+          admin,
+          businessId,
+          triggerId: rule.id,
+          contactPhone: phoneNorm,
+          templateName: ruleTemplate,
+          dueAt,
+          dedupKey,
+        });
+        console.info("[api/leads/incoming] template trigger resolution", {
+          businessId,
+          matched_rule_id: rule.id,
+          template_name: ruleTemplate,
+          dispatch: "deferred" satisfies DispatchOutcome,
+          delay_days: rule.delay_days,
+          due_at: dueAt.toISOString(),
+          enqueue_ok: enqueueResult.ok,
+          contact_source: contactSource,
+        });
+        if (!enqueueResult.ok) hardError = "enqueue_failed";
+        else deferred += 1;
+        continue;
+      }
+
+      const slot = await companion.before(ruleTemplate);
+      if (slot === "skip") continue;
+
+      const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
+        admin.from("businesses").select("waba_id, name").eq("id", businessId).maybeSingle(),
+        admin
+          .from("whatsapp_templates")
+          .select("id, status, language, components")
+          .eq("business_id", businessId)
+          .eq("name", ruleTemplate)
+          .eq("status", "APPROVED")
+          .eq("disabled", false)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
+        .trim()
+        .replace(/\s+/g, "");
+      if (!phoneNumberId || !wabaId || !approvedTpl?.id) {
+        companion.after(ruleTemplate, "gated");
+        gated += 1;
+        continue;
+      }
+      const firstName = resolveTemplateFirstName({ full_name: fullName });
+      if (
+        !firstName &&
+        templateBodyUsesFirstNameSlot("incoming_lead", (approvedTpl as { components?: unknown }).components)
+      ) {
+        companion.after(ruleTemplate, "gated");
+        gated += 1;
+        continue;
+      }
+      const languageCode =
+        String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
+      const { sendComponents, bodyParams } = templateSendPayload({
+        triggerType: "incoming_lead",
+        storedComponents: (approvedTpl as { components?: unknown }).components,
+        firstName,
+        businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
       });
-      return NextResponse.json({ error: "enqueue_failed" }, { status: 502 });
-    }
-
-    return NextResponse.json({ ok: true, dispatch: "deferred" });
-  }
-
-  // Rule path delay=0 → gate like purchase (channel already resolved; check WABA + APPROVED).
-  if (usingRule && matchedRule) {
-    const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-      admin.from("businesses").select("waba_id, name").eq("id", businessId).maybeSingle(),
-      admin
-        .from("whatsapp_templates")
-        .select("id, status, language, components")
-        .eq("business_id", businessId)
-        .eq("name", templateName)
-        .eq("status", "APPROVED")
-        .eq("disabled", false)
-        .limit(1)
-        .maybeSingle(),
-    ]);
-
-    const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
-      .trim()
-      .replace(/\s+/g, "");
-
-    if (!phoneNumberId || !wabaId || !approvedTpl?.id) {
-      const gate = !phoneNumberId ? "no_channel" : !wabaId ? "no_waba" : "template_not_approved";
+      const sendResult = await sendBusinessTemplate({
+        to: phoneNorm,
+        phoneNumberId,
+        templateName: ruleTemplate,
+        languageCode,
+        ...(sendComponents ? { components: sendComponents } : {}),
+      });
       console.info("[api/leads/incoming] template trigger resolution", {
         businessId,
-        matched_rule_id: matchedRule.id,
-        template_name: templateName,
-        dispatch: "gated" satisfies DispatchOutcome,
-        gate,
+        matched_rule_id: rule.id,
+        template_name: ruleTemplate,
+        dispatch: "immediate" satisfies DispatchOutcome,
+        send_ok: sendResult.ok,
         contact_source: contactSource,
       });
-      await writeIncomingAudit({
-        admin,
-        body: bodyRecord,
-        result: "validated",
-        statusCode: 200,
-        errorDetail: `gated:${gate}`,
+      if (!sendResult.ok) {
+        console.error("[api/leads/incoming] template send failed:", sendResult.error);
+        companion.after(ruleTemplate, "send_failed");
+        hardError = "template_send_failed";
+        continue;
+      }
+      companion.after(ruleTemplate, "immediate");
+      await recordCompanionTemplateSent(admin, {
+        dedupKey,
+        businessId,
+        ruleId: rule.id,
+        phone: phoneNorm,
+        templateName: ruleTemplate,
+        nowIso,
       });
-      return NextResponse.json({ ok: true, dispatch: "gated", gate });
+      const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);
+      await logMessage({
+        business_slug: businessSlug,
+        role: "assistant",
+        content: formatLeadTemplateMessageContent(ruleTemplate, {
+          firstName,
+          components: (approvedTpl as { components?: unknown }).components,
+          bodyParams,
+        }),
+        model_used: LEAD_TEMPLATE_MODEL,
+        session_id: sessionId || null,
+      });
+      sentImmediate += 1;
     }
 
-    const firstName = resolveTemplateFirstName({ full_name: fullName });
-    if (!firstName && templateBodyUsesFirstNameSlot("incoming_lead", (approvedTpl as { components?: unknown }).components)) {
-      console.info("[api/leads/incoming] skip", { reason: "no_valid_name", businessId });
-      await writeIncomingAudit({
-        admin,
-        body: bodyRecord,
-        result: "validated",
-        statusCode: 200,
-        errorDetail: "gated:no_valid_name",
-      });
-      return NextResponse.json({ ok: true, dispatch: "gated", gate: "no_valid_name" });
-    }
-    const languageCode =
-      String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
-    const { sendComponents, bodyParams } = templateSendPayload({
-      triggerType: "incoming_lead",
-      storedComponents: (approvedTpl as { components?: unknown }).components,
-      firstName,
-      businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-    });
-
-    const sendResult = await sendBusinessTemplate({
-      to: phoneNorm,
-      phoneNumberId,
-      templateName,
-      languageCode,
-      ...(sendComponents ? { components: sendComponents } : {}),
-    });
-
-    console.info("[api/leads/incoming] template trigger resolution", {
-      businessId,
-      matched_rule_id: matchedRule.id,
-      template_name: templateName,
-      dispatch: "immediate" satisfies DispatchOutcome,
-      send_ok: sendResult.ok,
-      contact_source: contactSource,
-    });
-
-    if (!sendResult.ok) {
-      console.error("[api/leads/incoming] template send failed:", sendResult.error);
+    if (hardError) {
       await writeIncomingAudit({
         admin,
         body: bodyRecord,
         result: "error",
         statusCode: 502,
-        errorDetail: "template_send_failed",
+        errorDetail: hardError,
       });
-      return NextResponse.json({ error: "template_send_failed" }, { status: 502 });
+      return NextResponse.json({ error: hardError }, { status: 502 });
     }
 
-    const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);
-    await logMessage({
-      business_slug: businessSlug,
-      role: "assistant",
-      content: formatLeadTemplateMessageContent(templateName, {
-        firstName,
-        components: (approvedTpl as { components?: unknown }).components,
-        bodyParams,
-      }),
-      model_used: LEAD_TEMPLATE_MODEL,
-      session_id: sessionId || null,
-    });
+    if (sentImmediate > 0) {
+      await dispatchCrmEvent({
+        businessId,
+        leadPhone: phoneNorm,
+        kind: "template_sent",
+        fullName: fullName || null,
+        eventAtIso: nowIso,
+      });
+    }
 
-    await dispatchCrmEvent({
-      businessId,
-      leadPhone: phoneNorm,
-      kind: "template_sent",
-      fullName: fullName || null,
-      eventAtIso: nowIso,
-    });
-
+    const dispatch: DispatchOutcome =
+      sentImmediate > 0 ? "immediate" : deferred > 0 ? "deferred" : already > 0 ? "immediate" : "gated";
     await writeIncomingAudit({
       admin,
       body: bodyRecord,
-      result: "template_sent",
+      result: sentImmediate > 0 ? "template_sent" : "validated",
       statusCode: 200,
+      errorDetail: sentImmediate > 0 ? undefined : gated > 0 ? "gated" : undefined,
     });
-
-    return NextResponse.json({ ok: true, dispatch: "immediate" });
+    return NextResponse.json({
+      ok: true,
+      dispatch,
+      rules: siteRules.length,
+      sent: sentImmediate,
+      deferred,
+      gated,
+    });
   }
+
 
   // Fallback: businesses.lead_template_name (Sanga / Zapier) — legacy immediate send.
   // Soft-disable only when we have a cached row; missing cache keeps legacy send behavior.

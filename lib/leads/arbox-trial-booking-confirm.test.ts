@@ -73,6 +73,26 @@ assert.deepEqual(
   }),
   "skip"
 );
+assert.equal(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "sent",
+    freeBlocked: false,
+    templateNameConfigured: true,
+    templateApproved: true,
+    templateBesidesFreeMessage: true,
+  }),
+  "send"
+);
+assert.equal(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "sent",
+    freeBlocked: true,
+    templateNameConfigured: true,
+    templateApproved: true,
+    templateBesidesFreeMessage: true,
+  }),
+  "skip"
+);
 
 assert.equal(formatTrialBookingConfirmDate("2026-10-07"), "07/10/2026");
 assert.equal(formatTrialBookingConfirmTime("08:30"), "8:30");

@@ -12,7 +12,6 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
-  parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
@@ -313,6 +312,7 @@ async function resolveOrCreateContact(input: {
 async function upsertGapSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   userId: number;
   gapStartDate: string;
   tier: number;
@@ -324,6 +324,7 @@ async function upsertGapSyncLog(input: {
   const { error } = await input.admin.from("arbox_attendance_gap_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       user_id: input.userId,
       variant: ATTENDANCE_GAP_SYNC_VARIANT,
       gap_start_date: input.gapStartDate,
@@ -333,7 +334,7 @@ async function upsertGapSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,user_id,variant,gap_start_date,tier" }
+    { onConflict: "business_id,trigger_id,user_id,variant,gap_start_date,tier" }
   );
   if (error) {
     console.error("[leads/arbox-attendance-gap] sync_log upsert failed:", error.message);
@@ -599,18 +600,31 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         row: state.sampleRow,
         source: "arbox_attendance_gap_seed",
       });
-      const up = await upsertGapSyncLog({
-        admin: input.admin,
-        businessId,
-        userId: state.userId,
-        gapStartDate: state.lastYesYmd,
-        tier,
-        contactId: resolved.contact?.id ?? null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
-      if (up.ok) {
+      const tierRuleIds = rules
+        .filter(
+          (candidate) =>
+            Boolean(candidate.template_name?.trim()) &&
+            Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier &&
+            candidate.id
+        )
+        .map((candidate) => candidate.id);
+      let upOk = true;
+      for (const triggerId of tierRuleIds) {
+        const up = await upsertGapSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId,
+          userId: state.userId,
+          gapStartDate: state.lastYesYmd,
+          tier,
+          contactId: resolved.contact?.id ?? null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up.ok) upOk = false;
+      }
+      if (upOk && tierRuleIds.length) {
         wroteForTier += 1;
         if (isFullSeed) summary.seeded += 1;
         else summary.soft_seeded += 1;
@@ -621,6 +635,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
       const sentinel = await upsertGapSyncLog({
         admin: input.admin,
         businessId,
+        triggerId: "00000000-0000-0000-0000-000000000000",
         userId: 0,
         gapStartDate: todayYmd,
         tier,
@@ -675,24 +690,28 @@ export async function syncArboxAttendanceGapForBusiness(input: {
       if (!tierRules.length) continue;
 
       try {
-        const { data: existing } = await input.admin
+        const { data: existingRows } = await input.admin
           .from("arbox_attendance_gap_sync_log")
-          .select("status, attempts, contact_id")
+          .select("trigger_id, status, attempts")
           .eq("business_id", businessId)
           .eq("user_id", state.userId)
           .eq("variant", ATTENDANCE_GAP_SYNC_VARIANT)
           .eq("gap_start_date", state.lastYesYmd)
-          .eq("tier", tier)
-          .maybeSingle();
-
-        const status = String((existing as { status?: unknown } | null)?.status ?? "");
-        if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+          .eq("tier", tier);
+        const terminalIds = new Set(
+          (existingRows ?? [])
+            .filter((row) => {
+              const status = String((row as { status?: unknown }).status ?? "");
+              return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            })
+            .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
+        );
+        const pendingRules = tierRules.filter((rule) => rule.id && !terminalIds.has(rule.id));
+        if (!pendingRules.length) {
           summary.already += 1;
           continue;
         }
-        const attemptsSoFar = parseCancellationSyncAttempts(
-          (existing as { attempts?: unknown } | null)?.attempts
-        );
+        const attemptsSoFar = 0;
 
         const resolved = await resolveOrCreateContact({
           admin: input.admin,
@@ -702,17 +721,20 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         });
         if (!resolved.phone || !resolved.contact?.id) {
           summary.no_phone += 1;
-          await upsertGapSyncLog({
-            admin: input.admin,
-            businessId,
-            userId: state.userId,
-            gapStartDate: state.lastYesYmd,
-            tier,
-            contactId: resolved.contact?.id ?? null,
-            attempts: attemptsSoFar,
-            status: "no_phone",
-            nowIso,
-          });
+          for (const rule of pendingRules) {
+            await upsertGapSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId: state.userId,
+              gapStartDate: state.lastYesYmd,
+              tier,
+              contactId: resolved.contact?.id ?? null,
+              attempts: attemptsSoFar,
+              status: "no_phone",
+              nowIso,
+            });
+          }
           continue;
         }
 
@@ -721,7 +743,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         if (!sendPhone || !sendContact) continue;
 
         const sendDispatch = await runCompanionTemplateSends({
-          rules: tierRules,
+          rules: pendingRules,
           dryRun: isArboxDailyDryRun(),
           send: async (rule, ctx) => {
             const send = await dispatchGapTemplate({
@@ -785,9 +807,11 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           dispatch: mapped,
           attemptsSoFar,
         });
+        for (const rule of pendingRules) {
         await upsertGapSyncLog({
           admin: input.admin,
           businessId,
+          triggerId: rule.id,
           userId: state.userId,
           gapStartDate: state.lastYesYmd,
           tier,
@@ -796,6 +820,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           status: next.status,
           nowIso,
         });
+        }
 
         summary.processed += 1;
         if (sendDispatch === "immediate") summary.notified += 1;
