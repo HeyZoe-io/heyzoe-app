@@ -49,24 +49,37 @@ export function contactStatusMatchesFilter(
   return status === filter;
 }
 
-export function computeContactStatus(input: ContactStatusInput): ContactStatusKey | null {
+export type ComputeContactStatusOptions = {
+  /**
+   * זואי אדמין: שתיקה או סיום פולואפים לא הופכים ל«ללא מענה».
+   * העמודה נשארת לפי השלב הקודם. «ללא מענה» רק בסימון ידני.
+   */
+  ignoreAutoNoResponse?: boolean;
+};
+
+export function computeContactStatus(
+  input: ContactStatusInput,
+  options?: ComputeContactStatusOptions
+): ContactStatusKey | null {
   if (input.opted_out === true) return "opted_out";
   if (input.not_relevant_at) return "not_relevant";
   if (isContactTrialRegistered(input) && input.human_requested_at) return "registered_human_requested";
   if (isContactTrialRegistered(input)) return "registered";
   if (input.human_followup_at) return "human_followup";
   if (input.human_requested_at) return "human_requested";
-  if (input.wa_no_response_at) return "no_response";
 
   const stage = Number(input.wa_followup_stage ?? 0);
-  if (stage === 3) return "no_response";
+  if (!options?.ignoreAutoNoResponse) {
+    if (input.wa_no_response_at) return "no_response";
+    if (stage === 3) return "no_response";
 
-  // last_contact_at מתעדכן בהודעת user — 26ש׳+ בלי נרשם/הסר → ללא מענה (גם אם stage פולואפ תקוע)
-  if (
-    waNoResponseEligible(input) &&
-    isIdleAfterLastUserMessage(input.last_contact_at ? String(input.last_contact_at) : null)
-  ) {
-    return "no_response";
+    // last_contact_at מתעדכן בהודעת user — 26ש׳+ בלי נרשם/הסר → ללא מענה (גם אם stage פולואפ תקוע)
+    if (
+      waNoResponseEligible(input) &&
+      isIdleAfterLastUserMessage(input.last_contact_at ? String(input.last_contact_at) : null)
+    ) {
+      return "no_response";
+    }
   }
 
   if (stage === 1 || stage === 2) return "followup";

@@ -218,6 +218,8 @@ function mapComputedToAdminColumn(status: ContactStatusKey | null): MarketingAdm
 /**
  * אותה עמודה בדף לידים וברשימת השיחות.
  * הערת CRM גוברת על חישוב אוטומטי. לא רלוונטי עומד לבד. הסר גובר על הכל.
+ * שתיקה אחרי פולואפ לא מעבירה ל«ללא מענה» — הליד נשאר בעמודה שנשמרה
+ * (למשל ליד חדש). «ללא מענה» רק כשסומן ידנית.
  */
 export function resolveMarketingAdminColumn(row: LeadRow): MarketingAdminColumn {
   if (row.opted_out === true || row.pipeline_status === "opted_out") return "opted_out";
@@ -227,7 +229,7 @@ export function resolveMarketingAdminColumn(row: LeadRow): MarketingAdminColumn 
   }
   const fromPipeline = mapLegacyPipelineToAdminColumn(row.pipeline_status);
   if (row.pipeline_status && fromPipeline) return fromPipeline;
-  return mapComputedToAdminColumn(computeContactStatus(row));
+  return mapComputedToAdminColumn(computeContactStatus(row, { ignoreAutoNoResponse: true }));
 }
 
 export function crmWriteForAdminColumn(column: MarketingAdminColumn): {

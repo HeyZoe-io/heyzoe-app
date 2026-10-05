@@ -57,7 +57,36 @@ assert.equal(
   "not_relevant"
 );
 assert.equal(resolveMarketingAdminColumn({ ...base, pipeline_status: "human_followup" }), "requires_call");
-assert.equal(resolveMarketingAdminColumn(base), "no_response");
+assert.equal(resolveMarketingAdminColumn({ ...base, pipeline_status: "no_response" }), "no_response");
+assert.equal(
+  resolveMarketingAdminColumn({
+    ...base,
+    marketing_relevance: "relevant",
+    marketing_stage: "in_process",
+    wa_followup_stage: 3,
+  }),
+  "in_process"
+);
+assert.equal(
+  resolveMarketingAdminColumn({
+    ...base,
+    marketing_relevance: "relevant",
+    marketing_stage: "followup",
+    wa_followup_stage: 3,
+    last_contact_at: "2026-01-01T10:00:00.000Z",
+  }),
+  "followup"
+);
+assert.equal(resolveMarketingAdminColumn(base), "in_process");
+assert.equal(
+  resolveMarketingAdminColumn({
+    ...base,
+    wa_followup_stage: 0,
+    session_phase: "opening",
+    last_contact_at: "2026-01-01T10:00:00.000Z",
+  }),
+  "in_process"
+);
 assert.equal(
   formatMarketingAdminStatusLabel({ relevance: "relevant", stage: "no_response" }),
   "רלוונטי + ללא מענה"

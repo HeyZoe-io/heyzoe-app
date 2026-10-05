@@ -40,7 +40,7 @@ assert.equal(
     wa_no_response_at: null,
     wa_followup_stage: 3,
   }),
-  true
+  false
 );
 assert.equal(
   isMarketingNoResponseLead({
