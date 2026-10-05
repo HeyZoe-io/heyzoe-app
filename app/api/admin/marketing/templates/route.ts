@@ -8,7 +8,12 @@ import {
   updateWabaTemplate,
 } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
-import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
+import {
+  isMetaTemplateContentEditable,
+  templateComponentsMetaPolicyMessage,
+  uniqueTemplateName,
+  withNormalizedTemplateComponents,
+} from "@/lib/template-presets";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 
 export const runtime = "nodejs";
@@ -119,10 +124,18 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(rawComponents) || rawComponents.length === 0) {
     return NextResponse.json({ error: "missing_components" }, { status: 400 });
   }
+  const prepared = withNormalizedTemplateComponents(rawComponents);
   const components =
-    category === "MARKETING" ? withMarketingOptOutButton(rawComponents, language) : rawComponents;
+    category === "MARKETING" ? withMarketingOptOutButton(prepared, language) : prepared;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
+  }
+  const policyMessage = templateComponentsMetaPolicyMessage(components);
+  if (policyMessage) {
+    return NextResponse.json(
+      { error: "template_edge_variable", detail: policyMessage },
+      { status: 400 }
+    );
   }
 
   const wabaId = await resolveMarketingWabaId();
@@ -249,10 +262,18 @@ export async function PUT(req: NextRequest) {
   }
 
   const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
+  const prepared = withNormalizedTemplateComponents(rawComponents);
   const components =
     nextCategory === "MARKETING"
-      ? withMarketingOptOutButton(rawComponents, language || existingLanguage || "he")
-      : rawComponents;
+      ? withMarketingOptOutButton(prepared, language || existingLanguage || "he")
+      : prepared;
+  const policyMessage = templateComponentsMetaPolicyMessage(components);
+  if (policyMessage) {
+    return NextResponse.json(
+      { error: "template_edge_variable", detail: policyMessage },
+      { status: 400 }
+    );
+  }
 
   let updatedMeta: { category?: string; status?: string };
   try {

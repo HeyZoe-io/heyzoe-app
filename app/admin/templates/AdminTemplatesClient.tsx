@@ -5,6 +5,7 @@ import { Loader2, Pencil, RefreshCw } from "lucide-react";
 import {
   bodyTextFromTemplateComponents,
   extractBodyVarCount,
+  normalizeTemplatePlaceholderText,
   isMetaTemplateContentEditable,
   parseDashboardTemplateComponents,
   uniqueTemplateName,
@@ -92,9 +93,9 @@ function buildMetaComponents(input: {
   exampleValues?: string[];
 }): unknown[] {
   const components: Record<string, unknown>[] = [];
-  const header = input.header.trim();
+  const header = normalizeTemplatePlaceholderText(input.header.trim());
   if (header) components.push({ type: "HEADER", format: "TEXT", text: header });
-  const body = input.body.trim();
+  const body = normalizeTemplatePlaceholderText(input.body.trim());
   const varCount = extractBodyVarCount(body);
   const bodyComp: Record<string, unknown> = { type: "BODY", text: body };
   if (varCount > 0) {
@@ -105,10 +106,14 @@ function buildMetaComponents(input: {
     bodyComp.example = { body_text: [examples] };
   }
   components.push(bodyComp);
-  const footer = input.footer.trim();
+  const footer = normalizeTemplatePlaceholderText(input.footer.trim());
   if (footer) components.push({ type: "FOOTER", text: footer });
   const buttons = input.buttons
-    .map((b) => ({ ...b, text: b.text.trim(), url: b.url.trim() }))
+    .map((b) => ({
+      ...b,
+      text: normalizeTemplatePlaceholderText(b.text.trim()),
+      url: normalizeTemplatePlaceholderText(b.url.trim()),
+    }))
     .filter((b) => b.text && (b.kind !== "URL" || b.url.startsWith("https://")));
   if (buttons.length > 0) {
     components.push({

@@ -211,6 +211,126 @@ export function extractBodyVarCount(body: string): number {
   return max;
 }
 
+/** Marks an RTL editor can drop inside `{{1}}`, which makes Meta ignore the placeholder. */
+const TEMPLATE_BIDI_RE = /[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff\u200b-\u200d\u2060]/g;
+
+/**
+ * Strips bidi marks and tightens `{{ 1 }}` to `{{1}}`.
+ * Meta treats a spaced or marked placeholder as a different parameter, then
+ * rejects the positional `example` with subcode 2388043.
+ */
+export function normalizeTemplatePlaceholderText(text: string): string {
+  return String(text ?? "")
+    .replace(TEMPLATE_BIDI_RE, "")
+    .replace(/\{\{\s*(\d+)\s*\}\}/g, (_match, n: string) => `{{${Number(n)}}}`);
+}
+
+/** Distinct positional indexes in ascending order, after placeholder normalization. */
+export function positionalPlaceholderIndexes(text: string): number[] {
+  const found = new Set<number>();
+  for (const m of normalizeTemplatePlaceholderText(text).matchAll(/\{\{(\d+)\}\}/g)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) found.add(n);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
+function placeholdersAreContiguous(indexes: number[]): boolean {
+  return indexes.length > 0 && indexes.every((n, i) => n === i + 1);
+}
+
+/**
+ * Meta 2388043: example length must equal the variables, and indexes must be
+ * {{1}}..{{n}} with no gaps. `{{2}}` alone, or `{{1}}` plus `{{3}}`, fails.
+ */
+export function templateVariableSequenceMessage(
+  text: string,
+  part: "body" | "header" = "body"
+): string | null {
+  const indexes = positionalPlaceholderIndexes(text);
+  if (!indexes.length) return null;
+  if (part === "header" && indexes.length > 1) {
+    return "בכותרת אפשר משתנה אחד בלבד, {{1}}.";
+  }
+  if (placeholdersAreContiguous(indexes)) return null;
+  const where = part === "header" ? "בכותרת" : "בגוף ההודעה";
+  return `המשתנים ${where} צריכים להתחיל ב־{{1}} ולהמשיך ברצף, בלי לדלג על מספר.`;
+}
+
+function namedPlaceholderMessage(text: string, part: "body" | "header"): string | null {
+  const withoutPositional = normalizeTemplatePlaceholderText(text).replace(/\{\{\d+\}\}/g, "");
+  if (!/\{\{[^{}]+\}\}/.test(withoutPositional)) return null;
+  const where = part === "header" ? "בכותרת" : "בגוף ההודעה";
+  return `משתנה ${where} נכתב כ־{{1}} או {{2}}. אי אפשר לכתוב שם בתוך הסוגריים.`;
+}
+
+function fallbackTemplateExample(index: number): string {
+  return index === 0 ? "דנה" : `ערך${index + 1}`;
+}
+
+function paddedTemplateExamples(existing: string[], count: number): string[] {
+  return Array.from({ length: count }, (_, i) => existing[i]?.trim() || fallbackTemplateExample(i));
+}
+
+function headerExampleValues(c: Record<string, unknown>): string[] {
+  const example = c.example;
+  if (!example || typeof example !== "object") return [];
+  const headerText = (example as { header_text?: unknown }).header_text;
+  if (!Array.isArray(headerText)) return [];
+  return headerText.map((v) => String(v ?? ""));
+}
+
+/**
+ * Normalizes placeholder text and rebuilds BODY/HEADER examples so the sample
+ * count matches {{1}}..{{n}}. Drops a positional example when the text has no
+ * positional variables — Meta reports that mismatch as a missing example.
+ */
+export function withNormalizedTemplateComponents(components: unknown[]): unknown[] {
+  if (!Array.isArray(components)) return [];
+  return components.map((raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const c = { ...(raw as Record<string, unknown>) };
+    const type = String(c.type ?? "").toUpperCase();
+    if (
+      (type === "BODY" || type === "HEADER" || type === "FOOTER") &&
+      typeof c.text === "string"
+    ) {
+      c.text = normalizeTemplatePlaceholderText(c.text);
+    }
+    if (type === "HEADER" && typeof c.text === "string") {
+      const format = String(c.format ?? "TEXT").toUpperCase();
+      if (format === "TEXT") {
+        const indexes = positionalPlaceholderIndexes(c.text);
+        if (placeholdersAreContiguous(indexes) && indexes.length === 1) {
+          c.example = { header_text: paddedTemplateExamples(headerExampleValues(c), 1) };
+        } else if (indexes.length === 0) {
+          delete c.example;
+        }
+      }
+    }
+    if (type === "BODY" && typeof c.text === "string") {
+      const indexes = positionalPlaceholderIndexes(c.text);
+      if (placeholdersAreContiguous(indexes)) {
+        c.example = {
+          body_text: [paddedTemplateExamples(exampleValuesFromBodyComponent(c), indexes.length)],
+        };
+      } else if (indexes.length === 0) {
+        delete c.example;
+      }
+    }
+    if (type === "BUTTONS" && Array.isArray(c.buttons)) {
+      c.buttons = c.buttons.map((button) => {
+        if (!button || typeof button !== "object") return button;
+        const b = { ...(button as Record<string, unknown>) };
+        if (typeof b.text === "string") b.text = normalizeTemplatePlaceholderText(b.text);
+        if (typeof b.url === "string") b.url = normalizeTemplatePlaceholderText(b.url);
+        return b;
+      });
+    }
+    return c;
+  });
+}
+
 /**
  * Meta 2388299: a variable at the start, or at the end when only a period follows.
  * A closing character such as ")" before the period is accepted; a bare "{{2}}." is not.
@@ -284,13 +404,18 @@ export function templateTextMetaPolicyMessage(
   text: string,
   part: "body" | "header" = "body"
 ): string | null {
-  const edge = templateTextEdgeVariableMessage(text, part);
+  const normalized = normalizeTemplatePlaceholderText(text);
+  const edge = templateTextEdgeVariableMessage(normalized, part);
   if (edge) return edge;
-  if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(text)) {
+  if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(normalized)) {
     const where = part === "header" ? "בכותרת" : "בגוף ההודעה";
     return `שני משתנים צמודים ${where}. שימו מילה ביניהם.`;
   }
-  if (part === "body") return templateTextVariableDensityMessage(text);
+  const named = namedPlaceholderMessage(normalized, part);
+  if (named) return named;
+  const sequence = templateVariableSequenceMessage(normalized, part);
+  if (sequence) return sequence;
+  if (part === "body") return templateTextVariableDensityMessage(normalized);
   return null;
 }
 
@@ -319,6 +444,12 @@ export function hebrewMetaTemplateApiError(detail: string): string | null {
   }
   if (text.includes("2388293") || /Params Words Ratio/i.test(text)) {
     return "מטא דחתה את הטמפלייט כי יש יותר מדי משתנים ביחס לאורך הטקסט. הוסיפו משפט קבוע בלי משתנה נוסף.";
+  }
+  if (text.includes("2388037")) {
+    return "מטא דחתה את הטמפלייט כי המשתנים חייבים להתחיל ב־{{1}}.";
+  }
+  if (text.includes("2388043") || /missing expected field\(s\) \(example\)/i.test(text)) {
+    return "מטא דחתה את הטמפלייט כי חסרה דוגמה תואמת לכל משתנה. השתמשו ב־{{1}}, {{2}} ברצף, בלי לדלג על מספר.";
   }
   return null;
 }

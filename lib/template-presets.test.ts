@@ -11,6 +11,7 @@ import {
   templateTextEdgeVariableMessage,
   templateTextMetaPolicyMessage,
   uniqueTemplateName,
+  withNormalizedTemplateComponents,
 } from "@/lib/template-presets";
 import {
   MARKETING_CALL_DAY_NO_TIME_FALLBACK_BODY,
@@ -252,6 +253,7 @@ assert.match(
 assert.equal(templateTextEdgeVariableMessage("היי {{1}}, נתראה מחר."), null);
 assert.equal(templateTextEdgeVariableMessage("{{1}} היי"), "גוף ההודעה מתחיל במשתנה. הוסיפו מילה לפניו.");
 assert.match(hebrewMetaTemplateApiError("error_subcode\":2388299") ?? "", /נגמר במשתנה/);
+assert.match(hebrewMetaTemplateApiError("error_subcode\":2388043") ?? "", /דוגמה תואמת/);
 assert.equal(hebrewMetaTemplateApiError("something else"), null);
 
 for (const [key, preset] of Object.entries(TEMPLATE_PRESETS)) {
@@ -276,6 +278,39 @@ assert.match(
 assert.match(
   templateTextMetaPolicyMessage("היי! מגיע {{1}} {{2}} לאימון.") ?? "",
   /צמודים/
+);
+assert.match(
+  templateTextMetaPolicyMessage("היי {{2}}, נשמח לראותך מחר באימון.") ?? "",
+  /ברצף/
+);
+assert.match(
+  templateTextMetaPolicyMessage("היי {{1}}, וגם {{3}} תודה רבה לך היום.") ?? "",
+  /ברצף/
+);
+assert.match(templateTextMetaPolicyMessage("היי {{שם}}, נשמח לראותך מחר.") ?? "", /שם בתוך הסוגריים/);
+assert.equal(templateTextMetaPolicyMessage("היי {{ 1 }}, נשמח לראותך מחר באימון."), null);
+
+const normalized = withNormalizedTemplateComponents([
+  {
+    type: "BODY",
+    text: "היי {{\u200e1\u200e}}, המנוי עד {{ 2 }} כולל חידוש בהחלט.",
+    example: { body_text: [["דנה"]] },
+  },
+]);
+const normalizedBody = normalized[0] as { text: string; example: { body_text: string[][] } };
+assert.equal(normalizedBody.text, "היי {{1}}, המנוי עד {{2}} כולל חידוש בהחלט.");
+assert.deepEqual(normalizedBody.example.body_text, [["דנה", "ערך2"]]);
+
+const trimmed = withNormalizedTemplateComponents([
+  {
+    type: "BODY",
+    text: "היי {{1}}, נשמח לראותך מחר באימון.",
+    example: { body_text: [["דנה", "יוגה"]] },
+  },
+]);
+assert.deepEqual(
+  (trimmed[0] as { example: { body_text: string[][] } }).example.body_text,
+  [["דנה"]]
 );
 
 console.log("template-presets.test.ts: ok");

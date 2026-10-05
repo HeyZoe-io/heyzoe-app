@@ -8,6 +8,7 @@ import {
   isMetaTemplateContentEditable,
   templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
+  withNormalizedTemplateComponents,
 } from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
@@ -151,8 +152,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   const styled = applyStudioPurpleHeartPolicyDeep(rawComponents, {
     slug: String(slug ?? "").trim().toLowerCase(),
   });
+  const prepared = withNormalizedTemplateComponents(styled);
   const components =
-    category === "MARKETING" ? withMarketingOptOutButton(styled, language) : styled;
+    category === "MARKETING" ? withMarketingOptOutButton(prepared, language) : prepared;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -278,6 +280,7 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   const styled = applyStudioPurpleHeartPolicyDeep(rawComponents, {
     slug: String(slug ?? "").trim().toLowerCase(),
   });
+  const prepared = withNormalizedTemplateComponents(styled);
   if (category && category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -324,8 +327,8 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
   const components =
     nextCategory === "MARKETING"
-      ? withMarketingOptOutButton(styled, language || existingLanguage || "he")
-      : styled;
+      ? withMarketingOptOutButton(prepared, language || existingLanguage || "he")
+      : prepared;
   const edgeMessage = templateComponentsMetaPolicyMessage(components);
   if (edgeMessage) {
     return NextResponse.json(
