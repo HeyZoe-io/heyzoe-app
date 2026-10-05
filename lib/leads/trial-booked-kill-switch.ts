@@ -1,10 +1,9 @@
 /**
  * Global stop for the trial_booked step.
- * Default OFF: the step sends nothing for every business, even if a rule
- * or template is turned back on.
- * Stays off until the dedup migration is live and Step 6 verification passes.
+ * ON: the step may send, still subject to the rule activation guard,
+ * claim-then-send, and each business's own enabled rule and template.
  */
-export const TRIAL_BOOKED_SENDS_ENABLED: boolean = false;
+export const TRIAL_BOOKED_SENDS_ENABLED: boolean = true;
 
 export function trialBookedSendsEnabled(): boolean {
   return TRIAL_BOOKED_SENDS_ENABLED;
