@@ -5,6 +5,8 @@ import {
   freezeCreatedReportWindows,
   freezeCreatedShouldNotify,
   freezeCreatedStartInSpan,
+  FREEZE_CREATED_WINDOW_VERSION,
+  planFreezeCreatedWindowPass,
   freezeReportFetchWindow,
   freezeTablesNeedingSoftSeed,
   futureBookingUserIds,
@@ -373,6 +375,43 @@ assert.equal(isHoldEndInFuture("2026-09-05", "2026-09-06"), false);
     }),
     { ok: false, varCount: 2 }
   );
+}
+
+{
+  const preExisting = [
+    { id: 11, priorStatus: null },
+    { id: 12, priorStatus: "sent" },
+  ];
+  assert.deepEqual(
+    planFreezeCreatedWindowPass({
+      freezeSeeded: true,
+      hasWindowMarker: false,
+      holds: preExisting,
+    }),
+    { seedIds: [11], sendIds: [] },
+    "widened window on an already-seeded business does not send"
+  );
+  assert.deepEqual(
+    planFreezeCreatedWindowPass({
+      freezeSeeded: true,
+      hasWindowMarker: true,
+      holds: [
+        { id: 11, priorStatus: "seeded" },
+        { id: 13, priorStatus: null },
+      ],
+    }),
+    { seedIds: [], sendIds: [13] },
+    "a freeze registered after the seed sends once"
+  );
+  assert.deepEqual(
+    planFreezeCreatedWindowPass({
+      freezeSeeded: false,
+      hasWindowMarker: false,
+      holds: preExisting,
+    }),
+    { seedIds: [11], sendIds: [] }
+  );
+  assert.equal(FREEZE_CREATED_WINDOW_VERSION, 2);
 }
 
 console.log("arbox-freeze.test.ts: ok");

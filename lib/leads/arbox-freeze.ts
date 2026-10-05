@@ -181,6 +181,33 @@ export function freezeCreatedStartInSpan(startYmd: string, now: Date): boolean {
 
 const FREEZE_CREATED_TERMINAL = new Set(["seeded", "sent", "abandoned", "no_phone", "skipped"]);
 
+/**
+ * Marker row per rule: membership_hold_id 0, user_id = this version, status seeded.
+ * A widened window on an already-seeded business is missing the marker, so the
+ * first run inserts dedup rows and does not send.
+ */
+export const FREEZE_CREATED_WINDOW_VERSION = 2;
+export const FREEZE_CREATED_WINDOW_MARKER_HOLD_ID = 0;
+
+export function freezeCreatedHasWindowMarker(userId: unknown, status: unknown): boolean {
+  return String(status ?? "") === "seeded" && Number(userId) === FREEZE_CREATED_WINDOW_VERSION;
+}
+
+/** Already-seeded business without the current window marker: seed, do not send. */
+export function planFreezeCreatedWindowPass(input: {
+  freezeSeeded: boolean;
+  hasWindowMarker: boolean;
+  holds: { id: number; priorStatus: string | null }[];
+}): { seedIds: number[]; sendIds: number[] } {
+  const open = input.holds.filter(
+    (hold) => !hold.priorStatus || !FREEZE_CREATED_TERMINAL.has(hold.priorStatus)
+  );
+  if (!input.freezeSeeded || !input.hasWindowMarker) {
+    return { seedIds: open.map((hold) => hold.id), sendIds: [] };
+  }
+  return { seedIds: [], sendIds: open.map((hold) => hold.id) };
+}
+
 /** A logged hold is not sent again. Quiet hours leave it for the 08:00 run. */
 export function freezeCreatedShouldNotify(input: {
   startYmd: string;
@@ -391,6 +418,8 @@ async function upsertCreatedLog(input: {
   attempts: number;
   status: CancellationSyncLogStatus;
   nowIso: string;
+  /** Leave an existing row (a prior send) unchanged. */
+  ignoreExisting?: boolean;
 }): Promise<boolean> {
   const { error } = await input.admin.from("arbox_freeze_created_sync_log").upsert(
     {
@@ -403,7 +432,10 @@ async function upsertCreatedLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,trigger_id,membership_hold_id" }
+    {
+      onConflict: "business_id,trigger_id,membership_hold_id",
+      ignoreDuplicates: input.ignoreExisting === true,
+    }
   );
   if (error) {
     console.error("[leads/arbox-freeze] created sync_log upsert failed:", error.message);
@@ -788,6 +820,38 @@ export async function syncArboxFreezeForBusiness(input: {
   const seedCreated = needsFullSeed || softSeedCreated;
   const seedEnding = needsFullSeed || softSeedEnding;
 
+  const missingWindowMarker = new Set<string>();
+  if (part === "created" && input.freezeSeeded && createdSendRules.length) {
+    const { data: markerRows, error: markerErr } = await input.admin
+      .from("arbox_freeze_created_sync_log")
+      .select("trigger_id, user_id, status")
+      .eq("business_id", businessId)
+      .eq("membership_hold_id", FREEZE_CREATED_WINDOW_MARKER_HOLD_ID)
+      .in(
+        "trigger_id",
+        createdSendRules.map((rule) => rule.id)
+      );
+    if (markerErr) {
+      console.error("[leads/arbox-freeze] window marker lookup failed:", markerErr.message);
+      for (const rule of createdSendRules) missingWindowMarker.add(rule.id);
+    } else {
+      const marked = new Set(
+        (markerRows ?? [])
+          .filter((row) =>
+            freezeCreatedHasWindowMarker(
+              (row as { user_id?: unknown }).user_id,
+              (row as { status?: unknown }).status
+            )
+          )
+          .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      for (const rule of createdSendRules) {
+        if (!marked.has(rule.id)) missingWindowMarker.add(rule.id);
+      }
+    }
+  }
+  const createdRulesToSend = createdSendRules.filter((rule) => !missingWindowMarker.has(rule.id));
+
   for (const row of holdRows) {
     const holdId = parseHoldId(row.membership_hold_id);
     if (holdId == null) {
@@ -799,6 +863,27 @@ export async function syncArboxFreezeForBusiness(input: {
     const endYmd = parseClassDateYmd(row.end_suspend_time);
 
     // ——— A8 created ———
+    if (missingWindowMarker.size && !seedCreated) {
+      let ok = true;
+      for (const rule of createdSendRules) {
+        if (!missingWindowMarker.has(rule.id)) continue;
+        const up = await upsertCreatedLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          holdId,
+          userId,
+          contactId: null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+          ignoreExisting: true,
+        });
+        if (!up) ok = false;
+      }
+      if (ok) summary.soft_seeded += 1;
+      else summary.errors += 1;
+    }
     if (createdSendRules.length && seedCreated) {
       let ok = true;
       for (const rule of createdSendRules) {
@@ -819,7 +904,7 @@ export async function syncArboxFreezeForBusiness(input: {
         if (needsFullSeed) summary.created_seeded += 1;
         else summary.soft_seeded += 1;
       } else summary.errors += 1;
-    } else if (createdSendRules.length && !seedCreated) {
+    } else if (createdRulesToSend.length && !seedCreated) {
       try {
         const { data: existingRows } = await input.admin
           .from("arbox_freeze_created_sync_log")
@@ -828,7 +913,7 @@ export async function syncArboxFreezeForBusiness(input: {
           .eq("membership_hold_id", holdId)
           .in(
             "trigger_id",
-            createdSendRules.map((item) => item.id)
+            createdRulesToSend.map((item) => item.id)
           );
         const terminalIds = new Set(
           (existingRows ?? [])
@@ -838,7 +923,7 @@ export async function syncArboxFreezeForBusiness(input: {
             })
             .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
         );
-        const pendingRules = createdSendRules.filter((item) => item.id && !terminalIds.has(item.id));
+        const pendingRules = createdRulesToSend.filter((item) => item.id && !terminalIds.has(item.id));
         if (!pendingRules.length) {
           summary.already += 1;
         } else {
@@ -1101,6 +1186,32 @@ export async function syncArboxFreezeForBusiness(input: {
         businessId,
         hold_id: holdId,
         error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  if (part === "created" && createdSendRules.length && (needsFullSeed || missingWindowMarker.size > 0)) {
+    for (const rule of createdSendRules) {
+      if (!needsFullSeed && !missingWindowMarker.has(rule.id)) continue;
+      const marked = await upsertCreatedLog({
+        admin: input.admin,
+        businessId,
+        triggerId: rule.id,
+        holdId: FREEZE_CREATED_WINDOW_MARKER_HOLD_ID,
+        userId: FREEZE_CREATED_WINDOW_VERSION,
+        contactId: null,
+        attempts: 0,
+        status: "seeded",
+        nowIso,
+      });
+      if (!marked) summary.errors += 1;
+    }
+    if (missingWindowMarker.size > 0 && !needsFullSeed) {
+      console.info("[leads/arbox-freeze] widened window seeded without sending", {
+        businessId,
+        businessSlug,
+        rules: missingWindowMarker.size,
+        holds: holdRows.length,
       });
     }
   }
