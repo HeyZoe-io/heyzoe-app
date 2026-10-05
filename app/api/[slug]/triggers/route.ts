@@ -7,7 +7,6 @@ import {
   canonicalizeTriggerType,
   forcesDelayAfter,
   forcesDelayBefore,
-  INCOMING_LEAD_TRIGGER_TYPES_RESOLVE,
   isArboxDependentTriggerType,
   isImmediateDelayTrigger,
   isIncomingLeadTriggerType,
@@ -208,121 +207,6 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
   };
 }
 
-/** At most one incoming_lead (incl. legacy site_lead/campaign_lead) row per business. */
-async function findExistingIncomingLeadRule(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  excludeId?: string
-): Promise<{ id: string } | null> {
-  let q = admin
-    .from("template_triggers")
-    .select("id")
-    .eq("business_id", businessId)
-    .in("trigger_type", [...INCOMING_LEAD_TRIGGER_TYPES_RESOLVE])
-    .limit(1);
-  const exclude = parseTriggerId(excludeId);
-  if (exclude) {
-    q = q.neq("id", exclude);
-  }
-  const { data, error } = await q;
-  if (error) {
-    console.error("[api/triggers] incoming_lead uniqueness lookup failed:", error.message);
-    throw new Error("incoming_lead_lookup_failed");
-  }
-  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  const id = parseTriggerId(row?.id);
-  if (!id) return null;
-  return { id };
-}
-
-async function findExistingArboxNewLeadRule(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  excludeId?: string
-): Promise<{ id: string } | null> {
-  let q = admin
-    .from("template_triggers")
-    .select("id")
-    .eq("business_id", businessId)
-    .eq("trigger_type", "arbox_new_lead")
-    .limit(1);
-  const exclude = parseTriggerId(excludeId);
-  if (exclude) {
-    q = q.neq("id", exclude);
-  }
-  const { data, error } = await q;
-  if (error) {
-    console.error("[api/triggers] arbox_new_lead uniqueness lookup failed:", error.message);
-    throw new Error("arbox_new_lead_lookup_failed");
-  }
-  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  const id = parseTriggerId(row?.id);
-  if (!id) return null;
-  return { id };
-}
-
-async function findExistingTriggerOfType(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  triggerType: string,
-  excludeId?: string
-): Promise<{ id: string } | null> {
-  let q = admin
-    .from("template_triggers")
-    .select("id")
-    .eq("business_id", businessId)
-    .eq("trigger_type", triggerType)
-    .limit(1);
-  const exclude = parseTriggerId(excludeId);
-  if (exclude) {
-    q = q.neq("id", exclude);
-  }
-  const { data, error } = await q;
-  if (error) {
-    console.error(`[api/triggers] ${triggerType} uniqueness lookup failed:`, error.message);
-    throw new Error(`${triggerType}_lookup_failed`);
-  }
-  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  const id = parseTriggerId(row?.id);
-  if (!id) return null;
-  return { id };
-}
-
-const UNIQUE_TRIGGER_EXISTS_MESSAGE: Record<string, { error: string; message: string }> = {
-  trial_reminder: {
-    error: "trial_reminder_exists",
-    message: "כבר קיים טריגר תזכורת לשיעור ניסיון",
-  },
-  trainer_trial_heads_up: {
-    error: "trainer_trial_heads_up_exists",
-    message: "כבר קיים טריגר התראה למאמן על שיעור ניסיון",
-  },
-  class_cancelled_staff: {
-    error: "class_cancelled_staff_exists",
-    message: "כבר קיים טריגר ביטול שיעור למאמן",
-  },
-  class_cancelled_customer: {
-    error: "class_cancelled_customer_exists",
-    message: "כבר קיים טריגר שיעור בוטל לנרשמים",
-  },
-  first_paid_purchase: {
-    error: "first_paid_purchase_exists",
-    message: "כבר קיים טריגר הצטרפות ראשונה",
-  },
-  trial_booked: {
-    error: "trial_booked_exists",
-    message: "כבר קיים טריגר נרשם לאימון ניסיון",
-  },
-};
-
-async function findExistingTrialReminderRule(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number,
-  excludeId?: string
-): Promise<{ id: string } | null> {
-  return findExistingTriggerOfType(admin, businessId, "trial_reminder", excludeId);
-}
-
 const TRIGGER_SELECT =
   "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at";
 
@@ -377,63 +261,6 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const hasArbox = await loadBusinessHasArbox(admin, business.id);
     if (!hasArbox) {
       return NextResponse.json({ error: "arbox_not_connected" }, { status: 400 });
-    }
-  }
-
-  if (isIncomingLeadTriggerType(triggerType)) {
-    try {
-      const existing = await findExistingIncomingLeadRule(admin, business.id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "incoming_lead_exists", message: "כבר קיים טריגר ליד" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
-    }
-  }
-
-  if (triggerType === "arbox_new_lead") {
-    try {
-      const existing = await findExistingArboxNewLeadRule(admin, business.id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "arbox_new_lead_exists", message: "כבר קיים טריגר ליד חדש מארבוקס" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
-    }
-  }
-
-  if (triggerType === "trial_reminder") {
-    try {
-      const existing = await findExistingTrialReminderRule(admin, business.id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "trial_reminder_exists", message: "כבר קיים טריגר תזכורת לשיעור ניסיון" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "trial_reminder_lookup_failed" }, { status: 500 });
-    }
-  }
-
-  const uniqueExists = UNIQUE_TRIGGER_EXISTS_MESSAGE[triggerType];
-  if (uniqueExists && triggerType !== "trial_reminder") {
-    try {
-      const existing = await findExistingTriggerOfType(admin, business.id, triggerType);
-      if (existing) {
-        return NextResponse.json(
-          { error: uniqueExists.error, message: uniqueExists.message },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: `${triggerType}_lookup_failed` }, { status: 500 });
     }
   }
 
@@ -710,72 +537,6 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });
-  }
-
-  // Changing type → incoming_lead / arbox_new_lead: still only one row allowed per business.
-  if (patch.trigger_type != null && isIncomingLeadTriggerType(String(patch.trigger_type))) {
-    try {
-      const existing = await findExistingIncomingLeadRule(admin, business.id, id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "incoming_lead_exists", message: "כבר קיים טריגר ליד" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "incoming_lead_lookup_failed" }, { status: 500 });
-    }
-  }
-  if (patch.trigger_type === "arbox_new_lead") {
-    try {
-      const existing = await findExistingArboxNewLeadRule(admin, business.id, id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "arbox_new_lead_exists", message: "כבר קיים טריגר ליד חדש מארבוקס" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "arbox_new_lead_lookup_failed" }, { status: 500 });
-    }
-  }
-
-  if (patch.trigger_type === "trial_reminder") {
-    try {
-      const existing = await findExistingTrialReminderRule(admin, business.id, id);
-      if (existing) {
-        return NextResponse.json(
-          { error: "trial_reminder_exists", message: "כבר קיים טריגר תזכורת לשיעור ניסיון" },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json({ error: "trial_reminder_lookup_failed" }, { status: 500 });
-    }
-  }
-
-  const patchUnique =
-    patch.trigger_type != null ? UNIQUE_TRIGGER_EXISTS_MESSAGE[String(patch.trigger_type)] : undefined;
-  if (patchUnique && patch.trigger_type !== "trial_reminder") {
-    try {
-      const existing = await findExistingTriggerOfType(
-        admin,
-        business.id,
-        String(patch.trigger_type),
-        id
-      );
-      if (existing) {
-        return NextResponse.json(
-          { error: patchUnique.error, message: patchUnique.message },
-          { status: 409 }
-        );
-      }
-    } catch {
-      return NextResponse.json(
-        { error: `${String(patch.trigger_type)}_lookup_failed` },
-        { status: 500 }
-      );
-    }
   }
 
   // Enforce no_response min delay against the effective type after patch.

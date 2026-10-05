@@ -355,6 +355,7 @@ async function resolveOrCreateContact(input: {
 async function upsertFollowupSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   userId: number;
   classDateYmd: string;
   outcome: PostTrialOutcome;
@@ -366,6 +367,7 @@ async function upsertFollowupSyncLog(input: {
   const { error } = await input.admin.from("arbox_post_trial_followup_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       user_id: input.userId,
       class_date: input.classDateYmd,
       outcome: input.outcome,
@@ -374,7 +376,7 @@ async function upsertFollowupSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,user_id,class_date" }
+    { onConflict: "business_id,trigger_id,user_id,class_date" }
   );
   if (error) {
     console.error("[leads/arbox-post-trial-followup] sync_log upsert failed:", error.message);
@@ -401,12 +403,6 @@ export function combinePostTrialTemplateDispatches(
 export function effectivePostTrialDelayDays(triggerType: string, delayDays: number): number {
   const min = Math.max(0, minDelayDaysForTrigger(triggerType));
   return Math.max(min, Math.trunc(Number(delayDays) || 0));
-}
-
-function followupDecisionDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
-  const first = rules[0];
-  if (!first) return 0;
-  return effectivePostTrialDelayDays(first.trigger_type, first.delay_days);
 }
 
 function followupLookbackDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
@@ -842,17 +838,14 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     if (!enabledOutcomes.includes(outcome)) continue;
 
     const rules = outcome === "registered" ? registeredRules : notRegisteredRules;
-    if (!rules.length) continue;
-    const delayDays = followupDecisionDelayDays(rules);
-    if (
-      !isPostTrialDecisionDue({
+    const dueRules = rules.filter((rule) =>
+      isPostTrialDecisionDue({
         classDateYmd: att.classDateYmd,
-        delayDays,
+        delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
         todayYmd,
       })
-    ) {
-      continue;
-    }
+    );
+    if (!dueRules.length) continue;
     summary.due += 1;
 
     if (seedThisRun && softSeedOutcomes.includes(outcome)) {
@@ -862,18 +855,23 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         row: att.sampleRow,
         source: "arbox_post_trial_followup_seed",
       });
-      const up = await upsertFollowupSyncLog({
-        admin: input.admin,
-        businessId,
-        userId: att.userId,
-        classDateYmd: att.classDateYmd,
-        outcome,
-        contactId: resolved.contact?.id ?? null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
-      if (up.ok) {
+      let upOk = true;
+      for (const rule of dueRules) {
+        const up = await upsertFollowupSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          userId: att.userId,
+          classDateYmd: att.classDateYmd,
+          outcome,
+          contactId: resolved.contact?.id ?? null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up.ok) upOk = false;
+      }
+      if (upOk) {
         if (needsSeed) summary.seeded += 1;
         else summary.soft_seeded += 1;
       } else summary.errors += 1;
@@ -884,23 +882,6 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     if (softSeedOutcomes.includes(outcome)) continue;
 
     try {
-      const { data: existing } = await input.admin
-        .from("arbox_post_trial_followup_sync_log")
-        .select("status, attempts, outcome")
-        .eq("business_id", businessId)
-        .eq("user_id", att.userId)
-        .eq("class_date", att.classDateYmd)
-        .maybeSingle();
-
-      const status = String((existing as { status?: unknown } | null)?.status ?? "");
-      if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
-        summary.already += 1;
-        continue;
-      }
-      const attemptsSoFar = parseCancellationSyncAttempts(
-        (existing as { attempts?: unknown } | null)?.attempts
-      );
-
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
         businessId,
@@ -909,17 +890,20 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       });
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        await upsertFollowupSyncLog({
-          admin: input.admin,
-          businessId,
-          userId: att.userId,
-          classDateYmd: att.classDateYmd,
-          outcome,
-          contactId: resolved.contact?.id ?? null,
-          attempts: attemptsSoFar,
-          status: "no_phone",
-          nowIso,
-        });
+        for (const rule of dueRules) {
+          await upsertFollowupSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            outcome,
+            contactId: resolved.contact?.id ?? null,
+            attempts: 0,
+            status: "no_phone",
+            nowIso,
+          });
+        }
         continue;
       }
 
@@ -941,17 +925,20 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
             keys: activeKeys,
           })
         ) {
-          await upsertFollowupSyncLog({
-            admin: input.admin,
-            businessId,
-            userId: att.userId,
-            classDateYmd: att.classDateYmd,
-            outcome,
-            contactId: resolved.contact.id,
-            attempts: attemptsSoFar,
-            status: "seeded",
-            nowIso,
-          });
+          for (const rule of dueRules) {
+            await upsertFollowupSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId: att.userId,
+              classDateYmd: att.classDateYmd,
+              outcome,
+              contactId: resolved.contact.id,
+              attempts: 0,
+              status: "seeded",
+              nowIso,
+            });
+          }
           console.info("[leads/arbox-post-trial-followup] dispatch", {
             businessId,
             outcome,
@@ -964,8 +951,22 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
 
       const dispatches: PostTrialTemplateDispatch[] = [];
       let sentImmediateThisRun = false;
-      const trackEachTemplate = rules.length > 1;
-      for (const rule of rules) {
+      const trackEachTemplate = dueRules.length > 1;
+      for (const rule of dueRules) {
+        const { data: existing } = await input.admin
+          .from("arbox_post_trial_followup_sync_log")
+          .select("status, attempts")
+          .eq("business_id", businessId)
+          .eq("trigger_id", rule.id)
+          .eq("user_id", att.userId)
+          .eq("class_date", att.classDateYmd)
+          .maybeSingle();
+        const status = String((existing as { status?: unknown } | null)?.status ?? "");
+        if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+          summary.already += 1;
+          dispatches.push("immediate");
+          continue;
+        }
         const templateName = rule.template_name?.trim() || "";
         const alreadyDelivered =
           trackEachTemplate &&
@@ -1033,50 +1034,53 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
             nowIso,
           });
           sentImmediateThisRun = true;
-          continue;
+        }
+
+        const mapped =
+          send.dispatch === "immediate"
+            ? ("immediate" as const)
+            : send.dispatch === "deferred"
+              ? ("deferred" as const)
+              : send.dispatch === "gated"
+                ? ("gated" as const)
+                : send.dispatch === "skipped"
+                  ? ("skipped" as const)
+                  : send.dispatch === "send_failed"
+                    ? ("send_failed" as const)
+                    : ("gated" as const);
+        const attemptsSoFar = parseCancellationSyncAttempts(
+          (existing as { attempts?: unknown } | null)?.attempts
+        );
+        const next = nextCancellationSyncLogAfterDispatch({
+          dispatch: mapped,
+          attemptsSoFar,
+        });
+        await upsertFollowupSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          userId: att.userId,
+          classDateYmd: att.classDateYmd,
+          outcome,
+          contactId: resolved.contact.id,
+          attempts: next.attempts,
+          status: next.status,
+          nowIso,
+        });
+        if (send.dispatch === "send_failed") {
+          if (next.hitCap) summary.abandoned += 1;
+          else summary.errors += 1;
         }
 
         if (send.dispatch === "send_failed" || send.dispatch === "gated") break;
       }
 
       const sendDispatch = combinePostTrialTemplateDispatches(dispatches);
-      const mapped =
-        sendDispatch === "immediate"
-          ? ("immediate" as const)
-          : sendDispatch === "deferred"
-            ? ("deferred" as const)
-            : sendDispatch === "gated"
-              ? ("gated" as const)
-              : sendDispatch === "skipped"
-                ? ("skipped" as const)
-                : sendDispatch === "send_failed"
-                ? ("send_failed" as const)
-                : ("gated" as const);
-
-      const next = nextCancellationSyncLogAfterDispatch({
-        dispatch: mapped,
-        attemptsSoFar,
-      });
-      await upsertFollowupSyncLog({
-        admin: input.admin,
-        businessId,
-        userId: att.userId,
-        classDateYmd: att.classDateYmd,
-        outcome,
-        contactId: resolved.contact.id,
-        attempts: next.attempts,
-        status: next.status,
-        nowIso,
-      });
 
       summary.processed += 1;
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") {
-        if (next.hitCap) summary.abandoned += 1;
-        else summary.errors += 1;
-      }
 
       console.info("[leads/arbox-post-trial-followup] dispatch", {
         businessId,
@@ -1086,7 +1090,6 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         contact: maskPhoneForLog(resolved.phone),
         dispatch: sendDispatch,
         templates: dispatches.length,
-        status: next.status,
       });
     } catch (e) {
       summary.errors += 1;
@@ -1111,6 +1114,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       const sentinel = await upsertFollowupSyncLog({
         admin: input.admin,
         businessId,
+        triggerId: "00000000-0000-0000-0000-000000000000",
         userId: 0,
         classDateYmd: outcome === "registered" ? "1970-01-01" : "1970-01-02",
         outcome,

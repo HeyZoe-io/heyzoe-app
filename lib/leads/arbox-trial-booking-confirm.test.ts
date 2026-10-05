@@ -35,7 +35,7 @@ assert.deepEqual(
     templateNameConfigured: true,
     templateApproved: true,
   }),
-  "skip"
+  "send"
 );
 assert.deepEqual(
   trialBookingTemplateFollowUp({
@@ -70,6 +70,26 @@ assert.deepEqual(
     freeBlocked: true,
     templateNameConfigured: true,
     templateApproved: true,
+  }),
+  "skip"
+);
+assert.equal(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "sent",
+    freeBlocked: false,
+    templateNameConfigured: true,
+    templateApproved: true,
+    templateBesidesFreeMessage: true,
+  }),
+  "send"
+);
+assert.equal(
+  trialBookingTemplateFollowUp({
+    confirmStatus: "sent",
+    freeBlocked: true,
+    templateNameConfigured: true,
+    templateApproved: true,
+    templateBesidesFreeMessage: true,
   }),
   "skip"
 );

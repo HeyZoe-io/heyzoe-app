@@ -64,8 +64,7 @@ const rule = (
     rule("1", "attendance_gap1_v2", "2026-10-01T00:00:02.000Z"),
     rule("0", "attendance_gap_v2", "2026-10-01T00:00:01.000Z"),
   ];
-  assert.equal(rulesForCompanionSend(gap).length, 1);
-  assert.equal(rulesForCompanionSend(gap)[0]?.template_name, "attendance_gap2_v2");
+  assert.equal(rulesForCompanionSend(gap).length, 3);
   assert.deepEqual(
     orderAllRulesWithCompanion(gap).map((item) => item.template_name),
     ["attendance_gap_v2", "attendance_gap1_v2", "attendance_gap2_v2"]
@@ -80,8 +79,8 @@ const rule = (
     rule("new", "other_template", "2026-02-01T00:00:00.000Z"),
   ]);
   assert.deepEqual(
-    sent.map((item) => item.template_name),
-    ["other_template"]
+    sent.map((item) => item.template_name).sort(),
+    ["credit_refusal", "other_template"]
   );
 }
 

@@ -25,7 +25,6 @@ import {
 } from "@/lib/leads/arbox-attendance-gap";
 import {
   nextCancellationSyncLogAfterDispatch,
-  parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
@@ -272,6 +271,7 @@ async function resolveOrCreateContact(input: {
 async function upsertTrialReminderSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   userId: number;
   classDateYmd: string;
   classTime: string;
@@ -284,6 +284,7 @@ async function upsertTrialReminderSyncLog(input: {
   const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       user_id: input.userId,
       class_date: input.classDateYmd,
       class_time: input.classTime,
@@ -293,7 +294,7 @@ async function upsertTrialReminderSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,user_id,class_date,class_time,class_name" }
+    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
   );
   if (error) {
     console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", error.message);
@@ -513,8 +514,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
 
   const sendRules = rulesForCompanionSend(rulesWithTemplate);
-  const rule = sendRules[0] ?? null;
-  if (!rule?.template_name?.trim()) {
+  if (!sendRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
@@ -530,7 +530,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
     businessTrialIds = (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
       ?.arbox_trial_membership_type_ids;
   }
-  const productFilterIds = parseIdList(rule.product_filter);
+  const trialFilters = sendRules.map((item) => parseIdList(item.product_filter));
+  const anyTrialCatchAll = trialFilters.some((ids) => ids.length === 0);
+  const productFilterIds = anyTrialCatchAll ? [] : [...new Set(trialFilters.flat())];
   const businessIds = parseIdList(businessTrialIds);
 
   let trialTypeIds: number[];
@@ -599,7 +601,6 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
-  const delayDays = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
 
   const needsFullSeed = !input.trialReminderSeeded;
   let needsSoftSeed = false;
@@ -628,18 +629,23 @@ export async function syncArboxTrialReminderForBusiness(input: {
       if (userId == null || !classDateYmd || !classTime || !className) continue;
       if (!bookingMatchesTrialScope(row, trialScope)) continue;
       summary.trial_rows += 1;
-      const ok = await upsertTrialReminderSyncLog({
-        admin: input.admin,
-        businessId,
-        userId,
-        classDateYmd,
-        classTime,
-        className,
-        contactId: null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
+      let ok = true;
+      for (const rule of sendRules) {
+        const up = await upsertTrialReminderSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          userId,
+          classDateYmd,
+          classTime,
+          className,
+          contactId: null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up.ok) ok = false;
+      }
       if (ok) {
         wrote += 1;
         if (needsFullSeed) summary.seeded += 1;
@@ -651,6 +657,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
       const sentinel = await upsertTrialReminderSyncLog({
         admin: input.admin,
         businessId,
+        triggerId: "00000000-0000-0000-0000-000000000000",
         userId: TRIAL_REMINDER_SOFT_SEED_SENTINEL_USER_ID,
         classDateYmd: TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_DATE,
         classTime: TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_TIME,
@@ -704,34 +711,60 @@ export async function syncArboxTrialReminderForBusiness(input: {
     if (!bookingMatchesTrialScope(row, trialScope)) continue;
     summary.trial_rows += 1;
 
-    if (!isTrialReminderDue({ classDateYmd, todayYmd, delayDays })) continue;
+    const dueRules = sendRules.filter((item) => {
+      const ids = parseIdList(item.product_filter);
+      if (ids.length) {
+        const names = new Set<string>();
+        for (const id of ids) {
+          const name = nameById.get(id);
+          if (name) names.add(normalizeMembershipTypeName(name));
+        }
+        if (
+          !bookingMatchesTrialScope(row, {
+            trialTypeIds: ids,
+            trialTypeNamesNormalized: names,
+          })
+        ) {
+          return false;
+        }
+      }
+      return isTrialReminderDue({
+        classDateYmd,
+        todayYmd,
+        delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+      });
+    });
+    if (!dueRules.length) continue;
     summary.due += 1;
     summary.processed += 1;
 
     try {
-      const { data: existing } = await input.admin
+      const { data: existingRows } = await input.admin
         .from("arbox_trial_reminder_sync_log")
-        .select("status, attempts, contact_id")
+        .select("trigger_id, status, attempts")
         .eq("business_id", businessId)
+        .in(
+          "trigger_id",
+          dueRules.map((item) => item.id)
+        )
         .eq("user_id", userId)
         .eq("class_date", classDateYmd)
         .eq("class_time", classTime)
-        .eq("class_name", className)
-        .maybeSingle();
-
-      const existingStatus = String((existing as { status?: unknown } | null)?.status ?? "").trim();
-      const existingAttempts = parseCancellationSyncAttempts(
-        (existing as { attempts?: unknown } | null)?.attempts
+        .eq("class_name", className);
+      const terminalIds = new Set(
+        (existingRows ?? [])
+          .filter((row) => {
+            const status = String((row as { status?: unknown }).status ?? "");
+            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+          })
+          .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );
-      if (
-        existingStatus === "seeded" ||
-        existingStatus === "sent" ||
-        existingStatus === "abandoned" ||
-        existingStatus === "no_phone"
-      ) {
+      const pendingRules = dueRules.filter((item) => item.id && !terminalIds.has(item.id));
+      if (!pendingRules.length) {
         summary.already += 1;
         continue;
       }
+      const existingAttempts = 0;
 
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
@@ -746,25 +779,28 @@ export async function syncArboxTrialReminderForBusiness(input: {
           user_id: userId,
           class_date: classDateYmd,
         });
-        await upsertTrialReminderSyncLog({
-          admin: input.admin,
-          businessId,
-          userId,
-          classDateYmd,
-          classTime,
-          className,
-          contactId: resolved.contact?.id ?? null,
-          attempts: existingAttempts,
-          status: "no_phone",
-          nowIso,
-        });
+        for (const rule of pendingRules) {
+          await upsertTrialReminderSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact?.id ?? null,
+            attempts: existingAttempts,
+            status: "no_phone",
+            nowIso,
+          });
+        }
         continue;
       }
 
       const sendPhone = resolved.phone;
       if (!sendPhone) continue;
       const sendDispatch = await runCompanionTemplateSends({
-        rules: sendRules,
+        rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
         send: async (item, ctx) => {
           const send = await dispatchTrialReminderTemplate({
@@ -836,19 +872,22 @@ export async function syncArboxTrialReminderForBusiness(input: {
           attemptsSoFar: existingAttempts,
         });
         if (next.hitCap) summary.abandoned += 1;
-        const marked = await upsertTrialReminderSyncLog({
-          admin: input.admin,
-          businessId,
-          userId,
-          classDateYmd,
-          classTime,
-          className,
-          contactId: resolved.contact?.id ?? null,
-          attempts: next.attempts,
-          status: next.status,
-          nowIso,
-        });
-        if (!marked.ok) summary.errors += 1;
+        for (const rule of pendingRules) {
+          const marked = await upsertTrialReminderSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact?.id ?? null,
+            attempts: next.attempts,
+            status: next.status,
+            nowIso,
+          });
+          if (!marked.ok) summary.errors += 1;
+        }
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;
         else if (send.dispatch === "gated") summary.gated += 1;

@@ -32,6 +32,7 @@ import {
   bodyTextFromTemplateComponents,
   extractBodyVarCount,
 } from "@/lib/template-presets";
+import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -758,14 +759,13 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     return summary;
   }
 
-  const { data: ruleRow, error: ruleErr } = await input.admin
+  const { data: ruleRows, error: ruleErr } = await input.admin
     .from("template_triggers")
     .select("id, template_name, enabled, created_at")
     .eq("business_id", businessId)
     .eq("trigger_type", "class_cancelled_customer")
     .eq("enabled", true)
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
   if (ruleErr) {
     console.error("[leads/arbox-class-cancelled-customer] rule lookup failed", {
       businessId,
@@ -775,18 +775,26 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     summary.fetch_error = ruleErr.message;
     return summary;
   }
-  const rule = ruleRow as {
-    id?: string;
-    template_name?: string | null;
-    created_at?: string;
-  } | null;
-  if (!rule?.id) {
+  const rules = rulesForCompanionSend(
+    ((ruleRows ?? []) as Array<{ id?: string; template_name?: string | null; created_at?: string }>).flatMap(
+      (row) => {
+        const id = String(row.id ?? "").trim();
+        const templateName = String(row.template_name ?? "").trim();
+        if (!id || !templateName) return [];
+        return [{ id, template_name: templateName, created_at: row.created_at }];
+      }
+    )
+  );
+  if (!rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
   }
 
-  const ruleCreatedAt = new Date(String(rule.created_at ?? ""));
+  const createdMs = rules
+    .map((rule) => new Date(String(rule.created_at ?? "")).getTime())
+    .filter((ms) => Number.isFinite(ms));
+  const ruleCreatedAt = new Date(createdMs.length ? Math.min(...createdMs) : Number.NaN);
   const window = classCancelSnapshotWindow(now);
   summary.window = window;
   const todayYmd = window.fromDate;
@@ -1022,7 +1030,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     await sendPending({
       admin: input.admin,
       businessId,
-      templateName: String(rule.template_name ?? "").trim(),
+      rules,
       rows: rows.filter((r) => r.notify_status === "pending"),
       now,
       summary,
@@ -1060,121 +1068,238 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
   return summary;
 }
 
+const CLASS_CANCEL_NOTIFY_LOG = "arbox_class_cancelled_customer_notify_log";
+
+type ClassCancelRule = { id: string; template_name: string; created_at?: string };
+
+async function loggedCancelTriggerIds(
+  admin: Db,
+  businessId: number,
+  row: SnapshotDbRow
+): Promise<Set<string> | null> {
+  const { data, error } = await admin
+    .from(CLASS_CANCEL_NOTIFY_LOG)
+    .select("trigger_id")
+    .eq("business_id", businessId)
+    .eq("schedule_id", row.schedule_id)
+    .eq("user_id", row.user_id);
+  if (error) {
+    console.error("[leads/arbox-class-cancelled-customer] notify log lookup failed", {
+      businessId,
+      schedule_id: row.schedule_id,
+      error: error.message,
+    });
+    return null;
+  }
+  return new Set(
+    (data ?? [])
+      .map((item) => String((item as { trigger_id?: unknown }).trigger_id ?? "").trim())
+      .filter(Boolean)
+  );
+}
+
+async function recordCancelNotify(input: {
+  admin: Db;
+  businessId: number;
+  ruleId: string;
+  row: SnapshotDbRow;
+  status: string;
+  now: Date;
+}): Promise<boolean> {
+  const { error } = await input.admin.from(CLASS_CANCEL_NOTIFY_LOG).upsert(
+    {
+      business_id: input.businessId,
+      trigger_id: input.ruleId,
+      schedule_id: input.row.schedule_id,
+      user_id: input.row.user_id,
+      status: input.status,
+      processed_at: input.now.toISOString(),
+    },
+    { onConflict: "business_id,trigger_id,schedule_id,user_id" }
+  );
+  if (error) {
+    console.error("[leads/arbox-class-cancelled-customer] notify log upsert failed", {
+      businessId: input.businessId,
+      schedule_id: input.row.schedule_id,
+      trigger_id: input.ruleId,
+      error: error.message,
+    });
+    return false;
+  }
+  return true;
+}
+
 async function sendPending(input: {
   admin: Db;
   businessId: number;
-  templateName: string;
+  rules: ClassCancelRule[];
   rows: SnapshotDbRow[];
   now: Date;
   summary: ClassCancelSyncSummary;
 }): Promise<void> {
-  if (!input.rows.length) return;
-  const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    input.admin.from("businesses").select("waba_id").eq("id", input.businessId).maybeSingle(),
-    input.templateName
-      ? input.admin
-          .from("whatsapp_templates")
-          .select("id, language, components")
-          .eq("business_id", input.businessId)
-          .eq("name", input.templateName)
-          .eq("status", "APPROVED")
-          .eq("disabled", false)
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
+  if (!input.rows.length || !input.rules.length) return;
+  const { data: bizRow } = await input.admin
+    .from("businesses")
+    .select("waba_id")
+    .eq("id", input.businessId)
+    .maybeSingle();
   const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
     .trim()
     .replace(/\s+/g, "");
-  const language =
-    String((approvedTpl as { language?: string } | null)?.language ?? "he").trim() || "he";
-  const components = (approvedTpl as { components?: unknown } | null)?.components;
+  const templates = new Map<string, { language: string; components: unknown; approved: boolean }>();
+  for (const rule of input.rules) {
+    const { data: approvedTpl } = await input.admin
+      .from("whatsapp_templates")
+      .select("id, language, components")
+      .eq("business_id", input.businessId)
+      .eq("name", rule.template_name)
+      .eq("status", "APPROVED")
+      .eq("disabled", false)
+      .limit(1)
+      .maybeSingle();
+    templates.set(rule.id, {
+      language: String((approvedTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
+      components: (approvedTpl as { components?: unknown } | null)?.components,
+      approved: Boolean((approvedTpl as { id?: unknown } | null)?.id),
+    });
+  }
 
   for (const row of input.rows) {
+    const logged = await loggedCancelTriggerIds(input.admin, input.businessId, row);
+    if (!logged) continue;
+    const closeAll = async (status: string) => {
+      for (const rule of input.rules) {
+        if (logged.has(rule.id)) continue;
+        const ok = await recordCancelNotify({
+          admin: input.admin,
+          businessId: input.businessId,
+          ruleId: rule.id,
+          row,
+          status,
+          now: input.now,
+        });
+        if (ok) logged.add(rule.id);
+      }
+      await markNotify(input.admin, input.businessId, row, { notify_status: status });
+    };
+
     if (row.attempts >= CLASS_CANCEL_NOTIFY_ATTEMPT_CAP) {
-      await markNotify(input.admin, input.businessId, row, {
-        notify_status: "failed",
-        attempts: row.attempts,
-      });
+      await closeAll("failed");
       input.summary.failed += 1;
       continue;
     }
     if (classStartHasPassed(row.class_date, row.class_time, input.now)) {
-      await markNotify(input.admin, input.businessId, row, { notify_status: "skipped_past" });
+      await closeAll("skipped_past");
       input.summary.skipped_past += 1;
       continue;
     }
     const phone = normalizePhone(row.phone);
     if (!phone) {
-      await markNotify(input.admin, input.businessId, row, { notify_status: "skipped_no_phone" });
+      await closeAll("skipped_no_phone");
       input.summary.skipped_no_phone += 1;
       continue;
     }
     const optedOut = await contactOptedOut(input.admin, input.businessId, phone);
     if (optedOut === "error") continue;
     if (optedOut) {
-      await markNotify(input.admin, input.businessId, row, { notify_status: "skipped_opted_out" });
+      await closeAll("skipped_opted_out");
       input.summary.skipped_opted_out += 1;
       continue;
     }
+
     const channel =
       (await resolveSendChannelForContact(input.admin, input.businessId, phone)) ??
       (await resolveDefaultSendChannel(input.admin, input.businessId));
     const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
-    const gate = decideScheduledSendGate({
-      hasChannel: Boolean(phoneNumberId),
-      hasWaba: Boolean(wabaId),
-      hasApprovedTemplate: Boolean((approvedTpl as { id?: unknown } | null)?.id),
-    });
-    if (gate.action === "cancel") {
-      await markNotify(input.admin, input.businessId, row, { notify_status: "skipped_gate" });
-      input.summary.skipped_gate += 1;
-      continue;
+    const pending = input.rules.filter((rule) => !logged.has(rule.id));
+    const companion = createCompanionSendGate();
+    let anyFailed = false;
+    let failedTransient = true;
+    for (const rule of pending) {
+      const tpl = templates.get(rule.id);
+      const slot = await companion.before(rule.template_name);
+      if (slot === "skip") continue;
+      const gate = decideScheduledSendGate({
+        hasChannel: Boolean(phoneNumberId),
+        hasWaba: Boolean(wabaId),
+        hasApprovedTemplate: Boolean(tpl?.approved),
+      });
+      if (gate.action === "cancel") {
+        companion.after(rule.template_name, "gated");
+        const ok = await recordCancelNotify({
+          admin: input.admin,
+          businessId: input.businessId,
+          ruleId: rule.id,
+          row,
+          status: "skipped_gate",
+          now: input.now,
+        });
+        if (ok) logged.add(rule.id);
+        input.summary.skipped_gate += 1;
+        continue;
+      }
+      const values = classCancelledCustomerBodyParams({
+        components: tpl?.components,
+        firstName: row.first_name,
+        className: row.class_name,
+        classDateYmd: row.class_date,
+        classTime: row.class_time,
+      });
+      const send = await sendBusinessTemplate({
+        to: phone,
+        phoneNumberId,
+        templateName: rule.template_name,
+        languageCode: tpl?.language || "he",
+        skipOptOutGate: true,
+        components: classCancelledCustomerBodyComponents(values),
+      });
+      if (send.ok) {
+        companion.after(rule.template_name, "immediate");
+        const ok = await recordCancelNotify({
+          admin: input.admin,
+          businessId: input.businessId,
+          ruleId: rule.id,
+          row,
+          status: "sent",
+          now: input.now,
+        });
+        if (ok) logged.add(rule.id);
+        input.summary.sent += 1;
+        console.info("[leads/arbox-class-cancelled-customer] sent", {
+          businessId: input.businessId,
+          schedule_id: row.schedule_id,
+          trigger_id: rule.id,
+          phone: maskPhone(phone),
+        });
+        continue;
+      }
+      companion.after(rule.template_name, "send_failed");
+      anyFailed = true;
+      failedTransient = failedTransient && isTransientMetaSendFailure(send.error);
+      console.error("[leads/arbox-class-cancelled-customer] send failed", {
+        businessId: input.businessId,
+        schedule_id: row.schedule_id,
+        trigger_id: rule.id,
+        phone: maskPhone(phone),
+        error: String(send.error ?? "").slice(0, 300),
+      });
     }
 
-    const values = classCancelledCustomerBodyParams({
-      components,
-      firstName: row.first_name,
-      className: row.class_name,
-      classDateYmd: row.class_date,
-      classTime: row.class_time,
-    });
-    const send = await sendBusinessTemplate({
-      to: phone,
-      phoneNumberId,
-      templateName: input.templateName,
-      languageCode: language,
-      skipOptOutGate: true,
-      components: classCancelledCustomerBodyComponents(values),
-    });
-    if (send.ok) {
+    if (input.rules.every((rule) => logged.has(rule.id))) {
       await markNotify(input.admin, input.businessId, row, {
         notify_status: "sent",
         notified_at: input.now.toISOString(),
         attempts: row.attempts + 1,
       });
-      input.summary.sent += 1;
-      console.info("[leads/arbox-class-cancelled-customer] sent", {
-        businessId: input.businessId,
-        schedule_id: row.schedule_id,
-        phone: maskPhone(phone),
-      });
       continue;
     }
+    if (!anyFailed) continue;
     const next = nextNotifyStatusAfterSendFailure({
       attempts: row.attempts,
-      transient: isTransientMetaSendFailure(send.error),
+      transient: failedTransient,
     });
     await markNotify(input.admin, input.businessId, row, next);
     if (next.notify_status === "failed") input.summary.failed += 1;
-    console.error("[leads/arbox-class-cancelled-customer] send failed", {
-      businessId: input.businessId,
-      schedule_id: row.schedule_id,
-      phone: maskPhone(phone),
-      notify_status: next.notify_status,
-      attempts: next.attempts,
-      error: String(send.error ?? "").slice(0, 300),
-    });
   }
 }
 

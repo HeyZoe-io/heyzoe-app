@@ -19,7 +19,6 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
-  parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
@@ -254,6 +253,7 @@ async function resolveOrCreateContact(input: {
 async function upsertMissedSyncLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   userId: number;
   classDateYmd: string;
   classTime: string;
@@ -266,6 +266,7 @@ async function upsertMissedSyncLog(input: {
   const { error } = await input.admin.from("arbox_missed_class_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       user_id: input.userId,
       class_date: input.classDateYmd,
       class_time: input.classTime,
@@ -275,7 +276,7 @@ async function upsertMissedSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,user_id,class_date,class_time,class_name" }
+    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
   );
   if (error) {
     console.error("[leads/arbox-missed-class] sync_log upsert failed:", error.message);
@@ -545,7 +546,11 @@ export async function syncArboxMissedClassForBusiness(input: {
     (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
       ?.arbox_trial_membership_type_ids
   );
-  const productFilterIds = parseIdList(trialRule?.product_filter);
+  const trialFilters = trialRules.map((item) => parseIdList(item.product_filter));
+  const anyTrialCatchAll = trialFilters.some((ids) => ids.length === 0);
+  const productFilterIds = anyTrialCatchAll
+    ? []
+    : [...new Set(trialFilters.flat())];
 
   let trialTypeIds: number[] = [];
   let trialMatchMode: "product_filter_names" | "business_trial_ids_names" | "name_fallback" =
@@ -614,19 +619,25 @@ export async function syncArboxMissedClassForBusiness(input: {
         row,
         source: "arbox_missed_class_seed",
       });
-      const up = await upsertMissedSyncLog({
-        admin: input.admin,
-        businessId,
-        userId,
-        classDateYmd,
-        classTime,
-        className,
-        contactId: resolved.contact?.id ?? null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
-      if (up.ok) summary.seeded += 1;
+      const seedIds = [...classRules, ...trialRules].map((item) => item.id).filter(Boolean);
+      let upOk = true;
+      for (const triggerId of seedIds) {
+        const up = await upsertMissedSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId,
+          userId,
+          classDateYmd,
+          classTime,
+          className,
+          contactId: resolved.contact?.id ?? null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up.ok) upOk = false;
+      }
+      if (upOk) summary.seeded += 1;
       else summary.errors += 1;
     }
 
@@ -699,7 +710,20 @@ export async function syncArboxMissedClassForBusiness(input: {
     let batch: PurchaseTemplateTriggerRule[] = [];
     if (isTrial && hasTrial && trialRules.length) {
       kind = "missed_trial";
-      batch = trialRules;
+      batch = trialRules.filter((item) => {
+        const ids = parseIdList(item.product_filter);
+        if (!ids.length) return true;
+        const names = new Set<string>();
+        for (const id of ids) {
+          const name = nameById.get(id);
+          if (name) names.add(normalizeMembershipTypeName(name));
+        }
+        return bookingMatchesTrialScope(row, {
+          trialTypeIds: ids,
+          trialTypeNamesNormalized: names,
+        });
+      });
+      if (!batch.length) continue;
       summary.routed_trial += 1;
     } else if (!isTrial && hasClass && classRules.length) {
       kind = "missed_class";
@@ -710,24 +734,32 @@ export async function syncArboxMissedClassForBusiness(input: {
     }
 
     try {
-      const { data: existing } = await input.admin
+      const { data: existingRows } = await input.admin
         .from("arbox_missed_class_sync_log")
-        .select("status, attempts, contact_id")
+        .select("trigger_id, status, attempts, contact_id")
         .eq("business_id", businessId)
+        .in(
+          "trigger_id",
+          batch.map((item) => item.id)
+        )
         .eq("user_id", userId)
         .eq("class_date", classDateYmd)
         .eq("class_time", classTime)
-        .eq("class_name", className)
-        .maybeSingle();
-
-      const status = String((existing as { status?: unknown } | null)?.status ?? "");
-      if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+        .eq("class_name", className);
+      const terminalIds = new Set(
+        (existingRows ?? [])
+          .filter((row) => {
+            const status = String((row as { status?: unknown }).status ?? "");
+            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+          })
+          .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const pendingRules = batch.filter((item) => item.id && !terminalIds.has(item.id));
+      if (!pendingRules.length) {
         summary.already += 1;
         continue;
       }
-      const attemptsSoFar = parseCancellationSyncAttempts(
-        (existing as { attempts?: unknown } | null)?.attempts
-      );
+      const attemptsSoFar = 0;
 
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
@@ -737,18 +769,21 @@ export async function syncArboxMissedClassForBusiness(input: {
       });
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        await upsertMissedSyncLog({
-          admin: input.admin,
-          businessId,
-          userId,
-          classDateYmd,
-          classTime,
-          className,
-          contactId: resolved.contact?.id ?? null,
-          attempts: attemptsSoFar,
-          status: "no_phone",
-          nowIso,
-        });
+        for (const rule of pendingRules) {
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact?.id ?? null,
+            attempts: attemptsSoFar,
+            status: "no_phone",
+            nowIso,
+          });
+        }
         continue;
       }
 
@@ -770,18 +805,21 @@ export async function syncArboxMissedClassForBusiness(input: {
             keys: activeKeys,
           })
         ) {
-          await upsertMissedSyncLog({
-            admin: input.admin,
-            businessId,
-            userId,
-            classDateYmd,
-            classTime,
-            className,
-            contactId: resolved.contact.id,
-            attempts: attemptsSoFar,
-            status: "seeded",
-            nowIso,
-          });
+          for (const rule of pendingRules) {
+            await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: resolved.contact.id,
+              attempts: attemptsSoFar,
+              status: "seeded",
+              nowIso,
+            });
+          }
           console.info("[leads/arbox-missed-class] dispatch", {
             businessId,
             kind,
@@ -799,7 +837,7 @@ export async function syncArboxMissedClassForBusiness(input: {
       if (!sendPhone || !sendContact) continue;
 
       const sendDispatch = await runCompanionTemplateSends({
-        rules: batch,
+        rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
         send: async (rule, ctx) => {
           const send = await dispatchMissedTemplate({
@@ -876,18 +914,21 @@ export async function syncArboxMissedClassForBusiness(input: {
         dispatch: mapped,
         attemptsSoFar,
       });
-      await upsertMissedSyncLog({
-        admin: input.admin,
-        businessId,
-        userId,
-        classDateYmd,
-        classTime,
-        className,
-        contactId: resolved.contact.id,
-        attempts: next.attempts,
-        status: next.status,
-        nowIso,
-      });
+      for (const rule of pendingRules) {
+        await upsertMissedSyncLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          userId,
+          classDateYmd,
+          classTime,
+          className,
+          contactId: resolved.contact.id,
+          attempts: next.attempts,
+          status: next.status,
+          nowIso,
+        });
+      }
 
       summary.processed += 1;
       if (sendDispatch === "immediate") summary.notified += 1;

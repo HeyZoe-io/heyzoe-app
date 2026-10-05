@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  matchingPurchaseTemplateTriggerRules,
   pickPurchaseTemplateTriggerRule,
   purchaseRuleMatchesSale,
   purchaseSaleMembershipScopeIsEmpty,
@@ -225,6 +226,41 @@ const rules = [trialRule, membershipRule];
     classByProductId,
   });
   assert.equal(scope.mode, "all");
+}
+
+{
+  const specificA = rule({
+    id: "spec-a",
+    product_filter: [90001],
+    template_name: "a",
+    created_at: "2026-01-01T00:00:00.000Z",
+  });
+  const specificB = rule({
+    id: "spec-b",
+    product_filter: [90001],
+    template_name: "b",
+    created_at: "2026-01-02T00:00:00.000Z",
+  });
+  const catchAll = rule({
+    id: "catch",
+    product_filter: null,
+    template_name: "c",
+    created_at: "2026-01-03T00:00:00.000Z",
+  });
+  const matched = matchingPurchaseTemplateTriggerRules(
+    [catchAll, specificB, specificA],
+    90001,
+    "plan"
+  );
+  assert.deepEqual(
+    matched.map((item) => item.id),
+    ["spec-a", "spec-b"]
+  );
+  const catchOnly = matchingPurchaseTemplateTriggerRules([catchAll], 11111, "service");
+  assert.deepEqual(
+    catchOnly.map((item) => item.id),
+    ["catch"]
+  );
 }
 
 console.log("template-triggers-match.test.ts: ok");

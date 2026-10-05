@@ -11,7 +11,6 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   nextCancellationSyncLogAfterDispatch,
-  parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
@@ -45,6 +44,8 @@ import {
   loadEnabledFreezeEndingUnbookedTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
+import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -233,19 +234,6 @@ function resolveHoldFullName(row: ArboxMembersOnHoldRow): string | null {
   return combined || null;
 }
 
-function maskPhoneForLog(phone: string): string {
-  const d = phone.replace(/\D/g, "");
-  if (d.length < 4) return "***";
-  return `***${d.slice(-4)}`;
-}
-
-function pickNewestRule(rules: PurchaseTemplateTriggerRule[]): PurchaseTemplateTriggerRule | null {
-  const withTpl = rules
-    .filter((r) => r.template_name?.trim())
-    .sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")));
-  return withTpl[0] ?? null;
-}
-
 type ContactRow = {
   id: string;
   phone: string | null;
@@ -324,6 +312,7 @@ async function resolveOrCreateContact(input: {
 async function upsertCreatedLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   holdId: number;
   userId: number | null;
   contactId: string | null;
@@ -334,6 +323,7 @@ async function upsertCreatedLog(input: {
   const { error } = await input.admin.from("arbox_freeze_created_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       membership_hold_id: input.holdId,
       user_id: input.userId,
       contact_id: input.contactId,
@@ -341,7 +331,7 @@ async function upsertCreatedLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,membership_hold_id" }
+    { onConflict: "business_id,trigger_id,membership_hold_id" }
   );
   if (error) {
     console.error("[leads/arbox-freeze] created sync_log upsert failed:", error.message);
@@ -353,6 +343,7 @@ async function upsertCreatedLog(input: {
 async function upsertEndingLog(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
+  triggerId: string;
   holdId: number;
   endYmd: string;
   variant: FreezeEndingVariant;
@@ -365,6 +356,7 @@ async function upsertEndingLog(input: {
   const { error } = await input.admin.from("arbox_freeze_ending_sync_log").upsert(
     {
       business_id: input.businessId,
+      trigger_id: input.triggerId,
       membership_hold_id: input.holdId,
       end_suspend_ymd: input.endYmd,
       variant: input.variant,
@@ -374,7 +366,7 @@ async function upsertEndingLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,membership_hold_id,end_suspend_ymd" }
+    { onConflict: "business_id,trigger_id,membership_hold_id,end_suspend_ymd" }
   );
   if (error) {
     console.error("[leads/arbox-freeze] ending sync_log upsert failed:", error.message);
@@ -547,20 +539,22 @@ export async function syncArboxFreezeForBusiness(input: {
     loadEnabledFreezeEndingBookedTemplateTriggers(input.admin, businessId),
     loadEnabledFreezeEndingUnbookedTemplateTriggers(input.admin, businessId),
   ]);
-  const createdRule = pickNewestRule(createdRules);
-  const endingBookedRule = pickNewestRule(endingBookedRules);
-  const endingUnbookedRule = pickNewestRule(endingUnbookedRules);
-  if (!createdRule && !endingBookedRule && !endingUnbookedRule) {
+  const createdSendRules = rulesForCompanionSend(createdRules);
+  const endingBookedSend = rulesForCompanionSend(endingBookedRules);
+  const endingUnbookedSend = rulesForCompanionSend(endingUnbookedRules);
+  if (!createdSendRules.length && !endingBookedSend.length && !endingUnbookedSend.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
   }
 
   const maxEndingDelay = Math.max(
-    endingBookedRule ? Math.max(0, Math.trunc(Number(endingBookedRule.delay_days) || 0)) : 0,
-    endingUnbookedRule ? Math.max(0, Math.trunc(Number(endingUnbookedRule.delay_days) || 0)) : 0
+    0,
+    ...[...endingBookedSend, ...endingUnbookedSend].map((item) =>
+      Math.max(0, Math.trunc(Number(item.delay_days) || 0))
+    )
   );
-  const needsEnding = Boolean(endingBookedRule || endingUnbookedRule);
+  const needsEnding = endingBookedSend.length > 0 || endingUnbookedSend.length > 0;
 
   const holdWindow = freezeReportFetchWindow({ now, maxEndingDelayDays: maxEndingDelay || 14 });
   summary.lookback_from = holdWindow.fromDate;
@@ -616,7 +610,7 @@ export async function syncArboxFreezeForBusiness(input: {
   if (!needsFullSeed) {
     let createdLogCount = 0;
     let endingLogCount = 0;
-    if (createdRule) {
+    if (createdSendRules.length) {
       const { count, error } = await input.admin
         .from("arbox_freeze_created_sync_log")
         .select("membership_hold_id", { count: "exact", head: true })
@@ -638,7 +632,7 @@ export async function syncArboxFreezeForBusiness(input: {
     }
     const soft = freezeTablesNeedingSoftSeed({
       freezeSeeded: true,
-      createdRuleEnabled: Boolean(createdRule),
+      createdRuleEnabled: createdSendRules.length > 0,
       endingRuleEnabled: needsEnding,
       createdLogCount,
       endingLogCount,
@@ -661,34 +655,49 @@ export async function syncArboxFreezeForBusiness(input: {
     const endYmd = parseClassDateYmd(row.end_suspend_time);
 
     // ——— A8 created ———
-    if (createdRule && seedCreated) {
-      const ok = await upsertCreatedLog({
-        admin: input.admin,
-        businessId,
-        holdId,
-        userId,
-        contactId: null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
+    if (createdSendRules.length && seedCreated) {
+      let ok = true;
+      for (const rule of createdSendRules) {
+        const up = await upsertCreatedLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          holdId,
+          userId,
+          contactId: null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up) ok = false;
+      }
       if (ok) {
         if (needsFullSeed) summary.created_seeded += 1;
         else summary.soft_seeded += 1;
       } else summary.errors += 1;
-    } else if (createdRule && !seedCreated) {
+    } else if (createdSendRules.length && !seedCreated) {
       try {
-        const { data: existing } = await input.admin
+        const { data: existingRows } = await input.admin
           .from("arbox_freeze_created_sync_log")
-          .select("status, attempts")
+          .select("trigger_id, status, attempts")
           .eq("business_id", businessId)
           .eq("membership_hold_id", holdId)
-          .maybeSingle();
-        const status = String((existing as { status?: unknown } | null)?.status ?? "");
-        if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+          .in(
+            "trigger_id",
+            createdSendRules.map((item) => item.id)
+          );
+        const terminalIds = new Set(
+          (existingRows ?? [])
+            .filter((log) => {
+              const status = String((log as { status?: unknown }).status ?? "");
+              return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            })
+            .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+        );
+        const pendingRules = createdSendRules.filter((item) => item.id && !terminalIds.has(item.id));
+        if (!pendingRules.length) {
           summary.already += 1;
-        } else if (!existing) {
-          // New hold after seed → send
+        } else {
           const attemptsSoFar = 0;
           const resolved = await resolveOrCreateContact({
             admin: input.admin,
@@ -699,133 +708,70 @@ export async function syncArboxFreezeForBusiness(input: {
           });
           if (!resolved.phone || !resolved.contact?.id) {
             summary.no_phone += 1;
-            await upsertCreatedLog({
-              admin: input.admin,
-              businessId,
-              holdId,
-              userId,
-              contactId: resolved.contact?.id ?? null,
-              attempts: attemptsSoFar,
-              status: "no_phone",
-              nowIso,
-            });
-          } else {
-            const send = await dispatchFreezeTemplate({
-              admin: input.admin,
-              businessId,
-              businessSlug,
-              phone: resolved.phone,
-              fullName: resolveHoldFullName(row),
-              contactFullName: resolved.contact.full_name,
-              startYmd,
-              endYmd,
-              className: null,
-              triggerType: "freeze_created",
-              rule: createdRule,
-              dedupKey: buildFreezeCreatedScheduledDedupKey(
+            for (const rule of pendingRules) {
+              await upsertCreatedLog({
+                admin: input.admin,
                 businessId,
-                createdRule.id,
+                triggerId: rule.id,
                 holdId,
-                startYmd,
-                endYmd
-              ),
-              now,
-            });
-            const next = nextCancellationSyncLogAfterDispatch({
-              dispatch: mapDispatch(send.dispatch),
-              attemptsSoFar,
-            });
-            await upsertCreatedLog({
-              admin: input.admin,
-              businessId,
-              holdId,
-              userId,
-              contactId: resolved.contact.id,
-              attempts: next.attempts,
-              status: next.status,
-              nowIso,
-            });
-            summary.created_processed += 1;
-            if (send.dispatch === "immediate") summary.notified += 1;
-            else if (send.dispatch === "deferred") summary.deferred += 1;
-            else if (send.dispatch === "gated") summary.gated += 1;
-            else if (send.dispatch === "send_failed") {
-              if (next.hitCap) summary.abandoned += 1;
-              else summary.errors += 1;
+                userId,
+                contactId: resolved.contact?.id ?? null,
+                attempts: attemptsSoFar,
+                status: "no_phone",
+                nowIso,
+              });
             }
-            console.info("[leads/arbox-freeze] created dispatch", {
-              businessId,
-              hold_id: holdId,
-              contact: maskPhoneForLog(resolved.phone),
-              dispatch: send.dispatch,
-              status: next.status,
-            });
-          }
-        } else {
-          // pending retry
-          const attemptsSoFar = parseCancellationSyncAttempts(
-            (existing as { attempts?: unknown }).attempts
-          );
-          const resolved = await resolveOrCreateContact({
-            admin: input.admin,
-            businessId,
-            row,
-            userId,
-            source: "arbox_freeze_created",
-          });
-          if (!resolved.phone || !resolved.contact?.id) {
-            summary.no_phone += 1;
-            await upsertCreatedLog({
-              admin: input.admin,
-              businessId,
-              holdId,
-              userId,
-              contactId: resolved.contact?.id ?? null,
-              attempts: attemptsSoFar,
-              status: "no_phone",
-              nowIso,
-            });
           } else {
-            const send = await dispatchFreezeTemplate({
-              admin: input.admin,
-              businessId,
-              businessSlug,
-              phone: resolved.phone,
-              fullName: resolveHoldFullName(row),
-              contactFullName: resolved.contact.full_name,
-              startYmd,
-              endYmd,
-              className: null,
-              triggerType: "freeze_created",
-              rule: createdRule,
-              dedupKey: buildFreezeCreatedScheduledDedupKey(
-                businessId,
-                createdRule.id,
-                holdId,
-                startYmd,
-                endYmd
-              ),
-              now,
+            const sendPhone = resolved.phone;
+            const sendContact = resolved.contact;
+            const sendDispatch = await runCompanionTemplateSends({
+              rules: pendingRules,
+              dryRun: isArboxDailyDryRun(),
+              send: (rule) =>
+                dispatchFreezeTemplate({
+                  admin: input.admin,
+                  businessId,
+                  businessSlug,
+                  phone: sendPhone,
+                  fullName: resolveHoldFullName(row),
+                  contactFullName: sendContact.full_name,
+                  startYmd,
+                  endYmd,
+                  className: null,
+                  triggerType: "freeze_created",
+                  rule,
+                  dedupKey: buildFreezeCreatedScheduledDedupKey(
+                    businessId,
+                    rule.id,
+                    holdId,
+                    startYmd,
+                    endYmd
+                  ),
+                  now,
+                }).then((send) => send.dispatch),
             });
             const next = nextCancellationSyncLogAfterDispatch({
-              dispatch: mapDispatch(send.dispatch),
+              dispatch: mapDispatch(sendDispatch),
               attemptsSoFar,
             });
-            await upsertCreatedLog({
-              admin: input.admin,
-              businessId,
-              holdId,
-              userId,
-              contactId: resolved.contact.id,
-              attempts: next.attempts,
-              status: next.status,
-              nowIso,
-            });
+            for (const rule of pendingRules) {
+              await upsertCreatedLog({
+                admin: input.admin,
+                businessId,
+                triggerId: rule.id,
+                holdId,
+                userId,
+                contactId: sendContact.id,
+                attempts: next.attempts,
+                status: next.status,
+                nowIso,
+              });
+            }
             summary.created_processed += 1;
-            if (send.dispatch === "immediate") summary.notified += 1;
-            else if (send.dispatch === "deferred") summary.deferred += 1;
-            else if (send.dispatch === "gated") summary.gated += 1;
-            else if (send.dispatch === "send_failed") {
+            if (sendDispatch === "immediate") summary.notified += 1;
+            else if (sendDispatch === "deferred") summary.deferred += 1;
+            else if (sendDispatch === "gated") summary.gated += 1;
+            else if (sendDispatch === "send_failed") {
               if (next.hitCap) summary.abandoned += 1;
               else summary.errors += 1;
             }
@@ -850,27 +796,37 @@ export async function syncArboxFreezeForBusiness(input: {
 
     const variant: FreezeEndingVariant =
       userId != null ? endingVariantForUser(userId, futureByUser) : "unbooked";
-    const endingRule = variant === "booked" ? endingBookedRule : endingUnbookedRule;
-    if (!endingRule) continue;
+    const endingPool = variant === "booked" ? endingBookedSend : endingUnbookedSend;
+    if (!endingPool.length) continue;
 
-    const delayDays = Math.max(0, Math.trunc(Number(endingRule.delay_days) || 0));
-    const due = isFreezeEndingDue({ endYmd, delayDays, todayYmd });
+    const dueRules = endingPool.filter((item) =>
+      isFreezeEndingDue({
+        endYmd,
+        delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+        todayYmd,
+      })
+    );
 
     // Seed/soft-seed every future-ending hold (not only currently due) so later
     // window entry does not blast historical holds.
     if (seedEnding) {
-      const ok = await upsertEndingLog({
-        admin: input.admin,
-        businessId,
-        holdId,
-        endYmd,
-        variant,
-        userId,
-        contactId: null,
-        attempts: 0,
-        status: "seeded",
-        nowIso,
-      });
+      let ok = true;
+      for (const rule of endingPool) {
+        const up = await upsertEndingLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          holdId,
+          endYmd,
+          variant,
+          userId,
+          contactId: null,
+          attempts: 0,
+          status: "seeded",
+          nowIso,
+        });
+        if (!up) ok = false;
+      }
       if (ok) {
         if (needsFullSeed) summary.ending_seeded += 1;
         else summary.soft_seeded += 1;
@@ -878,26 +834,34 @@ export async function syncArboxFreezeForBusiness(input: {
       continue;
     }
 
-    if (!due) continue;
+    if (!dueRules.length) continue;
 
     try {
-      const { data: existing } = await input.admin
+      const { data: existingRows } = await input.admin
         .from("arbox_freeze_ending_sync_log")
-        .select("status, attempts, variant")
+        .select("trigger_id, status, attempts, variant")
         .eq("business_id", businessId)
         .eq("membership_hold_id", holdId)
         .eq("end_suspend_ymd", endYmd)
-        .maybeSingle();
-
-      const status = String((existing as { status?: unknown } | null)?.status ?? "");
-      if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+        .in(
+          "trigger_id",
+          dueRules.map((item) => item.id)
+        );
+      const terminalIds = new Set(
+        (existingRows ?? [])
+          .filter((log) => {
+            const status = String((log as { status?: unknown }).status ?? "");
+            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+          })
+          .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const pendingRules = dueRules.filter((item) => item.id && !terminalIds.has(item.id));
+      if (!pendingRules.length) {
         summary.already += 1;
         continue;
       }
 
-      const attemptsSoFar = parseCancellationSyncAttempts(
-        (existing as { attempts?: unknown } | null)?.attempts
-      );
+      const attemptsSoFar = 0;
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
         businessId,
@@ -907,18 +871,21 @@ export async function syncArboxFreezeForBusiness(input: {
       });
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        await upsertEndingLog({
-          admin: input.admin,
-          businessId,
-          holdId,
-          endYmd,
-          variant,
-          userId,
-          contactId: resolved.contact?.id ?? null,
-          attempts: attemptsSoFar,
-          status: "no_phone",
-          nowIso,
-        });
+        for (const rule of pendingRules) {
+          await upsertEndingLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            holdId,
+            endYmd,
+            variant,
+            userId,
+            contactId: resolved.contact?.id ?? null,
+            attempts: attemptsSoFar,
+            status: "no_phone",
+            nowIso,
+          });
+        }
         continue;
       }
 
@@ -928,61 +895,62 @@ export async function syncArboxFreezeForBusiness(input: {
           : null;
       const triggerType =
         variant === "booked" ? "freeze_ending_booked" : "freeze_ending_unbooked";
-      const send = await dispatchFreezeTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveHoldFullName(row),
-        contactFullName: resolved.contact.full_name,
-        startYmd,
-        endYmd,
-        className,
-        triggerType,
-        rule: endingRule,
-        dedupKey: buildFreezeEndingScheduledDedupKey(
-          variant,
-          businessId,
-          endingRule.id,
-          holdId,
-          endYmd,
-          className
-        ),
-        now,
+      const sendPhone = resolved.phone;
+      const sendContact = resolved.contact;
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: pendingRules,
+        dryRun: isArboxDailyDryRun(),
+        send: (rule) =>
+          dispatchFreezeTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone: sendPhone,
+            fullName: resolveHoldFullName(row),
+            contactFullName: sendContact.full_name,
+            startYmd,
+            endYmd,
+            className,
+            triggerType,
+            rule,
+            dedupKey: buildFreezeEndingScheduledDedupKey(
+              variant,
+              businessId,
+              rule.id,
+              holdId,
+              endYmd,
+              className
+            ),
+            now,
+          }).then((send) => send.dispatch),
       });
       const next = nextCancellationSyncLogAfterDispatch({
-        dispatch: mapDispatch(send.dispatch),
+        dispatch: mapDispatch(sendDispatch),
         attemptsSoFar,
       });
-      await upsertEndingLog({
-        admin: input.admin,
-        businessId,
-        holdId,
-        endYmd,
-        variant,
-        userId,
-        contactId: resolved.contact.id,
-        attempts: next.attempts,
-        status: next.status,
-        nowIso,
-      });
+      for (const rule of pendingRules) {
+        await upsertEndingLog({
+          admin: input.admin,
+          businessId,
+          triggerId: rule.id,
+          holdId,
+          endYmd,
+          variant,
+          userId,
+          contactId: sendContact.id,
+          attempts: next.attempts,
+          status: next.status,
+          nowIso,
+        });
+      }
       summary.ending_processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") {
+      if (sendDispatch === "immediate") summary.notified += 1;
+      else if (sendDispatch === "deferred") summary.deferred += 1;
+      else if (sendDispatch === "gated") summary.gated += 1;
+      else if (sendDispatch === "send_failed") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }
-      console.info("[leads/arbox-freeze] ending dispatch", {
-        businessId,
-        hold_id: holdId,
-        end: endYmd,
-        variant,
-        contact: maskPhoneForLog(resolved.phone),
-        dispatch: send.dispatch,
-        status: next.status,
-      });
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-freeze] ending row threw", {
@@ -995,7 +963,7 @@ export async function syncArboxFreezeForBusiness(input: {
 
   // Soft-seed empty sentinels
   if (!needsFullSeed) {
-    if (softSeedCreated && createdRule) {
+    if (softSeedCreated && createdSendRules.length) {
       const { count } = await input.admin
         .from("arbox_freeze_created_sync_log")
         .select("membership_hold_id", { count: "exact", head: true })
@@ -1004,6 +972,7 @@ export async function syncArboxFreezeForBusiness(input: {
         const ok = await upsertCreatedLog({
           admin: input.admin,
           businessId,
+          triggerId: "00000000-0000-0000-0000-000000000000",
           holdId: 0,
           userId: null,
           contactId: null,
@@ -1024,6 +993,7 @@ export async function syncArboxFreezeForBusiness(input: {
         const ok = await upsertEndingLog({
           admin: input.admin,
           businessId,
+          triggerId: "00000000-0000-0000-0000-000000000000",
           holdId: 0,
           endYmd: "1970-01-01",
           variant: "unbooked",

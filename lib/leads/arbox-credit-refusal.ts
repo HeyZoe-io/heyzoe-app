@@ -14,8 +14,10 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
-  resolveCreditRefusalTemplateTrigger,
+  loadEnabledCreditRefusalTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
@@ -537,11 +539,10 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
     return summary;
   }
 
-  const rule = await resolveCreditRefusalTemplateTrigger({
-    admin: input.admin,
-    businessId,
-  });
-  if (!rule?.template_name?.trim()) {
+  const rules = rulesForCompanionSend(
+    await loadEnabledCreditRefusalTemplateTriggers(input.admin, businessId)
+  );
+  if (!rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     console.info("[leads/arbox-credit-refusal] skip — no enabled credit_refusal rule", {
@@ -579,15 +580,20 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         summary.errors += 1;
         continue;
       }
-      const { error } = await input.admin.from("arbox_credit_refusal_sync_log").upsert(
-        {
-          business_id: businessId,
-          transaction_id: transactionId,
-          contact_id: null,
-          processed_at: nowIso,
-        },
-        { onConflict: "business_id,transaction_id" }
-      );
+      let error: { message: string } | null = null;
+      for (const rule of rules) {
+        const up = await input.admin.from("arbox_credit_refusal_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            transaction_id: transactionId,
+            contact_id: null,
+            processed_at: nowIso,
+          },
+          { onConflict: "business_id,trigger_id,transaction_id" }
+        );
+        if (up.error) error = up.error;
+      }
       if (error) {
         summary.errors += 1;
         console.error("[leads/arbox-credit-refusal] seed upsert failed:", error.message);
@@ -629,12 +635,18 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
     try {
       const { data: existingSeen } = await input.admin
         .from("arbox_credit_refusal_sync_log")
-        .select("transaction_id")
+        .select("trigger_id")
         .eq("business_id", businessId)
         .eq("transaction_id", transactionId)
-        .maybeSingle();
-
-      if (existingSeen) {
+        .in(
+          "trigger_id",
+          rules.map((item) => item.id)
+        );
+      const seenIds = new Set(
+        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const pendingRules = rules.filter((item) => item.id && !seenIds.has(item.id));
+      if (!pendingRules.length) {
         summary.already += 1;
         console.info("[leads/arbox-credit-refusal] dispatch", {
           businessId,
@@ -666,15 +678,18 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
 
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        await input.admin.from("arbox_credit_refusal_sync_log").upsert(
-          {
-            business_id: businessId,
-            transaction_id: transactionId,
-            contact_id: null,
-            processed_at: nowIso,
-          },
-          { onConflict: "business_id,transaction_id" }
-        );
+        for (const rule of pendingRules) {
+          await input.admin.from("arbox_credit_refusal_sync_log").upsert(
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              transaction_id: transactionId,
+              contact_id: null,
+              processed_at: nowIso,
+            },
+            { onConflict: "business_id,trigger_id,transaction_id" }
+          );
+        }
         console.info("[leads/arbox-credit-refusal] dispatch", {
           businessId,
           transaction_id: transactionId,
@@ -685,20 +700,25 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         continue;
       }
 
-      const contactId = String(resolved.contact.id);
+      const contact = resolved.contact;
+      if (!contact?.id) continue;
+      const contactId = String(contact.id);
       const phone = resolved.phone;
 
-      await input.admin.from("arbox_credit_refusal_sync_log").upsert(
-        {
-          business_id: businessId,
-          transaction_id: transactionId,
-          contact_id: contactId,
-          processed_at: nowIso,
-        },
-        { onConflict: "business_id,transaction_id" }
-      );
+      for (const rule of pendingRules) {
+        await input.admin.from("arbox_credit_refusal_sync_log").upsert(
+          {
+            business_id: businessId,
+            trigger_id: rule.id,
+            transaction_id: transactionId,
+            contact_id: contactId,
+            processed_at: nowIso,
+          },
+          { onConflict: "business_id,trigger_id,transaction_id" }
+        );
+      }
 
-      if (isWithinCreditRefusalThrottle(resolved.contact.credit_refusal_last_notified_at, now)) {
+      if (isWithinCreditRefusalThrottle(contact.credit_refusal_last_notified_at, now)) {
         summary.throttled += 1;
         console.info("[leads/arbox-credit-refusal] dispatch", {
           businessId,
@@ -710,17 +730,31 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         continue;
       }
 
-      const send = await sendCreditRefusalTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone,
-        fullName: resolveReportFullName(row),
-        contactFullName: resolved.contact.full_name ?? null,
-        transactionId,
-        transactionDate: row.transaction_date,
-        rule,
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: pendingRules,
+        dryRun: isArboxDailyDryRun(),
+        send: (rule) =>
+          sendCreditRefusalTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone,
+            fullName: resolveReportFullName(row),
+            contactFullName: contact.full_name ?? null,
+            transactionId,
+            transactionDate: row.transaction_date,
+            rule,
+          }).then((send) =>
+            send.dispatch === "immediate" ||
+            send.dispatch === "deferred" ||
+            send.dispatch === "gated" ||
+            send.dispatch === "skipped" ||
+            send.dispatch === "send_failed"
+              ? send.dispatch
+              : "skipped"
+          ),
       });
+      const send = { dispatch: sendDispatch, ok: sendDispatch === "immediate" || sendDispatch === "deferred" };
 
       summary.processed += 1;
       if (send.dispatch === "immediate") summary.notified += 1;

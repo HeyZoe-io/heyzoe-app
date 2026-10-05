@@ -565,23 +565,14 @@ export async function syncNoResponseReengageForBusiness(input: {
 
   const rules = rulesForCompanionSend(
     await loadEnabledNoResponseTemplateTriggers(input.admin, input.businessId)
-  );
-  const rule = rules[0] ?? null;
-  const templateName = rule?.template_name?.trim() || null;
-  if (!rule || !templateName) {
+  ).filter((item) => isValidNoResponseDelayDays(item.delay_days) && item.template_name?.trim());
+  if (!rules.length) {
     bump(summary, "no_rule");
     return summary;
   }
-  if (!isValidNoResponseDelayDays(rule.delay_days)) {
-    bump(summary, "invalid_delay_days");
-    console.error("[no-response-reengage] rule delay_days < 2 — skipping business", {
-      businessId: input.businessId,
-      delay_days: rule.delay_days,
-    });
-    return summary;
-  }
+  const minDelayDays = Math.min(...rules.map((item) => item.delay_days));
 
-  const silenceCutoffIso = new Date(nowMs - rule.delay_days * MS_DAY).toISOString();
+  const silenceCutoffIso = new Date(nowMs - minDelayDays * MS_DAY).toISOString();
 
   const loaded = await loadCandidateBatch(input.admin, input.businessId, silenceCutoffIso);
   const rows = loaded.rows;
@@ -770,7 +761,10 @@ export async function syncNoResponseReengageForBusiness(input: {
         continue;
       }
 
-      if (!isSilentLongEnough(lastUserAtIso, rule.delay_days, nowMs)) {
+      const dueRules = rules.filter((item) =>
+        isSilentLongEnough(lastUserAtIso, item.delay_days, nowMs)
+      );
+      if (!dueRules.length) {
         bump(summary, "not_silent_long_enough");
         continue;
       }
@@ -817,9 +811,8 @@ export async function syncNoResponseReengageForBusiness(input: {
       const phoneNorm =
         normalizePhone(contact.phone) ?? String(contact.phone ?? "").replace(/\D/g, "");
       const episodeKey = silenceEpisodeKeyFromLastUserAt(lastUserAtIso);
-      const markInside = rules.length < 2;
       const dispatch = await runCompanionTemplateSends({
-        rules,
+        rules: dueRules,
         dryRun: isArboxDailyDryRun(),
         send: (item, ctx) =>
           dispatchNoResponseTemplate({
@@ -832,7 +825,7 @@ export async function syncNoResponseReengageForBusiness(input: {
             lastUserAtIso,
             now,
             dueOffsetMs: ctx.dueOffsetMs,
-            markEpisode: markInside,
+            markEpisode: false,
           }),
         alreadyDelivered: (item) =>
           companionTemplateAlreadySent(
@@ -855,7 +848,11 @@ export async function syncNoResponseReengageForBusiness(input: {
           }),
       });
 
-      if (!markInside && (dispatch === "immediate" || dispatch === "deferred")) {
+      const laterRules = rules.filter((item) => !dueRules.some((due) => due.id === item.id));
+      if (
+        laterRules.length === 0 &&
+        (dispatch === "immediate" || dispatch === "deferred")
+      ) {
         await markReengagedAt(input.admin, contactId, now.toISOString());
       }
 

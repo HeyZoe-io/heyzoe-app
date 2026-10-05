@@ -30,8 +30,9 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
 import {
-  resolveSessionsExpiringTemplateTrigger,
+  loadEnabledSessionsExpiringTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -470,8 +471,10 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     return summary;
   }
 
-  const rule = await resolveSessionsExpiringTemplateTrigger({ admin: input.admin, businessId });
-  if (!rule?.template_name?.trim()) {
+  const rules = rulesForCompanionSend(
+    await loadEnabledSessionsExpiringTemplateTriggers(input.admin, businessId)
+  );
+  if (!rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     console.info("[leads/arbox-sessions-expiring] skip — no enabled sessions_expiring rule", {
@@ -543,21 +546,21 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
       continue;
     }
 
-    const expiryDedupKey = buildSessionsExpiringScheduledDedupKey(
-      businessId,
-      rule.id,
-      userId,
-      startDateYmd,
-      endDateYmd
-    );
-
     if (isIntroWorkoutProductName(row.membership_type_name)) {
       summary.skipped_intro += 1;
-      await cancelPendingScheduledTemplateSendByDedupKey({
-        admin: input.admin,
-        dedupKey: expiryDedupKey,
-        reason: "intro_workout",
-      });
+      for (const rule of rules) {
+        await cancelPendingScheduledTemplateSendByDedupKey({
+          admin: input.admin,
+          dedupKey: buildSessionsExpiringScheduledDedupKey(
+            businessId,
+            rule.id,
+            userId,
+            startDateYmd,
+            endDateYmd
+          ),
+          reason: "intro_workout",
+        });
+      }
       console.info("[leads/arbox-sessions-expiring] dispatch", {
         ...logBase,
         dispatch: "skipped_intro",
@@ -567,11 +570,19 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
 
     if (activeIndex && hasAnotherActiveMembership(activeIndex, userId, null)) {
       summary.skipped_active_membership += 1;
-      await cancelPendingScheduledTemplateSendByDedupKey({
-        admin: input.admin,
-        dedupKey: expiryDedupKey,
-        reason: "active_membership",
-      });
+      for (const rule of rules) {
+        await cancelPendingScheduledTemplateSendByDedupKey({
+          admin: input.admin,
+          dedupKey: buildSessionsExpiringScheduledDedupKey(
+            businessId,
+            rule.id,
+            userId,
+            startDateYmd,
+            endDateYmd
+          ),
+          reason: "active_membership",
+        });
+      }
       if (!isArboxDailyDryRun()) {
         const { error: clearErr } = await input.admin
           .from("arbox_sessions_expiring_sync_log")
@@ -627,34 +638,34 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
       continue;
     }
 
-    const dueAt = computeSessionsExpiringDueAt(endDateYmd, rule);
-    logBase.due_at = dueAt.toISOString();
-
-    if (isMembershipExpiringPastDue(dueAt, now, SESSIONS_EXPIRING_PAST_DUE_GRACE_MS)) {
+    const dueRules = rules.filter((rule) => {
+      const dueAt = computeSessionsExpiringDueAt(endDateYmd, rule);
+      return !isMembershipExpiringPastDue(dueAt, now, SESSIONS_EXPIRING_PAST_DUE_GRACE_MS);
+    });
+    if (!dueRules.length) {
       summary.skipped_past_due += 1;
-      console.info("[leads/arbox-sessions-expiring] dispatch", {
-        ...logBase,
-        dispatch: "skipped_past_due",
-      });
       continue;
     }
+    logBase.due_at = computeSessionsExpiringDueAt(endDateYmd, dueRules[0]!).toISOString();
 
     try {
       const { data: existingSeen } = await input.admin
         .from("arbox_sessions_expiring_sync_log")
-        .select("user_id")
+        .select("trigger_id")
         .eq("business_id", businessId)
         .eq("user_id", userId)
         .eq("start_date", startDateYmd)
         .eq("end_date", endDateYmd)
-        .maybeSingle();
-
-      if (existingSeen) {
+        .in(
+          "trigger_id",
+          dueRules.map((item) => item.id)
+        );
+      const seenIds = new Set(
+        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const pendingRules = dueRules.filter((item) => item.id && !seenIds.has(item.id));
+      if (!pendingRules.length) {
         summary.dedup += 1;
-        console.info("[leads/arbox-sessions-expiring] dispatch", {
-          ...logBase,
-          dispatch: "dedup",
-        });
         continue;
       }
 
@@ -674,53 +685,64 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
 
       logBase.contact = maskPhoneForLog(resolved.phone);
 
-      const send = await dispatchSessionsExpiringTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveReportFullName(row),
-        contactFullName: resolved.contact.full_name ?? null,
-        userId,
-        startDateYmd,
-        endDateYmd,
-        dueAt,
-        rule,
-        now,
+      const sendPhone = resolved.phone;
+      const sendContact = resolved.contact;
+      const sendDispatch = await runCompanionTemplateSends({
+        rules: pendingRules,
+        dryRun: isArboxDailyDryRun(),
+        send: (rule) =>
+          dispatchSessionsExpiringTemplate({
+            admin: input.admin,
+            businessId,
+            businessSlug,
+            phone: sendPhone,
+            fullName: resolveReportFullName(row),
+            contactFullName: sendContact.full_name ?? null,
+            userId,
+            startDateYmd,
+            endDateYmd,
+            dueAt: computeSessionsExpiringDueAt(endDateYmd, rule),
+            rule,
+            now,
+          }).then((send) =>
+            send.dispatch === "enqueued"
+              ? "deferred"
+              : send.dispatch === "immediate" ||
+                  send.dispatch === "gated" ||
+                  send.dispatch === "skipped" ||
+                  send.dispatch === "send_failed"
+                ? send.dispatch
+                : "skipped"
+          ),
       });
 
       summary.processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "enqueued") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
+      if (sendDispatch === "immediate") summary.notified += 1;
+      else if (sendDispatch === "deferred") summary.deferred += 1;
+      else if (sendDispatch === "gated") summary.gated += 1;
+      else if (sendDispatch === "send_failed") summary.errors += 1;
 
-      console.info("[leads/arbox-sessions-expiring] dispatch", {
-        ...logBase,
-        dispatch: send.dispatch,
-      });
-
-      if (
-        send.dispatch === "skipped" ||
-        (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued"))
-      ) {
-        const { error: logErr } = await input.admin.from("arbox_sessions_expiring_sync_log").upsert(
-          {
-            business_id: businessId,
-            user_id: userId,
-            start_date: startDateYmd,
-            end_date: endDateYmd,
-            contact_id: resolved.contact.id,
-            processed_at: now.toISOString(),
-          },
-          { onConflict: "business_id,user_id,start_date,end_date" }
-        );
-        if (logErr) {
-          console.error(
-            "[leads/arbox-sessions-expiring] sync_log upsert failed:",
-            logErr.message
+      if (sendDispatch === "skipped" || sendDispatch === "immediate" || sendDispatch === "deferred") {
+        for (const rule of pendingRules) {
+          const { error: logErr } = await input.admin.from("arbox_sessions_expiring_sync_log").upsert(
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              start_date: startDateYmd,
+              end_date: endDateYmd,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+            },
+            { onConflict: "business_id,trigger_id,user_id,start_date,end_date" }
           );
-          summary.errors += 1;
+          if (logErr) {
+            console.error(
+              "[leads/arbox-sessions-expiring] sync_log upsert failed:",
+              logErr.message
+            );
+            summary.errors += 1;
+          }
         }
       }
     } catch (e) {
