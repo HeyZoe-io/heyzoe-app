@@ -57,6 +57,12 @@ const MOVE_SLOT_CUE =
 const EXPLICIT_CLASS_MOVE =
   /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|ל(?:תאם|קבוע)\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
 
+/** «הייתי אמורה להגיע היום ב-7:15 … ביטלתי … אשמח להגיע מחר» — לא שאלת לוח. */
+const WAS_SUPPOSED_TO_ARRIVE =
+  /הייתי\s+אמור(?:ה|ים|ות)?\s+להגיע|היינו\s+אמור(?:ים|ות)?\s+להגיע/u;
+
+const ALREADY_CANCELLED_ARRIVAL = /ביטל(?:תי|נו|ה|ת)/u;
+
 /**
  * Already booked + wants another slot (or explicit swap/postpone).
  * Not «תבטלי» (Zoe do-it → playbook) and not a fresh «לתאם שיעור ניסיון».
@@ -66,6 +72,7 @@ export function matchesBookedClassMoveIntent(raw: string): boolean {
   if (!t || t.length > 500) return false;
   if (/תבטל(?:י|ו)?/u.test(t) || /\bplease\s+cancel\b/i.test(t)) return false;
   if (EXPLICIT_CLASS_MOVE.test(t)) return true;
+  if (WAS_SUPPOSED_TO_ARRIVE.test(t) && ALREADY_CANCELLED_ARRIVAL.test(t)) return true;
   if (EXISTING_BOOKING_CUE.test(t) && MOVE_SLOT_CUE.test(t)) return true;
   if (isExistingTrialEnrollmentMention(raw) && MOVE_SLOT_CUE.test(t)) return true;
   if (matchesCantAttendScheduledClass(raw)) return true;

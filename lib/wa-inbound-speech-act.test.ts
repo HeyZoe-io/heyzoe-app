@@ -28,6 +28,10 @@ assert.equal(
   ),
   false
 );
+const lateCancelThenTomorrow =
+  "היי הייתי אמורה להגיע היום ב7:15 ולצערי לא הסתדר כי היה לילה מאתגר וביטלתי מאוחר, ואשמח להגיע מחר בשעה 7:30 אני רואה שיש הרבה מקום בשעה הזאת.";
+assert.equal(shouldAnswerFromClassTimetable(lateCancelThenTomorrow, thu), false);
+assert.equal(classifyInboundSpeechAct(lateCancelThenTomorrow, thu), "other");
 
 assert.equal(classifyInboundSpeechAct("מתי יש אימון היום?", thu), "schedule_ask");
 assert.equal(

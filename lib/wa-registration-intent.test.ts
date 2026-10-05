@@ -133,6 +133,11 @@ assert.equal(
   "already-booked trial postpone → app, not product pick / warmup"
 );
 
+const lateCancelThenTomorrow =
+  "היי הייתי אמורה להגיע היום ב7:15 ולצערי לא הסתדר כי היה לילה מאתגר וביטלתי מאוחר, ואשמח להגיע מחר בשעה 7:30 אני רואה שיש הרבה מקום בשעה הזאת.";
+assert.equal(matchesBookedClassMoveIntent(lateCancelThenTomorrow), true);
+assert.equal(resolveBookedClassMoveBranch(lateCancelThenTomorrow), "app");
+assert.equal(matchesBookedClassMoveIntent("הייתי אמורה להגיע מחר, מתי יש שיעור?"), false);
 assert.equal(matchesBookedClassMoveIntent("אני רשומה לשיעור יוגה"), false);
 assert.equal(matchesBookedClassMoveIntent("לא מרגישה טוב"), false);
 assert.equal(matchesBookedClassMoveIntent("אשמח לתאם שיעור ניסיון בשישי בעשר"), false);
