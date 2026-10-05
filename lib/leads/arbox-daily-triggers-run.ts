@@ -19,7 +19,6 @@ import {
   syncArboxFreezeForBusiness,
 } from "@/lib/leads/arbox-freeze";
 import { syncArboxLostLeadForBusiness } from "@/lib/leads/arbox-lost-lead";
-import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import {
   bookingsReportSharedLookbackWindow,
@@ -1055,41 +1054,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
 
-  // --- Step: membership_cancelled ---
-  try {
-    entry.membership_cancelled = await timeStep(timings, business.id, "membership_cancelled", () => syncArboxMembershipCancelledForBusiness({
-      admin,
-      businessId: business.id,
-      businessSlug: business.slug,
-      apiKey: business.crm_api_key,
-      boxId: business.crm_box_id,
-      cancellationSeeded: business.arbox_cancellation_seeded,
-      now,
-      ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
-    }));
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.error("[cron/arbox-daily-triggers] membership_cancelled step threw", {
-      slug: business.slug,
-      error: message,
-    });
-    entry.membership_cancelled = {
-      fetched: 0,
-      pages_fetched: 0,
-      seeded: 0,
-      processed: 0,
-      already: 0,
-      skipped_filter: 0,
-      skipped_rejoined: 0,
-      notified: 0,
-      deferred: 0,
-      gated: 0,
-      no_phone: 0,
-      abandoned: 0,
-      errors: 1,
-      fetch_error: message,
-    };
-  }
+  // membership_cancelled runs on arbox-trial-sync (15 min, 08:00–21:00), not here.
 
   // --- Step: lost_lead (A7) ---
   try {

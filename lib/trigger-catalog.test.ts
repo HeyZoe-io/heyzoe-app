@@ -482,7 +482,7 @@ function triggerCatalogAudience(type: string) {
 {
   assert.equal(forcesDelayAfter("purchase"), false);
   assert.equal(forcesDelayAfter("credit_refusal"), false);
-  assert.equal(forcesDelayAfter("membership_cancelled"), true);
+  assert.equal(forcesDelayAfter("membership_cancelled"), false);
   assert.equal(forcesDelayAfter("registered_after_trial"), true);
   assert.equal(forcesDelayAfter("not_registered_after_trial"), true);
   assert.equal(forcesDelayAfter("birthday"), false);
@@ -490,7 +490,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(forcesDelayAfterFacade("birthday"), false);
   assert.equal(isImmediateDelayTrigger("purchase"), true);
   assert.equal(isImmediateDelayTrigger("credit_refusal"), true);
-  assert.equal(isImmediateDelayTrigger("membership_cancelled"), false);
+  assert.equal(isImmediateDelayTrigger("membership_cancelled"), true);
   assert.equal(isImmediateDelayTrigger("registered_after_trial"), false);
   assert.equal(showsItemTypeFilter("purchase"), true);
   assert.equal(showsItemTypeFilter("credit_refusal"), false);
@@ -552,8 +552,8 @@ function triggerCatalogAudience(type: string) {
     "5 ימים לפני פקיעת התוקף"
   );
   assert.equal(formatDelayLabel("purchase", 0, "after"), "נשלח מיד");
-  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "ביום הביטול");
-  assert.equal(formatDelayLabel("membership_cancelled", 7, "after"), "7 ימים אחרי הביטול");
+  assert.equal(formatDelayLabel("membership_cancelled", 0, "after"), "נשלח מיד");
+  assert.equal(formatDelayLabel("membership_cancelled", 7, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("credit_refusal", 1, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
   assert.equal(formatDelayLabel("attendance_gap", 21, "after"), "21 ימי היעדרות");
@@ -643,10 +643,8 @@ function triggerCatalogAudience(type: string) {
     triggerSendScheduleHintHe("sessions_expiring"),
     triggerSendScheduleHintHe("membership_expiring")
   );
-  assert.equal(
-    triggerSendScheduleHintHe("membership_cancelled"),
-    triggerSendScheduleHintHe("membership_expiring")
-  );
+  assert.match(triggerSendScheduleHintHe("membership_cancelled"), /08:00/);
+  assert.match(triggerSendScheduleHintHe("membership_cancelled"), /21:00/);
   assert.equal(
     triggerSendScheduleHintHe("birthday_former"),
     triggerSendScheduleHintHe("birthday")

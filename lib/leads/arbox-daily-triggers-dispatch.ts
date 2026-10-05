@@ -28,7 +28,6 @@ export const ARBOX_DAILY_TRIGGER_TYPES = [
   "trainer_trial_heads_up",
   "class_cancelled_staff",
   "sessions_expiring",
-  "membership_cancelled",
   "lost_lead",
 ] as const;
 
@@ -40,7 +39,6 @@ export const ARBOX_DAILY_TRIGGER_TYPES = [
 export const ARBOX_DAILY_ACTIVE_PRODUCT_TRIGGER_TYPES = [
   "birthday_former",
   "lost_lead",
-  "membership_cancelled",
   "missed_trial",
   "not_registered_after_trial",
 ] as const;

@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import {
   ARBOX_SYNC_SEND_ATTEMPT_CAP,
   isCancellationSyncLogTerminal,
+  cancellationEventInLiveWindow,
   isExactDaysAfterEvent,
+  isMembershipCancelledQuietHours,
   isMembershipCancelledWinBackStep,
   lookbackDaysForSequenceDelays,
+  membershipCancelledLiveWindow,
   membershipCancelledReportDateRange,
+  syncArboxMembershipCancelledForBusiness,
   nextCancellationSyncLogAfterDispatch,
   normalizeCancelledTimePk,
   parseCancellationUserId,
@@ -15,6 +19,7 @@ import {
   shouldSkipCancelledWinBackBecauseActive,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import { ARBOX_DAILY_TRIGGER_TYPES } from "@/lib/leads/arbox-daily-triggers-dispatch";
 import {
   buildMembershipCancelledScheduledDedupKey,
   encodeCancelledTimeDedupToken,
@@ -72,7 +77,7 @@ function rule(
 
   const seq = membershipCancelledReportDateRange({ seeded: true, now, lookbackDays: 21 });
   assert.equal(seq.toDate, "2026-09-03");
-  assert.equal(seq.fromDate, "2026-08-13");
+  assert.equal(seq.fromDate, "2026-09-02");
 
   const first = membershipCancelledReportDateRange({ seeded: false, now });
   assert.deepEqual(first, seed);
@@ -289,4 +294,205 @@ function rule(
   }
 }
 
-console.log("arbox-membership-cancelled.test.ts: ok");
+{
+  const quietNight = new Date("2026-10-05T21:05:00+03:00");
+  const justAfterMidnight = new Date("2026-10-06T00:05:00+03:00");
+  const twoAm = new Date("2026-10-06T02:00:00+03:00");
+  const eightAm = new Date("2026-10-06T08:00:00+03:00");
+  assert.equal(isMembershipCancelledQuietHours(quietNight), true);
+  assert.equal(isMembershipCancelledQuietHours(justAfterMidnight), true);
+  assert.equal(isMembershipCancelledQuietHours(twoAm), true);
+  assert.equal(isMembershipCancelledQuietHours(eightAm), false);
+  assert.equal(cancellationEventInLiveWindow("2026-10-05", justAfterMidnight), true);
+  assert.deepEqual(membershipCancelledLiveWindow(eightAm), {
+    fromDate: "2026-10-05",
+    toDate: "2026-10-06",
+  });
+  assert.equal(cancellationEventInLiveWindow("2026-10-05", eightAm), true);
+  assert.equal(cancellationEventInLiveWindow("2026-10-04", eightAm), false);
+}
+
+type LogRow = { status: string; user_id: number; cancelled_time: string };
+
+function mockAdmin(input: { rules: Record<string, unknown>[]; logs: LogRow[] }) {
+  const reportCalls = { n: 0 };
+  return {
+    reportCalls,
+    admin: {
+      from(table: string) {
+        const filters: Record<string, unknown> = {};
+        const builder = {
+          select() {
+            return builder;
+          },
+          in() {
+            return builder;
+          },
+          order() {
+            return builder;
+          },
+          limit() {
+            return builder;
+          },
+          eq(column: string, value: unknown) {
+            filters[column] = value;
+            return builder;
+          },
+          maybeSingle() {
+            if (table !== "arbox_cancellation_sync_log") {
+              return Promise.resolve({ data: null, error: null });
+            }
+            const match =
+              input.logs.find(
+                (row) =>
+                  row.user_id === filters.user_id && row.cancelled_time === filters.cancelled_time
+              ) ?? null;
+            return Promise.resolve({ data: match, error: null });
+          },
+          upsert(row: LogRow) {
+            input.logs.push(row);
+            return Promise.resolve({ error: null });
+          },
+          update() {
+            return { eq: () => Promise.resolve({ error: null }) };
+          },
+          then(
+            onFulfilled: (value: { data: unknown; error: null; count: number }) => unknown
+          ) {
+            const data = table === "template_triggers" ? input.rules : table === "contacts" ? [] : input.logs;
+            return Promise.resolve({
+              data,
+              error: null,
+              count: table === "arbox_cancellation_sync_log" ? input.logs.length : 0,
+            }).then(onFulfilled);
+          },
+        };
+        return builder;
+      },
+    },
+  };
+}
+
+const cancelRule = {
+  id: "rule-1",
+  business_id: 1,
+  trigger_type: "membership_cancelled",
+  product_filter: null,
+  item_type_filter: null,
+  delay_days: 7,
+  delay_direction: "after",
+  template_name: "membership_cancelled",
+  enabled: true,
+  created_at: "2026-10-01T00:00:00Z",
+  updated_at: "2026-10-01T00:00:00Z",
+};
+
+const cancelRow = {
+  user_id: 9,
+  cancelled_time: "2026-10-05 23:55:00",
+  membership_type_name: "מנוי",
+  end_date: "2026-11-01",
+};
+
+async function runCancel(input: {
+  now: Date;
+  rules: Record<string, unknown>[];
+  logs: LogRow[];
+  seeded: boolean;
+}) {
+  let reportCalls = 0;
+  const mocked = mockAdmin({ rules: input.rules, logs: input.logs });
+  const summary = await syncArboxMembershipCancelledForBusiness({
+    admin: mocked.admin as never,
+    businessId: 1,
+    businessSlug: "apex",
+    apiKey: "key",
+    boxId: "box",
+    cancellationSeeded: input.seeded,
+    now: input.now,
+    fetchReport: async () => {
+      reportCalls += 1;
+      return { ok: true, rows: [cancelRow], pagesFetched: 1, hitPageCap: false };
+    },
+  });
+  return { summary, reportCalls };
+}
+
+async function windowCases() {
+  const midnight = new Date("2026-10-06T00:05:00+03:00");
+  const twoAm = new Date("2026-10-06T02:00:00+03:00");
+  const eight = new Date("2026-10-06T08:05:00+03:00");
+
+  const atMidnight = await runCancel({
+    now: midnight,
+    rules: [cancelRule],
+    logs: [],
+    seeded: true,
+  });
+  assert.equal(atMidnight.reportCalls, 0);
+  assert.equal(atMidnight.summary.skip_reason, "quiet_hours");
+  assert.equal(atMidnight.summary.notified, 0);
+
+  const atTwo = await runCancel({
+    now: twoAm,
+    rules: [cancelRule],
+    logs: [],
+    seeded: true,
+  });
+  assert.equal(atTwo.reportCalls, 0);
+  assert.equal(atTwo.summary.notified, 0);
+
+  const logs: LogRow[] = [
+    { status: "sent", user_id: 1, cancelled_time: "2026-01-01 00:00:00" },
+  ];
+  const firstMorning = await runCancel({
+    now: eight,
+    rules: [cancelRule],
+    logs,
+    seeded: true,
+  });
+  assert.equal(firstMorning.reportCalls, 1);
+  assert.equal(firstMorning.summary.no_phone, 1);
+  assert.equal(firstMorning.summary.notified, 0);
+  assert.equal(logs.length, 2);
+
+  const secondMorning = await runCancel({
+    now: eight,
+    rules: [cancelRule],
+    logs,
+    seeded: true,
+  });
+  assert.equal(secondMorning.summary.already, 1);
+  assert.equal(secondMorning.summary.no_phone, 0);
+  assert.equal(logs.length, 2);
+
+  const noRule = await runCancel({
+    now: eight,
+    rules: [],
+    logs: [],
+    seeded: true,
+  });
+  assert.equal(noRule.reportCalls, 0);
+  assert.equal(noRule.summary.skip_reason, "no_rule");
+
+  const seeded = await runCancel({
+    now: eight,
+    rules: [cancelRule],
+    logs: [],
+    seeded: false,
+  });
+  assert.equal(seeded.reportCalls, 1);
+  assert.equal(seeded.summary.notified, 0);
+  assert.ok((seeded.summary.seeded ?? 0) >= 1);
+  assert.equal(
+    (ARBOX_DAILY_TRIGGER_TYPES as readonly string[]).includes("membership_cancelled"),
+    false
+  );
+}
+
+windowCases()
+  .then(() => console.log("arbox-membership-cancelled.test.ts: ok"))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

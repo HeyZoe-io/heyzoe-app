@@ -17,10 +17,7 @@ import {
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { fetchCanceledMembershipsReportRows } from "@/lib/leads/arbox-canceled-memberships-report";
-import {
-  fetchArboxActiveProductKeys,
-  type ActiveProductKeys,
-} from "@/lib/leads/arbox-active-product";
+import type { ActiveProductKeys } from "@/lib/leads/arbox-active-product";
 import { parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
@@ -188,7 +185,7 @@ export type MembershipCancelledDispatch =
 
 export type MembershipCancelledSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "quiet_hours";
   fetched: number;
   pages_fetched: number;
   seeded: number;
@@ -255,19 +252,44 @@ export function seedMembershipCancelledReportDateRange(now: Date): {
   return { fromDate, toDate };
 }
 
+/** Quiet hours are 21:00–08:00 Asia/Jerusalem. The 08:00 run is the first that sends. */
+export function isMembershipCancelledQuietHours(now: Date): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: ISRAEL_TZ,
+      hour: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .find((part) => part.type === "hour")?.value
+  );
+  return hour >= 21 || hour < 8;
+}
+
+function addCalendarDaysYmd(ymd: string, days: number): string {
+  const [year, month, day] = ymd.split("-").map((part) => Number(part));
+  const shifted = new Date(Date.UTC(year!, (month ?? 1) - 1, (day ?? 1) + days));
+  return shifted.toISOString().slice(0, 10);
+}
+
+/** Live window is yesterday + today in Asia/Jerusalem, independent of delay_days. */
+export function membershipCancelledLiveWindow(now: Date): { fromDate: string; toDate: string } {
+  const toDate = formatDateYmdIsrael(now);
+  return { fromDate: addCalendarDaysYmd(toDate, -1), toDate };
+}
+
+export function cancellationEventInLiveWindow(eventYmd: string, now: Date): boolean {
+  const { fromDate, toDate } = membershipCancelledLiveWindow(now);
+  return eventYmd >= fromDate && eventYmd <= toDate;
+}
+
 export function membershipCancelledReportDateRange(input: {
   seeded: boolean;
   now: Date;
   lookbackDays?: number;
 }): { fromDate: string; toDate: string } {
   if (!input.seeded) return seedMembershipCancelledReportDateRange(input.now);
-  const toDate = formatDateYmdIsrael(input.now);
-  const days = Math.max(
-    CANCELLATION_LOOKBACK_DAYS,
-    Math.trunc(input.lookbackDays ?? CANCELLATION_LOOKBACK_DAYS)
-  );
-  const fromDate = formatDateYmdIsrael(new Date(input.now.getTime() - days * MS_PER_DAY));
-  return { fromDate, toDate };
+  return membershipCancelledLiveWindow(input.now);
 }
 
 function resolveReportFullName(row: ArboxCanceledMembershipRow): string | null {
@@ -486,16 +508,13 @@ async function dispatchMembershipCancelledTemplate(input: {
 }
 
 /**
- * Daily membership_cancelled step for one Arbox business.
+ * membership_cancelled step for one Arbox business. Runs on the 15-minute trial-sync
+ * worker, 08:00–21:00 Asia/Jerusalem. delay_days is ignored: a cancellation in
+ * yesterday+today sends once. Quiet hours return before any Arbox call.
  *
- * IO (10 businesses): 1 canceledMembershipsReport GET each (paginated; Limitless ~267/30d ≈ 2 pages
- * on seed, 1 page after). Plus 1 GET /v3/membershipTypes only when a product_filter is set.
- * WhatsApp/Meta: one immediate send per matching rule on its due day (delay 0 = cancel day).
- * Multiple rules replace a D4 state machine. Win-back steps (delay > 0) cross the A1
- * active product set (memberships ∪ punch cards ∪ upcoming trial). If the user
- * is active again, skip that step. Day-of confirmation still sends.
- * **IO:** +2 customer-report GETs only when a delay>0 step is due today (same reports as A1;
- * lazy, one fetch per business run). 10 businesses → 0 extra if only delay 0 is live.
+ * IO per run, only with an enabled rule and outside quiet hours: 1 canceledMembershipsReport
+ * (usually 1 page). Plus 1 GET /v3/membershipTypes only when a product_filter is set.
+ * WhatsApp: one UTILITY send per new cancellation. No Claude.
  *
  * Seed (arbox_cancellation_seeded=false): mark the 30-day window seen, no WhatsApp.
  * Soft-seed: empty log for a new trigger_id → same 30-day mark, no WhatsApp.
@@ -512,6 +531,8 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   activeCustomerIds?: ReadonlySet<number>;
   /** Membership + punch card + upcoming trial. Wins over activeCustomerIds. */
   activeProductKeys?: ActiveProductKeys;
+  /** Test hook. Production uses the Arbox cancellations report. */
+  fetchReport?: typeof fetchCanceledMembershipsReportRows;
 }): Promise<MembershipCancelledSyncSummary> {
   const summary: MembershipCancelledSyncSummary = {
     fetched: 0,
@@ -555,17 +576,18 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     return summary;
   }
 
-  const lookbackDays = lookbackDaysForSequenceDelays(
-    rulesWithTemplate.map((r) => r.delay_days),
-    CANCELLATION_LOOKBACK_DAYS
-  );
+  if (isMembershipCancelledQuietHours(now)) {
+    summary.skipped = true;
+    summary.skip_reason = "quiet_hours";
+    return summary;
+  }
+
   const { fromDate, toDate } = membershipCancelledReportDateRange({
     seeded: input.cancellationSeeded,
     now,
-    lookbackDays,
   });
 
-  const report = await fetchCanceledMembershipsReportRows({
+  const report = await (input.fetchReport ?? fetchCanceledMembershipsReportRows)({
     apiKey,
     fromDate,
     toDate,
@@ -584,7 +606,6 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   const nameById = needsTypeMap
     ? await fetchMembershipTypeNameById(apiKey)
     : new Map<number, string>();
-  const todayYmd = formatDateYmdIsrael(now);
 
   async function seedRuleRows(rule: PurchaseTemplateTriggerRule): Promise<number> {
     let wrote = 0;
@@ -663,43 +684,6 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     seededThisRun.add(rule.id);
   }
 
-  type CustomerSetState = { kind: "ready"; ids: ReadonlySet<number> } | { kind: "failed" };
-  let customerSetState: CustomerSetState | undefined = input.activeProductKeys
-    ? { kind: "ready", ids: input.activeProductKeys.userIds }
-    : input.activeCustomerIds
-      ? { kind: "ready", ids: input.activeCustomerIds }
-      : undefined;
-
-  async function ensureActiveCustomerIds(): Promise<ReadonlySet<number> | null> {
-    if (customerSetState?.kind === "ready") return customerSetState.ids;
-    if (customerSetState?.kind === "failed") return null;
-    const { data: bizRow } = await input.admin
-      .from("businesses")
-      .select("arbox_trial_membership_type_ids")
-      .eq("id", businessId)
-      .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
-    if (!products.ok) {
-      customerSetState = { kind: "failed" };
-      summary.errors += 1;
-      summary.fetch_error = products.error;
-      console.error("[leads/arbox-membership-cancelled] active product fetch failed", {
-        businessId,
-        businessSlug,
-        error: products.error,
-      });
-      return null;
-    }
-    customerSetState = { kind: "ready", ids: products.keys.userIds };
-    return products.keys.userIds;
-  }
-
   for (const raw of reportRows) {
     const row = raw as ArboxCanceledMembershipRow;
     const userId = parseCancellationUserId(row.user_id);
@@ -736,14 +720,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
         contact: null as string | null,
       };
 
-      if (
-        !eventYmd ||
-        !isExactDaysAfterEvent({
-          eventYmd,
-          todayYmd,
-          delayDays: rule.delay_days,
-        })
-      ) {
+      if (!eventYmd || !cancellationEventInLiveWindow(eventYmd, now)) {
         continue;
       }
 
@@ -771,43 +748,6 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
             dispatch: "already" satisfies MembershipCancelledDispatch,
           });
           continue;
-        }
-
-        if (isMembershipCancelledWinBackStep(rule.delay_days)) {
-          const activeIds = await ensureActiveCustomerIds();
-          if (!activeIds) {
-            console.info("[leads/arbox-membership-cancelled] dispatch", {
-              ...logBase,
-              dispatch: "customer_set_failed",
-            });
-            continue;
-          }
-          if (
-            shouldSkipCancelledWinBackBecauseActive({
-              delayDays: rule.delay_days,
-              userId,
-              activeCustomerIds: activeIds,
-            })
-          ) {
-            summary.skipped_rejoined += 1;
-            const marked = await upsertCancellationSyncLog({
-              admin: input.admin,
-              businessId,
-              triggerId: rule.id,
-              userId,
-              cancelledTime,
-              contactId: null,
-              nowIso,
-              status: "seeded",
-              attempts: existingAttempts,
-            });
-            if (!marked.ok) summary.errors += 1;
-            console.info("[leads/arbox-membership-cancelled] dispatch", {
-              ...logBase,
-              dispatch: "skipped_rejoined" satisfies MembershipCancelledDispatch,
-            });
-            continue;
-          }
         }
 
         if (!resolved) {

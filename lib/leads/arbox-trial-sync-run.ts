@@ -11,6 +11,7 @@ import {
 } from "@/lib/leads/arbox-trial-sale-registered";
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
+import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import {
   syncTrialBookingConfirmForBusiness,
   trialBookingConfirmEnabled,
@@ -52,6 +53,7 @@ export type BusinessRow = {
   arbox_sales_sync_seeded: boolean;
   arbox_credit_refusal_seeded: boolean;
   arbox_leads_seeded: boolean;
+  arbox_cancellation_seeded: boolean;
 };
 
 export type BusinessSummary = {
@@ -72,6 +74,7 @@ export type BusinessSummary = {
   new_lead?: Awaited<ReturnType<typeof syncArboxNewLeadsForBusiness>>;
   first_paid_purchase?: Awaited<ReturnType<typeof syncFirstPaidPurchasesForBusiness>>;
   trial_booking_confirm?: Awaited<ReturnType<typeof syncTrialBookingConfirmForBusiness>>;
+  membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
 };
 
 function formatDateYmdIsrael(d: Date): string {
@@ -271,10 +274,11 @@ export const ARBOX_TRIAL_SYNC_TRIGGER_TYPES = [
   "credit_refusal",
   "arbox_new_lead",
   "trial_booked",
+  "membership_cancelled",
 ] as const;
 
 const BUSINESS_SELECT =
-  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded";
+  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded";
 
 function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
   const id = Number(row.id);
@@ -293,6 +297,7 @@ function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
     arbox_sales_sync_seeded: row.arbox_sales_sync_seeded === true,
     arbox_credit_refusal_seeded: row.arbox_credit_refusal_seeded === true,
     arbox_leads_seeded: row.arbox_leads_seeded === true,
+    arbox_cancellation_seeded: row.arbox_cancellation_seeded === true,
   };
 }
 
@@ -691,6 +696,39 @@ export async function runArboxTrialSyncForBusiness(input: {
           fetch_error: e instanceof Error ? e.message : String(e),
         };
       }
+    }
+
+    try {
+      summary.membership_cancelled = await syncArboxMembershipCancelledForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        cancellationSeeded: business.arbox_cancellation_seeded,
+        now,
+      });
+    } catch (e) {
+      console.error("[cron/arbox-trial-sync] membership_cancelled step threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      summary.membership_cancelled = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        processed: 0,
+        already: 0,
+        skipped_filter: 0,
+        skipped_rejoined: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
+        fetch_error: e instanceof Error ? e.message : String(e),
+      };
     }
 
   return summary;
