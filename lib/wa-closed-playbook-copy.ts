@@ -60,8 +60,8 @@ function classChangeRequestReference(raw: string): string {
   const t = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (!t) return "";
   const day = /היום/u.test(t) ? "של היום" : /מחר/u.test(t) ? "של מחר" : "";
-  const wantsSwitch = /להחליף|להעביר|לדחות/u.test(t);
-  const wantsCancel = /לבטל|תבטל|בטל(?:י|ו)|ביטול|צריכ(?:ה|ים)?\s+לבטל/u.test(t);
+  const wantsSwitch = /להחליף|להעביר|לדחות|תעביר/u.test(t);
+  const wantsCancel = /לבטל|תבטל|בטל(?:י|ו)|ביטול|צריכ(?:ה|ים)?\s+לבטל|תמחק/u.test(t);
   if (wantsSwitch && wantsCancel) {
     return day ? `לבטל או להחליף את השיעור ${day}` : "לבטל או להחליף את השיעור";
   }

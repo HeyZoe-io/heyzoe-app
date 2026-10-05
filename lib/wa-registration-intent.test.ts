@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { buildNonArboxClassChangeTeamHandoffReply } from "@/lib/wa-closed-playbook-copy";
 import {
   BOOKED_CLASS_MOVE_APP_REPLY,
   buildBookedClassMoveAppReply,
   classifyRegistrationIntentMembershipReply,
+  inboundSaysClassChangeAppFailed,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
@@ -146,5 +148,17 @@ assert.equal(
   matchesBookedClassMoveIntent("תבטלי את השיעור עם שיר בבקשה. היא חולה."),
   false
 );
+
+const tightsMoveOffApp =
+  "היי תמחקו אותי בבקשה מהשיעור של יום ראשון הקרוב ותעבירו אותי ליום שני ב08.30 אי אפשר דרך האפליקציה תודנ";
+assert.equal(matchesBookedClassMoveIntent(tightsMoveOffApp), true);
+assert.equal(inboundSaysClassChangeAppFailed(tightsMoveOffApp), true);
+assert.equal(matchesBookedClassMoveIntent("תעבירו אותי למנהלת"), false);
+assert.equal(matchesBookedClassMoveIntent("מתי יש שיעור ביום שני?"), false);
+assert.equal(inboundSaysClassChangeAppFailed("אפשר להחליף שיעור?"), false);
+const moveHandoff = buildNonArboxClassChangeTeamHandoffReply(tightsMoveOffApp);
+assert.match(moveHandoff, /מעבירה לצוות/);
+assert.match(moveHandoff, /לבטל או להחליף את השיעור/);
+assert.doesNotMatch(moveHandoff, /אפליקצי/);
 
 console.log("wa-registration-intent.test.ts: ok");

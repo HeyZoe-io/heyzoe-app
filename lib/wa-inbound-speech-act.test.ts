@@ -57,4 +57,9 @@ assert.equal(shouldAnswerFromClassTimetable("מתי יש אימון היום?", 
 assert.equal(shouldAnswerFromClassTimetable("כיסא", thu), true);
 assert.equal(shouldAnswerFromClassTimetable("ומחר?", thu), true);
 
+const tightsMoveOffApp =
+  "היי תמחקו אותי בבקשה מהשיעור של יום ראשון הקרוב ותעבירו אותי ליום שני ב08.30 אי אפשר דרך האפליקציה תודנ";
+assert.equal(classifyInboundSpeechAct(tightsMoveOffApp, thu), "other");
+assert.equal(shouldAnswerFromClassTimetable(tightsMoveOffApp, thu), false);
+
 console.log("wa-inbound-speech-act.test.ts: ok");

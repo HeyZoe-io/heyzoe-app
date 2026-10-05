@@ -9,6 +9,7 @@ import {
   digitsForMarketingLineCompare,
   formatWaUnsupportedLogContent,
   hebrewUnsupportedInboundLabel,
+  isSystemInboundLogContent,
   isZoeAdminWhatsAppPhone,
   parseWaUnsupportedKind,
   unsupportedInboundPreviewShouldProcessAsText,
@@ -51,6 +52,10 @@ assert.equal(
   }),
   null
 );
+
+assert.equal(isSystemInboundLogContent("[unsupported] edit"), true);
+assert.equal(isSystemInboundLogContent("[reaction] ❤️"), true);
+assert.equal(isSystemInboundLogContent("תמחקו אותי מהשיעור"), false);
 
 assert.equal(formatWaUnsupportedLogContent("unsupported"), "[unsupported] unsupported");
 assert.equal(formatWaUnsupportedLogContent("hsm", "שלום אלין"), "שלום אלין");

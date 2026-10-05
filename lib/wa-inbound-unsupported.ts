@@ -62,6 +62,18 @@ export function isWaUnsupportedLogContent(raw: string): boolean {
   return /^\[unsupported\]/i.test(String(raw ?? "").trim());
 }
 
+/**
+ * שורות לוג מערכת (עריכה, תבנית, מדיה) — לא הודעת לקוח.
+ * איסוף הודעות רצופות לא עונה עליהן, כדי שלא ייצא ניסוח באנגלית על המילה edit.
+ */
+export function isSystemInboundLogContent(raw: string): boolean {
+  const t = String(raw ?? "").trim();
+  if (!t) return true;
+  if (isWaUnsupportedLogContent(t)) return true;
+  if (/^\[(?:heyzoe:|media|reaction)/i.test(t)) return true;
+  return false;
+}
+
 export function formatWaUnsupportedLogContent(kind: string, preview?: string): string {
   const k = String(kind ?? "").trim() || "unknown";
   const p = String(preview ?? "").trim();

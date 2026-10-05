@@ -1,5 +1,6 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sleepMs } from "@/lib/claude";
+import { isSystemInboundLogContent } from "@/lib/wa-inbound-unsupported";
 
 /** חלון קצר לאיחוד הודעות רצופות בוואטסאפ (פיצול משפט) בלי להאריך כל מענה. */
 export const WA_INBOUND_COALESCE_MS = 1200;
@@ -71,7 +72,7 @@ export async function fetchSessionUserMessagesAfter(input: {
     for (const row of data ?? []) {
       const content = String((row as { content?: string }).content ?? "").trim();
       const created_at = String((row as { created_at?: string }).created_at ?? "").trim();
-      if (!content || !created_at) continue;
+      if (!content || !created_at || isSystemInboundLogContent(content)) continue;
       out.push({ content, created_at });
     }
     return out;

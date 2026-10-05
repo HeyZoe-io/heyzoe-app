@@ -319,6 +319,7 @@ import {
   BOOKED_CLASS_MOVE_APP_MODEL,
   buildBookedClassMoveAppReply,
   classifyRegistrationIntentMembershipReply,
+  inboundSaysClassChangeAppFailed,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
@@ -7874,6 +7875,35 @@ async function processIncoming(
   // Booked class swap — app if already purchased (membership / punch / trial); product pick only
   // in an unpaid sales flow. 0 extra Claude / Arbox IO; skips bookingsReport (1–20 pages).
   if (isSalesFlowFreeTextInbound(msg) && businessId && matchesBookedClassMoveIntent(msg.text)) {
+    if (inboundSaysClassChangeAppFailed(msg.text)) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] class-change app-failed human_requested failed:", e);
+      }
+      const handoffTxt = buildNonArboxClassChangeTeamHandoffReply(msg.text);
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send class-change app-failed handoff failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: handoffTxt,
+        model_used: "class_reschedule_team_handoff",
+        session_id: sessionId,
+      });
+      return;
+    }
     const lastForMove = await fetchLastAssistantModelUsed({
       business_slug,
       session_id: sessionId,
@@ -12935,6 +12965,57 @@ async function processIncoming(
     const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
     replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
     console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
+  }
+
+  const inboundForClassTimes = msg.type === "text" ? msg.text : incomingRaw;
+  if (
+    !isFallbackErrorReply &&
+    knowledge &&
+    scheduleTimesReplyUsesImage(business_slug) &&
+    contactSessionPhase !== "schedule_date" &&
+    contactSessionPhase !== "schedule_time" &&
+    assistantReplyListsClassTimes(replyCoreClean) &&
+    matchesBookedClassMoveIntent(inboundForClassTimes)
+  ) {
+    const useAppReply =
+      !inboundSaysClassChangeAppFailed(inboundForClassTimes) &&
+      knowledge.hasArboxConnection === true;
+    const handoffTxt = useAppReply
+      ? buildBookedClassMoveAppReply(inboundForClassTimes)
+      : buildNonArboxClassChangeTeamHandoffReply(inboundForClassTimes);
+    const notifyTeam = !useAppReply;
+    if (notifyTeam && businessId) {
+      try {
+        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+        await handleLeadHumanRequested({
+          supabase,
+          businessId: Number(businessId),
+          businessSlug: business_slug,
+          phone: msg.from,
+          nowIso,
+          sessionId,
+        });
+      } catch (e) {
+        console.error("[WA Webhook] class-move schedule-swap human_requested failed:", e);
+      }
+    }
+    console.info("[WA Webhook] class-move reply kept off the schedule image", {
+      business_slug,
+      sessionId,
+    });
+    try {
+      await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send class-move instead of schedule image failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: handoffTxt,
+      model_used: notifyTeam ? "class_reschedule_team_handoff" : BOOKED_CLASS_MOVE_APP_MODEL,
+      session_id: sessionId,
+    });
+    return;
   }
 
   if (

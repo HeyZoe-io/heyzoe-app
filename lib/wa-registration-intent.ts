@@ -57,6 +57,15 @@ const MOVE_SLOT_CUE =
 const EXPLICIT_CLASS_MOVE =
   /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|ל(?:תאם|קבוע)\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
 
+/** «תמחקו אותי מהשיעור» / «תעבירו אותי ליום שני» — פעולה על שיבוץ קיים, לא שאלה על הלוח. */
+function matchesStaffImperativeClassChange(t: string): boolean {
+  if (/תמחק(?:י|ו)?\s+אות(?:י|נו).{0,60}(?:שיעור|אימון|הרשמ|רשימ)/u.test(t)) return true;
+  if (/תעביר(?:י|ו)?\s+אות(?:י|נו).{0,60}(?:ליום|לשיעור|לאימון|לשעה|למועד|ביום|בשעה|\d)/u.test(t)) {
+    return true;
+  }
+  return false;
+}
+
 /** «הייתי אמורה להגיע היום ב-7:15 … ביטלתי … אשמח להגיע מחר» — לא שאלת לוח. */
 const WAS_SUPPOSED_TO_ARRIVE =
   /הייתי\s+אמור(?:ה|ים|ות)?\s+להגיע|היינו\s+אמור(?:ים|ות)?\s+להגיע/u;
@@ -72,10 +81,24 @@ export function matchesBookedClassMoveIntent(raw: string): boolean {
   if (!t || t.length > 500) return false;
   if (/תבטל(?:י|ו)?/u.test(t) || /\bplease\s+cancel\b/i.test(t)) return false;
   if (EXPLICIT_CLASS_MOVE.test(t)) return true;
+  if (matchesStaffImperativeClassChange(t)) return true;
   if (WAS_SUPPOSED_TO_ARRIVE.test(t) && ALREADY_CANCELLED_ARRIVAL.test(t)) return true;
   if (EXISTING_BOOKING_CUE.test(t) && MOVE_SLOT_CUE.test(t)) return true;
   if (isExistingTrialEnrollmentMention(raw) && MOVE_SLOT_CUE.test(t)) return true;
   if (matchesCantAttendScheduledClass(raw)) return true;
+  return false;
+}
+
+/**
+ * כבר ניסו באפליקציה ולא הצליחו — לא לשלוח שוב «נכנסים ומבטלים», מעבירים לצוות.
+ */
+export function inboundSaysClassChangeAppFailed(raw: string): boolean {
+  const t = normalizeRegistrationIntentText(raw);
+  if (!t) return false;
+  if (/אי\s*אפשר.{0,32}אפליקצ/u.test(t)) return true;
+  if (/לא\s+(?:נותנ|עובד|מצליח|הצלח).{0,40}אפליקצ/u.test(t)) return true;
+  if (/אפליקצ.{0,40}(?:לא\s+נותנ|לא\s+עובד|לא\s+מצליח|תקוע)/u.test(t)) return true;
+  if (/\b(?:can(?:not|'t)|unable|does(?:n't| not) work).{0,32}\bapp\b/i.test(t)) return true;
   return false;
 }
 
