@@ -83,6 +83,11 @@ import {
   templateStatusForTriggerName,
   type TriggerTemplateMode,
 } from "@/lib/trigger-inline-template";
+import {
+  groupTemplatesForBoard,
+  groupTriggersByType,
+  interleaveTriggersAndTemplates,
+} from "@/lib/automation-board-layout";
 
 export type TemplateRow = {
   id?: string;
@@ -444,6 +449,48 @@ export default function TemplatesClient({
     if (axisActivation !== "automatic") return [];
     return triggers.filter((t) => triggerCatalogEntry(t.trigger_type)?.audience === axisAudience);
   }, [triggers, axisActivation, axisAudience]);
+
+  const triggerTypeGroups = useMemo(
+    () => groupTriggersByType(filteredTriggers),
+    [filteredTriggers]
+  );
+
+  const templateGroups = useMemo(
+    () => groupTemplatesForBoard(templates, triggers),
+    [templates, triggers]
+  );
+
+  const templatesBesideTriggerType = useMemo(() => {
+    const activeTypes = new Set(triggerTypeGroups.map((group) => group.type));
+    const byType = new Map<string, TemplateRow[]>();
+    if (axisActivation !== "automatic") return byType;
+    for (const group of templateGroups) {
+      if (!group.key.startsWith("type:")) continue;
+      const type = group.key.slice(5);
+      if (!activeTypes.has(type)) continue;
+      byType.set(type, group.items);
+    }
+    return byType;
+  }, [axisActivation, templateGroups, triggerTypeGroups]);
+
+  const pairedTemplateNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const rows of templatesBesideTriggerType.values()) {
+      for (const row of rows) names.add(row.name);
+    }
+    return names;
+  }, [templatesBesideTriggerType]);
+
+  const unpairedTemplateGroups = useMemo(
+    () =>
+      templateGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((row) => !pairedTemplateNames.has(row.name)),
+        }))
+        .filter((group) => group.items.length > 0),
+    [pairedTemplateNames, templateGroups]
+  );
 
   const marketingTemplates = useMemo(
     () => templates.filter((t) => isApprovedMarketingTemplate(t)),
@@ -1374,6 +1421,108 @@ export default function TemplatesClient({
     openEditModal(template);
   }
 
+  function renderTemplateCard(t: TemplateRow, paired: boolean) {
+    const isApproved = String(t.status).toUpperCase() === "APPROVED";
+    const isDisabled = t.disabled === true;
+    const isCurrent = leadTemplateName != null && leadTemplateName === t.name;
+    const toggleKey = `${t.id ?? t.name}:${t.language}`;
+    const bodyPreview = bodyTextFromTemplateComponents(t.components);
+    return (
+      <li
+        key={`${t.name}:${t.language}:${t.id ?? t.waba_template_id ?? ""}`}
+        className={`flex h-full min-w-0 flex-col gap-3 px-3 py-3 sm:px-4 ${
+          paired
+            ? "rounded-xl border border-zinc-200"
+            : "sm:flex-row sm:items-center sm:justify-between"
+        } ${isDisabled ? "bg-zinc-50" : "bg-white"}`}
+      >
+        <div className="min-w-0 space-y-1 text-right">
+          <p className="break-all font-medium text-zinc-900" dir="ltr">
+            {t.name}
+          </p>
+          {bodyPreview ? (
+            <p className="line-clamp-2 whitespace-pre-wrap text-sm text-zinc-600">{bodyPreview}</p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span
+              className={`inline-flex rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(
+                t.status
+              )}`}
+            >
+              {statusLabel(t.status)}
+            </span>
+            {isDisabled ? (
+              <span className="inline-flex rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-medium text-zinc-700">
+                מושבת
+              </span>
+            ) : null}
+            <span>{t.category || "—"}</span>
+            <span>{t.language || "—"}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => openEditModal(t)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+          >
+            <Pencil className="h-4 w-4" />
+            ערוך
+          </button>
+          <button
+            type="button"
+            disabled={togglingDisabled === toggleKey}
+            onClick={() => void onToggleDisabled(t)}
+            className={`rounded-xl border px-3 py-2 text-sm disabled:opacity-60 ${
+              isDisabled
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+            }`}
+          >
+            {togglingDisabled === toggleKey ? (
+              <span className="inline-flex items-center gap-1">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                מעדכן…
+              </span>
+            ) : isDisabled ? (
+              "הפעל מחדש"
+            ) : (
+              "השבת"
+            )}
+          </button>
+          {isApproved && !isDisabled ? (
+            isCurrent ? (
+              <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+                <Check className="h-4 w-4" />
+                טמפלייט הפתיחה הנוכחי
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={settingLead === t.name}
+                onClick={() => void onSetLead(t.name)}
+                className="rounded-xl border border-[#7133da]/30 bg-white px-3 py-2 text-sm text-[#7133da] hover:bg-[#7133da]/5 disabled:opacity-60"
+              >
+                {settingLead === t.name ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    מגדיר…
+                  </span>
+                ) : (
+                  "הגדר כטמפלייט פתיחה ללידים"
+                )}
+              </button>
+            )
+          ) : isApproved && isDisabled && isCurrent ? (
+            <span className="inline-flex items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+              טמפלייט פתיחה (מושבת)
+            </span>
+          ) : null}
+        </div>
+      </li>
+    );
+  }
+
   return (
     <div
       className={`${DASHBOARD_SETTINGS_SHELL} ${DASHBOARD_CENTERED_CONTENT} space-y-6`}
@@ -1441,110 +1590,37 @@ export default function TemplatesClient({
 
         {templates.length === 0 ? (
           <p className="text-sm text-zinc-500">עדיין אין טמפלייטים. צרו אחד חדש או לחצו «רענן».</p>
+        ) : unpairedTemplateGroups.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            הטמפלייטים מוצגים ליד הטריגרים מאותו הסוג, לפי הטאב שנבחר למטה.
+          </p>
         ) : (
-          <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-100 overflow-hidden">
-            {templates.map((t) => {
-              const isApproved = String(t.status).toUpperCase() === "APPROVED";
-              const isDisabled = t.disabled === true;
-              const isCurrent = leadTemplateName != null && leadTemplateName === t.name;
-              const toggleKey = `${t.id ?? t.name}:${t.language}`;
-              const bodyPreview = bodyTextFromTemplateComponents(t.components);
+          <div className="space-y-3">
+            {pairedTemplateNames.size > 0 ? (
+              <p className="text-sm text-zinc-500">
+                טמפלייטים ששייכים לטריגר בטאב הנוכחי מופיעים לצדו למטה.
+              </p>
+            ) : null}
+            {unpairedTemplateGroups.map((group) => {
+              const paired = group.items.length > 1;
               return (
-                <li
-                  key={`${t.name}:${t.language}:${t.id ?? t.waba_template_id ?? ""}`}
-                  className={`flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 ${
-                    isDisabled ? "bg-zinc-50" : "bg-white"
-                  }`}
-                >
-                  <div className="space-y-1 text-right min-w-0">
-                    <p className="font-medium text-zinc-900 break-all" dir="ltr">
-                      {t.name}
-                    </p>
-                    {bodyPreview ? (
-                      <p className="text-sm text-zinc-600 line-clamp-2 whitespace-pre-wrap">
-                        {bodyPreview}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-0.5 font-medium ${statusBadgeClass(
-                          t.status
-                        )}`}
-                      >
-                        {statusLabel(t.status)}
-                      </span>
-                      {isDisabled ? (
-                        <span className="inline-flex rounded-full border border-zinc-300 bg-zinc-100 px-2 py-0.5 font-medium text-zinc-700">
-                          מושבת
-                        </span>
-                      ) : null}
-                      <span>{t.category || "—"}</span>
-                      <span>{t.language || "—"}</span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(t)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      ערוך
-                    </button>
-                    <button
-                      type="button"
-                      disabled={togglingDisabled === toggleKey}
-                      onClick={() => void onToggleDisabled(t)}
-                      className={`rounded-xl border px-3 py-2 text-sm disabled:opacity-60 ${
-                        isDisabled
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                    >
-                      {togglingDisabled === toggleKey ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          מעדכן…
-                        </span>
-                      ) : isDisabled ? (
-                        "הפעל מחדש"
-                      ) : (
-                        "השבת"
-                      )}
-                    </button>
-                    {isApproved && !isDisabled ? (
-                      isCurrent ? (
-                        <span className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
-                          <Check className="h-4 w-4" />
-                          טמפלייט הפתיחה הנוכחי
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={settingLead === t.name}
-                          onClick={() => void onSetLead(t.name)}
-                          className="rounded-xl border border-[#7133da]/30 bg-white px-3 py-2 text-sm text-[#7133da] hover:bg-[#7133da]/5 disabled:opacity-60"
-                        >
-                          {settingLead === t.name ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              מגדיר…
-                            </span>
-                          ) : (
-                            "הגדר כטמפלייט פתיחה ללידים"
-                          )}
-                        </button>
-                      )
-                    ) : isApproved && isDisabled && isCurrent ? (
-                      <span className="inline-flex items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-                        טמפלייט פתיחה (מושבת)
-                      </span>
-                    ) : null}
-                  </div>
-                </li>
+                <div key={group.key} className="space-y-2">
+                  {paired ? (
+                    <p className="text-xs font-medium text-zinc-500">{group.label}</p>
+                  ) : null}
+                  <ul
+                    className={
+                      paired
+                        ? "grid grid-cols-1 items-stretch gap-3 md:grid-cols-2"
+                        : "divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-100"
+                    }
+                  >
+                    {group.items.map((t) => renderTemplateCard(t, paired))}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
       </section>
 
@@ -1651,17 +1727,39 @@ export default function TemplatesClient({
               </p>
             ) : null}
 
-            <ul className="space-y-3">
-              {filteredTriggers.map((trigger) => (
+            <div className="space-y-3">
+              {triggerTypeGroups.map((group) => {
+                const groupTemplates = templatesBesideTriggerType.get(group.type) ?? [];
+                const boardItems = interleaveTriggersAndTemplates(group.triggers, groupTemplates);
+                const paired = boardItems.length > 1;
+                return (
+                  <ul
+                    key={group.type}
+                    className={
+                      paired
+                        ? "grid grid-cols-1 items-stretch gap-3 md:grid-cols-2"
+                        : "space-y-3"
+                    }
+                  >
+                    {boardItems.map((item) => {
+                      if (item.kind === "template") return renderTemplateCard(item.template, true);
+                      const trigger = item.trigger;
+                      return (
                 <li
                   key={trigger.id}
-                  className={`rounded-xl border px-3 py-3 sm:px-4 ${
+                  className={`min-w-0 rounded-xl border px-3 py-3 sm:px-4 ${
+                    paired && editingTriggerId === trigger.id ? "md:col-span-2" : ""
+                  } ${
                     trigger.enabled
                       ? "border-zinc-200 bg-white"
                       : "border-zinc-100 bg-zinc-50 opacity-80"
                   }`}
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div
+                    className={`flex flex-col gap-3 ${
+                      paired ? "" : "sm:flex-row sm:items-start sm:justify-between"
+                    }`}
+                  >
                     <div className="space-y-1.5 text-right min-w-0 flex-1">
                       <p className="font-medium text-zinc-900">
                         {triggerTypeLabel(trigger.trigger_type)}
@@ -1820,7 +1918,11 @@ export default function TemplatesClient({
                       ) : null}
                     </div>
                     {hasArbox || !isArboxTriggerType(trigger.trigger_type) ? (
-                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
+                      <div
+                        className={`flex shrink-0 flex-wrap items-center gap-2 self-end ${
+                          paired ? "" : "sm:self-start"
+                        }`}
+                      >
                         <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
                           <input
                             type="checkbox"
@@ -1858,8 +1960,13 @@ export default function TemplatesClient({
                     ) : null}
                   </div>
                 </li>
-              ))}
+                      );
+                    })}
+                  </ul>
+                );
+              })}
 
+              <ul className="space-y-3">
               {creatableCatalogEntries.map((entry) => {
                 const type = entry.type as TriggerType;
                 const open = createFormOpenFor === type;
@@ -2334,7 +2441,8 @@ export default function TemplatesClient({
                   <p className="mt-1 text-xs text-zinc-500">בקרוב</p>
                 </li>
               ))}
-            </ul>
+              </ul>
+            </div>
 
             {enabledIncomingLead && axisAudience === "leads" ? (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-3 text-right">
