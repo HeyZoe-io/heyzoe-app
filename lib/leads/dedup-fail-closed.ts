@@ -1,3 +1,5 @@
+import { noteDuplicateBlockAlarm } from "@/lib/leads/duplicate-block-alarm";
+
 /** A dedup read or claim failed. Callers must not send. */
 export function logDedupBlockedSend(input: {
   log: string;
@@ -8,6 +10,11 @@ export function logDedupBlockedSend(input: {
   console.error(input.log, "dedup blocked send", {
     business_id: input.businessId,
     trigger_id: input.triggerId ?? null,
+    reason: input.reason,
+  });
+  noteDuplicateBlockAlarm({
+    businessId: input.businessId,
+    triggerId: input.triggerId,
     reason: input.reason,
   });
 }

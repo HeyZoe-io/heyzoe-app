@@ -40,6 +40,7 @@ import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
+import { claimBlockReason } from "@/lib/leads/duplicate-block-alarm";
 import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
 import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -853,7 +854,7 @@ async function claimTrialBookingSlot(
       log: LOG,
       businessId,
       triggerId,
-      reason: error?.message || "claim_not_won",
+      reason: claimBlockReason(error),
     });
     return false;
   }
