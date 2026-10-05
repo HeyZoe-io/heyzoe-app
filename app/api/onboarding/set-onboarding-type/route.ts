@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { canWriteForSlug } from "@/lib/onboarding-auth";
+import { canWriteOnboardingForUser } from "@/lib/onboarding-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,10 +49,14 @@ export async function POST(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const userId = user?.id ?? null;
 
   const admin = createSupabaseAdminClient();
-  const allowed = await canWriteForSlug(admin, businessSlug, userId, proofEmail);
+  const allowed = await canWriteOnboardingForUser(
+    admin,
+    businessSlug,
+    user ? { id: user.id, email: user.email } : null,
+    proofEmail
+  );
   if (!allowed) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }

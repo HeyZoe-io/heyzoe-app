@@ -7,7 +7,7 @@ import {
   registerMetaPhoneNumberWithPin,
   type MetaWabaPhoneNumber,
 } from "@/lib/meta-waba-resolve";
-import { canWriteForSlug } from "@/lib/onboarding-auth";
+import { canWriteOnboardingForUser } from "@/lib/onboarding-auth";
 import {
   pickWabaPhone,
   shouldUseExistingNumberConnect,
@@ -69,8 +69,18 @@ export async function POST(req: NextRequest) {
   const userId = user?.id ?? null;
 
   const admin = createSupabaseAdminClient();
-  const allowed = await canWriteForSlug(admin, businessSlug, userId, proofEmail);
+  const allowed = await canWriteOnboardingForUser(
+    admin,
+    businessSlug,
+    user ? { id: user.id, email: user.email } : null,
+    proofEmail
+  );
   if (!allowed) {
+    console.warn("[embedded-signup] forbidden", {
+      slug: businessSlug,
+      hasUser: Boolean(userId),
+      hasProofEmail: Boolean(proofEmail),
+    });
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

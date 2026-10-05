@@ -1,3 +1,4 @@
+import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 function normalizeEmail(raw: unknown): string {
@@ -34,4 +35,20 @@ export async function canWriteForSlug(
     .limit(1)
     .maybeSingle();
   return Boolean(ps);
+}
+
+/**
+ * כתיבה ממסך הדשבורד: בעלים, מייל הוכחה, אדמין פלטפורמה, או חבר ב-business_users.
+ * בלי זה «חיבור למטא» מההגדרות מחזיר forbidden כשהמחובר אינו בעל השורה.
+ */
+export async function canWriteOnboardingForUser(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  slug: string,
+  user: { id: string; email?: string | null } | null,
+  proofEmail: string
+): Promise<boolean> {
+  if (await canWriteForSlug(admin, slug, user?.id ?? null, proofEmail)) return true;
+  if (!user?.id) return false;
+  const access = await assertBusinessAccess(admin, user, slug);
+  return access.ok;
 }
