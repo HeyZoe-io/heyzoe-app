@@ -43,6 +43,7 @@ import {
   waSessionPhoneKey,
   waSessionIdLookupVariants,
 } from "@/lib/phone-normalize";
+import { serviceNameContainsInboundNeedle } from "@/lib/business-conversation-flow-text";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import {
   composeGreeting,
@@ -7545,7 +7546,7 @@ async function processIncoming(
         session_id: sessionId,
       });
       const lastAssistContentForTryOffer =
-        inboundYes && lastAssistForTryOffer !== TRY_CLASS_OFFER_MODEL
+        (inboundYes || inboundNo) && lastAssistForTryOffer !== TRY_CLASS_OFFER_MODEL
           ? await fetchLastAssistantMessageContent({
               business_slug,
               session_id: sessionId,
@@ -7582,7 +7583,13 @@ async function processIncoming(
       }
       return;
     }
-    if (shouldDeclineTryClassOffer({ inbound: msg.text, lastAssistantModel: lastAssistForTryOffer })) {
+    if (
+      shouldDeclineTryClassOffer({
+        inbound: msg.text,
+        lastAssistantModel: lastAssistForTryOffer,
+        lastAssistantContent: lastAssistContentForTryOffer,
+      })
+    ) {
       await sendTryClassInfoOfferDecline({
         knowledge,
         inbound: msg.text,
@@ -9990,8 +9997,7 @@ async function processIncoming(
           : named.find((s) => waLabelMatches(resolved, s.name)) ??
             named.find((s) => s.name.trim().toLowerCase() === rawLower) ??
             (catalogTyped ? named.find((s) => s.name === catalogTyped) : undefined) ??
-            named.find((s) => rawLower && s.name.toLowerCase().includes(rawLower)) ??
-            named.find((s) => rawLower && rawLower.includes(s.name.toLowerCase()));
+            named.find((s) => serviceNameContainsInboundNeedle(s.name, resolved));
 
       if (picked) {
         await sendAfterServicePickIntro({

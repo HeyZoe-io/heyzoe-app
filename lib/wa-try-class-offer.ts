@@ -155,7 +155,10 @@ export function shouldStartProductPickAfterTryClassOffer(input: {
 export function shouldDeclineTryClassOffer(input: {
   inbound: string;
   lastAssistantModel: string | null | undefined;
+  lastAssistantContent?: string | null;
 }): boolean {
-  if (input.lastAssistantModel !== TRY_CLASS_OFFER_MODEL) return false;
-  return isTryClassOfferNegative(input.inbound);
+  if (!isTryClassOfferNegative(input.inbound)) return false;
+  if (input.lastAssistantModel === TRY_CLASS_OFFER_MODEL) return true;
+  // Claude asked in free text («ברצונך לנסות אימון ניסיון…») — «לא» must not fall into product pick.
+  return assistantAskedToTryAClass(input.lastAssistantContent ?? "");
 }

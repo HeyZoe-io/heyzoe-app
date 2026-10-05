@@ -4,6 +4,7 @@ import {
   fillRegistrationText,
   inboundRestartsBusinessFlowFromStart,
   matchQuestionButton,
+  serviceNameContainsInboundNeedle,
 } from "@/lib/business-conversation-flow-text";
 
 assert.equal(
@@ -19,6 +20,14 @@ assert.equal(
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "שחייה"), 0);
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "  ריצה "), 1);
 assert.equal(matchQuestionButton(["שחייה"], "אופניים"), -1);
+// «לא» must not match «פילאטיס» (ל+א inside the name).
+assert.equal(matchQuestionButton(["פילאטיס מכשירים", "יוגה"], "לא"), -1);
+assert.equal(matchQuestionButton(["כן", "לא תודה"], "לא"), 1);
+assert.equal(matchQuestionButton(["כן", "לא תודה"], "כן"), 0);
+
+assert.equal(serviceNameContainsInboundNeedle("פילאטיס מכשירים", "לא"), false);
+assert.equal(serviceNameContainsInboundNeedle("פילאטיס מכשירים", "פילאטיס"), true);
+assert.equal(serviceNameContainsInboundNeedle("פילאטיס מכשירים", "מכשירים"), true);
 
 assert.equal(
   inboundRestartsBusinessFlowFromStart({ text: "אשמח לפרטים", businessSlug: "pipman-team" }),
