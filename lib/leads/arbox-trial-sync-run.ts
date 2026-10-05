@@ -17,6 +17,7 @@ import {
   syncTrialBookingConfirmForBusiness,
   trialBookingConfirmEnabled,
 } from "@/lib/leads/arbox-trial-booking-confirm";
+import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import {
   canonicalContactPhone,
   contactPhoneLookupVariants,
@@ -680,6 +681,12 @@ export async function runArboxTrialSyncForBusiness(input: {
         errors: 1,
         fetch_error: e instanceof Error ? e.message : String(e),
       };
+    }
+
+    if (trialBookedBusinessIds.has(business.id) && !trialBookedSendsEnabled()) {
+      console.error("[cron/arbox-trial-sync] trial_booked kill switch: sending nothing", {
+        business_id: business.id,
+      });
     }
 
     if (trialBookingConfirmEnabled(trialBookedBusinessIds.has(business.id))) {

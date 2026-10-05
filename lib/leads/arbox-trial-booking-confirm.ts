@@ -36,6 +36,7 @@ import {
   sendTrialRegisteredWhatsAppReplyIfInWindow,
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
+import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan";
 import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -48,7 +49,12 @@ const TABLE = "arbox_trial_booking_confirm_log";
 
 export type TrialBookingConfirmSummary = {
   skipped?: boolean;
-  skip_reason?: "not_enabled" | "migration_missing" | "missing_credentials" | "no_trial_scope";
+  skip_reason?:
+    | "kill_switch"
+    | "not_enabled"
+    | "migration_missing"
+    | "missing_credentials"
+    | "no_trial_scope";
   seeded: number;
   fetched: number;
   pages_fetched: number;
@@ -79,9 +85,9 @@ type LogRow = {
   template_status?: PartStatus;
 };
 
-/** The step runs only when this business has an enabled trial_booked rule. */
+/** The step runs only when sends are on and this business has an enabled trial_booked rule. */
 export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean {
-  return hasTrialBookedRule === true;
+  return trialBookedSendsEnabled() && hasTrialBookedRule === true;
 }
 
 /** Settled log rows are not sent again. Only `pending` is retried. */
@@ -336,6 +342,15 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 }): Promise<TrialBookingConfirmSummary> {
   const summary = emptySummary();
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
+  if (!trialBookedSendsEnabled()) {
+    summary.skipped = true;
+    summary.skip_reason = "kill_switch";
+    console.error(LOG, "kill switch: trial_booked sends nothing", {
+      business_id: Number(input.businessId),
+      businessSlug,
+    });
+    return summary;
+  }
   if (!trialBookingConfirmEnabled(input.hasTrialBookedRule === true)) {
     summary.skipped = true;
     summary.skip_reason = "not_enabled";
