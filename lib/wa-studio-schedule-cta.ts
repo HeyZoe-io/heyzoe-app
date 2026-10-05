@@ -49,6 +49,17 @@ export function assistantReplyListsClassTimes(text: string): boolean {
   return false;
 }
 
+/**
+ * שורת [media] של מערכת השעות לא נכנסת ל-Claude כמו שהיא.
+ * בלי הערה, הבקשה נשארת «פתוחה» וזואי מבטיחה לשלוח שוב.
+ */
+export function scheduleBoardHistoryNote(content: string): string | null {
+  const raw = String(content ?? "").trim();
+  if (!raw.startsWith("[media]")) return null;
+  if (!/מערכת\s+ה?שעות|לוח\s+השיעורים/u.test(raw)) return null;
+  return "שלחתי את תמונת מערכת השעות.";
+}
+
 /** האם לצרף לינק למערכת השעות מיד אחרי תמונת מערכת השעות. */
 export function scheduleCtaSendsImageAndLink(slug?: string | null): boolean {
   const s = String(slug ?? "").trim().toLowerCase();

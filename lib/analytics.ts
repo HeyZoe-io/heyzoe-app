@@ -7,6 +7,7 @@ import {
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
 import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
+import { scheduleBoardHistoryNote } from "@/lib/wa-studio-schedule-cta";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 import { touchContactLastZoeReply } from "@/lib/zoe-opened-conversations";
 
@@ -299,6 +300,8 @@ export async function fetchRecentSessionMessages(input: {
   business_slug: string;
   session_id: string;
   limit?: number;
+  /** לפרומפט של זואי: שורת מדיה של מערכת השעות נשמרת כ«כבר נשלחה», כדי שלא תבטיח לשלוח שוב. */
+  includeScheduleBoardNote?: boolean;
 }): Promise<{ role: "user" | "assistant"; content: string; created_at: string }[]> {
   try {
     const supabase = createSupabaseAdminClient();
@@ -314,7 +317,15 @@ export async function fetchRecentSessionMessages(input: {
     for (const row of [...data].reverse()) {
       if (row.role !== "user" && row.role !== "assistant") continue;
       const c = String(row.content ?? "").trim();
-      if (!c || c.startsWith("[media]") || c.startsWith("[unsupported]") || isWaReactionLogContent(c)) continue;
+      if (!c || c.startsWith("[unsupported]") || isWaReactionLogContent(c)) continue;
+      if (c.startsWith("[media]")) {
+        if (!input.includeScheduleBoardNote) continue;
+        const note = scheduleBoardHistoryNote(c);
+        if (!note) continue;
+        const created_at = String((row as { created_at?: string }).created_at ?? "").trim();
+        out.push({ role: "assistant", content: note, created_at });
+        continue;
+      }
       const created_at = String((row as { created_at?: string }).created_at ?? "").trim();
       out.push({ role: row.role, content: c.slice(0, 12_000), created_at });
     }

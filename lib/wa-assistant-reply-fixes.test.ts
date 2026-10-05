@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   applyKnownAssistantReplyFixes,
   buildWaSpellingAndPhrasingPromptRule,
+  stripPromisedScheduleSend,
 } from "@/lib/wa-assistant-reply-fixes";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 
@@ -139,6 +140,23 @@ const fakeSchedule = applyKnownAssistantReplyFixes(
 );
 assert.doesNotMatch(fakeSchedule, /תישלח כאן|\[תמונה/);
 assert.match(fakeSchedule, /תיאום הגעה/);
+
+const promisedSchedule = stripPromisedScheduleSend(
+  "היי! 😊 בטח, נשלח לך את מערכת השעות בעוד שניה. לגבי מחירים - יש לנו מנויים בתכניות שונות."
+);
+assert.doesNotMatch(promisedSchedule, /נשלח|מערכת השעות|בעוד שניה/);
+assert.match(promisedSchedule, /לגבי מחירים/);
+assert.equal(
+  stripPromisedScheduleSend("נשלח לך את כל הפרטים לאחר ההרשמה."),
+  "נשלח לך את כל הפרטים לאחר ההרשמה."
+);
+assert.match(
+  applyKnownAssistantReplyFixes(
+    "היי! בטח, נשלח לך את מערכת השעות בעוד שניה. לגבי מחירים יש מנוי חודשי.",
+    { knowledge }
+  ),
+  /מחירים/
+);
 
 const inventedSlot = applyKnownAssistantReplyFixes(
   "💜 בכל עת שתצטרכי - אני כאן. נשמח לראותך בחומש בשמונה!",

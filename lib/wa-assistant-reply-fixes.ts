@@ -551,6 +551,17 @@ function stripPolicyFluffPreamble(text: string): string {
   return s.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1").trim();
 }
 
+/** «נשלח לך את מערכת השעות בעוד שניה» — התמונה כבר יצאה, או שהמערכת שולחת אותה בלי משפט כזה. */
+export function stripPromisedScheduleSend(text: string): string {
+  const raw = String(text ?? "");
+  if (!raw.trim()) return raw.trim();
+  const s = raw.replace(
+    /(?:^|(?<=[.!?]\s)|(?<=\n))(?:[^\n.!?]{0,40})?(?:נשלח|אשלח|תשלח|שולחת|שולחים|תישלח)\s+(?:לך\s+|לכם\s+|אליי?ך\s+)?(?:את\s+)?(?:מערכת\s+ה?שעות|לוח\s+השיעורים)[^.!?\n]{0,48}[.!]?\s*/gu,
+    ""
+  );
+  return s.replace(/\n{3,}/g, "\n\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 function stripFakeScheduleImagePlaceholders(text: string): string {
   let s = String(text ?? "");
   s = s.replace(/מערכת השעות:\s*\[[^\]]{0,80}\]/giu, "");
@@ -651,6 +662,7 @@ export function applyKnownAssistantReplyFixes(
   s = rewriteFalseSingleWeeklySlotClaim(s, catalogForSlots);
 
   s = stripFakeScheduleImagePlaceholders(s);
+  s = stripPromisedScheduleSend(s);
   s = stripFillerAfterSeeYouInClass(s);
   s = stripTrailingMeanwhileFiller(s);
   s = replaceSlangJoyOpener(s);

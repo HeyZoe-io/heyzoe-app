@@ -12649,6 +12649,7 @@ async function processIncoming(
       business_slug,
       session_id: sessionId,
       limit: 10,
+      includeScheduleBoardNote: true,
     });
     aiSessionHistory = history;
     const claimed = claimTrailingUserTurnFromHistory({

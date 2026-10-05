@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   assistantReplyListsClassTimes,
   SCHEDULE_TIMES_IMAGE_REPLY,
+  scheduleBoardHistoryNote,
   scheduleCtaImageFollowUpLinkText,
   scheduleCtaSendsImageAndLink,
   scheduleTimesReplyCaption,
@@ -49,5 +50,14 @@ assert.equal(assistantReplyListsClassTimes("18:00, BODY PUMP\n19:30, יוגה"),
 assert.equal(assistantReplyListsClassTimes("נרשמת לשיעור מחר ב-18:00, נתראה!"), false);
 assert.equal(assistantReplyListsClassTimes("שעות פעילות: ראשון 08:00-20:00"), false);
 assert.equal(assistantReplyListsClassTimes("המחיר הוא 120 שקלים לחודש."), false);
+
+assert.equal(
+  scheduleBoardHistoryNote(
+    "[media] https://example.com/board.jpeg\n\nכאן ניתן לראות את מערכת השעות שלנו"
+  ),
+  "שלחתי את תמונת מערכת השעות."
+);
+assert.equal(scheduleBoardHistoryNote("[media] https://example.com/logo.png"), null);
+assert.equal(scheduleBoardHistoryNote("כאן ניתן לראות את מערכת השעות שלנו"), null);
 
 console.log("wa-studio-schedule-cta: assertions passed");
