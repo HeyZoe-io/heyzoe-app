@@ -723,6 +723,43 @@ export default function ConversationsClient({
     }
   }
 
+  function appendOutboundMessage(sessionId: string, content: string) {
+    const nowIso = new Date().toISOString();
+    const msg: SessionMessage = {
+      role: "assistant",
+      content,
+      created_at: nowIso,
+    };
+    setSessions((prev) =>
+      sortSessionsByRecentActivity(
+        prev.map((s) =>
+          s.session_id === sessionId
+            ? {
+                ...s,
+                lastAt: nowIso,
+                count: s.count + 1,
+                isOpen: false,
+                lastFromUser: false,
+              }
+            : s
+        )
+      )
+    );
+    queryClient.setQueryData<SessionMessage[]>(
+      [queryScope, "conversation_messages", messagesSlug, sessionId],
+      (prev) => [...(prev ?? []), msg]
+    );
+    queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
+      sortSessionsByRecentActivity(
+        (prev ?? []).map((s) =>
+          s.session_id === sessionId
+            ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: false, lastFromUser: false }
+            : s
+        )
+      )
+    );
+  }
+
   async function sendManual() {
     if (!selected || manualReplyWindowExpired || !selected.isPaused) return;
     const caption = manualText.trim();
@@ -761,7 +798,6 @@ export default function ConversationsClient({
         body: JSON.stringify(manualBody),
       });
       if (res.ok) {
-        const nowIso = new Date().toISOString();
         let loggedContent = caption;
         if (!isMarketingAdmin) {
           try {
@@ -775,39 +811,7 @@ export default function ConversationsClient({
             if (mediaUrl) loggedContent = formatManualMediaMessageContent(mediaUrl, caption);
           }
         }
-        const msg: SessionMessage = {
-          role: "assistant",
-          content: loggedContent,
-          created_at: nowIso,
-        };
-        setSessions((prev) =>
-          sortSessionsByRecentActivity(
-            prev.map((s) =>
-              s.session_id === selected.session_id
-                ? {
-                    ...s,
-                    lastAt: nowIso,
-                    count: s.count + 1,
-                    isOpen: false,
-                    lastFromUser: false,
-                  }
-                : s
-            )
-          )
-        );
-        queryClient.setQueryData<SessionMessage[]>(
-          [queryScope, "conversation_messages", messagesSlug, selected.session_id],
-          (prev) => [...(prev ?? []), msg]
-        );
-        queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
-          sortSessionsByRecentActivity(
-            (prev ?? []).map((s) =>
-              s.session_id === selected.session_id
-                ? { ...s, lastAt: nowIso, count: s.count + 1, isOpen: false, lastFromUser: false }
-                : s
-            )
-          )
-        );
+        appendOutboundMessage(selected.session_id, loggedContent);
         setManualText("");
         clearPendingImage();
       } else {
@@ -1277,6 +1281,7 @@ export default function ConversationsClient({
                     )
                   );
                 }}
+                onTemplateSent={(content) => appendOutboundMessage(selected.session_id, content)}
               />
             ) : null}
           </div>

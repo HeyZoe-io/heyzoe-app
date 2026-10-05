@@ -17,8 +17,11 @@ import {
   resolveMarketingTemplateBodyParams,
   type MarketingTemplateParamSlot,
 } from "@/lib/marketing-template-presets";
-import type { MarketingTriggerType } from "@/lib/marketing-template-trigger-types";
-import { marketingDelayDirectionForTrigger } from "@/lib/marketing-template-trigger-types";
+import {
+  isMarketingSystemTemplateName,
+  marketingDelayDirectionForTrigger,
+  type MarketingTriggerType,
+} from "@/lib/marketing-template-trigger-types";
 import { isMarketingStatusTriggerColumn } from "@/lib/marketing-status-trigger";
 import {
   logMarketingWhatsAppMessage,
@@ -131,20 +134,26 @@ async function loadStatusChangedTriggers(admin: AdminClient): Promise<MarketingT
   );
 }
 
-async function lookupLeadFirstName(admin: AdminClient, phone: string): Promise<string | null> {
+async function lookupLeadFirstName(
+  admin: AdminClient,
+  phone: string,
+  opts?: { quiet?: boolean }
+): Promise<string | null> {
   const { data, error } = await admin
     .from("marketing_flow_sessions")
     .select("full_name")
     .eq("phone", phone)
     .maybeSingle();
   if (error) {
-    console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", phone });
+    if (!opts?.quiet) {
+      console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", phone });
+    }
     return null;
   }
   const name = resolveTemplateFirstName({
     full_name: String((data as { full_name?: unknown } | null)?.full_name ?? ""),
   });
-  if (!name) {
+  if (!name && !opts?.quiet) {
     console.info("[marketing-template-dispatch] skip", { reason: "no_valid_name", phone });
   }
   return name;
@@ -260,6 +269,52 @@ export async function sendMarketingLeadTemplate(input: {
   }
 
   return { ok: true };
+}
+
+/** שליחה מיידית של טמפלייט מאושר לליד אחד מתוך שיחת זואי אדמין. קריאת Meta אחת. */
+export async function sendMarketingConversationTemplate(input: {
+  admin: AdminClient;
+  phone: string;
+  templateName: string;
+}): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+  const phone = phoneNorm(input.phone);
+  const templateName = String(input.templateName ?? "").trim();
+  if (!phone || !templateName) return { ok: false, error: "missing_fields" };
+  if (isMarketingSystemTemplateName(templateName)) {
+    return { ok: false, error: "template_not_approved" };
+  }
+
+  const approved = await lookupApprovedTemplate(input.admin, templateName);
+  if (!approved) return { ok: false, error: "template_not_approved" };
+
+  const firstName = (await lookupLeadFirstName(input.admin, phone, { quiet: true })) || "שלום";
+  const slot = await lookupSessionCallSlot(input.admin, phone);
+  const callTime = slot?.timeHm ?? null;
+  const callTimeEnd = await lookupAgreedCallEndHm(input.admin, phone, callTime);
+  const bodyParams = paramsForTrigger({
+    triggerType: "broadcast",
+    components: approved.components,
+    firstName,
+    callTime,
+    callTimeEnd,
+  });
+
+  const sent = await sendMarketingLeadTemplate({
+    admin: input.admin,
+    phone,
+    templateName,
+    bodyParams,
+  });
+  if (!sent.ok) return { ok: false, error: sent.error || "send_failed" };
+
+  return {
+    ok: true,
+    content: formatLeadTemplateMessageContent(templateName, {
+      firstName,
+      components: approved.components,
+      bodyParams,
+    }),
+  };
 }
 
 async function sendMarketingCallDayNoTimeFallback(input: {

@@ -6,6 +6,8 @@ import {
   type MarketingNoteStatus,
 } from "@/lib/marketing-conversation-notes";
 import { isMarketingStage, type MarketingRelevance, type MarketingStage } from "@/lib/marketing-admin-status";
+import { isMarketingSystemTemplateName } from "@/lib/marketing-template-trigger-types";
+import { bodyTextFromTemplateComponents } from "@/lib/template-presets";
 
 const PURPLE = "#7133da";
 const MUTED = "#6b5b9a";
@@ -79,6 +81,29 @@ function writeDraft(phone: string, sessionId: string, draft: Omit<DraftPayload, 
   }
 }
 
+type TemplateChoice = { name: string; label: string };
+
+function templateChoiceLabel(name: string, components: unknown): string {
+  const body = bodyTextFromTemplateComponents(components).replace(/\s+/g, " ").trim();
+  if (!body) return name;
+  return body.length > 48 ? `${body.slice(0, 48)}…` : body;
+}
+
+function templateSendErrorHe(code: string): string {
+  switch (code) {
+    case "template_not_approved":
+      return "הטמפלייט לא מאושר או כבוי.";
+    case "suppressed_opt_out":
+      return "הליד ביקש להסיר. אי אפשר לשלוח טמפלייט.";
+    case "missing_fields":
+      return "חסר טמפלייט או מספר.";
+    case "unauthorized":
+      return "אין הרשאה לשליחה.";
+    default:
+      return "השליחה נכשלה. נסו שוב.";
+  }
+}
+
 function clearDraft(phone: string, sessionId: string): void {
   try {
     localStorage.removeItem(draftKey(phone, sessionId));
@@ -92,11 +117,13 @@ export default function MarketingConversationNotesPanel({
   sessionId,
   onStatusSaved,
   onCallSaved,
+  onTemplateSent,
 }: {
   phone: string;
   sessionId: string;
   onStatusSaved?: (status: MarketingStage, relevance: MarketingRelevance) => void;
   onCallSaved?: (date: string | null, time: string | null) => void;
+  onTemplateSent?: (content: string) => void;
 }) {
   const [businessName, setBusinessName] = useState("");
   const [link, setLink] = useState("");
@@ -111,6 +138,13 @@ export default function MarketingConversationNotesPanel({
   const [savedFlash, setSavedFlash] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [draftHint, setDraftHint] = useState("");
+  const [templates, setTemplates] = useState<TemplateChoice[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesError, setTemplatesError] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateNotice, setTemplateNotice] = useState("");
+  const [templateNoticeOk, setTemplateNoticeOk] = useState(false);
   const loadGenRef = useRef(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const formRef = useRef({
@@ -141,6 +175,8 @@ export default function MarketingConversationNotesPanel({
     setRelevance("relevant");
     setConversationAt("");
     setCallTime("");
+    setTemplateNotice("");
+    setTemplateNoticeOk(false);
 
     if (!p && !sid) {
       setLoading(false);
@@ -206,6 +242,81 @@ export default function MarketingConversationNotesPanel({
 
     return () => ac.abort();
   }, [phone, sessionId]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    setTemplatesLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/marketing/templates", {
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          templates?: Array<{ name?: string; status?: string; disabled?: boolean; components?: unknown }>;
+          error?: string;
+        };
+        if (ac.signal.aborted) return;
+        if (!res.ok) {
+          setTemplatesError("לא הצלחנו לטעון טמפלייטים.");
+          return;
+        }
+        const choices = (j.templates ?? [])
+          .filter((row) => {
+            const name = String(row.name ?? "").trim();
+            if (!name || row.disabled === true || isMarketingSystemTemplateName(name)) return false;
+            return String(row.status ?? "").toUpperCase() === "APPROVED";
+          })
+          .map((row) => {
+            const name = String(row.name ?? "").trim();
+            return { name, label: templateChoiceLabel(name, row.components) };
+          })
+          .sort((a, b) => a.label.localeCompare(b.label, "he"));
+        setTemplates(choices);
+        setTemplateName((current) => current || choices[0]?.name || "");
+      } catch (e) {
+        if (ac.signal.aborted || (e as { name?: string })?.name === "AbortError") return;
+        setTemplatesError("בעיית רשת בטעינת טמפלייטים.");
+      } finally {
+        if (!ac.signal.aborted) setTemplatesLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, []);
+
+  async function sendTemplateNow() {
+    const name = templateName.trim();
+    const label = templates.find((row) => row.name === name)?.label || name;
+    if (!name || sendingTemplate || (!phone.trim() && !sessionId.trim())) return;
+    if (!window.confirm(`לשלוח עכשיו את הטמפלייט «${label}» לליד הזה?`)) return;
+    setSendingTemplate(true);
+    setTemplateNotice("");
+    setTemplateNoticeOk(false);
+    try {
+      const res = await fetch("/api/admin/marketing/send-template", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone,
+          session_id: sessionId,
+          template_name: name,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string; content?: string };
+      if (!res.ok) {
+        setTemplateNotice(templateSendErrorHe(String(j.error ?? "")));
+        return;
+      }
+      const content = String(j.content ?? "").trim() || `נשלח טמפלייט (${name})`;
+      onTemplateSent?.(content);
+      setTemplateNoticeOk(true);
+      setTemplateNotice("הטמפלייט נשלח ✓");
+    } catch {
+      setTemplateNotice("בעיית רשת בשליחת הטמפלייט.");
+    } finally {
+      setSendingTemplate(false);
+    }
+  }
 
   // טיוטה מקומית + שמירה אוטומטית לשרת כשיש שינויים
   useEffect(() => {
@@ -510,6 +621,72 @@ export default function MarketingConversationNotesPanel({
             ) : null}
           </div>
         )}
+      </div>
+
+      <div className="shrink-0 border-t border-[#e9edef] bg-white px-3 py-3">
+        <span style={labelStyle}>שליחת טמפלייט</span>
+        {templatesLoading ? (
+          <p style={{ margin: 0, fontSize: 12, color: MUTED, textAlign: "right" }}>טוען טמפלייטים…</p>
+        ) : templatesError ? (
+          <p style={{ margin: 0, fontSize: 12, color: "#b42318", textAlign: "right" }} role="alert">
+            {templatesError}
+          </p>
+        ) : templates.length === 0 ? (
+          <p style={{ margin: 0, fontSize: 12, color: MUTED, textAlign: "right" }}>אין טמפלייטים מאושרים.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <select
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              aria-label="בחירת טמפלייט לשליחה"
+              style={fieldStyle}
+            >
+              {templates.map((row) => (
+                <option key={row.name} value={row.name} title={row.name}>
+                  {row.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void sendTemplateNow()}
+              disabled={sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())}
+              style={{
+                width: "100%",
+                borderRadius: 10,
+                border: "none",
+                background:
+                  sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())
+                    ? "#c4b5e0"
+                    : PURPLE,
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
+                padding: "10px 14px",
+                cursor:
+                  sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())
+                    ? "default"
+                    : "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {sendingTemplate ? "שולח…" : "שליחה עכשיו"}
+            </button>
+          </div>
+        )}
+        {templateNotice ? (
+          <p
+            style={{
+              margin: "8px 0 0",
+              fontSize: 12,
+              color: templateNoticeOk ? "#047857" : "#b42318",
+              textAlign: "right",
+            }}
+            role={templateNoticeOk ? "status" : "alert"}
+          >
+            {templateNotice}
+          </p>
+        ) : null}
       </div>
 
       <footer className="shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] px-3 py-3">
