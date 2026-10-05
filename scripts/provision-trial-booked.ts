@@ -1,5 +1,5 @@
 /**
- * One-shot: UTILITY template + enabled trial_booked trigger for every Arbox business with a WABA.
+ * One-shot: UTILITY template + trial_booked trigger (created disabled) for every Arbox business with a WABA.
  * Idempotent. Does not seed booking logs — the next trial-sync pass seeds without sending.
  *
  *   npx tsx --env-file=.env.local scripts/provision-trial-booked.ts
@@ -109,7 +109,7 @@ async function main() {
       delay_days: 0,
       delay_direction: "after",
       template_name: templateName,
-      enabled: true,
+      enabled: false,
     });
     if (trigErr) throw new Error(`${slug} trigger: ${trigErr.message}`);
     console.info("created trigger", slug, templateName);
