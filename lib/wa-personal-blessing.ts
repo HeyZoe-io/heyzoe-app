@@ -9,9 +9,6 @@ export const WA_PERSONAL_BLESSING_ACK_MODEL = "personal_blessing_ack";
 const BUSINESS_TOPIC_RE =
   /שיעור|אימון|מנוי|כרטיסי|חבילה|הקפא|ביטול|מחיר|יומן|הרשמ|סטודיו|פתוח|סגור|מערכת\s*שעות|כתובת|lesson|class|membership|schedule|абонемент|заняти|расписан/iu;
 
-const BLESSING_RE =
-  /גמר\s*חתימה|שנה\s*טובה|חג\s*שמח|חג\s*כשר|צום\s*קל|שבת\s*שלום|שבוע\s*טוב|ראש\s*השנה|יום\s*כיפור|סוכות|שמחת\s*תורה|חנוכה|פורים|פסח|שבועות|מזל\s*טוב|יום\s*הולדת|happy\s+holidays|happy\s+new\s+year|shana\s+tova|gmar\s+chatima/iu;
-
 export function inboundIsBusinessTopic(raw: string): boolean {
   return BUSINESS_TOPIC_RE.test(String(raw ?? ""));
 }
@@ -31,7 +28,8 @@ export function inboundLooksLikePersonalBlessing(raw: string): boolean {
   const t = String(raw ?? "").trim();
   if (!t || t.length > 4000) return false;
   if (inboundIsBusinessTopic(t) || looksLikeOperationalQuestion(t)) return false;
-  return BLESSING_RE.test(t);
+  // רק אם יש ברכה מזוהה — בלי fallback ל«חג שמח».
+  return pickHolidayBlessing(t) != null;
 }
 
 /** ברכת חג וגם שאלה שצריך לענות עליה. */
@@ -59,8 +57,14 @@ export function pickHolidayBlessing(raw: string): string | null {
   return null;
 }
 
+/**
+ * שורת תודה + ברכה מכל הצוות.
+ * «חג שמח» רק אם הלקוח כתב חג שמח (או happy holidays) — אין המצאת ברכת חג.
+ * בלי ברכה מזוהה: תודה קצרה בלי שם חג.
+ */
 export function pickPersonalBlessingReply(raw: string, studioName: string): string {
-  const blessing = pickHolidayBlessing(raw) ?? "חג שמח";
+  const blessing = pickHolidayBlessing(raw);
+  if (!blessing) return "תודה רבה! ❤️";
   const name = String(studioName ?? "").trim() || "הסטודיו";
   return `תודה רבה! ${blessing} מכל צוות ${name}! ❤️`;
 }
@@ -78,6 +82,7 @@ export function stripUnsolicitedHolidayTeamLine(reply: string, inbound: string):
   return body
     .replace(UNSOLICITED_TEAM_BLESSING_RE, "")
     .replace(/גמר\s*חתימה\s*טובה!?/gu, "")
+    .replace(/חג\s*שמח!?/gu, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

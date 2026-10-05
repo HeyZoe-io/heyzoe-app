@@ -77,4 +77,15 @@ assert.equal(
   "תודה רבה! גמר חתימה טובה מכל צוות יקמה! ❤️\n\nהיום אנחנו פתוחים עד 21:00."
 );
 
+// בלי ברכת חג בהודעה — אסור להמציא «חג שמח».
+assert.equal(pickPersonalBlessingReply("תודה על הכל, אוהבים אתכם", STUDIO), "תודה רבה! ❤️");
+assert.equal(pickPersonalBlessingReply("חג שמח לכולם", STUDIO), "תודה רבה! חג שמח מכל צוות יקמה! ❤️");
+assert.equal(
+  stripUnsolicitedHolidayTeamLine(
+    "חג שמח! נשמח לראות אותך בשיעור.",
+    "אפשר לקבוע שיעור ליום שני?"
+  ),
+  "נשמח לראות אותך בשיעור."
+);
+
 console.log("wa-personal-blessing.test.ts: ok");

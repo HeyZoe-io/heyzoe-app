@@ -419,6 +419,7 @@ import {
   ensureHolidayBlessingPrefix,
   inboundBlessingWithBusinessQuestion,
   inboundLooksLikePersonalBlessing,
+  pickHolidayBlessing,
   pickPersonalBlessingReply,
   stripUnsolicitedHolidayTeamLine,
   WA_PERSONAL_BLESSING_ACK_MODEL,
@@ -13324,6 +13325,7 @@ async function processIncoming(
     assistantReplyDecodesPersonalMessage(replyCoreClean) &&
     !inboundIsBusinessTopic(incomingRaw)
   ) {
+    // ברכת חג מזוהה → שורת צוות; אחרת תודה קצרה בלי להמציא «חג שמח».
     const blessingTxt = pickPersonalBlessingReply(incomingRaw, knowledge?.businessName ?? "");
     try {
       await sendWhatsAppMessage(msg.toNumber, msg.from, blessingTxt, accountSid, authToken);
@@ -13340,6 +13342,7 @@ async function processIncoming(
     console.info("[WA Webhook] replaced personal-message decoding with short ack", {
       business_slug,
       session_id: sessionId,
+      has_holiday_blessing: Boolean(pickHolidayBlessing(incomingRaw)),
     });
     return;
   }
