@@ -517,7 +517,7 @@ async function dispatchFreezeTemplate(input: {
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
   const businessName = String((bizRow as { name?: unknown } | null)?.name ?? "");
-  let sendComponents: { type: "body"; parameters: { type: "text"; text: string }[] }[] | undefined;
+  let sendComponents: ReturnType<typeof templateSendPayload>["sendComponents"];
   let bodyParams: string[] = [];
   if (input.triggerType === "freeze_created") {
     const planned = freezeCreatedTemplateParamValues({
