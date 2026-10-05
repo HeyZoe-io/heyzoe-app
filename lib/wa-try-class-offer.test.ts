@@ -149,6 +149,32 @@ assert.equal(
   }),
   false
 );
+assert.equal(
+  shouldDeclineTryClassOffer({
+    inbound: "לא",
+    lastAssistantModel: "claude-haiku-4-5",
+    lastAssistantContent: apexMaorClaudeAsk,
+  }),
+  true,
+  "Apex: bare לא after Claude trial ask → decline, not product pick"
+);
+assert.equal(
+  shouldStartProductPickAfterTryClassOffer({
+    inbound: "לא",
+    lastAssistantModel: "claude-haiku-4-5",
+    lastAssistantContent: apexMaorClaudeAsk,
+  }),
+  false
+);
+assert.equal(
+  shouldDeclineTryClassOffer({
+    inbound: "לא",
+    lastAssistantModel: "claude-haiku-4-5",
+    lastAssistantContent: "היי! יש לנו יוגה ופילאטיס. מה מעניין אותך?",
+  }),
+  false,
+  "לא without a trial-ask in the last turn is not a try-offer decline"
+);
 
 assert.ok(TRY_CLASS_OFFER_QUESTION_HE.includes("מידע מסודר על השיעורים"));
 

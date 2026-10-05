@@ -50,5 +50,23 @@ export function matchQuestionButton(buttons: string[], answer: string): number {
   const labels = buttons.map((b) => normalizeFlowAnswer(b));
   const exact = labels.findIndex((label) => label && label === want);
   if (exact >= 0) return exact;
-  return labels.findIndex((label) => label && (want.includes(label) || label.includes(want)));
+  // Short replies («לא», «כן») — exact or prefix word only.
+  // Never «לא» ⊆ «פילאטיס» (letters ל+א inside the product name).
+  if (want.length < 3) {
+    return labels.findIndex((label) => label === want || label.startsWith(`${want} `));
+  }
+  return labels.findIndex(
+    (label) => label && label.length >= 3 && (want.includes(label) || label.includes(want))
+  );
+}
+
+/**
+ * Loose service-name contains match for free-text picks.
+ * Requires a long enough needle so «לא» never hits «פילאטיס».
+ */
+export function serviceNameContainsInboundNeedle(serviceName: string, inbound: string, minNeedle = 4): boolean {
+  const needle = String(inbound ?? "").trim().toLowerCase();
+  const hay = String(serviceName ?? "").trim().toLowerCase();
+  if (!needle || !hay || needle.length < minNeedle) return false;
+  return hay.includes(needle) || needle.includes(hay);
 }
