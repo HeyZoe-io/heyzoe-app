@@ -102,5 +102,31 @@ assert.equal(
   }),
   "en"
 );
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "Hello! Can I get more info on this?",
+    persisted: "en",
+    slug: "omers-place",
+  }),
+  "he"
+);
+assert.equal(
+  detectLeadInboundLanguage("Hello! Can I get more info on this?", null, "omers-place"),
+  "he"
+);
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "Hello! Can I get more info on this?",
+    slug: "limitless",
+  }),
+  "en"
+);
+assert.equal(
+  resolveLeadContentLanguage({
+    inboundText: "Hi, can I book a trial class?",
+    slug: "omers-place",
+  }),
+  "en"
+);
 
 console.log("lead-ui-lang.test.ts: ok");

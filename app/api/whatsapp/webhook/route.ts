@@ -7003,6 +7003,7 @@ async function processIncoming(
       inboundText: inboundForLang,
       persisted: contactWaUiLang,
       knowledge,
+      slug: business_slug,
     });
     if (leadLang === "ru" || leadLang === "en") {
       knowledge = { ...knowledge };
@@ -7017,7 +7018,7 @@ async function processIncoming(
     }
     const inboundDetected = wantsRussianFlowRestart
       ? "ru"
-      : parseWaUiLang(detectLeadInboundLanguage(inboundForLang, knowledge));
+      : parseWaUiLang(detectLeadInboundLanguage(inboundForLang, knowledge, business_slug));
     if (businessId && inboundDetected && inboundDetected !== contactWaUiLang) {
       contactWaUiLang = inboundDetected;
       try {

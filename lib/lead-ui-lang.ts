@@ -5,6 +5,7 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import {
+  isOmersPlaceHebrewIcebreaker,
   normalizeSalesFlowGreetingToken,
   stripLeadingCasualGreeting,
 } from "@/lib/sales-flow-start-triggers";
@@ -66,8 +67,10 @@ export function inboundIsCatalogServiceName(
  */
 export function detectLeadInboundLanguage(
   inboundText: string,
-  knowledge?: BusinessKnowledgePack | null
+  knowledge?: BusinessKnowledgePack | null,
+  slug?: string | null
 ): DetectedMessageLanguage {
+  if (isOmersPlaceHebrewIcebreaker(inboundText, slug)) return "he";
   if (matchesSwitchToRussianIntent(inboundText)) return "ru";
   if (inboundIsCatalogServiceName(inboundText, knowledge)) return "unknown";
   return detectMessageLanguage(inboundText);
@@ -127,9 +130,10 @@ export function resolveLeadContentLanguage(input: {
   inboundText?: string;
   persisted?: string | null;
   knowledge?: BusinessKnowledgePack | null;
+  slug?: string | null;
 }): BusinessContentLanguage {
   const fromInbound = detectedToContentLang(
-    detectLeadInboundLanguage(input.inboundText ?? "", input.knowledge)
+    detectLeadInboundLanguage(input.inboundText ?? "", input.knowledge, input.slug)
   );
   if (fromInbound) return fromInbound;
   const persisted = parseWaUiLang(input.persisted);

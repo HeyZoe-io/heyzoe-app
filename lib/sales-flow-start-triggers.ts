@@ -135,6 +135,13 @@ function matchesOmersPlaceExtraStartTrigger(
   return OMERS_PLACE_EXTRA_START_TRIGGERS.has(normalized);
 }
 
+/** משפט המודעה של עומר פותח את הפלואו בעברית, בלי שהאנגלית תחליף את שפת הממשק. */
+export function isOmersPlaceHebrewIcebreaker(text: string, slug?: string | null): boolean {
+  return matchesOmersPlaceExtraStartTrigger(normalizeSalesFlowGreetingToken(text), {
+    slug: slug ?? "",
+  });
+}
+
 /** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
 export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
   return String(slug ?? "").trim().toLowerCase() === "pipman-team";
