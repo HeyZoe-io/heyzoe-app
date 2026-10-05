@@ -49,39 +49,8 @@ export type TrialRegisteredWaReplyResult =
         | "no_user_session"
         | "send_failed"
         | "opted_out"
-        | "trial_template_already_sent"
-        | "empty_body";
+        | "trial_template_already_sent";
     };
-
-async function loadStoredTrialRegistrationBody(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  businessId: number
-): Promise<{ ok: true; direct: string; schedule: string } | { ok: false }> {
-  const { data, error } = await admin
-    .from("businesses")
-    .select("social_links")
-    .eq("id", businessId)
-    .maybeSingle();
-  if (error) {
-    console.error("[trial-registered-wa-reply] registration body lookup failed:", error.message);
-    return { ok: false };
-  }
-  const social =
-    data && typeof (data as { social_links?: unknown }).social_links === "object"
-      ? ((data as { social_links?: Record<string, unknown> }).social_links ?? {})
-      : {};
-  const flow =
-    social.sales_flow && typeof social.sales_flow === "object"
-      ? (social.sales_flow as Record<string, unknown>)
-      : {};
-  const direct =
-    typeof flow.after_trial_registration_body === "string" ? flow.after_trial_registration_body : "";
-  const schedule =
-    typeof flow.after_trial_registration_body_after_schedule === "string"
-      ? flow.after_trial_registration_body_after_schedule
-      : "";
-  return { ok: true, direct, schedule };
-}
 
 function isWithinWaUserSessionWindow(lastUserAtIso: string | null): boolean {
   if (!lastUserAtIso) return false;
@@ -141,11 +110,6 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
   businessPlan?: unknown;
   /** Calendar booking (no sale). Forces the schedule confirmation body. */
   bookingSchedule?: { date: string; time: string; serviceName?: string };
-  /**
-   * Trial-booking rule only. A missing body, or one that strips to nothing,
-   * returns empty_body instead of the default or the generic one-line fallback.
-   */
-  declineEmptyBody?: boolean;
 }): Promise<TrialRegisteredWaReplyResult> {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const businessId = Number(input.businessId);
@@ -252,20 +216,12 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
     bookedSlot || (knowledge.scheduleDirectRegistration === false && includeScheduleInReg);
   const sfCfg = knowledge.salesFlowConfig ?? defaultSalesFlowConfig(knowledge.vibeLabels ?? []);
 
-  if (input.declineEmptyBody) {
-    const stored = await loadStoredTrialRegistrationBody(input.admin, businessId);
-    if (stored.ok && !(stored.schedule || stored.direct).trim()) {
-      console.info("[trial-registered-wa-reply] empty registration body", { businessSlug });
-      return { sent: false, reason: "empty_body" };
-    }
-  }
-
   let bodyTemplate = resolveAfterRegistrationBodyTemplate(
     sfCfg,
     regOfferKind,
     useScheduleRegistrationTemplate
   ).trim();
-  if (!bodyTemplate && !input.declineEmptyBody) {
+  if (!bodyTemplate) {
     bodyTemplate = resolveAfterRegistrationBodyTemplate(
       defaultSalesFlowConfig(knowledge.vibeLabels ?? []),
       regOfferKind,
@@ -336,18 +292,13 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
       : undefined,
     regContentLang
   );
-  const deliveredTrim = delivered.trim();
-  if (input.declineEmptyBody && !deliveredTrim) {
-    console.info("[trial-registered-wa-reply] registration body stripped empty", { businessSlug });
-    return { sent: false, reason: "empty_body" };
-  }
   const outTextFallback =
     regOfferKind === "workshop"
       ? "תודה על ההרשמה! נתראה בסדנה 🎉"
       : regOfferKind === "course"
         ? "תודה על ההרשמה! נתראה בקורס 🎉"
         : "תודה על ההרשמה! נתראה באימון 🎉";
-  const outText = deliveredTrim.length > 0 ? delivered : outTextFallback;
+  const outText = delivered.trim().length > 0 ? delivered : outTextFallback;
 
   const accountSid = resolveTwilioAccountSid();
   const authToken = resolveTwilioAuthToken();

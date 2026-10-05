@@ -331,11 +331,7 @@ export async function handleArboxTrialClassRegistered(input: {
     });
   }
 
-  const whatsapp = waResult.sent
-    ? "sent"
-    : waResult.reason === "empty_body"
-      ? "send_failed"
-      : waResult.reason;
+  const whatsapp = waResult.sent ? "sent" : waResult.reason;
   if (!waResult.sent) {
     console.info("[leads/arbox-trial-registered] whatsapp skipped", {
       businessSlug,

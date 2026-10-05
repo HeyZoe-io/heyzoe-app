@@ -79,20 +79,6 @@ type LogRow = {
   template_status?: PartStatus;
 };
 
-/**
- * In-window channel after the free body is resolved.
- * A real body stays the free message. An empty body uses the approved template,
- * or nothing when that template is missing.
- */
-export function trialBookingInWindowChannel(input: {
-  resolvedBodyEmpty: boolean;
-  templateApproved: boolean;
-}): "free" | "template" | "nothing" {
-  if (!input.resolvedBodyEmpty) return "free";
-  if (input.templateApproved) return "template";
-  return "nothing";
-}
-
 /** The step runs only when this business has an enabled trial_booked rule. */
 export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean {
   return hasTrialBookedRule === true;
@@ -554,7 +540,6 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     if (confirmStatus === "sent") templateStatus = "skipped";
 
     let freeBlocked = false;
-    let emptyBody = false;
     if (confirmStatus === "pending") {
       const priorNotice = await loadTrialSignupNotice(admin, businessId, phone);
       if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
@@ -577,7 +562,6 @@ export async function syncTrialBookingConfirmForBusiness(input: {
           time: formatTrialBookingConfirmTime(item.classTime),
           serviceName: item.className,
         },
-        declineEmptyBody: true,
       });
       if (result.sent) {
         confirmStatus = "sent";
@@ -587,9 +571,6 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         confirmStatus = "skipped";
         templateStatus = "skipped";
         freeBlocked = true;
-      } else if (result.reason === "empty_body") {
-        confirmStatus = "skipped";
-        emptyBody = true;
       } else if (trialBookingConfirmIsTerminalSkip(result)) {
         confirmStatus = "skipped";
         summary.skipped_window += 1;
@@ -605,19 +586,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         templateNameConfigured,
         templateApproved: Boolean(approvedTemplate),
       });
-      if (emptyBody && followUp !== "send") {
-        const channel = trialBookingInWindowChannel({
-          resolvedBodyEmpty: true,
-          templateApproved: Boolean(approvedTemplate),
-        });
-        console.warn(LOG, "trial booking not sent", {
-          reason: "empty_registration_body",
-          businessSlug,
-          template: templateNameConfigured ? "not_approved" : "none",
-          channel,
-        });
-      }
-      if (followUp === "skip" || (emptyBody && !templateNameConfigured)) {
+      if (followUp === "skip") {
         templateStatus = "skipped";
       } else if (followUp === "wait" || !approvedTemplate || !trialBookedRule) {
         // Named template is not approved yet. Retry next cron without burning attempts.
