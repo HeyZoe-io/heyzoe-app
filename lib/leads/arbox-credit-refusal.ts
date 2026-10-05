@@ -85,6 +85,18 @@ export function isCreditRefusalFailStatus(status: unknown): boolean {
   return String(status ?? "").trim().toUpperCase() === "FAIL";
 }
 
+/**
+ * transactionsReport.phone is the selling staff member's number, not the member.
+ * Credit-refusal WhatsApp goes only to the customer card (`GET /v3/users/{id}`).
+ */
+export function resolveCreditRefusalDestinationPhone(input: {
+  reportPhone: unknown;
+  customerCardPhone: unknown;
+}): string | null {
+  void input.reportPhone;
+  return normalizePhone(input.customerCardPhone);
+}
+
 export function isWithinCreditRefusalThrottle(
   lastNotifiedAtIso: string | null | undefined,
   now: Date = new Date(),
@@ -227,7 +239,7 @@ async function fetchAllFailTransactionRows(input: {
 async function fetchArboxUserPhone(
   apiKey: string,
   userId: string
-): Promise<{ phone: string | null; fullName: string | null }> {
+): Promise<{ ok: boolean; phone: string | null; fullName: string | null }> {
   const res = await arboxPublicFetch(`/v3/users/${encodeURIComponent(userId)}`, {
     apiKey,
     method: "GET",
@@ -238,11 +250,11 @@ async function fetchArboxUserPhone(
       status: res.status,
       body: res.rawText.slice(0, 300),
     });
-    return { phone: null, fullName: null };
+    return { ok: false, phone: null, fullName: null };
   }
   const data = (res.json as { data?: Record<string, unknown> } | null)?.data ??
     (res.json as Record<string, unknown> | null);
-  if (!data || typeof data !== "object") return { phone: null, fullName: null };
+  if (!data || typeof data !== "object") return { ok: true, phone: null, fullName: null };
   const phone = normalizePhone((data as { phone?: unknown }).phone);
   const full =
     String((data as { full_name?: unknown }).full_name ?? "").trim() ||
@@ -251,7 +263,7 @@ async function fetchArboxUserPhone(
       .join(" ")
       .trim() ||
     null;
-  return { phone, fullName: full };
+  return { ok: true, phone, fullName: full };
 }
 
 type ContactRow = {
@@ -267,26 +279,49 @@ async function resolveOrCreateContact(input: {
   businessId: number;
   apiKey: string;
   row: ArboxFailTransactionRow;
-}): Promise<{ contact: ContactRow | null; created: boolean; phone: string | null }> {
+  profileCache: Map<string, { ok: boolean; phone: string | null; fullName: string | null }>;
+}): Promise<{ contact: ContactRow | null; created: boolean; phone: string | null; retry?: boolean }> {
   const arboxUserId = String(input.row.user_id ?? "").trim();
   const contactSelect =
     "id, phone, full_name, arbox_user_id, credit_refusal_last_notified_at";
 
+  let profile = input.profileCache.get(arboxUserId);
+  if (!profile && arboxUserId) {
+    profile = await fetchArboxUserPhone(input.apiKey, arboxUserId);
+    input.profileCache.set(arboxUserId, profile);
+  }
+  if (profile && !profile.ok) {
+    return { contact: null, created: false, phone: null, retry: true };
+  }
+
+  const phoneNorm = resolveCreditRefusalDestinationPhone({
+    reportPhone: input.row.phone,
+    customerCardPhone: profile?.phone ?? null,
+  });
+  const fullName = resolveReportFullName(input.row) ?? profile?.fullName ?? null;
+  const reportPhone = normalizePhone(input.row.phone);
+  if (phoneNorm && reportPhone && phoneNorm !== reportPhone) {
+    console.info("[leads/arbox-credit-refusal] using customer card phone", {
+      user_id: arboxUserId,
+      report_phone: maskPhoneForLog(reportPhone),
+      customer_phone: maskPhoneForLog(phoneNorm),
+    });
+  }
+
   let existing: ContactRow | undefined;
 
-  if (arboxUserId) {
+  if (arboxUserId && phoneNorm) {
     const { data } = await input.admin
       .from("contacts")
       .select(contactSelect)
       .eq("business_id", input.businessId)
       .eq("arbox_user_id", arboxUserId)
       .order("updated_at", { ascending: false })
-      .limit(1);
-    existing = data?.[0] as ContactRow | undefined;
+      .limit(5);
+    existing = (data as ContactRow[] | null)?.find(
+      (row) => normalizePhone(row.phone) === phoneNorm
+    );
   }
-
-  let phoneNorm = normalizePhone(input.row.phone) ?? normalizePhone(existing?.phone);
-  let fullName = resolveReportFullName(input.row);
 
   if (!existing && phoneNorm) {
     const variants = contactPhoneLookupVariants(phoneNorm);
@@ -298,18 +333,12 @@ async function resolveOrCreateContact(input: {
       .order("updated_at", { ascending: false })
       .limit(1);
     existing = data?.[0] as ContactRow | undefined;
-    if (existing) phoneNorm = normalizePhone(existing.phone) ?? phoneNorm;
-  }
-
-  if (!phoneNorm && arboxUserId) {
-    const profile = await fetchArboxUserPhone(input.apiKey, arboxUserId);
-    phoneNorm = profile.phone;
-    if (!fullName && profile.fullName) fullName = profile.fullName;
   }
 
   if (existing?.id) {
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (arboxUserId && String(existing.arbox_user_id ?? "").trim() !== arboxUserId) {
+    const linkedUserId = String(existing.arbox_user_id ?? "").trim();
+    if (arboxUserId && !linkedUserId) {
       patch.arbox_user_id = arboxUserId;
     }
     if (fullName && !String(existing.full_name ?? "").trim()) patch.full_name = fullName;
@@ -317,9 +346,9 @@ async function resolveOrCreateContact(input: {
       await input.admin.from("contacts").update(patch).eq("id", existing.id);
     }
     return {
-      contact: { ...existing, ...patch, phone: existing.phone ?? phoneNorm },
+      contact: { ...existing, ...patch, phone: phoneNorm },
       created: false,
-      phone: normalizePhone(existing.phone) ?? phoneNorm,
+      phone: phoneNorm,
     };
   }
 
@@ -587,6 +616,8 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
     return summary;
   }
 
+  const profileCache = new Map<string, { ok: boolean; phone: string | null; fullName: string | null }>();
+
   for (const row of report.rows) {
     const transactionId = parseTransactionId(row.transaction_id);
     const userId = String(row.user_id ?? "").trim();
@@ -620,7 +651,18 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         businessId,
         apiKey,
         row,
+        profileCache,
       });
+
+      if (resolved.retry) {
+        summary.errors += 1;
+        console.error("[leads/arbox-credit-refusal] customer card lookup failed", {
+          businessId,
+          transaction_id: transactionId,
+          user_id: userId,
+        });
+        continue;
+      }
 
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;

@@ -4,6 +4,7 @@ import {
   CREDIT_REFUSAL_THROTTLE_DAYS,
   isCreditRefusalFailStatus,
   isWithinCreditRefusalThrottle,
+  resolveCreditRefusalDestinationPhone,
 } from "@/lib/leads/arbox-credit-refusal";
 import { pickCreditRefusalTemplateTriggerRule } from "@/lib/template-triggers-match";
 
@@ -34,6 +35,31 @@ import { pickCreditRefusalTemplateTriggerRule } from "@/lib/template-triggers-ma
   });
   assert.match(page2, /page=2/);
   assert.match(page2, /fromDate=2026-07-01/);
+}
+
+/** Destination is the customer card. The report phone (staff) is ignored. */
+{
+  assert.equal(
+    resolveCreditRefusalDestinationPhone({
+      reportPhone: "+972524296071",
+      customerCardPhone: "0524311184",
+    }),
+    "972524311184"
+  );
+  assert.equal(
+    resolveCreditRefusalDestinationPhone({
+      reportPhone: "+972524296071",
+      customerCardPhone: null,
+    }),
+    null
+  );
+  assert.equal(
+    resolveCreditRefusalDestinationPhone({
+      reportPhone: null,
+      customerCardPhone: "0543038206",
+    }),
+    "972543038206"
+  );
 }
 
 /** Per-customer throttle: 2nd FAIL within window → skipped. */
