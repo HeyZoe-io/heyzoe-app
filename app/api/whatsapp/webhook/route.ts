@@ -235,6 +235,11 @@ import {
   TRIAL_TOPIC_FLOW_ENTRY_MODEL,
   TRIAL_TOPIC_QA_REPLY_MODEL,
 } from "@/lib/wa-trial-topic-intent";
+import {
+  OUT_OF_FLOW_TRIAL_COST_MODEL,
+  buildOutOfFlowTrialCostReply,
+  isOutOfFlowTrialCostQuestion,
+} from "@/lib/wa-out-of-flow-trial-cost";
 import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import { ARBOX_CLASS_SPACE_MODEL, tryBuildArboxClassSpaceReply } from "@/lib/wa-arbox-class-space";
@@ -7789,7 +7794,28 @@ async function processIncoming(
       matchesTrialTopicAdvanceIntent(msg.text) ||
       (inOpeningOrWarmup && isWarmupSkipIntentText(msg.text, warmupSkipPhase));
     if (!(salesFlowStartedForTrial && inOpeningOrWarmup && !wantsTrialAdvance)) {
-      const advanceTrial = wantsTrialAdvance || !salesFlowStartedForTrial;
+      // שאלת עלות מחוץ לפלואו: המחיר, ואז הזמנה לכתוב «אשמח לפרטים». בלי תפריט ומערכת שעות.
+      if (!salesFlowStartedForTrial && isOutOfFlowTrialCostQuestion(msg.text)) {
+        const costReply = buildOutOfFlowTrialCostReply(salesFlowServices, msg.text);
+        if (costReply) {
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, costReply, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] Send out-of-flow trial cost failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: costReply,
+            model_used: OUT_OF_FLOW_TRIAL_COST_MODEL,
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
+      const advanceTrial =
+        wantsTrialAdvance ||
+        (!salesFlowStartedForTrial && !isOutOfFlowTrialCostQuestion(msg.text));
     const qaPair = lookupKnowledgeQaAnswerForInbound(knowledge.knowledgeQa, msg.text);
     const qaReply = qaPair ? leadFacingFactText(qaPair.answer).trim() : "";
     const trialSignupAck = trialSignupAckForInbound(msg.text);
