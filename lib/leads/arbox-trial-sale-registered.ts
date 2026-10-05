@@ -17,7 +17,6 @@ import {
 } from "@/lib/template-triggers-match";
 import {
   loadTrialSignupNotice,
-  sessionHasZoeRegistrationConfirm,
   stampTrialSignupNotice,
   trialPurchaseTemplateBlockedByZoe,
 } from "@/lib/trial-signup-notice";
@@ -346,31 +345,12 @@ function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefin
 
 /**
  * רישום לשיעור ניסיון ב-Arbox (salesReport trial membership) → contact בזואי + הודעה.
- * טריגר רכישה נשלח על כל מכירה חדשה שתואמת את הכלל, גם אם האיש כבר רשום.
+ * טריגר רכישה נשלח על כל מכירה חדשה שתואמת את הכלל, גם אם האיש כבר רשום,
+ * וגם אם הודעת ההרשמה של זואי כבר יצאה (שיעור נקבע לפני התשלום).
  * אותה מכירה לא נשלחת פעמיים (arbox_trial_sync_log לפי sale_id).
  * Arbox הוא מקור האמת — לא שולח חזרה ל-CRM.
  * מכירה עם חוב פתוח לא נחשבת רישום (לינק תשלום / חשבונית) — לא מסמנים seen, כדי שתשלום מאוחר יישלח.
  */
-async function trialProductAlreadyConfirmedByZoe(input: {
-  admin: ReturnType<typeof createSupabaseAdminClient>;
-  businessId: number;
-  businessSlug: string;
-  phone: string;
-  sessionId: string | null;
-}): Promise<boolean> {
-  const notice = await loadTrialSignupNotice(input.admin, input.businessId, input.phone);
-  if (trialPurchaseTemplateBlockedByZoe(notice)) return true;
-  if (notice === "template") return false;
-  const hadMessage = await sessionHasZoeRegistrationConfirm(
-    input.admin,
-    input.businessSlug,
-    input.sessionId
-  );
-  if (!hadMessage) return false;
-  await stampTrialSignupNotice(input.admin, input.businessId, input.phone, "zoe");
-  return true;
-}
-
 export async function handleArboxTrialSaleRegistered(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -544,23 +524,6 @@ export async function handleArboxTrialSaleRegistered(input: {
       phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
     const configuredTrial =
       membershipTypeId != null && (input.trialMembershipTypeIds ?? []).includes(membershipTypeId);
-    if (
-      configuredTrial &&
-      canonicalPhone &&
-      (await trialProductAlreadyConfirmedByZoe({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: canonicalPhone,
-        sessionId,
-      }))
-    ) {
-      console.info("[leads/arbox-trial-sale-registered] skip trial template, zoe confirm already sent", {
-        businessSlug,
-        sale_id: saleId,
-      });
-      return { ok: true, already: true };
-    }
     const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
       admin: input.admin,
       businessId,
@@ -740,11 +703,27 @@ export async function handleArboxTrialSaleRegistered(input: {
       ? await loadTrialSignupNotice(input.admin, businessId, canonicalPhone)
       : null;
     if (trialPurchaseTemplateBlockedByZoe(priorNotice)) {
-      console.info("[leads/arbox-trial-sale-registered] skip free confirm, booking or purchase already sent", {
+      // Class was already confirmed in chat. The purchase template is a separate message.
+      console.info("[leads/arbox-trial-sale-registered] registration already sent, purchase template still sends", {
         businessSlug,
         sale_id: saleId,
       });
-      whatsapp = "skipped_zoe_confirm";
+      const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
+        admin: input.admin,
+        businessId,
+        businessSlug,
+        phone: canonicalPhone,
+        saleId,
+        saleDate: input.row.date,
+        membershipTypeId,
+        itemType: itemTypeRaw,
+        phoneNumberId,
+        fullName,
+        sessionId,
+        match: input.purchaseMatch,
+        isTrialProduct: true,
+      });
+      whatsapp = templateResult.outcome;
     } else {
       const waResult = await sendTrialRegisteredWhatsAppReplyIfInWindow({
         admin: input.admin,
@@ -763,17 +742,6 @@ export async function handleArboxTrialSaleRegistered(input: {
         whatsapp = "send_failed";
       } else if (waResult.reason === "opted_out") {
         whatsapp = "opted_out";
-      } else if (
-        canonicalPhone &&
-        (await trialProductAlreadyConfirmedByZoe({
-          admin: input.admin,
-          businessId,
-          businessSlug,
-          phone: canonicalPhone,
-          sessionId,
-        }))
-      ) {
-        whatsapp = "skipped_zoe_confirm";
       } else {
         const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
           admin: input.admin,
