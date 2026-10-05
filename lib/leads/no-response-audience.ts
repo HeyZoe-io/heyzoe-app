@@ -4,6 +4,8 @@
  * (waNoResponseEligible). opening is eligible.
  */
 
+import { parseModelUsed } from "@/lib/wa-reply-route";
+
 /** Block only when a human outbound is this recent. Order does not matter. */
 export const NO_RESPONSE_HUMAN_COOLDOWN_HOURS = 48;
 export const NO_RESPONSE_HUMAN_COOLDOWN_MS =
@@ -31,17 +33,17 @@ export type NoResponseAudienceBlock =
 
 /** Dashboard manual send or a WhatsApp Business app echo. */
 export function isHumanOutboundModel(model: string | null | undefined): boolean {
-  return HUMAN_OUTBOUND_MODELS.has(String(model ?? "").trim());
+  return HUMAN_OUTBOUND_MODELS.has(parseModelUsed(model).model);
 }
 
 /** Meta template sends. Not a Zoe conversation turn. */
 export function isTemplateOutboundModel(model: string | null | undefined): boolean {
-  return String(model ?? "").trim() === "lead_template";
+  return parseModelUsed(model).model === "lead_template";
 }
 
 /** Assistant turn written by Zoe (Claude or a sales-flow script), not staff or a template. */
 export function isZoeAssistantModel(model: string | null | undefined): boolean {
-  const value = String(model ?? "").trim();
+  const value = parseModelUsed(model).model;
   if (!value) return false;
   if (isHumanOutboundModel(value) || isTemplateOutboundModel(value)) return false;
   return true;

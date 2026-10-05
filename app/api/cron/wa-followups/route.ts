@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
@@ -149,9 +150,10 @@ async function fetchLatestRealAssistantMessageAt(input: {
     .order("created_at", { ascending: false })
     .limit(40);
   for (const row of data ?? []) {
-    const m = String((row as { model_used?: string | null }).model_used ?? "");
+    const raw = String((row as { model_used?: string | null }).model_used ?? "");
+    const m = parseModelUsed(raw).model;
     if (!m.startsWith("wa_followup_") && m !== "wa_business_app" && row.created_at) {
-      return { created_at: String(row.created_at), model_used: m || null };
+      return { created_at: String(row.created_at), model_used: raw || null };
     }
   }
   return null;
@@ -260,7 +262,7 @@ export async function GET(req: NextRequest) {
           .order("created_at", { ascending: false })
           .limit(5);
         const realAssist = (lastAssist ?? []).find((r) => {
-          const m = String((r as { model_used?: string }).model_used ?? "");
+          const m = parseModelUsed((r as { model_used?: string }).model_used).model;
           return !m.startsWith("wa_followup_") && m !== "wa_business_app";
         });
         messages_hint = {

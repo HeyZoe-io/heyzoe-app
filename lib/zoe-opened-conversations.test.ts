@@ -19,6 +19,7 @@ assert.equal(monthlyConversationLimitForPlan("pro"), 500);
 assert.equal(monthlyConversationLimitForPlan("intro"), 500);
 
 assert.equal(countsAsOpenedZoeConversation("claude-haiku-4-5"), true);
+assert.equal(countsAsOpenedZoeConversation("claude-haiku-4-5#route=answer;tag=ok"), true);
 assert.equal(countsAsOpenedZoeConversation("sales_flow"), true);
 assert.equal(countsAsOpenedZoeConversation("wa_followup_2"), true);
 assert.equal(countsAsOpenedZoeConversation("wa_outbound"), true);

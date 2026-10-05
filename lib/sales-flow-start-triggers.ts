@@ -1,3 +1,5 @@
+import { parseModelUsed } from "@/lib/wa-reply-route";
+
 /** טקסט ברירת מחדל לכפתורי quick-reply / פולואפ שמתניעים פלואו מכירה (עברית). */
 export const SALES_FLOW_START_BUTTON_LABEL_HE = "בואו נתחיל";
 export const SALES_FLOW_START_BUTTON_LABEL_EN = "Let's start!";
@@ -284,7 +286,7 @@ export const OPENING_SERVICE_PICK_MENU_MODELS = [
 ] as const;
 
 export function isOpeningServicePickMenuModel(model: string | null | undefined): boolean {
-  const m = String(model ?? "").trim();
+  const m = parseModelUsed(model).model;
   return (OPENING_SERVICE_PICK_MENU_MODELS as readonly string[]).includes(m);
 }
 
@@ -296,7 +298,7 @@ export function salesFlowGreetingMarkerCountsAsStarted(input: {
   modelUsed: string;
   precedingUserText: string | null;
 }): boolean {
-  const modelUsed = String(input.modelUsed ?? "").trim();
+  const modelUsed = parseModelUsed(input.modelUsed).model;
   if (
     modelUsed === "greeting" ||
     modelUsed === "registration_intent_no_member" ||

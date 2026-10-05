@@ -94,10 +94,30 @@ export function resolveRouteBookingChangeReply(
   return buildClosedPlaybookDefaultReply("reschedule", knowledge?.botName);
 }
 
-export function modelUsedBase(model: string | null | undefined): string {
-  const raw = String(model ?? "").trim();
+export type ParsedModelUsed = {
+  model: string;
+  route: WaReplyRoute | null;
+  tagStatus: WaReplyRouteTagStatus | null;
+};
+
+const MODEL_SUFFIX_RE = /^#route=([a-z_]+);tag=(ok|missing|invalid)$/;
+
+/** Split "<base>#route=X;tag=Y". Comparisons and groupings use `model` only. */
+export function parseModelUsed(value: string | null | undefined): ParsedModelUsed {
+  const raw = String(value ?? "").trim();
   const hash = raw.indexOf("#");
-  return hash === -1 ? raw : raw.slice(0, hash);
+  if (hash === -1) return { model: raw, route: null, tagStatus: null };
+  const model = raw.slice(0, hash);
+  const match = MODEL_SUFFIX_RE.exec(raw.slice(hash));
+  if (!match) return { model, route: null, tagStatus: null };
+  const routeName = String(match[1] ?? "");
+  const tagStatus = match[2] as WaReplyRouteTagStatus;
+  if (!isWaReplyRoute(routeName)) return { model, route: null, tagStatus: "invalid" };
+  return { model, route: routeName, tagStatus };
+}
+
+export function modelUsedBase(model: string | null | undefined): string {
+  return parseModelUsed(model).model;
 }
 
 /** Stored on the assistant row that is already written. No extra update. */

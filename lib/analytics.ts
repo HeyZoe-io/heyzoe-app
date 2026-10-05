@@ -10,6 +10,7 @@ import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 import { scheduleBoardHistoryNote } from "@/lib/wa-studio-schedule-cta";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 import { touchContactLastZoeReply } from "@/lib/zoe-opened-conversations";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 
 export type MessageRole = "user" | "assistant" | "event" | "system";
 
@@ -133,12 +134,13 @@ export async function sessionHasSalesFlowGreeting(input: {
 }): Promise<boolean> {
   const marker = await fetchLastSalesFlowGreetingMarker(input);
   if (marker) {
+    const markerModel = parseModelUsed(marker.model_used).model;
     if (
-      marker.model_used === "greeting" ||
-      marker.model_used === "registration_intent_no_member" ||
-      marker.model_used === "signup_intent_flow_entry" ||
-      marker.model_used === "trial_topic_flow_entry" ||
-      marker.model_used === "closed_playbook_catalog_group"
+      markerModel === "greeting" ||
+      markerModel === "registration_intent_no_member" ||
+      markerModel === "signup_intent_flow_entry" ||
+      markerModel === "trial_topic_flow_entry" ||
+      markerModel === "closed_playbook_catalog_group"
     ) {
       return true;
     }

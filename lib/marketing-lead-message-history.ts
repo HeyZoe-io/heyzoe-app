@@ -8,6 +8,7 @@ import {
 } from "@/lib/marketing-whatsapp";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { shouldSkipQuestion } from "@/lib/marketing-lead-questions";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 
 export type FlowQuestionDef = {
   nodeId: string;
@@ -184,7 +185,7 @@ export async function reconstructMarketingLeadEventsFromMessages(
       for (const msg of rows) {
         const content = String(msg.content ?? "").trim();
         const createdAt = String(msg.created_at ?? "");
-        const modelUsed = String(msg.model_used ?? "");
+        const modelUsed = parseModelUsed(msg.model_used).model;
 
         if (msg.role === "assistant") {
           const parsed = parseLoggedQuestionButtons(content);

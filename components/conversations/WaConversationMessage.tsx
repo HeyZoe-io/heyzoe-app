@@ -9,6 +9,7 @@ import {
   type ParsedWaConversationMessage,
 } from "@/lib/conversation-message-display";
 import { dashboardDateLocale, type DashboardLang } from "@/lib/dashboard-lang";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 
 const i18n = {
   he: {
@@ -268,6 +269,7 @@ export function WaConversationMessage({
     createdAt,
     modelUsed,
   });
+  const model = parseModelUsed(modelUsed).model;
   const time = createdAt ? formatTime(createdAt, lang) : undefined;
   const interactive = parsed.kind === "interactive" || parsed.kind === "media";
 
@@ -281,13 +283,13 @@ export function WaConversationMessage({
           {t.errorCode}: {errorCode}
         </p>
       ) : null}
-      {from === "assistant" && modelUsed === WA_UNSUPPORTED_INBOUND_MODEL ? (
+      {from === "assistant" && model === WA_UNSUPPORTED_INBOUND_MODEL ? (
         <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.unsupportedInbound}</p>
       ) : null}
-      {from === "assistant" && modelUsed === WA_BUSINESS_APP_ECHO_MODEL ? (
+      {from === "assistant" && model === WA_BUSINESS_APP_ECHO_MODEL ? (
         <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.sentFromWhatsAppApp}</p>
       ) : null}
-      {modelUsed === WA_ZOE_ADMIN_TEMPLATE_MODEL ? (
+      {model === WA_ZOE_ADMIN_TEMPLATE_MODEL ? (
         <p className="mt-0.5 text-end text-[10px] text-amber-700">{t.sentFromZoeAdmin}</p>
       ) : null}
     </div>

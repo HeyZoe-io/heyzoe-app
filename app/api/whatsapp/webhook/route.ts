@@ -114,6 +114,7 @@ import {
   decideReplyRouteAction,
   extractReplyRoute,
   modelUsedBase,
+  parseModelUsed,
   resolveRouteBookingChangeReply,
   type ExtractedReplyRoute,
 } from "@/lib/wa-reply-route";
@@ -4265,13 +4266,17 @@ async function sendSalesFlowCtaMenuWithPhaseUpdate(input: {
       .eq("business_slug", business_slug)
       .eq("session_id", sessionId)
       .eq("role", "assistant")
-      .in("model_used", [CTA_NOTE_MODEL, "greeting", "default_opening"])
+      .or(assistantModelOrFilter([CTA_NOTE_MODEL, "greeting", "default_opening"]))
       .order("created_at", { ascending: false })
       .limit(50);
     const lastResetAt =
-      (markers ?? []).find((m: any) => m?.model_used === "greeting" || m?.model_used === "default_opening")?.created_at ??
+      (markers ?? []).find((m: any) => {
+        const model = parseModelUsed(m?.model_used).model;
+        return model === "greeting" || model === "default_opening";
+      })?.created_at ?? null;
+    const lastNoteAt =
+      (markers ?? []).find((m: any) => parseModelUsed(m?.model_used).model === CTA_NOTE_MODEL)?.created_at ??
       null;
-    const lastNoteAt = (markers ?? []).find((m: any) => m?.model_used === CTA_NOTE_MODEL)?.created_at ?? null;
     const shouldSendNote =
       !lastNoteAt || (lastResetAt && String(lastNoteAt) < String(lastResetAt));
     if (shouldSendNote) {

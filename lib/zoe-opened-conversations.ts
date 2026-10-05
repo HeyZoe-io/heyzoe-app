@@ -12,6 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getIsraelMonthStartUtc } from "@/lib/israel-time";
 import { isZoeAssistantModel } from "@/lib/leads/no-response-audience";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 import {
   canonicalContactPhone,
   contactPhoneLookupVariants,
@@ -33,7 +34,7 @@ let missingColumnLogged = false;
 const NOT_AN_OPENED_CONVERSATION = new Set(["starter_quota_cap_notice"]);
 
 export function countsAsOpenedZoeConversation(model: string | null | undefined): boolean {
-  const value = String(model ?? "").trim();
+  const value = parseModelUsed(model).model;
   if (NOT_AN_OPENED_CONVERSATION.has(value)) return false;
   return isZoeAssistantModel(value);
 }

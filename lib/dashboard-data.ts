@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 
 type DateRange = { from: string; to: string };
 
@@ -138,7 +139,8 @@ export async function getDashboardData(range: DateRange) {
     }
 
     if (msg.role === "assistant" && msg.model_used) {
-      modelUsage.set(msg.model_used, (modelUsage.get(msg.model_used) ?? 0) + 1);
+      const model = parseModelUsed(msg.model_used).model;
+      modelUsage.set(model, (modelUsage.get(model) ?? 0) + 1);
     }
 
     if (msg.error_code === "429" || msg.error_code === "503") {

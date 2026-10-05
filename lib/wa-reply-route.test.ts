@@ -5,6 +5,7 @@ import {
   decideReplyRouteAction,
   extractReplyRoute,
   modelUsedBase,
+  parseModelUsed,
   resolveRouteBookingChangeReply,
 } from "@/lib/wa-reply-route";
 
@@ -51,6 +52,17 @@ assert.equal(actionFor(`[[route:handoff]]\n${timeBody}`, true), "handoff");
 assert.equal(actionFor(timeBody, true), "send_body");
 assert.equal(actionFor(`[[route:nope]]\n${timeBody}`, true), "send_body");
 
+assert.deepEqual(parseModelUsed("claude-haiku-4-5#route=schedule;tag=ok"), {
+  model: "claude-haiku-4-5",
+  route: "schedule",
+  tagStatus: "ok",
+});
+assert.deepEqual(parseModelUsed("greeting"), { model: "greeting", route: null, tagStatus: null });
+assert.deepEqual(parseModelUsed("claude-haiku-4-5#route=nope;tag=ok"), {
+  model: "claude-haiku-4-5",
+  route: null,
+  tagStatus: "invalid",
+});
 assert.equal(modelUsedBase("claude-haiku-4-5#route=schedule;tag=ok"), "claude-haiku-4-5");
 assert.equal(
   appendRouteToModelUsed("claude-haiku-4-5", extractReplyRoute("[[route:schedule]]\nלוח")),
