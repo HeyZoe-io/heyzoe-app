@@ -38,6 +38,7 @@ import {
   type ArboxOccurrenceStateResult,
 } from "@/lib/arbox-occurrence-state";
 import { isSchedulePickChangeServiceLabel } from "@/lib/business-content-lang";
+import { hideClassFullness } from "@/lib/wa-class-full-policy";
 import { resolveWaMenuChoice } from "@/lib/wa-menu-choice";
 
 export const RELATIVE_DAY_CLASS_SLOTS_MODEL = "relative_day_class_slots";
@@ -126,6 +127,8 @@ export type ArboxOfferContext = {
   businessId?: number | string | null;
   arboxApiKey?: string | null;
   arboxBoxId?: string | null;
+  /** Omer's place: a full class is offered and labeled like an open one. */
+  ignoreClassFullness?: boolean;
   /** Test-only override — production callers must not set this. */
   rawDataFetcherImpl?: RawDataFetcher;
 };
@@ -333,8 +336,10 @@ export async function annotateScheduleSlotsByOccurrenceState<T extends { day: st
     );
     return candidates.map((c) => ({
       ...c.slot,
-      occurrenceState:
+      occurrenceState: hideClassFullness(
         stateMap.get(occurrenceStateKey(c.dateYmd, c.time, c.arboxClassName))?.state ?? "unknown",
+        ctx.ignoreClassFullness
+      ),
     }));
   } catch (e) {
     console.error("[schedule-slot-occurrence-annotate] occurrence resolve failed; fail-open", {
@@ -389,13 +394,20 @@ export type ScheduleSlotPickTapResult<T> =
 function scheduleSlotPickBlockReason(
   live: ArboxOccurrenceState,
   presentedLabel: string | undefined,
-  inboundLabel: string
+  inboundLabel: string,
+  ignoreClassFullness?: boolean
 ): "full" | "cancelled" | null {
-  if (live === "full" || live === "cancelled") return live;
-  // The row the lead just chose was labeled full/cancelled on the menu we sent.
-  // A later Arbox miss (unknown) or a flip to open must not book that tap —
-  // we apologize and send a fresh menu instead.
-  return occurrenceStatusFromLabel(presentedLabel ?? "") ?? occurrenceStatusFromLabel(inboundLabel);
+  if (!ignoreClassFullness) {
+    if (live === "full" || live === "cancelled") return live;
+    // The row the lead just chose was labeled full/cancelled on the menu we sent.
+    // A later Arbox miss (unknown) or a flip to open must not book that tap —
+    // we apologize and send a fresh menu instead.
+    return occurrenceStatusFromLabel(presentedLabel ?? "") ?? occurrenceStatusFromLabel(inboundLabel);
+  }
+  if (live === "cancelled") return "cancelled";
+  const marked = occurrenceStatusFromLabel(presentedLabel ?? "") ?? occurrenceStatusFromLabel(inboundLabel);
+  if (marked === "cancelled") return "cancelled";
+  return null;
 }
 
 export function resolveScheduleSlotPickTap<
@@ -407,6 +419,8 @@ export function resolveScheduleSlotPickTap<
   labels: string[];
   /** Labels from the menu already sent (with מלא/מבוטל). Falls back to `labels`. */
   presentedLabels?: readonly string[];
+  /** When set, a full row (live or already labeled מלא) still opens. Cancelled still blocks. */
+  ignoreClassFullness?: boolean;
 }): ScheduleSlotPickTapResult<T> {
   const resolved = resolveWaMenuChoice(
     input.inboundText,
@@ -428,7 +442,12 @@ export function resolveScheduleSlotPickTap<
   const slot = input.slotsForPick[idx]!;
   const presented = input.presentedLabels ?? input.labels;
   const presentedLabel = presented.find((l) => scheduleSlotPickLabelsMatchIgnoringStatus(l, resolved));
-  const block = scheduleSlotPickBlockReason(slot.occurrenceState, presentedLabel, resolved);
+  const block = scheduleSlotPickBlockReason(
+    slot.occurrenceState,
+    presentedLabel,
+    resolved,
+    input.ignoreClassFullness
+  );
   if (block === "full") {
     return { kind: "blocked", reason: "full", notice: SCHEDULE_SLOT_PICK_FULL_TAP_NOTICE, slot };
   }
@@ -668,7 +687,10 @@ export async function buildCatalogDaySlotsReply(
 
   const lines: string[] = [];
   for (const item of items) {
-    const state = stateMap.get(occurrenceStateKey(item.dateYmd, item.time, item.arboxClassName))?.state;
+    const state = hideClassFullness(
+      stateMap.get(occurrenceStateKey(item.dateYmd, item.time, item.arboxClassName))?.state,
+      input.ignoreClassFullness
+    );
     const slotLabel = formatSlotLabelWithOccurrenceStatus({ day: input.day, time: item.time }, state);
     lines.push(`${slotLabel}, ${item.serviceName}`);
   }
@@ -841,7 +863,10 @@ export async function tryBuildRelativeDayClassSlotsReply(
   const foundLines: string[] = [];
   for (const g of dayGroups) {
     for (const s of g.slots) {
-      const state = stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state;
+      const state = hideClassFullness(
+        stateMap.get(occurrenceStateKey(s.dateYmd, s.time, service.arboxClassName))?.state,
+        input.ignoreClassFullness
+      );
       foundLines.push(formatSlotLabelWithOccurrenceStatus({ day: g.day, time: s.time }, state));
     }
   }

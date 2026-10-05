@@ -7,6 +7,7 @@ import { getOccurrenceRawData, resolveOccurrenceState, type ArboxOccurrenceRaw }
 import { normalizeHhmm } from "@/lib/arbox-schedule-sync";
 import { getIsraelDayLetter, israelCalendarDatePlusDays, resolveNextOccurrence } from "@/lib/israel-time";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
+import { hideClassFullness } from "@/lib/wa-class-full-policy";
 import {
   looksLikeClassSpaceQuestion,
   matchCatalogServicesFromFreeText,
@@ -171,6 +172,8 @@ export async function tryBuildArboxClassSpaceReply(input: {
   businessId: string | number;
   arboxApiKey: string;
   arboxBoxId: string;
+  /** Omer's place: a full class is described as having space, never as full. */
+  ignoreClassFullness?: boolean;
   rawDataFetcherImpl?: RawFetcher;
 }): Promise<string | null> {
   const text = String(input.text ?? "").trim();
@@ -230,7 +233,10 @@ export async function tryBuildArboxClassSpaceReply(input: {
     const className = String(service?.arboxClassName ?? "").trim() || hit.name;
     const raw = rawByDate.get(hit.dateYmd);
     if (!raw) return hit;
-    const state = resolveOccurrenceState(raw, hit.dateYmd, hit.time, className).state;
+    const state = hideClassFullness(
+      resolveOccurrenceState(raw, hit.dateYmd, hit.time, className).state,
+      input.ignoreClassFullness
+    );
     return { ...hit, state };
   });
   return composeArboxClassSpaceReply({ hits, times: found.times, now });

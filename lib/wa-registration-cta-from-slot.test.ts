@@ -189,6 +189,8 @@ assert.equal(
 // Stage 2c Part 2 — occurrence-state -> CTA outcome mapping, and message copy
 // ==========================================================================
 assert.equal(resolveCtaOccurrenceOutcome("full"), "notice_full");
+assert.equal(resolveCtaOccurrenceOutcome("full", { ignoreFull: true }), "send_link");
+assert.equal(resolveCtaOccurrenceOutcome("cancelled", { ignoreFull: true }), "notice_cancelled");
 assert.equal(resolveCtaOccurrenceOutcome("cancelled"), "notice_cancelled");
 assert.equal(resolveCtaOccurrenceOutcome("open"), "send_link", "open -> link, unchanged");
 assert.equal(resolveCtaOccurrenceOutcome("unknown"), "send_link", "unknown behaves exactly like open — fail open");

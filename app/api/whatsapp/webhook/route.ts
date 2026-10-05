@@ -238,6 +238,7 @@ import {
 import { leadFacingFactText } from "@/lib/wa-closed-playbook-facts";
 import { matchesOptOutKeyword } from "@/lib/wa-opt-out-match";
 import { ARBOX_CLASS_SPACE_MODEL, tryBuildArboxClassSpaceReply } from "@/lib/wa-arbox-class-space";
+import { businessIgnoresClassFullness } from "@/lib/wa-class-full-policy";
 import {
   UNKNOWN_CLASS_SLOT_HANDOFF_MODEL,
   UNKNOWN_CLASS_SLOT_HANDOFF_REPLY,
@@ -3612,6 +3613,7 @@ async function sendScheduleSlotPickMenu(input: {
     arboxApiKey: creds.arboxApiKey,
     arboxBoxId: creds.arboxBoxId,
     now: input.now,
+    ignoreClassFullness: businessIgnoresClassFullness(input.business_slug),
   });
   // All-full empty menu is dead in practice (full/cancelled are shown). Keep the helper
   // for Option 2 catalog; do not send it when there are still slots to pick.
@@ -7621,7 +7623,9 @@ async function processIncoming(
           });
           occurrenceState = occResult.state;
         }
-        const ctaOutcome = resolveCtaOccurrenceOutcome(occurrenceState);
+        const ctaOutcome = resolveCtaOccurrenceOutcome(occurrenceState, {
+          ignoreFull: businessIgnoresClassFullness(business_slug),
+        });
         if (ctaOutcome === "notice_full" || ctaOutcome === "notice_cancelled") {
           await sendClassFullOrCancelledNotice({
             state: ctaOutcome === "notice_full" ? "full" : "cancelled",
@@ -8405,6 +8409,7 @@ async function processIncoming(
           businessId,
           arboxApiKey: crmApiKey,
           arboxBoxId: crmBoxId,
+          ignoreClassFullness: businessIgnoresClassFullness(business_slug),
         });
         if (spaceReply) {
           try {
@@ -8528,6 +8533,7 @@ async function processIncoming(
         arboxApiKey: crmApiKey,
         arboxBoxId: crmBoxId,
         now: new Date(nowIso),
+        ignoreClassFullness: businessIgnoresClassFullness(business_slug),
       });
       if (relativeDayReply) {
         // Truthy LIST or catalog-wide all-full: send-and-return. Claude (~11778) and
@@ -10516,6 +10522,7 @@ async function processIncoming(
         }
       } else {
         const rawSlots = selectedService?.scheduleSlots ?? [];
+        const ignoreClassFullness = businessIgnoresClassFullness(business_slug);
         const annotatedSlots = await annotateScheduleSlotsByOccurrenceState(
           rawSlots,
           selectedService?.arboxClassName ?? "",
@@ -10524,6 +10531,7 @@ async function processIncoming(
             arboxApiKey: crmApiKey,
             arboxBoxId: crmBoxId,
             now: new Date(nowIso),
+            ignoreClassFullness,
           }
         );
         const lastAssistForSchedule = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
@@ -10599,6 +10607,7 @@ async function processIncoming(
             slotsForPick,
             labels,
             presentedLabels: presentedLabels.length ? presentedLabels : labels,
+            ignoreClassFullness,
           });
 
           if (tap.kind === "change_service") {

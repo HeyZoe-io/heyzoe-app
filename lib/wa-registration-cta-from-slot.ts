@@ -40,9 +40,12 @@ export type CtaOccurrenceOutcome = "notice_full" | "notice_cancelled" | "send_li
  * check that was never attempted (state === null, e.g. no concrete day/time, no stamp, no
  * Arbox context) — all resolve to "send_link": suppress only on positive evidence.
  */
-export function resolveCtaOccurrenceOutcome(state: "open" | "full" | "cancelled" | "unknown" | null): CtaOccurrenceOutcome {
+export function resolveCtaOccurrenceOutcome(
+  state: "open" | "full" | "cancelled" | "unknown" | null,
+  opts?: { ignoreFull?: boolean }
+): CtaOccurrenceOutcome {
   if (state === "cancelled") return "notice_cancelled";
-  if (state === "full") return "notice_full";
+  if (state === "full" && !opts?.ignoreFull) return "notice_full";
   return "send_link";
 }
 
