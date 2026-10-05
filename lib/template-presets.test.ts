@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import {
   extractBodyVarCount,
+  hebrewMetaTemplateApiError,
   isMetaTemplateContentEditable,
   isPresetAvailable,
   paramSlotsForTriggerType,
   presetVarHint,
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
+  templateTextEdgeVariableMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
 
@@ -19,6 +21,7 @@ assert.equal(
   TEMPLATE_PRESETS.registered_after_trial.body,
   "היי {{1}}, שמחנו לראות שנרשמת להמשך אחרי שיעור הניסיון ({{2}})."
 );
+assert.equal(templateTextEdgeVariableMessage(TEMPLATE_PRESETS.registered_after_trial.body), null);
 assert.equal(TEMPLATE_PRESETS.not_registered_after_trial.category, "MARKETING");
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.registered_after_trial.body), 2);
 assert.equal(TEMPLATE_PRESETS.no_response.button_text, "אשמח לפרטים");
@@ -31,7 +34,7 @@ assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.birthday_former.body), 2);
 assert.equal(TEMPLATE_PRESETS.membership_cancelled.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.membership_cancelled.body,
-  "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}."
+  "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}. אין צורך בפעולה נוספת."
 );
 assert.equal(TEMPLATE_PRESETS.missed_class.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.missed_class.button_text, undefined);
@@ -62,7 +65,7 @@ assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.freeze_ending_unbooked.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.freeze_ending_unbooked.body,
-  "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}."
+  "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}. אפשר כבר לקבוע שיעור להמשך."
 );
 assert.equal(TEMPLATE_PRESETS.freeze_ending_booked.category, "UTILITY");
 assert.deepEqual(paramSlotsForTriggerType("freeze_created"), [
@@ -119,7 +122,7 @@ assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.button_text, undefined);
 assert.equal(
   TEMPLATE_PRESETS.trainer_trial_heads_up.body,
-  "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}} {{3}} לאימון ניסיון. בבקשה לשים לב להערות הכלליות: {{4}}."
+  "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}}. שם הלקוח: {{3}}. בבקשה לשים לב להערות הכלליות: {{4}}. תודה."
 );
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trainer_trial_heads_up.body), 4);
 assert.deepEqual(paramSlotsForTriggerType("trainer_trial_heads_up"), [
@@ -233,5 +236,17 @@ assert.equal(
 );
 assert.equal(uniqueTemplateName("incoming_lead", ["INCOMING_LEAD"]), "incoming_lead1");
 assert.equal(uniqueTemplateName("birthday_wish", ["birthday_wish"]), "birthday_wish1");
+
+for (const [key, preset] of Object.entries(TEMPLATE_PRESETS)) {
+  assert.equal(templateTextEdgeVariableMessage(preset.body), null, key);
+}
+assert.match(
+  templateTextEdgeVariableMessage("תוקף המנוי עד {{2}}.") ?? "",
+  /נגמר במשתנה/
+);
+assert.equal(templateTextEdgeVariableMessage("היי {{1}}, נתראה מחר."), null);
+assert.equal(templateTextEdgeVariableMessage("{{1}} היי"), "גוף ההודעה מתחיל במשתנה. הוסיפו מילה לפניו.");
+assert.match(hebrewMetaTemplateApiError("error_subcode\":2388299") ?? "", /נגמר במשתנה/);
+assert.equal(hebrewMetaTemplateApiError("something else"), null);
 
 console.log("template-presets.test.ts: ok");

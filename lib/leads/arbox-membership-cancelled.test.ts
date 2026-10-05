@@ -212,7 +212,7 @@ function rule(
   assert.equal(TEMPLATE_PRESETS.membership_cancelled.category, "UTILITY");
   assert.equal(
     TEMPLATE_PRESETS.membership_cancelled.body,
-    "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}."
+    "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}. אין צורך בפעולה נוספת."
   );
   assert.doesNotMatch(TEMPLATE_PRESETS.membership_cancelled.body, /נשמח לראותך/);
   assert.equal(TEMPLATE_PRESETS.membership_cancelled.button_text, undefined);

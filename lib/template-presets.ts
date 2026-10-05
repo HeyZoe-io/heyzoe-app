@@ -125,7 +125,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   membership_cancelled: {
     name: "membership_cancelled",
     category: "UTILITY",
-    body: "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}.",
+    body: "ביטול המנוי {{1}} עודכן במערכת בהצלחה✔️ תוקף המנוי הינו עד תאריך {{2}}. אין צורך בפעולה נוספת.",
   },
   missed_class: {
     name: "missed_class",
@@ -146,12 +146,12 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   freeze_created: {
     name: "freeze_created",
     category: "UTILITY",
-    body: "היי {{1}}, ההקפאה שלך עודכנה במערכת — מתאריך {{2}} עד {{3}}.",
+    body: "היי {{1}}, ההקפאה שלך עודכנה במערכת — מתאריך {{2}} עד {{3}}. האימון יתחדש אחרי התאריך הזה.",
   },
   freeze_ending_unbooked: {
     name: "freeze_ending_unbooked",
     category: "UTILITY",
-    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}.",
+    body: "היי {{1}}, ההקפאה שלך מסתיימת ב-{{2}}. אפשר כבר לקבוע שיעור להמשך.",
   },
   freeze_ending_booked: {
     name: "freeze_ending_booked",
@@ -182,7 +182,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   trainer_trial_heads_up: {
     name: "trainer_trial_heads_up",
     category: "UTILITY",
-    body: "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}} {{3}} לאימון ניסיון. בבקשה לשים לב להערות הכלליות: {{4}}.",
+    body: "היי! היום מגיע אליך לאימון {{1}} בשעה {{2}}. שם הלקוח: {{3}}. בבקשה לשים לב להערות הכלליות: {{4}}. תודה.",
   },
   class_cancelled_staff: {
     name: "class_cancelled_staff",
@@ -192,7 +192,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   class_cancelled_customer: {
     name: "class_cancelled_customer",
     category: "UTILITY",
-    body: "היי {{1}}, השיעור {{2}} בתאריך {{3}} בשעה {{4}} בוטל.",
+    body: "היי {{1}}, השיעור {{2}} שנרשמת אליו בתאריך {{3}} בשעה {{4}} בוטל. אם תרצו לקבוע מועד אחר נשמח לעזור.",
   },
 };
 
@@ -203,6 +203,57 @@ export function extractBodyVarCount(body: string): number {
     if (Number.isFinite(n) && n > max) max = n;
   }
   return max;
+}
+
+/**
+ * Meta 2388299: a variable at the start, or at the end when only a period follows.
+ * A closing character such as ")" before the period is accepted; a bare "{{2}}." is not.
+ */
+export function templateTextEdgeVariableMessage(
+  text: string,
+  part: "body" | "header" = "body"
+): string | null {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) return null;
+  const matches = [...trimmed.matchAll(/\{\{\s*\d+\s*\}\}/g)];
+  if (!matches.length) return null;
+  const where = part === "header" ? "הכותרת" : "גוף ההודעה";
+  const first = matches[0];
+  if (!trimmed.slice(0, first.index ?? 0).trim()) {
+    return `${where} מתחיל במשתנה. הוסיפו מילה לפניו.`;
+  }
+  const last = matches[matches.length - 1];
+  const after = trimmed.slice((last.index ?? 0) + last[0].length);
+  if (/^[\s.。]*$/u.test(after)) {
+    return `${where} נגמר במשתנה. הוסיפו מילה או משפט אחרי המשתנה האחרון.`;
+  }
+  return null;
+}
+
+export function templateComponentsEdgeVariableMessage(components: unknown): string | null {
+  if (!Array.isArray(components)) return null;
+  for (const raw of components) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as { type?: unknown; text?: unknown; format?: unknown };
+    const type = String(c.type ?? "").toUpperCase();
+    if (type !== "BODY" && type !== "HEADER") continue;
+    if (type === "HEADER" && String(c.format ?? "TEXT").toUpperCase() !== "TEXT") continue;
+    const message = templateTextEdgeVariableMessage(String(c.text ?? ""), type === "HEADER" ? "header" : "body");
+    if (message) return message;
+  }
+  return null;
+}
+
+/** Maps Meta template-create errors the dashboard can show without the raw Graph payload. */
+export function hebrewMetaTemplateApiError(detail: string): string | null {
+  const text = String(detail ?? "");
+  if (text.includes("2388299") || /Leading or Trailing Params/i.test(text)) {
+    return "מטא דחתה את הטמפלייט כי הוא מתחיל או נגמר במשתנה. הוסיפו מילה או משפט אחרי המשתנה האחרון.";
+  }
+  if (text.includes("2388293") || /Params Words Ratio/i.test(text)) {
+    return "מטא דחתה את הטמפלייט כי יש יותר מדי משתנים ביחס לאורך הטקסט. הוסיפו משפט קבוע בלי משתנה נוסף.";
+  }
+  return null;
 }
 
 export function bodyTextFromTemplateComponents(components: unknown): string {

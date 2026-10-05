@@ -20,6 +20,7 @@ import {
   presetExampleForSlot,
   presetVarHint,
   TEMPLATE_PRESETS,
+  templateComponentsEdgeVariableMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
@@ -736,6 +737,8 @@ export default function TemplatesClient({
           buttons: inlineDraft.buttons,
           exampleValues,
         });
+        const edgeMessage = templateComponentsEdgeVariableMessage(components);
+        if (edgeMessage) throw new Error(edgeMessage);
         const tplRes = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1246,6 +1249,8 @@ export default function TemplatesClient({
         buttons,
         exampleValues,
       });
+      const edgeMessage = templateComponentsEdgeVariableMessage(components);
+      if (edgeMessage) throw new Error(edgeMessage);
       const res = await fetch(`/api/${encodeURIComponent(slug)}/templates`, {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },

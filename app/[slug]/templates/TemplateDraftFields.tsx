@@ -157,6 +157,9 @@ export function TemplateDraftFields({
           {bodyHint ??
             `אפשר להשתמש ב־{{1}}, {{2}} וכו׳. {{1}} הוא בדרך כלל שם פרטי של הליד.`}
         </p>
+        <p className="text-xs text-zinc-500">
+          מטא דורשת מילה לפני המשתנה הראשון ואחרי המשתנה האחרון.
+        </p>
       </div>
 
       <div className="space-y-1.5">

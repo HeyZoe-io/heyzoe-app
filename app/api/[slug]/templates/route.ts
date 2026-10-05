@@ -3,7 +3,12 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { createWabaTemplate, syncWabaTemplatesToDb, updateWabaTemplate } from "@/lib/meta-templates";
-import { isMetaTemplateContentEditable, uniqueTemplateName } from "@/lib/template-presets";
+import {
+  hebrewMetaTemplateApiError,
+  isMetaTemplateContentEditable,
+  templateComponentsEdgeVariableMessage,
+  uniqueTemplateName,
+} from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
 import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
@@ -151,6 +156,13 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
+  const edgeMessage = templateComponentsEdgeVariableMessage(components);
+  if (edgeMessage) {
+    return NextResponse.json(
+      { error: "template_edge_variable", detail: edgeMessage },
+      { status: 400 }
+    );
+  }
 
   const { data: bizRow, error: bizErr } = await admin
     .from("businesses")
@@ -194,10 +206,11 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     });
   } catch (e) {
     console.error("[api/templates] Meta create failed:", e);
+    const raw = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
       {
         error: "template_create_failed",
-        detail: e instanceof Error ? e.message : String(e),
+        detail: hebrewMetaTemplateApiError(raw) ?? raw,
       },
       { status: 502 }
     );
@@ -313,6 +326,13 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     nextCategory === "MARKETING"
       ? withMarketingOptOutButton(styled, language || existingLanguage || "he")
       : styled;
+  const edgeMessage = templateComponentsEdgeVariableMessage(components);
+  if (edgeMessage) {
+    return NextResponse.json(
+      { error: "template_edge_variable", detail: edgeMessage },
+      { status: 400 }
+    );
+  }
 
   let updatedMeta: { category?: string; status?: string };
   try {
@@ -322,10 +342,11 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
     });
   } catch (e) {
     console.error("[api/templates] Meta update failed:", e);
+    const raw = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
       {
         error: "template_update_failed",
-        detail: e instanceof Error ? e.message : String(e),
+        detail: hebrewMetaTemplateApiError(raw) ?? raw,
       },
       { status: 502 }
     );
