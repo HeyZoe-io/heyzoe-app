@@ -123,7 +123,7 @@ export const TRIGGER_CATALOG = [
     delay: "after",
     showProductFilter: true,
     uniquePerBusiness: false,
-    minDelayDays: 2,
+    minDelayDays: 1,
     recipient: "customer",
     presetKey: "not_registered_after_trial",
     uiOrder: 7,
@@ -963,7 +963,8 @@ export function formatDelayLabel(
     return days === 0 ? "ביום סיום ההקפאה" : `${days} ימים לפני סיום ההקפאה`;
   }
   if (isPostTrialFollowupTriggerType(type)) {
-    return days === 0 ? "ביום הניסיון" : `${Math.max(2, days)} ימים אחרי הניסיון`;
+    if (days === 0) return "ביום הניסיון";
+    return `${Math.max(minDelayDaysForTrigger(type), days)} ימים אחרי הניסיון`;
   }
   if (type === "no_response") {
     return `${Math.max(2, days)} ימי שתיקה`;

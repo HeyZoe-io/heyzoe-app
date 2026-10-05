@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   addDaysYmd,
   combinePostTrialTemplateDispatches,
+  effectivePostTrialDelayDays,
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
   orderSameTriggerTemplateRules,
@@ -180,8 +181,21 @@ assert.equal(triggerTypeForOutcome("not_registered"), "not_registered_after_tria
 assert.equal(isPostTrialFollowupTriggerType("registered_after_trial"), true);
 assert.equal(isPostTrialFollowupTriggerType("trial_attended"), false);
 assert.equal(minDelayDaysForTrigger("registered_after_trial"), 2);
+assert.equal(minDelayDaysForTrigger("not_registered_after_trial"), 1);
 assert.equal(defaultDelayDays("not_registered_after_trial"), 3);
 assert.equal(formatDelayLabel("registered_after_trial", 3, "after"), "3 ימים אחרי הניסיון");
+assert.equal(formatDelayLabel("not_registered_after_trial", 1, "after"), "1 ימים אחרי הניסיון");
+assert.equal(effectivePostTrialDelayDays("not_registered_after_trial", 1), 1);
+assert.equal(effectivePostTrialDelayDays("registered_after_trial", 1), 2);
+assert.equal(postTrialDecisionYmd("2026-09-01", 1), "2026-09-02");
+assert.equal(
+  isPostTrialDecisionDue({
+    classDateYmd: "2026-09-01",
+    delayDays: 1,
+    todayYmd: "2026-09-02",
+  }),
+  true
+);
 
 {
   const key = buildPostTrialFollowupScheduledDedupKey(

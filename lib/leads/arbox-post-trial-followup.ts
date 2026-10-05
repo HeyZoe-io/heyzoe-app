@@ -54,6 +54,7 @@ import {
   loadEnabledRegisteredAfterTrialTemplateTriggers,
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
+import { minDelayDaysForTrigger } from "@/lib/trigger-catalog";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -405,15 +406,21 @@ export function combinePostTrialTemplateDispatches(
   return "immediate";
 }
 
+/** Catalog minimum per trigger. C6 may be 1 (morning after); C5 stays at 2. */
+export function effectivePostTrialDelayDays(triggerType: string, delayDays: number): number {
+  const min = Math.max(0, minDelayDaysForTrigger(triggerType));
+  return Math.max(min, Math.trunc(Number(delayDays) || 0));
+}
+
 function followupDecisionDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
   const first = rules[0];
   if (!first) return 0;
-  return Math.max(2, Math.trunc(Number(first.delay_days) || 0));
+  return effectivePostTrialDelayDays(first.trigger_type, first.delay_days);
 }
 
 function followupLookbackDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
   return rules.reduce((max, rule) => {
-    const days = Math.max(2, Math.trunc(Number(rule.delay_days) || 0));
+    const days = effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days);
     return Math.max(max, days);
   }, 0);
 }
