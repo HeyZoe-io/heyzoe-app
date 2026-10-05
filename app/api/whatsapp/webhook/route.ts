@@ -102,8 +102,11 @@ import {
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
 } from "@/lib/wa-followup-cycle-reset";
 import {
-  scheduleCtaSendsImageAndLink,
+  assistantReplyListsClassTimes,
   scheduleCtaImageFollowUpLinkText,
+  scheduleCtaSendsImageAndLink,
+  scheduleTimesReplyCaption,
+  scheduleTimesReplyUsesImage,
 } from "@/lib/wa-studio-schedule-cta";
 import {
   applyCallScheduleCtaLabelOverride,
@@ -2107,9 +2110,11 @@ async function sendScheduleBoardAfterOpening(input: {
   business_slug: string;
   sessionId: string;
   modelUsed?: string;
+  caption?: string;
 }): Promise<ScheduleBoardDelivery> {
   const { assets, msg, accountSid, authToken, business_slug, sessionId } = input;
   const modelUsed = input.modelUsed ?? "sales_flow_schedule_board_after_opening";
+  const caption = String(input.caption ?? "").trim() || SCHEDULE_BOARD_CAPTION;
   if (assets.canSendScheduleImage && assets.scheduleImgUrl) {
     try {
       await sendWhatsAppMediaMessage(
@@ -2118,13 +2123,13 @@ async function sendScheduleBoardAfterOpening(input: {
         assets.scheduleImgUrl,
         accountSid,
         authToken,
-        SCHEDULE_BOARD_CAPTION,
+        caption,
         "image"
       );
       await logMessage({
         business_slug,
         role: "assistant",
-        content: `[media] ${assets.scheduleImgUrl}\n\n${SCHEDULE_BOARD_CAPTION}`,
+        content: `[media] ${assets.scheduleImgUrl}\n\n${caption}`,
         model_used: modelUsed,
         session_id: sessionId,
       });
@@ -2154,7 +2159,7 @@ async function sendScheduleBoardAfterOpening(input: {
   }
   const link = assets.link.trim();
   if (link) {
-    const txt = `${SCHEDULE_BOARD_CAPTION}: ${link}`;
+    const txt = `${caption}: ${link}`;
     await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
       console.error("[WA Webhook] Send schedule board link after opening failed:", e)
     );
@@ -2168,6 +2173,58 @@ async function sendScheduleBoardAfterOpening(input: {
     return "link";
   }
   return "none";
+}
+
+/**
+ * סטודיו טייץ: במקום רשימת מועדים — המשפט + תמונת מערכת השעות.
+ * בלי תמונה נרשמת שגיאה ונשלח המשפט (ולינק אם יש), כדי לא להיכשל בשקט.
+ */
+async function sendClassTimesAsScheduleImage(input: {
+  knowledge: BusinessKnowledgePack;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia: boolean;
+}): Promise<ScheduleBoardDelivery> {
+  const caption = scheduleTimesReplyCaption(input.business_slug) ?? SCHEDULE_BOARD_CAPTION;
+  const forceImage = scheduleTimesReplyUsesImage(input.business_slug);
+  const assets = scheduleBoardAssetsFromKnowledge(
+    input.knowledge,
+    forceImage ? false : input.blockMedia,
+    input.business_slug
+  );
+  if (forceImage && !(assets.canSendScheduleImage && assets.scheduleImgUrl)) {
+    console.error("[WA Webhook] class-times answer requires schedule image but none is configured", {
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+    });
+  }
+  const delivery = await sendScheduleBoardAfterOpening({
+    assets,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    modelUsed: "sales_flow_schedule_board_on_ask",
+    caption,
+  });
+  if (delivery !== "none") return delivery;
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, caption, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] Send class-times schedule sentence failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: caption,
+    model_used: "sales_flow_schedule_board_on_ask",
+    session_id: input.sessionId,
+  });
+  return "link";
 }
 
 const SCHEDULE_BOARD_SENT_MODELS = new Set([
@@ -8490,6 +8547,18 @@ async function processIncoming(
         }
         const classListModels = new Set(["relative_day_class_slots", "weekly_schedule_scope"]);
         if (knowledge && classListModels.has(relativeDayReply.modelUsed)) {
+          if (scheduleTimesReplyUsesImage(business_slug)) {
+            await sendClassTimesAsScheduleImage({
+              knowledge,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              blockMedia: starterBlocksMedia,
+            });
+            return;
+          }
           const listAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
           const board = await sendScheduleBoardAfterOpening({
             assets: listAssets,
@@ -9396,7 +9465,10 @@ async function processIncoming(
 
   // בקשת מערכת שעות — התמונה/הלינק נשלחים בכל שלב, בלי לחכות ל-CTA או לקלוד.
   if (isWaInboundTextMessage(msg) && knowledge && businessId) {
-    const askedScheduleAssets = scheduleBoardAssetsFromKnowledge(knowledge, starterBlocksMedia);
+    const askedScheduleAssets = scheduleBoardAssetsFromKnowledge(
+      knowledge,
+      scheduleTimesReplyUsesImage(business_slug) ? false : starterBlocksMedia
+    );
     if (
       shouldSendScheduleBoardOnAsk({
         text: msg.text,
@@ -9404,15 +9476,25 @@ async function processIncoming(
         hasLink: askedScheduleAssets.link.trim().length > 0,
       })
     ) {
-      const delivery = await sendScheduleBoardAfterOpening({
-        assets: askedScheduleAssets,
-        msg,
-        accountSid,
-        authToken,
-        business_slug,
-        sessionId,
-        modelUsed: "sales_flow_schedule_board_on_ask",
-      });
+      const delivery = scheduleTimesReplyUsesImage(business_slug)
+        ? await sendClassTimesAsScheduleImage({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+            blockMedia: starterBlocksMedia,
+          })
+        : await sendScheduleBoardAfterOpening({
+            assets: askedScheduleAssets,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+            modelUsed: "sales_flow_schedule_board_on_ask",
+          });
       if (delivery !== "none") {
         if (knowledge.salesFlowConfig && salesFlowStarted) {
           await resendUnansweredSalesFlowPrompt({
@@ -11414,18 +11496,26 @@ async function processIncoming(
 
         if (wantsSchedule) {
           // תמונה מ־CTA או מטאב לינקים — תמיד מועדפת על לינק כשקיימת
-          if (scheduleBoardAssets.canSendScheduleImage && scheduleBoardAssets.scheduleImgUrl) {
-            const imgUrl = scheduleBoardAssets.scheduleImgUrl;
+          const tightsTimesImage = scheduleTimesReplyUsesImage(business_slug);
+          const scheduleCaption = scheduleTimesReplyCaption(business_slug) ?? SCHEDULE_BOARD_CAPTION;
+          const scheduleImgUrl = String(scheduleBoardAssets.scheduleImgUrl ?? "").trim();
+          if (tightsTimesImage && !scheduleImgUrl) {
+            console.error("[WA Webhook] tights schedule answer missing image", {
+              business_slug,
+              sessionId,
+            });
+          }
+          if (scheduleImgUrl && (tightsTimesImage || scheduleBoardAssets.canSendScheduleImage)) {
             await sendTrialPickMediaIfAllowed({
-              blockMedia: starterBlocksMedia,
-              mediaUrl: imgUrl,
+              blockMedia: tightsTimesImage ? false : starterBlocksMedia,
+              mediaUrl: scheduleImgUrl,
               mediaType: "image",
               msg,
               accountSid,
               authToken,
               business_slug,
               sessionId,
-              caption: SCHEDULE_BOARD_CAPTION,
+              caption: scheduleCaption,
             });
             // מדיניות סטודיו (Apex): גם תמונה וגם לינק בסשן מערכת שעות
             if (scheduleCtaSendsImageAndLink(business_slug)) {
@@ -11459,7 +11549,9 @@ async function processIncoming(
 
           const linkToSend = (scheduleBoardAssets.link || scheduleUrlFull).trim();
           if (linkToSend.length > 0) {
-            const txt = `צפייה במערכת השעות:\n${linkToSend}`;
+            const txt = tightsTimesImage
+              ? `${scheduleCaption}\n${linkToSend}`
+              : `צפייה במערכת השעות:\n${linkToSend}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send schedule link failed:", e)
             );
@@ -12807,6 +12899,30 @@ async function processIncoming(
     const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
     replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
     console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
+  }
+
+  if (
+    !isFallbackErrorReply &&
+    knowledge &&
+    scheduleTimesReplyUsesImage(business_slug) &&
+    contactSessionPhase !== "schedule_date" &&
+    contactSessionPhase !== "schedule_time" &&
+    assistantReplyListsClassTimes(replyCoreClean)
+  ) {
+    console.info("[WA Webhook] class-times text replaced with schedule image", {
+      business_slug,
+      sessionId,
+    });
+    await sendClassTimesAsScheduleImage({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      business_slug,
+      sessionId,
+      blockMedia: starterBlocksMedia,
+    });
+    return;
   }
 
   if (

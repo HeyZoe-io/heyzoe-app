@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import {
-  scheduleCtaSendsImageAndLink,
+  assistantReplyListsClassTimes,
+  SCHEDULE_TIMES_IMAGE_REPLY,
   scheduleCtaImageFollowUpLinkText,
+  scheduleCtaSendsImageAndLink,
+  scheduleTimesReplyCaption,
+  scheduleTimesReplyUsesImage,
 } from "@/lib/wa-studio-schedule-cta";
 
 // רק Apex
@@ -20,5 +24,30 @@ assert.equal(
 );
 assert.equal(scheduleCtaImageFollowUpLinkText("  "), "");
 assert.equal(scheduleCtaImageFollowUpLinkText(""), "");
+
+assert.equal(scheduleTimesReplyUsesImage("tights"), true);
+assert.equal(scheduleTimesReplyUsesImage(" Tights "), true);
+assert.equal(scheduleTimesReplyUsesImage("apex"), false);
+assert.equal(scheduleTimesReplyUsesImage(""), false);
+assert.equal(scheduleTimesReplyCaption("tights"), SCHEDULE_TIMES_IMAGE_REPLY);
+assert.equal(scheduleTimesReplyCaption("apex"), null);
+assert.equal(
+  SCHEDULE_TIMES_IMAGE_REPLY,
+  "אפשר לראות במערכת שעות! זה עונה על השאלה שלך?"
+);
+
+assert.equal(
+  assistantReplyListsClassTimes("פילאטיס | חמישי 19:30"),
+  true
+);
+assert.equal(
+  assistantReplyListsClassTimes("יוגה מתקיים פעמיים בשבוע:\nביום שני ב-18:00\nביום חמישי ב-19:30"),
+  true
+);
+assert.equal(assistantReplyListsClassTimes("מה יש מחר? יש יוגה ב-18:00"), true);
+assert.equal(assistantReplyListsClassTimes("18:00, BODY PUMP\n19:30, יוגה"), true);
+assert.equal(assistantReplyListsClassTimes("נרשמת לשיעור מחר ב-18:00, נתראה!"), false);
+assert.equal(assistantReplyListsClassTimes("שעות פעילות: ראשון 08:00-20:00"), false);
+assert.equal(assistantReplyListsClassTimes("המחיר הוא 120 שקלים לחודש."), false);
 
 console.log("wa-studio-schedule-cta: assertions passed");

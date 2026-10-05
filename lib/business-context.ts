@@ -28,6 +28,10 @@ import { buildCtaServiceRepickPromptAddon } from "@/lib/wa-cta-service-repick";
 import { buildWaSpellingAndPhrasingPromptRule } from "@/lib/wa-assistant-reply-fixes";
 import { buildOffTopicStudioPromptRule } from "@/lib/wa-off-topic-fallback";
 import { buildHolidayQuestionPromptRule } from "@/lib/wa-personal-blessing";
+import {
+  scheduleTimesReplyCaption,
+  scheduleTimesReplyUsesImage,
+} from "@/lib/wa-studio-schedule-cta";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { buildLeadAgeBandPromptRule } from "@/lib/wa-lead-audience";
 import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
@@ -1018,6 +1022,10 @@ ${platformSection}
 ${formatSalesFlowBlocksForPrompt(knowledge?.salesFlowBlocks ?? [])}
 - נסחי בהתאם לסגנון הדיבור שנבחר למעלה.`;
 
+  const classTimesImageRule = scheduleTimesReplyUsesImage(slug)
+    ? `\n- כשעונים על מועדי אימונים (מה יש ביום, מתי יש שיעור, לוח, או כל פירוט שעות): אסור לכתוב שעות או רשימת אימונים. המערכת שולחת תמונת מערכת שעות עם המשפט «${scheduleTimesReplyCaption(slug)}».`
+    : "";
+
   if (!isWhatsApp) {
     return `${base}
 ${saleFlowExtra}`;
@@ -1038,13 +1046,17 @@ ${saleFlowExtra}
         : "אין לינק - אל תמציאי."
   }
 - כשמבקשים להירשם: אם יום+שעה מזהים שיעור יחיד בלוח (למשל מחר ב-8:00 = השיעור שיש בלוח באותו מועד) — זה השיעור; המערכת שולחת את לינק ההרשמה שלו. אם לא ברור באיזה שיעור — שאלי באיזה שיעור מתעניינים, בלי לינק מערכת שעות.
-- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר. כששואלים מה יש היום, מחר, או בלוח — אל תפרטי רשימת שיעורים ושעות; המערכת שולחת את מערכת השעות. אם אין לשיעור מועדי לוח בכלל — עני רק: אין בעיה אני מעבירה את הבקשה לצוות.${
+- מועדי שיעור: רק «מועדי לוח» של אותו אימון בידע. אסור להמציא שעה, אסור לקחת שעה מאימון אחר. כששואלים מה יש היום, מחר, או בלוח — אל תפרטי רשימת שיעורים ושעות; המערכת שולחת את מערכת השעות. אם אין לשיעור מועדי לוח בכלל — עני רק: אין בעיה אני מעבירה את הבקשה לצוות.${classTimesImageRule}${
     knowledge?.hasArboxConnection
       ? `
 - לקוחה של ארבוקס שאומרת שהיא כבר רשומה ורק רוצה לוודא (לא שואלת מה יש בלוח): עני רק «אפשר לוודא את ההרשמה דרך האפליקציה». אסור לאשר את ההגעה בעצמך ואסור לפרט שיעורים.`
       : ""
   }
-- ניסוח מועדים: שאלה על הלוח, על היום או על מחר — המערכת שולחת את מערכת השעות, ואין לשכפל את כל הלוח בפסקה אחת. כשכן מפרטים אימונים עם מועדים — כל אימון בשורה נפרדת, לא «היום ב-18:00, BODY PUMP, 19:30» באותה שורה. שורה ריקה בין נושאים (מועדים, כתובת, מחיר, מדיניות).${
+- ניסוח מועדים: שאלה על הלוח, על היום או על מחר — המערכת שולחת את מערכת השעות, ואין לשכפל את כל הלוח בפסקה אחת. ${
+    scheduleTimesReplyUsesImage(slug)
+      ? "אסור לכתוב שעות אימונים בטקסט."
+      : "כשכן מפרטים אימונים עם מועדים — כל אימון בשורה נפרדת, לא «היום ב-18:00, BODY PUMP, 19:30» באותה שורה."
+  } שורה ריקה בין נושאים (מועדים, כתובת, מחיר, מדיניות).${
     waCtx?.israelNowScheduleBlock?.trim()
       ? `\n${waCtx.israelNowScheduleBlock.trim()}`
       : ""
