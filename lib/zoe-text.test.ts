@@ -129,4 +129,13 @@ assert.equal(
 assert.equal(sanitizeZoeOutboundLanguage("בואי נתחילי!"), "בואו נתחיל!");
 assert.equal(sanitizeZoeOutboundLanguage("אז נתחילי עכשיו"), "אז נתחיל עכשיו");
 
+assert.equal(
+  sanitizeZoeOutboundLanguage("שורה ראשונה\n\nשורה שנייה\nשורה שלישית"),
+  "שורה ראשונה\n\nשורה שנייה\nשורה שלישית"
+);
+assert.equal(
+  sanitizeZoeOutboundLanguage("יש  רווח כפול\n\nופסקה"),
+  "יש רווח כפול\n\nופסקה"
+);
+
 console.log("zoe-text.test.ts: ok");

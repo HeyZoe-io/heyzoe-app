@@ -45,7 +45,8 @@ function fixBodiesPhrasing(text: string): string {
   s = s.replace(/\s*ו?לכל\s+סוגי\s+ה?גופים(?:\s+ו?ה?דרישות)?/giu, "");
   s = s.replace(/סוגי\s+ה?גופים/giu, "הרמות");
   s = s.replace(/גופים/giu, "רמות");
-  s = s.replace(/\s{2,}/g, " ").replace(/\s+([.,!?])/g, "$1");
+  // רווחים אופקיים בלבד. `\s` כולל ירידות שורה, ומוחק פסקאות (`\n\n`) לפני השליחה לוואטסאפ.
+  s = s.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.,!?])/g, "$1");
   return s;
 }
 
