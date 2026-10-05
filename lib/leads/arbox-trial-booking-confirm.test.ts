@@ -5,6 +5,7 @@ import {
   trialBookingAlreadyHandled,
   trialBookingConfirmEnabled,
   trialBookingConfirmIsTerminalSkip,
+  trialBookingInWindowChannel,
   trialBookingTemplateFollowUp,
 } from "@/lib/leads/arbox-trial-booking-confirm";
 import { trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
@@ -19,6 +20,23 @@ assert.equal(trialBookingAlreadyHandled(undefined), false);
 
 assert.equal(trialPurchaseTemplateBlockedByZoe("zoe"), true);
 assert.equal(trialPurchaseTemplateBlockedByZoe(null), false);
+
+assert.equal(
+  trialBookingInWindowChannel({ resolvedBodyEmpty: false, templateApproved: true }),
+  "free"
+);
+assert.equal(
+  trialBookingInWindowChannel({ resolvedBodyEmpty: false, templateApproved: false }),
+  "free"
+);
+assert.equal(
+  trialBookingInWindowChannel({ resolvedBodyEmpty: true, templateApproved: true }),
+  "template"
+);
+assert.equal(
+  trialBookingInWindowChannel({ resolvedBodyEmpty: true, templateApproved: false }),
+  "nothing"
+);
 
 assert.deepEqual(
   trialBookingTemplateFollowUp({
@@ -73,5 +91,6 @@ assert.equal(formatTrialBookingConfirmTime("19:00"), "19:00");
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "outside_24h_window" }), true);
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "no_user_session" }), true);
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "send_failed" }), false);
+assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "empty_body" }), false);
 
 console.log("arbox-trial-booking-confirm.test.ts: ok");
