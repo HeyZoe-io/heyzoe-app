@@ -2,6 +2,11 @@
  * C5 registered_after_trial + C6 not_registered_after_trial.
  * Trial attendance (bookingsReport Yes) × post-trial plan/session sale (salesReport).
  * Replaces legacy trial_attended. delay_days = conversion decision window after class_date.
+ * Several enabled templates on one trigger all send, name order, 5s apart
+ * (registered_after_trial then registered_after_trial1). Only then: one
+ * indexed dedup read and one insert per template, so a retry skips a send
+ * that already went out. A single template keeps the old path (no extra IO).
+ * The wait sits in that business's daily worker (cap 285s).
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { logMessage } from "@/lib/analytics";
@@ -34,6 +39,7 @@ import {
   trialAttendedLookbackDays,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -52,6 +58,16 @@ import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SEED_SPAN_DAYS = 30;
+/** Gap between two WhatsApp templates that share one trigger, so the first arrives first. */
+export const SAME_TRIGGER_TEMPLATE_GAP_MS = 5_000;
+
+export type PostTrialTemplateDispatch =
+  | "immediate"
+  | "deferred"
+  | "gated"
+  | "skipped"
+  | "send_failed"
+  | "no_rule";
 
 export type PostTrialOutcome = "registered" | "not_registered";
 export type PostTrialTriggerType = "registered_after_trial" | "not_registered_after_trial";
@@ -361,11 +377,49 @@ async function upsertFollowupSyncLog(input: {
   return { ok: true };
 }
 
-function pickNewestRule(rules: PurchaseTemplateTriggerRule[]): PurchaseTemplateTriggerRule | null {
-  const withTpl = rules
-    .filter((r) => r.template_name?.trim())
-    .sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")));
-  return withTpl[0] ?? null;
+/**
+ * Several enabled rows on one trigger all send.
+ * Name order puts `registered_after_trial` before `registered_after_trial1`.
+ */
+export function orderSameTriggerTemplateRules<
+  T extends { id?: string; template_name?: string | null; created_at?: string },
+>(rules: T[]): T[] {
+  return rules
+    .filter((rule) => Boolean(rule.id) && Boolean(rule.template_name?.trim()))
+    .sort((a, b) => {
+      const byName = String(a.template_name).trim().localeCompare(String(b.template_name).trim(), "en");
+      if (byName !== 0) return byName;
+      return String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""));
+    });
+}
+
+/** First failure blocks the attendance; a later template waits so order survives a retry. */
+export function combinePostTrialTemplateDispatches(
+  results: PostTrialTemplateDispatch[]
+): PostTrialTemplateDispatch {
+  if (results.length === 0) return "no_rule";
+  if (results.some((dispatch) => dispatch === "send_failed")) return "send_failed";
+  if (results.some((dispatch) => dispatch === "gated")) return "gated";
+  if (results.every((dispatch) => dispatch === "skipped" || dispatch === "no_rule")) return "skipped";
+  if (results.some((dispatch) => dispatch === "deferred")) return "deferred";
+  return "immediate";
+}
+
+function followupDecisionDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
+  const first = rules[0];
+  if (!first) return 0;
+  return Math.max(2, Math.trunc(Number(first.delay_days) || 0));
+}
+
+function followupLookbackDelayDays(rules: PurchaseTemplateTriggerRule[]): number {
+  return rules.reduce((max, rule) => {
+    const days = Math.max(2, Math.trunc(Number(rule.delay_days) || 0));
+    return Math.max(max, days);
+  }, 0);
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function dispatchFollowupTemplate(input: {
@@ -381,7 +435,7 @@ async function dispatchFollowupTemplate(input: {
   outcome: PostTrialOutcome;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{ dispatch: PostTrialTemplateDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -482,6 +536,80 @@ async function dispatchFollowupTemplate(input: {
   return { dispatch: "immediate", ok: true };
 }
 
+async function postTrialTemplateAlreadyDelivered(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  outcome: PostTrialOutcome;
+  businessId: number;
+  ruleId: string;
+  userId: number;
+  classDateYmd: string;
+  className: string | null;
+}): Promise<boolean> {
+  const dedupKey = buildPostTrialFollowupScheduledDedupKey(
+    input.outcome,
+    input.businessId,
+    input.ruleId,
+    input.userId,
+    input.classDateYmd,
+    input.className
+  );
+  const { data, error } = await input.admin
+    .from("scheduled_template_sends")
+    .select("status")
+    .eq("dedup_key", dedupKey)
+    .maybeSingle();
+  if (error) {
+    console.error("[leads/arbox-post-trial-followup] dedup lookup failed:", error.message, {
+      dedup_key: dedupKey,
+    });
+    return false;
+  }
+  return String((data as { status?: unknown } | null)?.status ?? "") === "sent";
+}
+
+async function recordPostTrialTemplateDelivered(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  ruleId: string;
+  phone: string;
+  templateName: string;
+  outcome: PostTrialOutcome;
+  userId: number;
+  classDateYmd: string;
+  className: string | null;
+  nowIso: string;
+}): Promise<void> {
+  if (isArboxDailyDryRun()) return;
+  const dedupKey = buildPostTrialFollowupScheduledDedupKey(
+    input.outcome,
+    input.businessId,
+    input.ruleId,
+    input.userId,
+    input.classDateYmd,
+    input.className
+  );
+  const { error } = await input.admin.from("scheduled_template_sends").upsert(
+    {
+      business_id: input.businessId,
+      trigger_id: input.ruleId,
+      contact_phone: input.phone,
+      template_name: input.templateName,
+      due_at: input.nowIso,
+      status: "sent",
+      dedup_key: dedupKey,
+      last_error: null,
+      updated_at: input.nowIso,
+    },
+    { onConflict: "dedup_key", ignoreDuplicates: true }
+  );
+  if (error) {
+    console.error("[leads/arbox-post-trial-followup] dedup record failed:", error.message, {
+      dedup_key: dedupKey,
+      template_name: input.templateName,
+    });
+  }
+}
+
 /** Soft-seed: outcomes with zero sync_log rows after global seed. */
 export async function findPostTrialOutcomesNeedingSoftSeed(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -551,21 +679,21 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     return summary;
   }
 
-  const [registeredRules, notRegisteredRules] = await Promise.all([
+  const [registeredLoaded, notRegisteredLoaded] = await Promise.all([
     loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
     loadEnabledNotRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
   ]);
-  const registeredRule = pickNewestRule(registeredRules);
-  const notRegisteredRule = pickNewestRule(notRegisteredRules);
-  if (!registeredRule && !notRegisteredRule) {
+  const registeredRules = orderSameTriggerTemplateRules(registeredLoaded);
+  const notRegisteredRules = orderSameTriggerTemplateRules(notRegisteredLoaded);
+  if (!registeredRules.length && !notRegisteredRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     return summary;
   }
 
   const maxDelayDays = Math.max(
-    registeredRule ? Math.max(2, Math.trunc(Number(registeredRule.delay_days) || 0)) : 0,
-    notRegisteredRule ? Math.max(2, Math.trunc(Number(notRegisteredRule.delay_days) || 0)) : 0
+    followupLookbackDelayDays(registeredRules),
+    followupLookbackDelayDays(notRegisteredRules)
   );
 
   const { data: bizRow } = await input.admin
@@ -578,7 +706,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       ?.arbox_trial_membership_type_ids
   );
   const productFilterIds = parseIdList(
-    registeredRule?.product_filter ?? notRegisteredRule?.product_filter
+    registeredRules[0]?.product_filter ?? notRegisteredRules[0]?.product_filter
   );
   const trialTypeIds = productFilterIds.length ? productFilterIds : businessTrialIds;
 
@@ -661,8 +789,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   summary.trial_attended = attendances.length;
 
   const enabledOutcomes: PostTrialOutcome[] = [];
-  if (registeredRule) enabledOutcomes.push("registered");
-  if (notRegisteredRule) enabledOutcomes.push("not_registered");
+  if (registeredRules.length) enabledOutcomes.push("registered");
+  if (notRegisteredRules.length) enabledOutcomes.push("not_registered");
 
   let softSeedOutcomes: PostTrialOutcome[] = [];
   if (needsSeed) {
@@ -715,9 +843,9 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     });
     if (!enabledOutcomes.includes(outcome)) continue;
 
-    const rule = outcome === "registered" ? registeredRule : notRegisteredRule;
-    if (!rule) continue;
-    const delayDays = Math.max(2, Math.trunc(Number(rule.delay_days) || 0));
+    const rules = outcome === "registered" ? registeredRules : notRegisteredRules;
+    if (!rules.length) continue;
+    const delayDays = followupDecisionDelayDays(rules);
     if (
       !isPostTrialDecisionDue({
         classDateYmd: att.classDateYmd,
@@ -836,31 +964,94 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         }
       }
 
-      const send = await dispatchFollowupTemplate({
-        admin: input.admin,
-        businessId,
-        businessSlug,
-        phone: resolved.phone,
-        fullName: resolveReportFullName(att.sampleRow),
-        contactFullName: resolved.contact.full_name ?? null,
-        className: att.className,
-        userId: att.userId,
-        classDateYmd: att.classDateYmd,
-        outcome,
-        rule,
-        now,
-      });
+      const dispatches: PostTrialTemplateDispatch[] = [];
+      let sentImmediateThisRun = false;
+      const trackEachTemplate = rules.length > 1;
+      for (const rule of rules) {
+        const templateName = rule.template_name?.trim() || "";
+        const alreadyDelivered =
+          trackEachTemplate &&
+          (await postTrialTemplateAlreadyDelivered({
+            admin: input.admin,
+            outcome,
+            businessId,
+            ruleId: rule.id,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            className: att.className,
+          }));
+        if (alreadyDelivered) {
+          dispatches.push("immediate");
+          console.info("[leads/arbox-post-trial-followup] dispatch", {
+            businessId,
+            outcome,
+            user_id: att.userId,
+            template_name: templateName,
+            dispatch: "already_sent",
+          });
+          continue;
+        }
 
+        if (sentImmediateThisRun && !isArboxDailyDryRun()) {
+          await waitMs(SAME_TRIGGER_TEMPLATE_GAP_MS);
+        }
+
+        const send = await dispatchFollowupTemplate({
+          admin: input.admin,
+          businessId,
+          businessSlug,
+          phone: resolved.phone,
+          fullName: resolveReportFullName(att.sampleRow),
+          contactFullName: resolved.contact.full_name ?? null,
+          className: att.className,
+          userId: att.userId,
+          classDateYmd: att.classDateYmd,
+          outcome,
+          rule,
+          now,
+        });
+        dispatches.push(send.dispatch);
+        console.info("[leads/arbox-post-trial-followup] dispatch", {
+          businessId,
+          outcome,
+          user_id: att.userId,
+          class_date: att.classDateYmd,
+          contact: maskPhoneForLog(resolved.phone),
+          template_name: templateName,
+          dispatch: send.dispatch,
+        });
+
+        if (send.dispatch === "immediate" && trackEachTemplate && !isArboxDailyDryRun()) {
+          await recordPostTrialTemplateDelivered({
+            admin: input.admin,
+            businessId,
+            ruleId: rule.id,
+            phone: resolved.phone,
+            templateName,
+            outcome,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            className: att.className,
+            nowIso,
+          });
+          sentImmediateThisRun = true;
+          continue;
+        }
+
+        if (send.dispatch === "send_failed" || send.dispatch === "gated") break;
+      }
+
+      const sendDispatch = combinePostTrialTemplateDispatches(dispatches);
       const mapped =
-        send.dispatch === "immediate"
+        sendDispatch === "immediate"
           ? ("immediate" as const)
-          : send.dispatch === "deferred"
+          : sendDispatch === "deferred"
             ? ("deferred" as const)
-            : send.dispatch === "gated"
+            : sendDispatch === "gated"
               ? ("gated" as const)
-              : send.dispatch === "skipped"
+              : sendDispatch === "skipped"
                 ? ("skipped" as const)
-                : send.dispatch === "send_failed"
+                : sendDispatch === "send_failed"
                 ? ("send_failed" as const)
                 : ("gated" as const);
 
@@ -881,10 +1072,10 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       });
 
       summary.processed += 1;
-      if (send.dispatch === "immediate") summary.notified += 1;
-      else if (send.dispatch === "deferred") summary.deferred += 1;
-      else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") {
+      if (sendDispatch === "immediate") summary.notified += 1;
+      else if (sendDispatch === "deferred") summary.deferred += 1;
+      else if (sendDispatch === "gated") summary.gated += 1;
+      else if (sendDispatch === "send_failed") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }
@@ -895,7 +1086,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         user_id: att.userId,
         class_date: att.classDateYmd,
         contact: maskPhoneForLog(resolved.phone),
-        dispatch: send.dispatch,
+        dispatch: sendDispatch,
+        templates: dispatches.length,
         status: next.status,
       });
     } catch (e) {

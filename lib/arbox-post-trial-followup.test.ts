@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {
   addDaysYmd,
+  combinePostTrialTemplateDispatches,
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
+  orderSameTriggerTemplateRules,
   outcomeForTrialAttendance,
   postTrialDecisionYmd,
+  SAME_TRIGGER_TEMPLATE_GAP_MS,
   triggerTypeForOutcome,
 } from "@/lib/leads/arbox-post-trial-followup";
 import type { ArboxSalesReportRow } from "@/lib/leads/arbox-trial-sale-registered";
@@ -146,6 +149,30 @@ assert.equal(
     }),
     "not_registered"
   );
+}
+
+{
+  const ordered = orderSameTriggerTemplateRules([
+    {
+      id: "newer",
+      template_name: "registered_after_trial1",
+      created_at: "2026-09-28T12:37:18.000Z",
+    },
+    {
+      id: "base",
+      template_name: "registered_after_trial",
+      created_at: "2026-09-28T12:35:16.000Z",
+    },
+    { id: "", template_name: "ignored", created_at: "2026-01-01T00:00:00.000Z" },
+  ]);
+  assert.deepEqual(
+    ordered.map((rule) => rule.template_name),
+    ["registered_after_trial", "registered_after_trial1"]
+  );
+  assert.equal(SAME_TRIGGER_TEMPLATE_GAP_MS, 5_000);
+  assert.equal(combinePostTrialTemplateDispatches(["immediate", "immediate"]), "immediate");
+  assert.equal(combinePostTrialTemplateDispatches(["immediate", "send_failed"]), "send_failed");
+  assert.equal(combinePostTrialTemplateDispatches(["gated"]), "gated");
 }
 
 assert.equal(triggerTypeForOutcome("registered"), "registered_after_trial");
