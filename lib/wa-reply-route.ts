@@ -10,6 +10,9 @@ export const WA_REPLY_ROUTES = [
   "answer",
   "schedule",
   "booking_change",
+  "class_move",
+  "class_move_member",
+  "class_move_trial",
   "handoff",
   "signup",
   "interest",
@@ -32,6 +35,9 @@ export type ReplyRouteAction =
   | { kind: "send_body" }
   | { kind: "timetable" }
   | { kind: "booking_change" }
+  | { kind: "class_move" }
+  | { kind: "class_move_member" }
+  | { kind: "class_move_trial" }
   | { kind: "handoff" };
 
 const LEADING_MARKS_RE = /^[\s\u200e\u200f\u202a-\u202e\u2066-\u2069]+/;
@@ -65,7 +71,14 @@ export function extractReplyRoute(raw: string): ExtractedReplyRoute {
   const after = strippedLead.slice(match[0].length);
   const body = stripRouteTags(after);
   if (!body) {
-    if (name === "interest" || name === "signup" || name === "personal") {
+    if (
+      name === "interest" ||
+      name === "signup" ||
+      name === "personal" ||
+      name === "class_move" ||
+      name === "class_move_member" ||
+      name === "class_move_trial"
+    ) {
       return { route: name, body: "", tagStatus: "ok" };
     }
     return { route: null, body: "", tagStatus: "missing" };
@@ -94,6 +107,9 @@ export function decideReplyRouteAction(input: {
     return { kind: "send_body" };
   }
   if (input.extracted.route === "booking_change") return { kind: "booking_change" };
+  if (input.extracted.route === "class_move") return { kind: "class_move" };
+  if (input.extracted.route === "class_move_member") return { kind: "class_move_member" };
+  if (input.extracted.route === "class_move_trial") return { kind: "class_move_trial" };
   if (input.extracted.route === "handoff") return { kind: "handoff" };
   return { kind: "send_body" };
 }
@@ -162,7 +178,10 @@ export function buildReplyRoutePromptBlock(): string {
 התחילי בדיוק בשורה [[route:X]] ואחר כך ההודעה ללקוח. X הוא אחד מאלה, לפי המשמעות ולא לפי מילה בודדת:
 - answer - תשובה למי שכבר בפלואו, או למנוייה ששואלת על מה שכבר יש לה, או שאלה שלא נועדה להצטרף: ציוד, ברכה, מי מנהל, שעות פתיחה. למנוייה קיימת (מהשיחה, או מנוייה בארבוקס) אין שיווק ואין הזמנה להגיע. לידה שאינה מנוייה ומבקשת מידע, מחיר, או מיקום כדי לשקול להצטרף היא interest, לא answer. מדיניות ביטול, הקפאה או החזר אינה answer.
 - schedule - הלקוחה שואלת אילו שיעורים או שעות קיימים בלוח, בלי לבקש לשנות שיבוץ שלה.
-- booking_change - הלקוחה רוצה לבטל, להעביר, להחליף או לתקן שיעור שהיא כבר רשומה אליו, או מדווחת שנרשמה בטעות. שעה שהיא מציינת בתוך הבקשה היא היעד של השינוי, לא שאלה מה יש בלוח.
+- booking_change - הלקוחה רוצה לבטל שיעור שהיא כבר רשומה אליו, בלי לבקש מועד אחר. שעה שהיא מציינת בתוך בקשת הביטול היא השיעור לביטול, לא שאלה מה יש בלוח.
+- class_move - הלקוחה רוצה להזיז, לדחות, להחליף, להעביר או לשנות מועד של אימון או שיעור, בכל ניסוח, גם בלי המילים האלה. שעה בתוך הבקשה היא היעד החדש, לא שאלה על הלוח. אם באותה הודעה עדיין לא ברור אם יש לה מנוי או שזה אימון ניסיון — class_move. אם כבר ברור שיש מנוי או כרטיסייה — class_move_member. אם כבר ברור שזה אימון ניסיון שקיים — class_move_trial. ביטול בלי מועד אחר נשאר booking_change. בקשה לקבוע אימון ניסיון חדש היא signup, לא class_move.
+- class_move_member - יש לה מנוי קיים (או כרטיסייה), בהקשר של הזזת אימון. גם תשובה לשאלה «מנוי קיים או אימון ניסיון», בכל ניסוח.
+- class_move_trial - מדובר באימון ניסיון, בהקשר של הזזת אימון. גם תשובה לשאלה «מנוי קיים או אימון ניסיון», בכל ניסוח.
 - handoff - בקשה שהצוות יבצע פעולה: תלונה, החזר בפועל, ביטול מנוי, הקפאה בפועל, כאב או מגבלה בגוף, בקשה מפורשת לנציג, או בקשה אישית להנחה או למחיר אחר. שאלה מה לעשות עם כאב או פציעה היא handoff, גם כשהיא נשמעת כמו שאלה רגילה.
 - policy_question - שאלה על הכלל עצמו, בלי לבקש לבצע אותו עכשיו: כמה זמן מראש מבטלים שיעור, מה כללי ההקפאה, מה תנאי ההחזר. אסור לכתוב מספר, אחוז, או כלל שלא כתובים בידע.
 - signup - היא כבר החליטה להירשם או לקבוע אימון ניסיון: איך נרשמים, היא רוצה להירשם, או שקבעה להגיע לניסיון. זה signup גם אם ההשערה אומרת שאין לה מנוי. בקשת מידע כללית אינה signup.
@@ -181,11 +200,19 @@ export function buildReplyRoutePromptBlock(): string {
 - "מה יש ביום שני בבוקר?" -> [[route:schedule]]
 - "יש שיעורים אחרי 18:00?" -> [[route:schedule]]
 - "מתי יש פילאטיס השבוע?" -> [[route:schedule]]
-דוגמאות booking_change (גם כשיש בהן שעה):
-- "תמחקו אותי מהשיעור ותעבירו אותי ליום שני" -> [[route:booking_change]]
-- "אפשר להזיז אותי מחמישי לשני ב-8:30?" -> [[route:booking_change]]
-- "נרשמתי לשיעור הלא נכון, תסדרו לי לשני בבוקר" -> [[route:booking_change]]
+דוגמאות booking_change (ביטול, גם כשיש בהן שעה):
 - "אני לא מצליחה לבטל באפליקציה את השיעור של מחר ב-19:00" -> [[route:booking_change]]
+- "לא אגיע מחר, אפשר לבטל?" -> [[route:booking_change]]
+- "תורידו אותי מהרשימה של חמישי ב-17:00" -> [[route:booking_change]]
+דוגמאות class_move (הזזה, בכל ניסוח, גם כשיש שעה):
+- "אפשר להזיז אותי מחמישי לשני ב-8:30?" -> [[route:class_move]]
+- "תמחקו אותי מהשיעור ותעבירו אותי ליום שני" -> [[route:class_move]]
+- "נרשמתי לשיעור הלא נכון, תסדרו לי לשני בבוקר" -> [[route:class_move]]
+- "השעה שקבעתי לא מסתדרת, יש מצב למצוא לי משהו אחר?" -> [[route:class_move]]
+- "אפשר להחליף לי את השיעור של ראשון לשלישי?" -> [[route:class_move]]
+- "יש לי מנוי, המועד שלי לא נוח, אפשר מחר?" -> [[route:class_move_member]]
+- "זה אימון הניסיון שלי והיום לא אגיע, אפשר יום אחר?" -> [[route:class_move_trial]]
+אם ההודעה הקודמת שלך שאלה אם יש מנוי קיים או אימון ניסיון כדי להזיז אימון: מנוי בכל ניסוח הוא class_move_member, ניסיון בכל ניסוח הוא class_move_trial, ועדיין לא ברור הוא class_move. בשלושת התגים האלה הגוף יכול להיות קצר. המערכת מחליפה אותו.
 דוגמאות handoff:
 - "אני רוצה לדבר עם המנהלת" -> [[route:handoff]]
 - "יש לי תלונה על השיעור" -> [[route:handoff]]
@@ -229,7 +256,7 @@ export function buildReplyRoutePromptBlock(): string {
 - "לא מצליחה להירשם" בלי סימן שהיא חדשה -> [[route:member_or_trial_unclear]]
 אם מופיעה שורה Possible intent detected by keyword, זו השערה בלבד ולא עובדה. ברירת המחדל היא answer. השערה לא גוברת על מסלול ברור.
 תייגי handoff אם ההשערה עצמה היא מה שהלקוחה מבקשת עכשיו: ביטול מנוי, הקפאה, החזר, נציג, בדיקת מנוי, או מתי נקבע השיעור שלה. תייגי handoff גם בלי השערה כשהבקשה היא הנחה אישית, מחיר אחר, מחיר לזוג, או מחיר לחברה.
-תייגי booking_change רק אם היא מבקשת להזיז או לבטל שיעור אחד שהיא כבר רשומה אליו, וההשערה היא על השיעור ולא על המנוי.
+תייגי booking_change רק אם היא מבקשת לבטל שיעור אחד שהיא כבר רשומה אליו, בלי מועד חלופי, וההשערה היא על השיעור ולא על המנוי. תייגי class_move אם היא מבקשת להזיז או להחליף מועד, בכל ניסוח, גם כשההשערה אומרת reschedule או class_cancel.
 תייגי interest כשלידה חדשה רוצה לשמוע עוד, גם אם המשפט לא זהה לטריגר שמור. תייגי signup רק כשהיא כבר החליטה להירשם או לקבוע ניסיון, גם אם ההשערה אומרת registration_no_member.
 אם היא כבר באמצע הפלואו, שאלה על מחיר או פרט היא answer, לא interest ולא signup. אם כתוב שהיא לא באמצע הפלואו, היסטוריה ישנה לא הופכת בקשת מידע ל-answer.
 אסור לאשר, להכחיש, לפרש או להתנצל על משהו שנאמר או סוכם מחוץ לצ'אט הזה. אסור לדבר בגוף ראשון על המעשים, הלוח, ההיעדרות או אמירות העבר של הבעלים. אם לא בטוח שההודעה אישית, תייגי personal.
@@ -243,6 +270,7 @@ export function buildReplyRoutePromptBlock(): string {
 - "חברה שלי ביטלה ואני רוצה להצטרף במקומה" היא answer גם אם ההשערה אומרת cancellation.
 - "אבל אני רוצה להרשם לא לבטל רישום" היא answer גם אם ההשערה אומרת cancellation או freeze, וגם אם המנוי בהקפאה. זו לא בקשת ביטול.
 - "אני לא רוצה להקפיא, תבטלי את האימון של היום" היא booking_change גם אם ההשערה אומרת freeze.
+- "אני לא רוצה להקפיא, תעבירי את האימון של היום למחר" היא class_move גם אם ההשערה אומרת freeze.
 - "אוקיי", "מה?", "תודה", "לא אוכל היום" בלי בקשה להעביר שיעור, ופנייה לעבודה הן answer גם אם יש השערה.
 - בקשה שמישהו יחזור אליה בוואטסאפ או בטלפון, כשההשערה היא human_agent, היא handoff.
 - "אני לא מצליחה להירשם" כשההשערה היא membership_lookup היא handoff, לא signup.

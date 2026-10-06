@@ -11,6 +11,12 @@ function decide(raw: string, category: string | null) {
 
 assert.equal(decide("[[route:handoff]]\nאעביר לצוות", "cancellation"), "use_hint");
 assert.equal(decide("[[route:booking_change]]\nאעביר", "reschedule"), "use_hint");
+assert.equal(decide("[[route:class_move]]", "reschedule"), "use_hint");
+assert.equal(decide("[[route:class_move]]", "booked_class_move_app"), "use_hint");
+assert.equal(decide("[[route:class_move_member]]\nמנוי", "booked_class_move_app"), "use_hint");
+assert.equal(decide("[[route:class_move_trial]]", "reschedule"), "use_hint");
+assert.equal(decide("[[route:class_move]]", "class_cancel"), "ignore_hint");
+assert.equal(decide("[[route:class_move]]", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "freeze"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "class_cancel"), "use_hint");

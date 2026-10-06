@@ -3,11 +3,14 @@ import { buildNonArboxClassChangeTeamHandoffReply } from "@/lib/wa-closed-playbo
 import {
   BOOKED_CLASS_MOVE_APP_REPLY,
   buildBookedClassMoveAppReply,
+  CLASS_MOVE_CLARIFY_MODEL,
   classifyRegistrationIntentMembershipReply,
   inboundSaysClassChangeAppFailed,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  REGISTRATION_INTENT_CLARIFY_QUESTION,
+  resolveArboxClassMoveOutcome,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
 } from "@/lib/wa-registration-intent";
@@ -91,6 +94,8 @@ assert.equal(resolveBookedClassMoveBranch(sickReschedule), "app", "trial booking
 assert.equal(matchesRegistrationIntentPhrase(sickReschedule), false);
 assert.match(buildBookedClassMoveAppReply(sickReschedule), /מצטערת לשמוע/);
 assert.match(buildBookedClassMoveAppReply(sickReschedule), /מהאפליקציה/);
+assert.equal(matchesBookedClassMoveIntent("אפשר להזיז את האימון?"), true);
+assert.equal(matchesBookedClassMoveIntent("אפשר להזיז אותי מחמישי לשני?"), true);
 assert.equal(matchesBookedClassMoveIntent("אפשר לתאם ליום אחר השבוע?"), true);
 assert.equal(resolveBookedClassMoveBranch("אפשר לתאם ליום אחר השבוע?"), "app");
 assert.equal(
@@ -160,5 +165,47 @@ const moveHandoff = buildNonArboxClassChangeTeamHandoffReply(tightsMoveOffApp);
 assert.match(moveHandoff, /מעבירה לצוות/);
 assert.match(moveHandoff, /לבטל או להחליף את השיעור/);
 assert.doesNotMatch(moveHandoff, /אפליקצי/);
+
+const vagueMove = "השעה שקבעתי לא מסתדרת, יש מצב למצוא לי משהו אחר?";
+assert.equal(resolveArboxClassMoveOutcome(vagueMove).kind, "ask");
+assert.equal(resolveArboxClassMoveOutcome(vagueMove).reply, REGISTRATION_INTENT_CLARIFY_QUESTION);
+assert.equal(resolveArboxClassMoveOutcome(vagueMove).model, CLASS_MOVE_CLARIFY_MODEL);
+assert.equal(resolveArboxClassMoveOutcome(vagueMove).notifyTeam, false);
+
+assert.equal(resolveArboxClassMoveOutcome("אפשר להזיז את האימון?").kind, "ask");
+assert.equal(
+  resolveArboxClassMoveOutcome("יש לי מנוי, אפשר להזיז את האימון למחר?").kind,
+  "member"
+);
+assert.equal(
+  resolveArboxClassMoveOutcome("יש לי מנוי, אפשר להזיז את האימון למחר?").reply,
+  BOOKED_CLASS_MOVE_APP_REPLY
+);
+assert.equal(resolveArboxClassMoveOutcome("יש לי כרטיסיה, אפשר להחליף שיעור?").kind, "member");
+
+const memberFact = resolveArboxClassMoveOutcome("יש לי מנוי ואשמח להזיז שיעור", {
+  knowledge: {
+    botName: "זואי",
+    knowledgeQa: [{ question: "החלפת שיעור", answer: "אצלנו מחליפים רק עד 3 שעות לפני, דרך הוואטסאפ של הצוות." }],
+  },
+});
+assert.equal(memberFact.kind, "member");
+assert.match(memberFact.reply, /3 שעות/);
+assert.equal(memberFact.model, "closed_playbook_fact_reschedule");
+assert.equal(memberFact.notifyTeam, false);
+
+assert.equal(resolveArboxClassMoveOutcome("רשומה לשיעור ניסיון, אפשר להחליף?").kind, "trial_team");
+assert.equal(resolveArboxClassMoveOutcome("אפשר להזיז את שיעור הניסיון?").kind, "trial_team");
+assert.equal(resolveArboxClassMoveOutcome("זה אימון הניסיון שלי").kind, "trial_team");
+assert.equal(resolveArboxClassMoveOutcome(sickReschedule).kind, "trial_team");
+assert.match(resolveArboxClassMoveOutcome("אימון ניסיון", { stated: "trial" }).reply, /צוות/);
+assert.equal(resolveArboxClassMoveOutcome("אימון ניסיון", { stated: "trial" }).notifyTeam, true);
+
+assert.equal(resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", { stated: "member" }).kind, "member");
+assert.equal(
+  resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", { stated: "member" }).reply,
+  BOOKED_CLASS_MOVE_APP_REPLY
+);
+assert.equal(resolveArboxClassMoveOutcome("לא בטוחה", { stated: "trial" }).kind, "trial_team");
 
 console.log("wa-registration-intent.test.ts: ok");

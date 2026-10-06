@@ -1,8 +1,12 @@
+import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
+import { lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
+import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
 import {
   isExistingTrialEnrollmentMention,
   matchesCantAttendScheduledClass,
   matchesTrialTopicIntent,
 } from "@/lib/wa-trial-topic-intent";
+import { matchesComposableTrialSignupIntent } from "@/lib/wa-trial-signup-intent";
 
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
@@ -52,10 +56,10 @@ const EXISTING_BOOKING_CUE =
   /(?:אני|אנחנו)\s+(?:כבר\s+)?רשו[םמ]|נרשמ(?:תי|נו|ה|ת)|יש\s+לי\s+(?:שיעור|אימון)|רשומ(?:ה|ים|ות)\s+ל(?:שיעור|אימון)|היינו\s+אמורים\s+(?:לעשות|להגיע)|אמורים\s+(?:לעשות|להגיע)\s+(?:ל)?(?:אימון|שיעור)/u;
 
 const MOVE_SLOT_CUE =
-  /יום\s+אחר|מועד\s+אחר|שבוע\s+אחר|לתאם\s+(?:מחדש|ל(?:יום|מועד))|לקבוע\s+מחדש|לדחות|להעביר|להחליף|לשנות\s+(?:את\s+)?(?:ה)?(?:מועד|שיעור|אימון)|another\s+day|reschedule|postpone/iu;
+  /יום\s+אחר|מועד\s+אחר|שבוע\s+אחר|לתאם\s+(?:מחדש|ל(?:יום|מועד))|לקבוע\s+מחדש|לדחות|להעביר|להחליף|להזיז|לשנות\s+(?:את\s+)?(?:ה)?(?:מועד|שיעור|אימון)|another\s+day|reschedule|postpone/iu;
 
 const EXPLICIT_CLASS_MOVE =
-  /(?:להחליף|לדחות|להעביר)\s+(?:את\s+)?ה?(?:שיעור|אימון)|לשנות\s+(?:את\s+)?ה?מועד|ל(?:תאם|קבוע)\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
+  /(?:להחליף|לדחות|להעביר|להזיז)\s+(?:את\s+)?ה?(?:שיעור|אימון|אות)|לשנות\s+(?:את\s+)?ה?מועד|ל(?:תאם|קבוע)\s+ל(?:יום|מועד)\s+אחר|(?:אשמח|נשמח|רוצה|אפשר)\s+להחליף\s+שיעור/u;
 
 /** «תמחקו אותי מהשיעור» / «תעבירו אותי ליום שני» — פעולה על שיבוץ קיים, לא שאלה על הלוח. */
 function matchesStaffImperativeClassChange(t: string): boolean {
@@ -113,6 +117,78 @@ export function buildBookedClassMoveAppReply(raw: string): string {
     /לא\s+בטוב/u.test(t) ||
     /(?:^|\s)חולה(?:\s|$|[.,!?])/u.test(t);
   return illness ? `מצטערת לשמוע! 💜 ${BOOKED_CLASS_MOVE_APP_REPLY}` : BOOKED_CLASS_MOVE_APP_REPLY;
+}
+
+/** שאלה לפני הזזת אימון בארבוקס — אותה נוסח כמו הבהרת הרשמה, מודל נפרד כדי שהתשובה לא תפתח פלואו. */
+export const CLASS_MOVE_CLARIFY_MODEL = "class_move_clarify";
+export const CLASS_MOVE_TRIAL_HANDOFF_MODEL = "class_move_trial_team_handoff";
+
+export type ArboxClassMoveOutcome = {
+  kind: "ask" | "member" | "trial_team";
+  reply: string;
+  model: string;
+  notifyTeam: boolean;
+};
+
+/** ההודעה עצמה כבר אומרת שמדובר באימון ניסיון שכבר קיים, לא בבקשה לקבוע ניסיון חדש. */
+function messageSpecifiesTrialClass(raw: string): boolean {
+  if (matchesExistingMembershipClaim(raw)) return false;
+  if (isExistingTrialEnrollmentMention(raw)) return true;
+  const t = normalizeRegistrationIntentText(raw);
+  if (/אין(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return true;
+  if (matchesComposableTrialSignupIntent(raw)) return false;
+  if (/(?:אימון|שיעור)\s*ה?(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) return true;
+  if (/^(?:אימון\s+)?(?:ניסיון|נסיון)(?:\s|$|[.,!?])/u.test(t)) return true;
+  return false;
+}
+
+function messageSpecifiesMembership(raw: string): boolean {
+  if (matchesExistingMembershipClaim(raw)) return true;
+  return /כרטיסי[יה]|punch\s*card/iu.test(normalizeRegistrationIntentText(raw));
+}
+
+function arboxClassMoveMemberReply(
+  raw: string,
+  knowledge: ClosedPlaybookKnowledge | null | undefined
+): Pick<ArboxClassMoveOutcome, "reply" | "model"> {
+  const fact = lookupPlaybookFact("reschedule", knowledge)?.trim() ?? "";
+  if (fact) return { reply: fact, model: "closed_playbook_fact_reschedule" };
+  return { reply: buildBookedClassMoveAppReply(raw), model: BOOKED_CLASS_MOVE_APP_MODEL };
+}
+
+/**
+ * Arbox: a request to move a class asks membership vs trial unless the message
+ * (or Claude's tag) already says which. Membership gets the app swap steps,
+ * replaced by a knowledge fact when the business wrote one. Trial goes to the team.
+ */
+export function resolveArboxClassMoveOutcome(
+  raw: string,
+  opts?: {
+    knowledge?: ClosedPlaybookKnowledge | null;
+    /** Claude already classified this turn. Overrides the wording of `raw`. */
+    stated?: "member" | "trial" | null;
+  }
+): ArboxClassMoveOutcome {
+  const knowledge = opts?.knowledge ?? null;
+  const trial = {
+    kind: "trial_team" as const,
+    reply: buildClassRescheduleTeamHandoffReply(knowledge?.botName ?? ""),
+    model: CLASS_MOVE_TRIAL_HANDOFF_MODEL,
+    notifyTeam: true,
+  };
+  if (opts?.stated === "trial" || (opts?.stated !== "member" && messageSpecifiesTrialClass(raw))) {
+    return trial;
+  }
+  if (opts?.stated === "member" || messageSpecifiesMembership(raw)) {
+    const member = arboxClassMoveMemberReply(raw, knowledge);
+    return { kind: "member", reply: member.reply, model: member.model, notifyTeam: false };
+  }
+  return {
+    kind: "ask",
+    reply: REGISTRATION_INTENT_CLARIFY_QUESTION,
+    model: CLASS_MOVE_CLARIFY_MODEL,
+    notifyTeam: false,
+  };
 }
 
 function inboundMentionsExistingPurchase(raw: string): boolean {

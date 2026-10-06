@@ -239,6 +239,7 @@ import {
 } from "@/lib/wa-arbox-registration-verify";
 import {
   buildClassRescheduleTeamHandoffReply,
+  matchesClassRescheduleUpdate,
   resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
 import {
@@ -337,13 +338,13 @@ import {
   matchesRunningLateStatusUpdate,
 } from "@/lib/wa-running-late";
 import {
-  BOOKED_CLASS_MOVE_APP_MODEL,
-  buildBookedClassMoveAppReply,
+  CLASS_MOVE_CLARIFY_MODEL,
   classifyRegistrationIntentMembershipReply,
   inboundSaysClassChangeAppFailed,
   matchesBookedClassMoveIntent,
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
+  resolveArboxClassMoveOutcome,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
   EXISTING_MEMBERSHIP_HELP_MODEL,
@@ -1745,6 +1746,52 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
     session_id: input.sessionId,
   });
   return true;
+}
+
+async function deliverArboxClassMoveOutcome(input: {
+  outcome: ReturnType<typeof resolveArboxClassMoveOutcome>;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string | number | null | undefined;
+  business_slug: string;
+  sessionId: string;
+  nowIso: string;
+}): Promise<void> {
+  if (input.outcome.notifyTeam && input.businessId) {
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: input.nowIso,
+        sessionId: input.sessionId,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] class-move human_requested failed:", e);
+    }
+  }
+  try {
+    await sendWhatsAppMessage(
+      input.msg.toNumber,
+      input.msg.from,
+      input.outcome.reply,
+      input.accountSid,
+      input.authToken
+    );
+  } catch (e) {
+    console.error("[WA Webhook] Send class-move outcome failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: input.outcome.reply,
+    model_used: input.outcome.model,
+    session_id: input.sessionId,
+  });
 }
 
 async function sendBookingLookupTeamHandoff(input: {
@@ -7821,6 +7868,37 @@ async function processIncoming(
 
   // Keyword hits below record a hint and continue to the one Claude call.
   // A kept matcher still returns on its own.
+  // Arbox class-move clarify: a clear membership / trial answer is sent here, before trial signup or Claude.
+  if (
+    isSalesFlowFreeTextInbound(msg) &&
+    businessId &&
+    knowledge?.hasArboxConnection === true
+  ) {
+    const lastForClassMove = modelUsedBase(
+      await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
+    );
+    if (lastForClassMove === CLASS_MOVE_CLARIFY_MODEL) {
+      const yn = classifyRegistrationIntentMembershipReply(msg.text);
+      if (yn === "yes" || yn === "no") {
+        await deliverArboxClassMoveOutcome({
+          outcome: resolveArboxClassMoveOutcome(msg.text, {
+            knowledge,
+            stated: yn === "yes" ? "member" : "trial",
+          }),
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+        });
+        return;
+      }
+    }
+  }
+
   let fastPathHint: FastPathHint | null = null;
 
   // Out-of-flow signup used to open the sales flow before Claude.
@@ -7855,7 +7933,10 @@ async function processIncoming(
     contactTrialRegistered !== true &&
     contactSessionPhase !== "registered" &&
     matchesTrialTopicIntent(msg.text) &&
-    !detectClosedPlaybookIntent(msg.text)
+    !detectClosedPlaybookIntent(msg.text) &&
+    modelUsedBase(
+      await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
+    ) !== CLASS_MOVE_CLARIFY_MODEL
   ) {
     const lastAssistForTrialTopic = await fetchLastAssistantModelUsed({
       business_slug,
@@ -7960,7 +8041,7 @@ async function processIncoming(
     }
   }
 
-  // Booked-class move is a hint. The app how-to or product pick runs only if Claude agrees.
+  // Booked-class move is a hint. Product pick, or the Arbox membership-vs-trial question, runs only if Claude agrees.
   if (
     !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
@@ -9213,7 +9294,8 @@ async function processIncoming(
   // 0.18) Booking-lookup yes/no — after short clarify (or Claude's long version of it).
   if (
     isSalesFlowFreeTextInbound(msg) &&
-    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL
+    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    modelUsedBase(lastAssistForWarmupPriority) !== CLASS_MOVE_CLARIFY_MODEL
   ) {
     let awaitingBookingLookupClarify = lastAssistForWarmupPriority === BOOKING_LOOKUP_CLARIFY_MODEL;
     if (!awaitingBookingLookupClarify) {
@@ -9311,6 +9393,7 @@ async function processIncoming(
     !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
     lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    modelUsedBase(lastAssistForWarmupPriority) !== CLASS_MOVE_CLARIFY_MODEL &&
     lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
     isScheduleInquiryIntent(msg.text)
   ) {
@@ -13119,6 +13202,33 @@ async function processIncoming(
           console.error(`[WA Webhook] confirmed hint ${hintCategory} human_requested failed:`, e);
         }
       };
+      const classMoveStated =
+        waReplyRoute.route === "class_move_member"
+          ? "member"
+          : waReplyRoute.route === "class_move_trial"
+            ? "trial"
+            : null;
+      const arboxClassMoveHint =
+        knowledge.hasArboxConnection === true &&
+        (hintCategory === "booked_class_move_app" ||
+          (hintCategory === "reschedule" && !matchesClassRescheduleUpdate(msg.text)));
+      if (arboxClassMoveHint) {
+        await deliverArboxClassMoveOutcome({
+          outcome: resolveArboxClassMoveOutcome(msg.text, {
+            knowledge,
+            stated: classMoveStated,
+          }),
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+        });
+        return;
+      }
       if (isDemotedClosedPlaybook(hintCategory)) {
         const confirmed = resolveClosedPlaybook({
           inbound: msg.text.trim(),
@@ -13133,9 +13243,6 @@ async function processIncoming(
       } else if (hintCategory === "class_change_app_failed") {
         await notifyTeam();
         await sendClosed(buildNonArboxClassChangeTeamHandoffReply(msg.text), "class_reschedule_team_handoff");
-        return;
-      } else if (hintCategory === "booked_class_move_app") {
-        await sendClosed(buildBookedClassMoveAppReply(msg.text), BOOKED_CLASS_MOVE_APP_MODEL);
         return;
       } else if (hintCategory === "registration_has_member") {
         await sendClosed(REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY, REGISTRATION_INTENT_HAS_MEMBER_MODEL);
@@ -13457,7 +13564,38 @@ async function processIncoming(
       });
       return;
     }
-    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff") {
+    if (
+      knowledge.hasArboxConnection === true &&
+      waReplyRoute.tagStatus === "ok" &&
+      (waReplyRoute.route === "class_move" ||
+        waReplyRoute.route === "class_move_member" ||
+        waReplyRoute.route === "class_move_trial")
+    ) {
+      const stated =
+        waReplyRoute.route === "class_move_member"
+          ? "member"
+          : waReplyRoute.route === "class_move_trial"
+            ? "trial"
+            : null;
+      await deliverArboxClassMoveOutcome({
+        outcome: resolveArboxClassMoveOutcome(msg.text, { knowledge, stated }),
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
+    }
+    const nonArboxClassMove =
+      knowledge.hasArboxConnection !== true &&
+      (routeAction.kind === "class_move" ||
+        routeAction.kind === "class_move_member" ||
+        routeAction.kind === "class_move_trial");
+    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff" || nonArboxClassMove) {
       const outbound =
         routeAction.kind === "handoff" && replyCoreClean.trim()
           ? replyCoreClean.trim()
@@ -13487,7 +13625,7 @@ async function processIncoming(
         role: "assistant",
         content: outbound,
         model_used: appendRouteToModelUsed(
-          routeAction.kind === "booking_change" ? "class_reschedule_team_handoff" : "wa_route_handoff",
+          routeAction.kind === "handoff" ? "wa_route_handoff" : "class_reschedule_team_handoff",
           waReplyRoute,
           fastPathHint?.category
         ),

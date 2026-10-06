@@ -39,6 +39,11 @@ const BOOKING_CHANGE_HINTS = new Set([
   "booking_mutation",
 ]);
 
+/** Move hints stay confirmed when Claude tags the class-move family, not only booking_change. */
+const CLASS_MOVE_HINTS = new Set(["reschedule", "booked_class_move_app", "class_change_app_failed"]);
+
+const CLASS_MOVE_ROUTES = new Set(["class_move", "class_move_member", "class_move_trial"]);
+
 export function decideHintAction(input: {
   hint: FastPathHint | null;
   extracted: Pick<ExtractedReplyRoute, "route" | "tagStatus">;
@@ -53,6 +58,9 @@ export function decideHintAction(input: {
   if (tagStatus !== "ok" || !route) return "use_hint";
   if (route === "handoff") return "use_hint";
   if (route === "booking_change" && BOOKING_CHANGE_HINTS.has(input.hint.category)) return "use_hint";
+  if (route && CLASS_MOVE_ROUTES.has(route) && CLASS_MOVE_HINTS.has(input.hint.category)) {
+    return "use_hint";
+  }
   return "ignore_hint";
 }
 
