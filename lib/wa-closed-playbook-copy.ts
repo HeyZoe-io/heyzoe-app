@@ -32,6 +32,10 @@ export const CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY =
 
 export const CLOSED_PLAYBOOK_COACH_OWNER_REPLY = "בשמחה, אני מעבירה את זה ישירות אליהם 💜";
 
+/** שאלה על כלל (חלון ביטול, הקפאה, החזר) כשאין תשובה מוגדרת. לא בקשה לבצע. */
+export const CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY =
+  "אין לי את המידע הזה כרגע, אני מעבירה את השאלה לצוות והם יחזרו אלייך בהקדם 💜";
+
 /**
  * ביטול/החלפת שיעור בלי ארבוקס ובלי עובדה בידע — העברה לצוות שמזכירה את הבקשה.
  */

@@ -187,6 +187,8 @@ export function matchFreezePlaybook(raw: string): ClosedPlaybookIntent | null {
 
   const policy =
     /מדיניות\s+ה?הקפא/u.test(t) ||
+    /כלל(?:י|ים)?\s+(?:ה)?הקפא/u.test(t) ||
+    /כמה\s+זמן[\s\S]{0,24}הקפא/u.test(t) ||
     /(?:אפשר|ניתן|אפשרי)\s+להקפיא/u.test(t) ||
     /(?:איך|כיצד)\s+מקפיא(?:ים)?/u.test(t) ||
     /can\s+i\s+freeze\s+(a\s+|the\s+|my\s+)?(membership|account)?/i.test(t) ||
@@ -204,6 +206,7 @@ export function matchRefundPlaybook(raw: string): ClosedPlaybookIntent | null {
   const action =
     /(?:רוצ(?:ה|ה)\s+)?(?:החזר|לקבל\s+החזר)/u.test(t) && !/מדיניות/u.test(t) ||
     /תחזיר(?:י|ו)?\s+(?:לי\s+)?(?:את\s+)?(?:ה)?כסף/u.test(t) ||
+    /תחז(?:י)?רי\s+(?:לי\s+)?(?:את\s+)?(?:ה)?כסף/u.test(t) ||
     /להחזיר\s+(?:לי\s+)?כסף/u.test(t) ||
     /refund\s+(?:my|please|me)\b/i.test(t) ||
     /i\s+want\s+a\s+refund/i.test(t);
@@ -214,7 +217,7 @@ export function matchRefundPlaybook(raw: string): ClosedPlaybookIntent | null {
     /refund\s+policy/i.test(t) ||
     /can\s+i\s+(get|have)\s+a\s+refund/i.test(t);
 
-  if (!/החזר|refund|להחזיר\s+(?:לי\s+)?כסף|תחזיר(?:י|ו)?\s+(?:לי\s+)?(?:את\s+)?(?:ה)?כסף/iu.test(t)) {
+  if (!/החזר|refund|להחזיר\s+(?:לי\s+)?כסף|תחזיר(?:י|ו)?\s+(?:לי\s+)?(?:את\s+)?(?:ה)?כסף|תחז(?:י)?רי\s+(?:לי\s+)?(?:את\s+)?(?:ה)?כסף/iu.test(t)) {
     return null;
   }
 

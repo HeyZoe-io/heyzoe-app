@@ -240,6 +240,7 @@ import {
 } from "@/lib/wa-class-reschedule";
 import {
   detectClosedPlaybookIntent,
+  replyForPolicyQuestionRoute,
   resolveClosedPlaybook,
   CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
   buildNonArboxClassChangeTeamHandoffReply,
@@ -13224,6 +13225,40 @@ async function processIncoming(
           waReplyRoute,
           fastPathHint?.category
         ),
+        session_id: sessionId,
+      });
+      return;
+    }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "policy_question") {
+      const policy = replyForPolicyQuestionRoute({
+        inbound: msg.text.trim(),
+        knowledge,
+      });
+      if (policy.notifyHumanRequested && businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] policy_question human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, policy.reply, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] policy_question send failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: policy.reply,
+        model_used: appendRouteToModelUsed(policy.modelUsed, waReplyRoute, fastPathHint?.category),
         session_id: sessionId,
       });
       return;

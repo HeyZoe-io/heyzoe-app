@@ -12,6 +12,7 @@ import {
   CLOSED_PLAYBOOK_FREEZE_REPLY,
   CLOSED_PLAYBOOK_GROUP_REPLY,
   CLOSED_PLAYBOOK_MEDICAL_REPLY,
+  CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
   CLOSED_PLAYBOOK_REFUND_REPLY,
   detectClosedPlaybookIntent,
   resolveClosedPlaybook,
@@ -232,7 +233,31 @@ const freezeNoFact = resolveClosedPlaybook({
 });
 assert.equal(freezeNoFact?.source, "default");
 assert.equal(freezeNoFact?.notifyHumanRequested, true);
-assert.equal(freezeNoFact?.reply, CLOSED_PLAYBOOK_FREEZE_REPLY);
+assert.equal(freezeNoFact?.reply, CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY);
+assert.doesNotMatch(freezeNoFact?.reply ?? "", /בקשת ההקפאה/);
+
+const freezeActionNoFact = resolveClosedPlaybook({
+  inbound: "תקפיאי לי את המנוי",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+});
+assert.equal(freezeActionNoFact?.reply, CLOSED_PLAYBOOK_FREEZE_REPLY);
+
+const freezeRulesQuestion = resolveClosedPlaybook({
+  inbound: "מה כללי ההקפאה?",
+  knowledge: {
+    botName: "זואי",
+    knowledgeQa: [{ question: "הקפאה", answer: "אפשר להקפיא עד 14 ימים." }],
+  },
+});
+assert.equal(freezeRulesQuestion?.shape, "policy");
+assert.equal(freezeRulesQuestion?.reply, "אפשר להקפיא עד 14 ימים.");
+
+const refundMoneyBack = resolveClosedPlaybook({
+  inbound: "תחזרי לי את הכסף",
+  knowledge: { botName: "זואי", knowledgeQa: [] },
+});
+assert.equal(refundMoneyBack?.shape, "action");
+assert.equal(refundMoneyBack?.reply, CLOSED_PLAYBOOK_REFUND_REPLY);
 
 const cancelNoFact = resolveClosedPlaybook({
   inbound: "תבטלי לי את ההרשמה",
@@ -342,7 +367,8 @@ const classCancelPolicyDefault = resolveClosedPlaybook({
   inbound: "אפשר לבטל הרשמה לשיעור?",
   knowledge: { botName: "זואי", knowledgeQa: [] },
 });
-assert.match(classCancelPolicyDefault?.reply ?? "", /לבטל את ההרשמה לשיעור/);
+assert.equal(classCancelPolicyDefault?.reply, CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY);
+assert.doesNotMatch(classCancelPolicyDefault?.reply ?? "", /לבטל את ההרשמה/);
 assert.equal(classCancelPolicyDefault?.notifyHumanRequested, true);
 
 const classCancelPolicyArbox = resolveClosedPlaybook({
@@ -350,8 +376,8 @@ const classCancelPolicyArbox = resolveClosedPlaybook({
   knowledge: { botName: "זואי", knowledgeQa: [] },
   hasArbox: true,
 });
-assert.equal(classCancelPolicyArbox?.reply, CLOSED_PLAYBOOK_CLASS_CANCEL_REPLY);
-assert.equal(classCancelPolicyArbox?.notifyHumanRequested, false);
+assert.equal(classCancelPolicyArbox?.reply, CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY);
+assert.equal(classCancelPolicyArbox?.notifyHumanRequested, true);
 
 const shirCancel = `היוש, וולקאם באק 🙂 תבטלי את השיעור עם שיר בבקשה. היא חולה.
 היה לי רק שיעןר עם ליאת היום`;

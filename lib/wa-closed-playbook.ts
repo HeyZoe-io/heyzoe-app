@@ -1,6 +1,7 @@
 import {
   buildClosedPlaybookDefaultReply,
   buildNonArboxClassChangeTeamHandoffReply,
+  CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
   closedPlaybookModelUsed,
 } from "@/lib/wa-closed-playbook-copy";
 import { findMatchingGroupCatalogProduct, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
@@ -19,6 +20,7 @@ export {
   CLOSED_PLAYBOOK_COACH_OWNER_REPLY,
   CLOSED_PLAYBOOK_COMPLAINT_REPLY,
   CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY,
+  CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
   CLOSED_PLAYBOOK_FREEZE_REPLY,
   CLOSED_PLAYBOOK_GROUP_REPLY,
   CLOSED_PLAYBOOK_MEDICAL_REPLY,
@@ -65,6 +67,35 @@ export function knowledgeInstructsClassCancelViaApp(
     .map((part) => String(part ?? ""))
     .join("\n");
   return /אפליקצי/u.test(blob) && /(?:לבטל|ביטול|מבטלים|הרשמ)/u.test(blob);
+}
+
+const POLICY_FACT_CATEGORIES = new Set<ClosedPlaybookResolution["category"]>([
+  "class_cancel",
+  "cancellation",
+  "freeze",
+  "refund",
+]);
+
+/** Route policy_question: quote a configured fact, otherwise forward the question. */
+export function replyForPolicyQuestionRoute(opts: {
+  inbound: string;
+  knowledge: ClosedPlaybookKnowledge | null | undefined;
+}): { reply: string; notifyHumanRequested: boolean; modelUsed: string } {
+  const intent = detectClosedPlaybookIntent(opts.inbound);
+  const category = intent && POLICY_FACT_CATEGORIES.has(intent.category) ? intent.category : null;
+  const fact = category ? lookupPlaybookFact(category, opts.knowledge) : null;
+  if (fact && category) {
+    return {
+      reply: fact,
+      notifyHumanRequested: false,
+      modelUsed: closedPlaybookModelUsed(category, "fact"),
+    };
+  }
+  return {
+    reply: CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
+    notifyHumanRequested: true,
+    modelUsed: "closed_playbook_policy_question",
+  };
 }
 
 export function resolveClosedPlaybook(opts: {
@@ -129,6 +160,23 @@ export function resolveClosedPlaybook(opts: {
   }
 
   const fact = lookupPlaybookFact(intent.category, knowledge);
+  if (
+    intent.shape === "policy" &&
+    !fact &&
+    (intent.category === "class_cancel" ||
+      intent.category === "cancellation" ||
+      intent.category === "freeze" ||
+      intent.category === "refund")
+  ) {
+    return {
+      category: intent.category,
+      shape: "policy",
+      reply: CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
+      modelUsed: "closed_playbook_policy_question",
+      notifyHumanRequested: true,
+      source: "default",
+    };
+  }
   if (intent.category === "class_cancel" && !fact && opts.hasArbox !== true) {
     return {
       category: "class_cancel",
