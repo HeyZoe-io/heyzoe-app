@@ -1,6 +1,10 @@
 import { createHash, createHmac } from "crypto";
 import {
+  isWhatsAppAudioUrl,
+  isWhatsAppVoiceNoteAudio,
   probePublicMediaBytes,
+  WHATSAPP_AUDIO_MAX_BYTES,
+  whatsappAudioMimeFromUrl,
   whatsappMediaMaxBytes,
 } from "@/lib/whatsapp-media-limits";
 import { truncateWaButtonLabel, truncateWaButtonLabels } from "@/lib/wa-button-label";
@@ -1190,6 +1194,157 @@ function inferMimeTypeForMedia(
   return mediaKind === "video" ? "video/mp4" : "image/jpeg";
 }
 
+async function postMetaWhatsAppAudio(
+  phoneNumberId: string,
+  metaToken: string,
+  toDigits: string,
+  audio: Record<string, unknown>
+): Promise<void> {
+  const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: toDigits,
+    type: "audio",
+    audio,
+  };
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${metaToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`[Meta WA send audio] ${res.status} ${res.statusText}: ${err}`);
+  }
+}
+
+async function sendMetaAudioPayload(
+  phoneNumberId: string,
+  metaToken: string,
+  toDigits: string,
+  audio: Record<string, unknown>,
+  voice: boolean
+): Promise<void> {
+  const withVoice = voice ? { ...audio, voice: true } : audio;
+  try {
+    await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, withVoice);
+  } catch (e) {
+    if (!voice) throw e;
+    console.warn("[Meta WA audio] voice note send failed, retrying as audio file:", e);
+    await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, audio);
+  }
+}
+
+async function sendMetaWhatsAppAudioByLink(
+  phoneNumberId: string,
+  metaToken: string,
+  toDigits: string,
+  mediaUrl: string
+): Promise<void> {
+  const voice = isWhatsAppVoiceNoteAudio({ url: mediaUrl });
+  await sendMetaAudioPayload(phoneNumberId, metaToken, toDigits, { link: mediaUrl }, voice);
+}
+
+async function sendMetaWhatsAppAudioByUpload(
+  phoneNumberId: string,
+  metaToken: string,
+  toDigits: string,
+  mediaUrl: string
+): Promise<void> {
+  const fetched = await fetch(mediaUrl, { cache: "no-store" });
+  if (!fetched.ok) {
+    const err = await fetched.text().catch(() => "");
+    throw new Error(`[Meta WA audio fetch] ${fetched.status} ${fetched.statusText}: ${err}`);
+  }
+  const mime = whatsappAudioMimeFromUrl(mediaUrl);
+  const bytes = await fetched.arrayBuffer();
+  const filename = (() => {
+    try {
+      const last = new URL(mediaUrl).pathname.split("/").filter(Boolean).pop() ?? "";
+      return decodeURIComponent(last) || "recording.mp3";
+    } catch {
+      return "recording.mp3";
+    }
+  })();
+  const uploadUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/media`;
+  const form = new FormData();
+  form.set("messaging_product", "whatsapp");
+  form.set("type", mime);
+  form.set("file", new Blob([bytes], { type: mime }), filename);
+  const uploadRes = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${metaToken}` },
+    body: form,
+  });
+  if (!uploadRes.ok) {
+    const err = await uploadRes.text().catch(() => "");
+    throw new Error(`[Meta WA upload audio] ${uploadRes.status} ${uploadRes.statusText}: ${err}`);
+  }
+  const uploaded = (await uploadRes.json().catch(() => ({}))) as { id?: string };
+  const mediaId = String(uploaded.id ?? "").trim();
+  if (!mediaId) throw new Error("[Meta WA upload audio] missing media id");
+  const voice = isWhatsAppVoiceNoteAudio({ mime, url: mediaUrl });
+  await sendMetaAudioPayload(phoneNumberId, metaToken, toDigits, { id: mediaId }, voice);
+}
+
+async function sendWhatsAppAudioMessage(
+  fromNumber: string,
+  to: string,
+  mediaUrl: string,
+  accountSid: string,
+  authToken: string,
+  caption?: string
+): Promise<void> {
+  const probedBytes = await probePublicMediaBytes(mediaUrl);
+  if (probedBytes != null && probedBytes > WHATSAPP_AUDIO_MAX_BYTES) {
+    throw new Error(
+      `[WA media] file too large for WhatsApp (${probedBytes} bytes, max ${WHATSAPP_AUDIO_MAX_BYTES} for audio): ${mediaUrl}`
+    );
+  }
+
+  const metaToken = resolveMetaAccessToken();
+  if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {
+    const toDigits = to.replace(/^\+/, "");
+    const phoneNumberId = fromNumber.trim();
+    if (mediaUrl.startsWith("https://")) {
+      try {
+        await sendMetaWhatsAppAudioByLink(phoneNumberId, metaToken, toDigits, mediaUrl);
+        noteWaMediaSent(mediaUrl, caption);
+        return;
+      } catch (linkErr) {
+        console.warn("[Meta WA audio] link send failed, trying upload:", linkErr);
+      }
+    }
+    await sendMetaWhatsAppAudioByUpload(phoneNumberId, metaToken, toDigits, mediaUrl);
+    noteWaMediaSent(mediaUrl, caption);
+    return;
+  }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+  const body = new URLSearchParams({
+    From: `whatsapp:${fromNumber}`,
+    To: `whatsapp:${to}`,
+    MediaUrl: mediaUrl,
+  });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => "");
+    throw new Error(`[Twilio send audio] ${res.status} ${res.statusText}: ${err}`);
+  }
+  noteWaMediaSent(mediaUrl, caption);
+}
+
 /** Meta Cloud: send image/video by public HTTPS link (Meta fetches the asset). */
 async function sendMetaWhatsAppMediaByLink(
   phoneNumberId: string,
@@ -1315,11 +1470,16 @@ export async function sendWhatsAppMediaMessage(
   accountSid: string,
   authToken: string,
   caption?: string,
-  mediaKind?: "image" | "video"
+  mediaKind?: "image" | "video" | "audio"
 ): Promise<void> {
   const cleanUrl = mediaUrl.trim();
   if (!cleanUrl) return;
   if (caption != null) caption = applyStudioPurpleHeartPolicy(caption, { fromNumber });
+
+  if (mediaKind === "audio" || (mediaKind == null && isWhatsAppAudioUrl(cleanUrl))) {
+    await sendWhatsAppAudioMessage(fromNumber, to, cleanUrl, accountSid, authToken, caption);
+    return;
+  }
 
   const isVideo = inferMediaIsVideo(mediaKind, cleanUrl);
   const maxBytes = whatsappMediaMaxBytes(isVideo);

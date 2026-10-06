@@ -163,11 +163,14 @@ function BubbleShell({
 function MessageBody({ parsed }: { parsed: ParsedWaConversationMessage }) {
   if (parsed.kind === "media") {
     const isVideo = parsed.isVideo;
+    const isAudio = parsed.isAudio;
     return (
       <div className="overflow-hidden">
         {parsed.url ? (
           <div className="bg-zinc-100">
-            {isVideo ? (
+            {isAudio ? (
+              <audio src={parsed.url} controls preload="metadata" className="w-full" />
+            ) : isVideo ? (
               <video
                 src={parsed.url}
                 controls
@@ -181,7 +184,7 @@ function MessageBody({ parsed }: { parsed: ParsedWaConversationMessage }) {
           </div>
         ) : (
           <p className="whitespace-pre-wrap px-2.5 py-2 text-sm leading-snug text-[#54656f]">
-            {isVideo ? "🎥 נשלח סרטון" : "📷 נשלחה תמונה"}
+            {isAudio ? "🎤 נשלחה הקלטה" : isVideo ? "🎥 נשלח סרטון" : "📷 נשלחה תמונה"}
           </p>
         )}
         {parsed.caption ? (

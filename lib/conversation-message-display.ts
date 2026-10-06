@@ -6,6 +6,7 @@ import {
   parseWaUnsupportedKind,
   WA_ZOE_ADMIN_TEMPLATE_MODEL as WA_ZOE_ADMIN_TEMPLATE_MODEL_VALUE,
 } from "@/lib/wa-inbound-unsupported";
+import { isWhatsAppAudioUrl } from "@/lib/whatsapp-media-limits";
 import { sanitizeZoeOutboundLanguage } from "@/lib/zoe-text";
 
 export type WaConversationButton = { label: string; url?: string };
@@ -18,7 +19,7 @@ export type ParsedWaConversationMessage =
       buttons: WaConversationButton[];
       footerHint?: string;
     }
-  | { kind: "media"; url: string; caption?: string; isVideo?: boolean }
+  | { kind: "media"; url: string; caption?: string; isVideo?: boolean; isAudio?: boolean }
   | { kind: "reaction"; emoji: string; quoted: string }
   | { kind: "unsupported"; title: string; detail: string };
 
@@ -140,8 +141,10 @@ export function parseConversationMessageContent(raw: string): ParsedWaConversati
         isVideo: /^video$/i.test(url),
       };
     }
-    const isVideo = /\.(mp4|mov|webm)(\?|$)/i.test(url) || rest.toLowerCase().includes("video");
-    return { kind: "media", url, caption: caption || undefined, isVideo };
+    const isAudio = isWhatsAppAudioUrl(url);
+    const isVideo =
+      !isAudio && (/\.(mp4|mov|webm)(\?|$)/i.test(url) || rest.toLowerCase().includes("video"));
+    return { kind: "media", url, caption: caption || undefined, isVideo, isAudio };
   }
 
   const withoutFooter = extractFooterHint(s);

@@ -94,7 +94,7 @@ export type BusinessKnowledgePack = {
   /** כשפעיל — כפתור trial מתחיל בחירת יום/בלוק לשיחה במקום לינק סליקה */
   salesFlowCallSchedulingEnabled: boolean;
   openingMediaUrl: string;
-  openingMediaType: "image" | "video" | "";
+  openingMediaType: "image" | "video" | "audio" | "";
   servicesShortText: string;
   servicesText: string;
   serviceNamesForOpening: string[];
@@ -357,8 +357,10 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const openingMediaUrl =
       typeof social.opening_media_url === "string" ? String(social.opening_media_url).trim() : "";
     const openingMediaType =
-      social.opening_media_type === "image" || social.opening_media_type === "video"
-        ? (social.opening_media_type as "image" | "video")
+      social.opening_media_type === "image" ||
+      social.opening_media_type === "video" ||
+      social.opening_media_type === "audio"
+        ? social.opening_media_type
         : "";
 
     const rawQR = Array.isArray(social.quick_replies) ? social.quick_replies : [];

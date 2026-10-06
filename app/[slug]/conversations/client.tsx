@@ -194,7 +194,9 @@ function messagePreviewText(content: string): string {
   const parsed = parseConversationMessageContent(content);
   if (parsed.kind === "text") return parsed.text.trim();
   if (parsed.kind === "interactive") return parsed.text.trim() || parsed.buttons[0]?.label || "";
-  if (parsed.kind === "media") return parsed.caption?.trim() || (parsed.isVideo ? "🎥 וידאו" : "📷 תמונה");
+  if (parsed.kind === "media") {
+    return parsed.caption?.trim() || (parsed.isAudio ? "🎤 הקלטה" : parsed.isVideo ? "🎥 וידאו" : "📷 תמונה");
+  }
   if (parsed.kind === "reaction") {
     const emoji = parsed.emoji.trim();
     const quoted = parsed.quoted.trim();

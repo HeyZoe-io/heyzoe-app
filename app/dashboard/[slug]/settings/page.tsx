@@ -59,7 +59,13 @@ import {
 } from "@/lib/dashboard-settings-save-guard";
 import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whatsapp";
 import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
-import { dashboardMaxUploadBytesForFile } from "@/lib/whatsapp-media-limits";
+import {
+  dashboardMaxUploadBytesForFile,
+  ensureWhatsAppAudioFilename,
+  isLikelyWhatsAppAudioFile,
+  isUnsupportedDashboardAudioFile,
+  whatsappAudioContentType,
+} from "@/lib/whatsapp-media-limits";
 import { buildFactQuestions } from "@/lib/fact-questions";
 import {
   legacyFactsToQaPairs,
@@ -205,6 +211,7 @@ function dashboardMediaUploadSizeError(
   const max = dashboardMaxUploadBytesForFile(file);
   if (file.size <= max) return null;
   const maxMb = max / (1024 * 1024);
+  if (isLikelyWhatsAppAudioFile(file)) return t.page.fileTooBigAudio(maxMb);
   const isVideo =
     file.type.startsWith("video/") || /\.(mp4|mov|webm)$/i.test(file.name);
   if (isVideo) return t.page.fileTooBigVideo(maxMb);
@@ -1415,7 +1422,7 @@ export default function SlugSettingsPage({
 
   // ── Step 2: Opening media
   const [openingMediaUrl, setOpeningMediaUrl]   = useState("");
-  const [openingMediaType, setOpeningMediaType] = useState<"image" | "video" | "">("");
+  const [openingMediaType, setOpeningMediaType] = useState<"image" | "video" | "audio" | "">("");
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaUploadError, setMediaUploadError] = useState("");
@@ -1898,7 +1905,13 @@ export default function SlugSettingsPage({
           );
         }
         setOpeningMediaUrl(String(sl.opening_media_url ?? ""));
-        setOpeningMediaType((sl.opening_media_type as "image" | "video" | "") ?? "");
+        setOpeningMediaType(
+          sl.opening_media_type === "image" ||
+            sl.opening_media_type === "video" ||
+            sl.opening_media_type === "audio"
+            ? sl.opening_media_type
+            : ""
+        );
         const fullWelcome = String(business.welcome_message ?? "");
         const hasStructuredWelcome =
           (typeof sl.welcome_intro === "string" && sl.welcome_intro.trim()) ||
@@ -2831,6 +2844,15 @@ export default function SlugSettingsPage({
       setError(tp.webpNotSupported);
       return;
     }
+    if (isUnsupportedDashboardAudioFile(file)) {
+      setError(t.page.audioFormatUnsupported);
+      return;
+    }
+    const openingAudio = target === "opening" && isLikelyWhatsAppAudioFile(file);
+    if (!openingAudio && isLikelyWhatsAppAudioFile(file)) {
+      setError(t.page.audioOpeningOnly);
+      return;
+    }
     setUploading(true);
     try {
       const prepared = await prepareDashboardMediaUpload(file, t);
@@ -2839,12 +2861,15 @@ export default function SlugSettingsPage({
         return;
       }
       const uploadFile = prepared.file;
+      const audioMime = openingAudio ? whatsappAudioContentType(uploadFile) : null;
+      const uploadName = audioMime ? ensureWhatsAppAudioFilename(uploadFile.name, audioMime) : uploadFile.name;
+      const uploadContentType = audioMime || uploadFile.type || "application/octet-stream";
       const signRes = await fetch("/api/dashboard/upload-media-signed-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: uploadFile.name,
-          contentType: uploadFile.type || "application/octet-stream",
+          filename: uploadName,
+          contentType: uploadContentType,
           fileSize: uploadFile.size,
         }),
       });
@@ -2874,7 +2899,7 @@ export default function SlugSettingsPage({
         method: "PUT",
         headers: {
           "x-upsert": "true",
-          "Content-Type": uploadFile.type || "application/octet-stream",
+          "Content-Type": uploadContentType,
         },
         body: uploadFile,
       });
@@ -2892,7 +2917,8 @@ export default function SlugSettingsPage({
       }
 
       setUrl(publicUrl);
-      setType(uploadFile.type.startsWith("video") ? "video" : "image");
+      if (openingAudio) setOpeningMediaType("audio");
+      else setType(uploadFile.type.startsWith("video") ? "video" : "image");
     } catch {
       setError(tp.uploadNetwork);
     } finally {

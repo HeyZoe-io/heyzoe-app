@@ -99,7 +99,7 @@ type Step4SalesFlowProps = {
   planIsStarter: boolean;
   onStarterMediaBlocked: () => void;
   openingMediaUrl: string;
-  openingMediaType: "image" | "video" | "";
+  openingMediaType: "image" | "video" | "audio" | "";
   uploadingMedia: boolean;
   mediaInputRef: RefObject<HTMLInputElement | null>;
   scheduleCtaMediaInputRef: RefObject<HTMLInputElement | null>;
@@ -108,7 +108,7 @@ type Step4SalesFlowProps = {
   setScheduleCtaMediaUploadError: (v: string) => void;
   uploadMedia: (file: File, target: "opening" | "directions" | "schedule_cta") => Promise<void>;
   setOpeningMediaUrl: (v: string) => void;
-  setOpeningMediaType: Dispatch<SetStateAction<"image" | "video" | "">>;
+  setOpeningMediaType: Dispatch<SetStateAction<"image" | "video" | "audio" | "">>;
   setMediaUploadError: (v: string) => void;
   mediaUploadError: string;
   regenerateSalesFlowSection: (
@@ -1225,7 +1225,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
               ) : (
                 <>
                   <Upload className="h-8 w-8 text-zinc-400" />
-                  <p className="text-sm text-zinc-500">{t.salesFlow.clickUpload}</p>
+                  <p className="text-sm text-zinc-500">{t.salesFlow.clickUploadOpening}</p>
                   <p className="text-xs text-zinc-400">
                     {t.salesFlow.uploadLimits}
                   </p>
@@ -1246,6 +1246,13 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
                   />
                   <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
                     {t.salesFlow.videoUploaded}
+                  </p>
+                </div>
+              ) : openingMediaType === "audio" ? (
+                <div className="relative mx-auto w-full">
+                  <audio src={openingMediaUrl} controls preload="metadata" className="w-full" />
+                  <p className="text-center text-xs text-emerald-600 mt-2 font-medium">
+                    {t.salesFlow.audioUploaded}
                   </p>
                 </div>
               ) : (
@@ -1300,7 +1307,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <input
             ref={mediaInputRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*,video/*,audio/*,.mp3,.m4a,.aac,.ogg,.opus,.amr"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

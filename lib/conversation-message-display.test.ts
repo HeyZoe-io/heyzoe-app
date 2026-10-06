@@ -75,4 +75,14 @@ const inbound = parseConversationMessageForDashboard({
 assert.equal(inbound.kind, "text");
 if (inbound.kind === "text") assert.equal(inbound.text, spaced);
 
+const audioLog = parseConversationMessageContent(
+  "[media] https://example.com/storage/recording.m4a"
+);
+assert.equal(audioLog.kind, "media");
+if (audioLog.kind === "media") {
+  assert.equal(audioLog.isAudio, true);
+  assert.equal(audioLog.isVideo, false);
+  assert.equal(audioLog.url, "https://example.com/storage/recording.m4a");
+}
+
 console.log("conversation-message-display tests passed");

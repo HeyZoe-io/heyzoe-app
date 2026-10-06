@@ -18,7 +18,7 @@ type Props = {
   botName: string;
   businessName: string;
   openingMediaUrl: string;
-  openingMediaType: "image" | "video" | "";
+  openingMediaType: "image" | "video" | "audio" | "";
   salesFlowConfig: SalesFlowConfig;
   services: { name: string; price_text: string; duration?: string; benefit_line?: string }[];
   businessTagline: string;
@@ -203,6 +203,8 @@ export function WhatsAppSettingsPreview({
                   <div className="rounded-lg overflow-hidden max-w-[85%] border border-white/80 shadow-sm bg-black/5">
                     {openingMediaType === "video" ? (
                       <video src={openingMediaUrl} className="max-h-32 w-full object-cover" muted playsInline />
+                    ) : openingMediaType === "audio" ? (
+                      <audio src={openingMediaUrl} controls preload="metadata" className="w-full bg-white" />
                     ) : (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={openingMediaUrl} alt="" className="max-h-32 w-full object-cover" />

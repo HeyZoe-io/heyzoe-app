@@ -38,8 +38,14 @@ export function excerptForReactionQuote(raw: string): string {
   if (s.startsWith("[media]")) {
     const rest = s.slice("[media]".length).trim();
     const nl = rest.indexOf("\n\n");
+    const url = (nl >= 0 ? rest.slice(0, nl) : rest).trim();
     const caption = (nl >= 0 ? rest.slice(nl + 2) : "").trim();
-    return (caption || "📷 תמונה").slice(0, 160);
+    const fallback = /\.(mp3|m4a|aac|ogg|opus|amr)(\?|#|$)/i.test(url)
+      ? "🎤 הקלטה"
+      : /\.(mp4|mov|webm)(\?|#|$)/i.test(url)
+        ? "🎥 וידאו"
+        : "📷 תמונה";
+    return (caption || fallback).slice(0, 160);
   }
   if (s.startsWith("[image]")) return (s.slice("[image]".length).trim() || "📷 תמונה").slice(0, 160);
   if (s.startsWith("[video]")) return (s.slice("[video]".length).trim() || "🎥 וידאו").slice(0, 160);

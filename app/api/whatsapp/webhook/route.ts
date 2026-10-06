@@ -9009,10 +9009,12 @@ async function processIncoming(
     const mediaKind =
       knowledge?.openingMediaType === "video"
         ? "video"
-        : knowledge?.openingMediaType === "image"
-          ? "image"
-          : undefined;
-    const attempt = async (kindOverride?: "image" | "video") => {
+        : knowledge?.openingMediaType === "audio"
+          ? "audio"
+          : knowledge?.openingMediaType === "image"
+            ? "image"
+            : undefined;
+    const attempt = async (kindOverride?: "image" | "video" | "audio") => {
       await sendWhatsAppMediaMessage(
         msg.toNumber,
         msg.from,

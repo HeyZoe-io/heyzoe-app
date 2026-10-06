@@ -4,6 +4,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSupabaseStorageBucket } from "@/lib/server-env";
 import {
   DASHBOARD_IMAGE_UPLOAD_MAX_BYTES,
+  isLikelyWhatsAppAudioFile,
+  isUnsupportedDashboardAudioFile,
+  WHATSAPP_AUDIO_MAX_BYTES,
   WHATSAPP_VIDEO_MAX_BYTES,
 } from "@/lib/whatsapp-media-limits";
 
@@ -52,19 +55,29 @@ export async function POST(req: NextRequest) {
 
   const contentType =
     typeof body.contentType === "string" ? body.contentType.trim().toLowerCase() : "";
+  const named = { type: contentType, name: filename };
+  if (isUnsupportedDashboardAudioFile(named)) {
+    return NextResponse.json(
+      { error: "וואטסאפ מקבל הקלטה בפורמט MP3, M4A, AAC, OGG או AMR." },
+      { status: 400 }
+    );
+  }
+  const isAudio = isLikelyWhatsAppAudioFile(named);
   const isVideo =
-    contentType.startsWith("video/") || /\.(mp4|mov|webm|3gp|3gpp)$/i.test(filename);
-  const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    !isAudio &&
+    (contentType.startsWith("video/") || /\.(mp4|mov|webm|3gp|3gpp)$/i.test(filename));
+  const maxBytes = isAudio ? WHATSAPP_AUDIO_MAX_BYTES : isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
 
   const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
   if (fileSize !== null && (fileSize <= 0 || fileSize > maxBytes)) {
     const maxMb = maxBytes / (1024 * 1024);
-    const kind = isVideo ? "סרטון" : "תמונה";
     return NextResponse.json(
       {
-        error: isVideo
-          ? `הקובץ גדול מדי (${kind}: מקסימום ${maxMb}MB).`
-          : `הקובץ גדול מדי (תמונה: מקסימום ${maxMb}MB להעלאה).`,
+        error: isAudio
+          ? `הקובץ גדול מדי (הקלטה: מקסימום ${maxMb}MB).`
+          : isVideo
+            ? `הקובץ גדול מדי (סרטון: מקסימום ${maxMb}MB).`
+            : `הקובץ גדול מדי (תמונה: מקסימום ${maxMb}MB להעלאה).`,
       },
       { status: 413 }
     );
