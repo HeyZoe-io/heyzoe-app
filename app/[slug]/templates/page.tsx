@@ -40,7 +40,9 @@ export default async function TemplatesPage({ params }: Props) {
       .order("updated_at", { ascending: false }),
     admin
       .from("businesses")
-      .select("lead_template_name, leads_webhook_secret, waba_id, crm_type, crm_api_key")
+      .select(
+        "lead_template_name, leads_webhook_secret, waba_id, crm_type, crm_api_key, arbox_trial_membership_type_ids"
+      )
       .eq("id", businessId)
       .maybeSingle(),
     admin
@@ -77,6 +79,19 @@ export default async function TemplatesPage({ params }: Props) {
   const hasArbox = businessHasArboxConnection(
     biz as { crm_type?: unknown; crm_api_key?: unknown } | null
   );
+  const trialMembershipTypeIds = (() => {
+    const raw = (biz as { arbox_trial_membership_type_ids?: unknown } | null)
+      ?.arbox_trial_membership_type_ids;
+    if (!Array.isArray(raw)) return [];
+    return [
+      ...new Set(
+        raw
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n) && n > 0)
+          .map((n) => Math.trunc(n))
+      ),
+    ].sort((a, b) => a - b);
+  })();
 
   const initialTriggers = ((triggers ?? []) as TriggerRow[]).map((row) => ({
     ...row,
@@ -99,6 +114,7 @@ export default async function TemplatesPage({ params }: Props) {
       leadsWebhookSecret={leadsWebhookSecret}
       hasWaba={hasWaba}
       hasArbox={hasArbox}
+      initialTrialMembershipTypeIds={trialMembershipTypeIds}
     />
   );
 }

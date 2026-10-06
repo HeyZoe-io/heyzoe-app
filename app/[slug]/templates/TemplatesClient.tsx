@@ -135,6 +135,11 @@ function isIncomingLeadType(type: string): boolean {
   return isIncomingLeadTriggerType(type);
 }
 
+/** Trial reminder uses the products chosen in settings, not an empty "all products" filter. */
+function isTrialScopeTrigger(type: string): boolean {
+  return type === "trial_reminder" || type === "trainer_trial_heads_up";
+}
+
 function AutomationConnectLink({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -180,6 +185,8 @@ type Props = {
   leadsWebhookSecret: string;
   hasWaba: boolean;
   hasArbox: boolean;
+  /** businesses.arbox_trial_membership_type_ids — already chosen on the links step. */
+  initialTrialMembershipTypeIds?: number[];
 };
 
 function statusBadgeClass(status: string): string {
@@ -341,7 +348,22 @@ export default function TemplatesClient({
   leadsWebhookSecret,
   hasWaba,
   hasArbox,
+  initialTrialMembershipTypeIds = [],
 }: Props) {
+  const savedTrialMembershipTypeIds = useMemo(
+    () =>
+      [
+        ...new Set(
+          initialTrialMembershipTypeIds
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0)
+            .map((n) => Math.trunc(n))
+        ),
+      ].sort((a, b) => a - b),
+    [initialTrialMembershipTypeIds]
+  );
+  const savedTrialMembershipTypeIdsRef = useRef(savedTrialMembershipTypeIds);
+  savedTrialMembershipTypeIdsRef.current = savedTrialMembershipTypeIds;
   const [templates, setTemplates] = useState<TemplateRow[]>(initialTemplates);
   const [categoryNotices, setCategoryNotices] = useState<CategoryNotice[]>(initialCategoryNotices);
 
@@ -513,7 +535,10 @@ export default function TemplatesClient({
     setNewDelayDirection(defaultDelayDirection(newTriggerType));
     setNewDelayDays(defaultDelayDays(newTriggerType));
     setNewLookbackDays(defaultLookbackDays());
-    if (!showsProductFilter(newTriggerType)) {
+    if (isTrialScopeTrigger(newTriggerType)) {
+      setNewProductFilter([...savedTrialMembershipTypeIdsRef.current]);
+      setNewProductFilterQuery("");
+    } else {
       setNewProductFilter([]);
       setNewProductFilterQuery("");
     }
@@ -611,7 +636,16 @@ export default function TemplatesClient({
     return [...new Set(ids)].sort((a, b) => a - b);
   }, [newTriggerType, newItemTypeFilter, classProductIds]);
 
-  function formatProductFilterLabel(ids: number[] | null): string {
+  function formatProductFilterLabel(ids: number[] | null, triggerType?: string): string {
+    if (triggerType && isTrialScopeTrigger(triggerType) && (!ids || ids.length === 0)) {
+      if (savedTrialMembershipTypeIds.length === 0) return "לא הוגדרו מוצרי ניסיון בהגדרות";
+      return `מוצרי הניסיון מההגדרות: ${savedTrialMembershipTypeIds
+        .map((id) => {
+          const name = arboxMembershipTypeNameById.get(id);
+          return name ? `${name} (${id})` : String(id);
+        })
+        .join(", ")}`;
+    }
     if (!ids || ids.length === 0) return "כל המוצרים";
     return ids
       .map((id) => {
@@ -620,6 +654,13 @@ export default function TemplatesClient({
       })
       .join(", ");
   }
+
+  const savedTrialScopeLabel = savedTrialMembershipTypeIds
+    .map((id) => {
+      const name = arboxMembershipTypeNameById.get(id);
+      return name ? `${name} (${id})` : String(id);
+    })
+    .join(", ");
 
   function formatPurchaseClassSummary(
     cls: PurchaseItemType,
@@ -1341,6 +1382,10 @@ export default function TemplatesClient({
   function startCreateTrigger(type: TriggerType, opts?: { preferExistingName?: string }) {
     setError(null);
     setNewTriggerType(type);
+    if (isTrialScopeTrigger(type)) {
+      setNewProductFilter([...savedTrialMembershipTypeIdsRef.current]);
+      setNewProductFilterQuery("");
+    }
     setCreateFormOpenFor(type);
     applyInlinePresetForType(type);
     const mode = defaultTriggerTemplateMode({
@@ -1693,7 +1738,7 @@ export default function TemplatesClient({
                         )
                       ) : showsProductFilter(trigger.trigger_type) ? (
                         <p className="text-xs text-zinc-600">
-                          מוצרים: {formatProductFilterLabel(trigger.product_filter)}
+                          מוצרים: {formatProductFilterLabel(trigger.product_filter, trigger.trigger_type)}
                         </p>
                       ) : null}
                       <p className="text-xs text-zinc-600">
@@ -1924,9 +1969,10 @@ export default function TemplatesClient({
                                 : "סינון מוצרים (אופציונלי)"}
                             </label>
                             <p className="text-xs text-zinc-500">
-                              {newTriggerType === "trial_reminder" ||
-                              newTriggerType === "trainer_trial_heads_up"
-                                ? "השאירו ריק לבחירת כל השיעורים."
+                              {isTrialScopeTrigger(newTriggerType)
+                                ? savedTrialScopeLabel
+                                  ? `כבר נבחרו בהגדרות: ${savedTrialScopeLabel}. ההתראה תישלח עליהם. אפשר להסיר סימון כדי לצמצם.`
+                                  : "בחרו בהגדרות, בטאב לינקים, אילו מוצרי ארבוקס נחשבים שיעור ניסיון. בלי הבחירה הזו ההתראה לא תישלח."
                                 : "השאירו ריק כדי להחיל על כל המוצרים. נטען מארבוקס אם מוגדר CRM."}
                             </p>
                             {arboxMembershipTypesLoading ? (
@@ -1937,9 +1983,11 @@ export default function TemplatesClient({
                             ) : arboxMembershipTypesError ? (
                               <div className="space-y-2">
                                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-                                  לא נטענו מוצרים מארבוקס ({arboxMembershipTypesError}). TODO: הזינו מזהי
-                                  membership_type מופרדים בפסיק:
+                                  {isTrialScopeTrigger(newTriggerType) && savedTrialScopeLabel
+                                    ? `רשימת המוצרים מארבוקס לא נטענה (${arboxMembershipTypesError}). הבחירה מההגדרות נשמרת: ${savedTrialScopeLabel}. ההתראה תישלח עליה.`
+                                    : `לא נטענו מוצרים מארבוקס (${arboxMembershipTypesError}). אפשר להזין מזהי מוצר מופרדים בפסיק:`}
                                 </p>
+                                {isTrialScopeTrigger(newTriggerType) && savedTrialScopeLabel ? null : (
                                 <input
                                   value={newProductFilter.join(",")}
                                   onChange={(e) => {
@@ -1953,12 +2001,14 @@ export default function TemplatesClient({
                                   placeholder="123, 456"
                                   className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-left"
                                 />
+                                )}
                               </div>
                             ) : arboxMembershipTypes.length === 0 ? (
                               <p className="text-xs text-zinc-500">
-                                {newTriggerType === "trial_reminder" ||
-                                newTriggerType === "trainer_trial_heads_up"
-                                  ? "לא נמצאו מוצרים — ההתראה לא תישלח עד שיוגדרו מוצרי ניסיון."
+                                {isTrialScopeTrigger(newTriggerType)
+                                  ? savedTrialScopeLabel
+                                    ? `הרשימה מארבוקס ריקה כרגע. הבחירה מההגדרות נשמרת: ${savedTrialScopeLabel}. ההתראה תישלח עליה.`
+                                    : "לא נמצאו מוצרים — ההתראה לא תישלח עד שיוגדרו מוצרי ניסיון בהגדרות."
                                   : "לא נמצאו מוצרים — יוחל על כל המוצרים."}
                               </p>
                             ) : (
