@@ -26,6 +26,25 @@ export function flattenMetaTemplateParam(raw: string, maxChars = NOTES_MAX_CHARS
 
 type GeneralNoteRow = { comment: string; createdAt: string };
 
+/**
+ * Zoe writes Arbox notes as the API user, so action_by is a staff name and
+ * there is no note-type field. The marker is the CRM text itself.
+ */
+const SYSTEM_NOTE_LINE =
+  /(?:^|\n)\s*(?:[✅🙋⏰]\s*)?זואי\s*[—–\-:]/u;
+
+const SYSTEM_NOTE_BODIES = [
+  "עברו 24 שעות והליד לא נרשם - יש ליצור קשר טלפוני",
+  "עברו 6 שעות והליד לא ענה להודעת הפתיחה - יש ליצור איתו קשר טלפוני",
+] as const;
+
+export function isSystemGeneratedArboxNote(comment: string): boolean {
+  const text = String(comment ?? "").trim();
+  if (!text) return true;
+  if (SYSTEM_NOTE_LINE.test(text)) return true;
+  return SYSTEM_NOTE_BODIES.some((body) => text.includes(body));
+}
+
 export function generalNoteRowsFromPayload(json: unknown): GeneralNoteRow[] {
   const data = (json as { data?: unknown } | null)?.data;
   const rows = Array.isArray(data) ? data : [];
@@ -42,9 +61,10 @@ export function generalNoteRowsFromPayload(json: unknown): GeneralNoteRow[] {
   return notes;
 }
 
-/** Newest first. `sort` on the Arbox query 500s, so order is applied here. */
+/** Newest human notes first. System notes do not consume the limit. */
 export function newestGeneralNoteComments(json: unknown, limit = NOTES_LIMIT): string[] {
   return generalNoteRowsFromPayload(json)
+    .filter((row) => !isSystemGeneratedArboxNote(row.comment))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, limit)
     .map((row) => row.comment);
@@ -53,6 +73,7 @@ export function newestGeneralNoteComments(json: unknown, limit = NOTES_LIMIT): s
 /** Newest notes first, joined for a single WhatsApp template parameter. */
 export function formatArboxGeneralNotesForTemplate(comments: readonly string[]): string {
   const parts = comments
+    .filter((comment) => !isSystemGeneratedArboxNote(comment))
     .map((comment) => flattenMetaTemplateParam(comment, NOTES_MAX_CHARS))
     .filter(Boolean);
   if (!parts.length) return TEMPLATE_GENERAL_NOTES_FALLBACK;
