@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
-import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey, sleepMs } from "@/lib/claude";
+import { CLAUDE_CHAT_MODEL, isAnthropicCreditExhausted, resolveClaudeApiKey, sleepMs } from "@/lib/claude";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { extractErrorCode } from "@/lib/analytics";
 import {
@@ -414,6 +414,17 @@ export async function POST(req: NextRequest) {
       .join("\n")
       .trim();
   } catch (e) {
+    if (isAnthropicCreditExhausted(e)) {
+      console.error("[help-chat] Anthropic credit exhausted; not replying");
+      return NextResponse.json({
+        ok: true,
+        thread_id: requestId,
+        reply: "",
+        needs_human: false,
+        suggested_phone:
+          typeof user.user_metadata?.phone === "string" ? String(user.user_metadata.phone).trim() : "",
+      });
+    }
     errorCode = extractErrorCode(e);
     assistantText =
       "לא הצלחתי לענות כרגע בגלל תקלה זמנית. אפשר לנסות שוב עוד רגע, ואם זה דחוף אעביר את זה לצוות.";

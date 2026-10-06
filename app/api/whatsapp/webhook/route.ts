@@ -588,6 +588,7 @@ import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
   resolveClaudeApiKey,
+  isAnthropicCreditExhausted,
   isRetryableClaudeError,
   sleepMs,
 } from "@/lib/claude";
@@ -12878,28 +12879,38 @@ async function processIncoming(
           })
         );
       } catch (claudeError) {
-        console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
-        try {
-          const geminiOut = await runGemini();
-          replyCore = geminiOut.text;
-          replyModelUsed = GEMINI_WHATSAPP_MODEL;
-          const geminiUsage = geminiOut.usageMetadata ?? null;
-          after(() =>
-            recordAiUsage({
-              businessId: usageBusinessId,
-              contactId: usageContactId,
-              provider: "google",
-              model: GEMINI_WHATSAPP_MODEL,
-              callType: "generation",
-              usage: geminiUsage,
-            })
-          );
-        } catch (geminiError) {
-          console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
+        if (isAnthropicCreditExhausted(claudeError)) {
+          console.error(`[WA Webhook] Anthropic credit exhausted; not replying`, {
+            business_slug,
+            sessionId,
+          });
           replyCore = "";
-          replyErrorCode =
-            extractErrorCode(geminiError) ?? extractErrorCode(claudeError) ?? "claude_failed";
+          replyErrorCode = "credit_exhausted";
           isFallbackErrorReply = true;
+        } else {
+          console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
+          try {
+            const geminiOut = await runGemini();
+            replyCore = geminiOut.text;
+            replyModelUsed = GEMINI_WHATSAPP_MODEL;
+            const geminiUsage = geminiOut.usageMetadata ?? null;
+            after(() =>
+              recordAiUsage({
+                businessId: usageBusinessId,
+                contactId: usageContactId,
+                provider: "google",
+                model: GEMINI_WHATSAPP_MODEL,
+                callType: "generation",
+                usage: geminiUsage,
+              })
+            );
+          } catch (geminiError) {
+            console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
+            replyCore = "";
+            replyErrorCode =
+              extractErrorCode(geminiError) ?? extractErrorCode(claudeError) ?? "claude_failed";
+            isFallbackErrorReply = true;
+          }
         }
       }
     } catch (e) {

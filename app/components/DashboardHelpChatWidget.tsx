@@ -96,7 +96,10 @@ export default function DashboardHelpChatWidget({ slug }: { slug: string }) {
         return;
       }
       if (typeof j.thread_id === "number") setThreadId(j.thread_id);
-      setRows((prev) => [...prev, { role: "assistant", content: String(j.reply ?? "").trim() }]);
+      const replyText = String(j.reply ?? "").trim();
+      if (replyText) {
+        setRows((prev) => [...prev, { role: "assistant", content: replyText }]);
+      }
       const nh = Boolean(j.needs_human);
       setNeedsHuman(nh);
       const sp = normalizePhone(String(j.suggested_phone ?? ""));

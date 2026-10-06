@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { CLAUDE_WHATSAPP_MODEL } from "@/lib/claude";
+import { CLAUDE_WHATSAPP_MODEL, isAnthropicCreditExhausted } from "@/lib/claude";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { HEYZOE_SF_SERVICE_PREFIX, logMessage } from "@/lib/analytics";
@@ -387,6 +387,10 @@ ${knowledge || "אין ידע נוסף."}
     });
     return stripped.trim() || fallback;
   } catch (e) {
+    if (isAnthropicCreditExhausted(e)) {
+      console.error("[business-conversation-flow] Anthropic credit exhausted; not replying");
+      return "";
+    }
     console.error("[business-conversation-flow] free question failed:", e);
     return "אני כאן לכל שאלה על האימונים.";
   }

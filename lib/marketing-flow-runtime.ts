@@ -386,6 +386,10 @@ export async function answerOpenQuestionDuringMarketingFlow(
   await recordMarketingLeadOpenQuestion({ phone, questionText: userText });
 
   const reply = await callMarketingAI(userText, { leadPhone: phone, skipPostFlowClosing: true });
+  if (reply == null) {
+    console.error("[marketing-flow] Anthropic credit exhausted; not replying", { phone });
+    return;
+  }
   await sendMarketingWhatsApp(phone, reply, { model_used: "marketing_ai_open_q" });
   await sendMarketingFlowResumePrompt(phone);
 
@@ -1676,6 +1680,10 @@ export async function deliverMarketingPostFlowAiResponse(phoneRaw: string, userT
   if (await tryHandleMarketingHumanAgentInbound(phone, userText)) return;
 
   const reply = await callMarketingAI(userText, { leadPhone: phone });
+  if (reply == null) {
+    console.error("[marketing-flow] Anthropic credit exhausted; not replying", { phone });
+    return;
+  }
   if (reply.trim()) {
     await sendMarketingWhatsApp(phone, reply, { model_used: "marketing_ai" });
   }
@@ -1688,7 +1696,7 @@ export async function deliverMarketingPostFlowAiResponse(phoneRaw: string, userT
 export async function callMarketingAI(
   userText: string,
   opts?: CallMarketingAIOptions
-): Promise<string> {
+): Promise<string | null> {
   const { isHeyzoeOwnerOptInMessage } = await import("@/lib/notifications/owner-opt-in");
   if (isHeyzoeOwnerOptInMessage(userText)) {
     return "קיבלנו את בקשת חיבור ההתראות. אם לא קיבלתם אישור — שלחו שוב את הקישור מהדשבורד (HEYZOE_OWNER_שם-העסק).";
@@ -1742,7 +1750,7 @@ export async function callMarketingAI(
     }
   }
 
-  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, sleepMs } = await import("@/lib/claude");
+  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isAnthropicCreditExhausted, isRetryableClaudeError, sleepMs } = await import("@/lib/claude");
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
 
   const apiKey = resolveClaudeApiKey();
@@ -1852,6 +1860,10 @@ ${supportWaUrl}
       if (attempt === 0 && isRetryableClaudeError(e)) {
         await sleepMs(1500);
         continue;
+      }
+      if (isAnthropicCreditExhausted(e)) {
+        console.error("[marketing-flow] Anthropic credit exhausted; not replying");
+        return null;
       }
       console.error("[marketing-flow] Claude error; not sending an error message:", e);
       return "";

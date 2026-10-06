@@ -12,6 +12,17 @@ export function isRetryableClaudeError(error: unknown): boolean {
   return /429|529|overloaded|rate.?limit|too.?many.?requests/i.test(msg);
 }
 
+/** יתרת Anthropic נגמרה. במקרה הזה לא עונים ללקוח ולא שולחים שום טקסט. */
+export function isAnthropicCreditExhausted(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  if (status === 402) return true;
+  return /credit balance is too low|plans?\s*&\s*billing|purchase credits/i.test(msg);
+}
+
 export function formatUserFacingClaudeError(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
   if (/429|rate.?limit|too.?many.?requests/i.test(msg)) {

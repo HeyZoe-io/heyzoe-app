@@ -3,6 +3,7 @@ import { after } from "next/server";
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
+  isAnthropicCreditExhausted,
   isRetryableClaudeError,
   resolveClaudeApiKey,
   sleepMs,
@@ -263,7 +264,7 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
       console.error("[not-relevant] open-question Claude failed:", e);
       replyCore = "";
       isFallbackErrorReply = true;
-      replyErrorCode = "claude_failed";
+      replyErrorCode = isAnthropicCreditExhausted(e) ? "credit_exhausted" : "claude_failed";
     }
   }
 
