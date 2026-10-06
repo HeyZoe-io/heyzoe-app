@@ -7,6 +7,8 @@ export type EmailTemplateResult = { subject: string; htmlContent: string };
 
 type SendEmailInput = {
   to: string;
+  attachments?: { name: string; contentBase64: string }[];
+  headers?: Record<string, string>;
 } & EmailTemplateResult;
 
 function resolveBrevoApiKey(): string {
@@ -22,6 +24,22 @@ export async function sendEmail(input: SendEmailInput): Promise<{ ok: true } | {
   const htmlContent = String(input.htmlContent ?? "").trim();
   if (!to || !subject || !htmlContent) return { ok: false, error: "missing_fields" };
 
+  const attachments = (input.attachments ?? []).filter((file) => file.name.trim() && file.contentBase64.trim());
+  const headers = input.headers ?? {};
+  const payload: Record<string, unknown> = {
+    sender: { name: "זואי מ-HeyZoe", email: "noreply@heyzoe.io" },
+    to: [{ email: to }],
+    subject,
+    htmlContent,
+  };
+  if (attachments.length > 0) {
+    payload.attachment = attachments.map((file) => ({
+      name: file.name.trim(),
+      content: file.contentBase64.trim(),
+    }));
+  }
+  if (Object.keys(headers).length > 0) payload.headers = headers;
+
   const res = await fetch("https://api.brevo.com/v3/smtp/email", {
     method: "POST",
     headers: {
@@ -29,12 +47,7 @@ export async function sendEmail(input: SendEmailInput): Promise<{ ok: true } | {
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({
-      sender: { name: "זואי מ-HeyZoe", email: "noreply@heyzoe.io" },
-      to: [{ email: to }],
-      subject,
-      htmlContent,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (res.ok) return { ok: true };
@@ -42,7 +55,7 @@ export async function sendEmail(input: SendEmailInput): Promise<{ ok: true } | {
   const text = await res.text().catch(() => "");
   let msg = text || `brevo_failed (${res.status})`;
   try {
-    const j = text ? (JSON.parse(text) as any) : null;
+    const j = text ? (JSON.parse(text) as { message?: unknown; error?: unknown; code?: unknown }) : null;
     const brevoMsg = String(j?.message ?? j?.error ?? j?.code ?? "").trim();
     if (brevoMsg) msg = brevoMsg;
   } catch {

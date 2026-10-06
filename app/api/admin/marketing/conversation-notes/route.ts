@@ -25,6 +25,12 @@ import { syncContactToMetaAudience } from "@/lib/ads/meta-audiences";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import { marketingStatusEnteredColumn } from "@/lib/marketing-status-trigger";
 import { onMarketingCallScheduled, onMarketingLeadStatusChanged } from "@/lib/marketing-template-dispatch";
+import {
+  deliverZoeAdminCalendarInvite,
+  planZoeAdminCalendarInvite,
+  zoeAdminInviteColumn,
+  type ZoeAdminInviteResult,
+} from "@/lib/zoe-admin-calendar-invite";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,11 +146,15 @@ async function saveScheduledCall(
   phone: string,
   dateRaw: string | null,
   timeRaw: string | null
-): Promise<{ date: string | null; time: string | null }> {
+): Promise<{
+  date: string | null;
+  time: string | null;
+  previous: { date: string | null; time: string | null };
+}> {
   const date = toPipelineDateOnly(dateRaw);
   const time = date ? toPipelineTime(timeRaw) : null;
   const previous = await loadScheduledCall(admin, phone);
-  if (previous.date === date && previous.time === time) return previous;
+  if (previous.date === date && previous.time === time) return { date, time, previous };
 
   const nowIso = new Date().toISOString();
   const patch: Record<string, unknown> = {
@@ -161,7 +171,7 @@ async function saveScheduledCall(
   }
   if (error) {
     console.error("[marketing/conversation-notes] scheduled call save failed:", error.message);
-    return previous;
+    return { date: previous.date, time: previous.time, previous };
   }
   if (date && (previous.date !== date || previous.time !== time)) {
     try {
@@ -170,7 +180,37 @@ async function saveScheduledCall(
       console.error("[marketing/conversation-notes] call_day dispatch failed:", e);
     }
   }
-  return { date, time };
+  return { date, time, previous };
+}
+
+async function sendCalendarInviteIfNeeded(input: {
+  phone: string;
+  businessName: string;
+  previous: Parameters<typeof planZoeAdminCalendarInvite>[0];
+  next: Parameters<typeof planZoeAdminCalendarInvite>[1];
+}): Promise<ZoeAdminInviteResult> {
+  try {
+    const plan = planZoeAdminCalendarInvite(input.previous, input.next);
+    if (plan.action !== "request" && plan.action !== "cancel") return { status: plan.action };
+    const invite = await deliverZoeAdminCalendarInvite({
+      phone: input.phone,
+      businessName: input.businessName,
+      plan,
+    });
+    if (invite.status === "failed") {
+      console.error("[marketing/conversation-notes] calendar invite failed:", invite.error);
+    } else {
+      console.info("[marketing/conversation-notes] calendar invite", {
+        phone: input.phone,
+        status: invite.status,
+      });
+    }
+    return invite;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "invite_failed";
+    console.error("[marketing/conversation-notes] calendar invite failed:", message);
+    return { status: "failed", error: message };
+  }
 }
 
 function isMissingRelevanceColumn(message: string): boolean {
@@ -472,9 +512,26 @@ export async function PUT(req: NextRequest) {
     }
 
     const call = await saveScheduledCall(admin, phone, conversationAt, body.next_call_time ?? null);
+    const invite = await sendCalendarInviteIfNeeded({
+      phone,
+      businessName,
+      previous: {
+        column: existing ? zoeAdminInviteColumn(stored?.relevance, stored?.stage) : null,
+        emailRaw: String(existing?.link ?? ""),
+        dateYmd: call.previous.date,
+        timeHm: call.previous.time,
+      },
+      next: {
+        column: zoeAdminInviteColumn(relevance, status),
+        emailRaw: link,
+        dateYmd: call.date,
+        timeHm: call.time,
+      },
+    });
     const note = serializeNote(data, phone, status, relevance);
     return NextResponse.json({
       ok: true,
+      invite,
       note: {
         ...note,
         conversation_at: call.date ?? note.conversation_at,

@@ -43,6 +43,10 @@ type DraftPayload = {
 
 const STATUS_OPTIONS = MARKETING_NOTE_STATUS_OPTIONS;
 
+function looksLikeInviteEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function toDateInputValue(isoOrDate: string | null | undefined): string {
   const raw = String(isoOrDate ?? "").trim();
   if (!raw) return "";
@@ -137,6 +141,8 @@ export default function MarketingConversationNotesPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState("");
+  const [inviteNoticeOk, setInviteNoticeOk] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [draftHint, setDraftHint] = useState("");
   const [templates, setTemplates] = useState<TemplateChoice[]>([]);
@@ -179,6 +185,8 @@ export default function MarketingConversationNotesPanel({
     setCallTime("");
     setTemplateNotice("");
     setTemplateNoticeOk(false);
+    setInviteNotice("");
+    setInviteNoticeOk(false);
 
     if (!p && !sid) {
       setLoading(false);
@@ -371,6 +379,7 @@ export default function MarketingConversationNotesPanel({
         error?: string;
         detail?: string;
         note?: NotePayload;
+        invite?: { status?: string };
       };
       if (!res.ok) {
         const base = j.error?.trim() || `שמירה נכשלה (${res.status})`;
@@ -407,6 +416,16 @@ export default function MarketingConversationNotesPanel({
         setDraftHint("");
         clearDraft(phone, sessionId);
         onStatusSaved?.(savedStatus, savedRelevance);
+      }
+      if (j.invite?.status === "sent") {
+        setInviteNotice("הזימון נשלח למייל.");
+        setInviteNoticeOk(true);
+      } else if (j.invite?.status === "cancelled") {
+        setInviteNotice("נשלח ביטול לזימון.");
+        setInviteNoticeOk(true);
+      } else if (j.invite?.status === "failed") {
+        setInviteNotice("ההערות נשמרו, אבל הזימון למייל לא נשלח.");
+        setInviteNoticeOk(false);
       }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
@@ -472,19 +491,32 @@ export default function MarketingConversationNotesPanel({
             </label>
 
             <label>
-              <span style={labelStyle}>לינק</span>
+              <span style={labelStyle}>מייל</span>
               <input
-                type="url"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
                 value={link}
                 onChange={(e) => {
                   setLink(e.target.value);
                   markDirty();
                 }}
-                placeholder="https://…"
+                placeholder="name@example.com"
                 dir="ltr"
                 style={{ ...fieldStyle, textAlign: "left" }}
               />
             </label>
+            {relevance === "relevant" && (status === "setup_call" || status === "requires_call") ? (
+              <p style={{ margin: "-6px 0 0", fontSize: 12, color: MUTED, textAlign: "right" }}>
+                {looksLikeInviteEmail(link)
+                  ? conversationAt && callTime
+                    ? "בשמירה יישלח זימון ליומן למייל הזה, אם השעה או המייל השתנו."
+                    : "כדי לשלוח זימון צריך גם תאריך ושעה."
+                  : link.trim()
+                    ? "כדי לשלוח זימון צריך כתובת מייל תקינה."
+                    : "אם תמלאי מייל, תאריך ושעה — יישלח זימון ליומן."}
+              </p>
+            ) : null}
 
             <label>
               <span style={labelStyle}>תאריך שיחה</span>
@@ -619,6 +651,15 @@ export default function MarketingConversationNotesPanel({
 
             {savedFlash ? (
               <p style={{ margin: 0, fontSize: 12, color: "#047857", textAlign: "right" }}>נשמר ✓</p>
+            ) : null}
+
+            {inviteNotice ? (
+              <p
+                style={{ margin: 0, fontSize: 12, color: inviteNoticeOk ? "#047857" : "#b42318", textAlign: "right" }}
+                role={inviteNoticeOk ? "status" : "alert"}
+              >
+                {inviteNotice}
+              </p>
             ) : null}
           </div>
         )}

@@ -132,3 +132,66 @@ export function buildZoeAdminCalendarIcs(events: ZoeAdminCalendarEvent[], now = 
   lines.push("END:VCALENDAR");
   return lines.map(foldIcsLine).join("\r\n") + "\r\n";
 }
+
+export const ZOE_ADMIN_INVITE_ORGANIZER_EMAIL = "noreply@heyzoe.io";
+export const ZOE_ADMIN_INVITE_ORGANIZER_NAME = "זואי מ-HeyZoe";
+
+/** אירוע שנשלח לאורח. נפרד מיומן המנוי של האדמין, כדי שלא ידרסו זה את זה. */
+export function zoeAdminGuestEvent(input: {
+  phone: string;
+  column: "setup_call" | "requires_call";
+  dateYmd: string;
+  timeHm: string;
+}): ZoeAdminCalendarEvent | null {
+  const startUtc = israelWallTimeToUtc(input.dateYmd, input.timeHm);
+  if (!Number.isFinite(startUtc.getTime())) return null;
+  const digits = normalizePhone(input.phone) ?? String(input.phone).replace(/\D/g, "");
+  if (!digits) return null;
+  return {
+    uid: `zoe-admin-guest-${digits}@heyzoe.io`,
+    title: input.column === "setup_call" ? "שיחת הקמה עם זואי" : "שיחה עם זואי",
+    location: "שיחת טלפון",
+    startUtc,
+    endUtc: new Date(startUtc.getTime() + ZOE_ADMIN_CALL_DURATION_MS),
+  };
+}
+
+function quoteIcsParam(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+export function buildZoeAdminInviteIcs(input: {
+  event: ZoeAdminCalendarEvent;
+  method: "REQUEST" | "CANCEL";
+  attendeeEmail: string;
+  attendeeName: string;
+  description: string;
+  sequence: number;
+  now?: Date;
+}): string {
+  const method = input.method;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//HeyZoe//Zoe Admin//HE",
+    "CALSCALE:GREGORIAN",
+    `METHOD:${method}`,
+    "BEGIN:VEVENT",
+    `UID:${escapeIcsText(input.event.uid)}`,
+    `DTSTAMP:${formatUtcIcs(input.now ?? new Date())}`,
+    `DTSTART:${formatUtcIcs(input.event.startUtc)}`,
+    `DTEND:${formatUtcIcs(input.event.endUtc)}`,
+    `SUMMARY:${escapeIcsText(input.event.title)}`,
+    `LOCATION:${escapeIcsText(input.event.location)}`,
+    `DESCRIPTION:${escapeIcsText(input.description)}`,
+    `ORGANIZER;CN=${quoteIcsParam(ZOE_ADMIN_INVITE_ORGANIZER_NAME)}:mailto:${ZOE_ADMIN_INVITE_ORGANIZER_EMAIL}`,
+    `ATTENDEE;CN=${quoteIcsParam(input.attendeeName || "אורח")};ROLE=REQ-PARTICIPANT;PARTSTAT=${method === "CANCEL" ? "DECLINED" : "NEEDS-ACTION"};RSVP=TRUE:mailto:${input.attendeeEmail}`,
+    `SEQUENCE:${Math.max(0, Math.floor(input.sequence))}`,
+    `STATUS:${method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`,
+  ];
+  if (method === "REQUEST") {
+    lines.push("BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:שיחה", "TRIGGER:-PT15M", "END:VALARM");
+  }
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  return lines.map(foldIcsLine).join("\r\n") + "\r\n";
+}
