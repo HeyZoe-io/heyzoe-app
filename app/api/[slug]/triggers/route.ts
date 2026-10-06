@@ -20,6 +20,7 @@ import {
   type PurchaseItemType,
   type TriggerType,
 } from "@/lib/template-trigger-types";
+import { ruleActivationResets, type RuleActivationSnapshot } from "@/lib/rule-activation";
 
 /** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
 function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -536,29 +537,20 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.enabled = Boolean(body.enabled);
   }
 
-  let activationTouch = false;
-  if (body.template_name !== undefined || body.enabled !== undefined) {
-    const { data: existingClock } = await admin
-      .from("template_triggers")
-      .select("template_name, enabled")
-      .eq("id", id)
-      .eq("business_id", business.id)
-      .maybeSingle();
-    const previousName = String(
-      (existingClock as { template_name?: unknown } | null)?.template_name ?? ""
-    ).trim();
-    const previousEnabled = Boolean(
-      (existingClock as { enabled?: unknown } | null)?.enabled
-    );
-    if (body.template_name !== undefined) {
-      const nextName = patch.template_name == null ? "" : String(patch.template_name).trim();
-      if (nextName !== previousName) activationTouch = true;
-    }
-    if (body.enabled !== undefined && patch.enabled === true && !previousEnabled) {
-      activationTouch = true;
-    }
+  const { data: existingClock } = await admin
+    .from("template_triggers")
+    .select(
+      "enabled, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name"
+    )
+    .eq("id", id)
+    .eq("business_id", business.id)
+    .maybeSingle();
+  if (
+    existingClock &&
+    ruleActivationResets(existingClock as RuleActivationSnapshot, patch)
+  ) {
+    patch.updated_at = new Date().toISOString();
   }
-  if (activationTouch) patch.updated_at = new Date().toISOString();
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing_to_update" }, { status: 400 });

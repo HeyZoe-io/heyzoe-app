@@ -1,8 +1,10 @@
 /**
  * A rule may only act on events at or after it became active.
- * Activation is max(created_at, updated_at). Callers move updated_at only when
- * the template name is set, the rule is re-enabled, or its template becomes sendable.
- * There is no separate column: updated_at is that clock.
+ * Activation is max(created_at, updated_at). There is no separate column:
+ * updated_at is that clock.
+ * Callers move updated_at only when the rule is (re)enabled or its targeting
+ * changes (trigger type, product / item filter, delay, direction, lookback).
+ * Template binding, template body, and a label-only edit must not move it.
  */
 
 export type ActivationRule = {
@@ -98,7 +100,74 @@ export async function ruleIdsActiveSinceActivation(
   return active;
 }
 
-/** Move updated_at to now. That is the rule's new activation instant. */
+export type RuleActivationSnapshot = {
+  enabled?: unknown;
+  trigger_type?: unknown;
+  product_filter?: unknown;
+  item_type_filter?: unknown;
+  delay_days?: unknown;
+  delay_direction?: unknown;
+  lookback_days?: unknown;
+  template_name?: unknown;
+};
+
+function idListKey(raw: unknown): string {
+  if (raw == null) return "";
+  const list = Array.isArray(raw) ? raw : [raw];
+  const ids = list
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .sort();
+  return ids.join(",");
+}
+
+function lookbackKey(raw: unknown): string {
+  if (raw == null || raw === "") return "";
+  const n = Number(raw);
+  return Number.isFinite(n) ? String(n) : String(raw).trim();
+}
+
+/**
+ * True only when this patch should start the activation clock over.
+ * Template name is ignored on purpose: rebinding or rewording a template
+ * must keep the existing schedule.
+ */
+export function ruleActivationResets(
+  previous: RuleActivationSnapshot,
+  patch: RuleActivationSnapshot
+): boolean {
+  if (patch.enabled === true && previous.enabled !== true) return true;
+  if (
+    patch.trigger_type !== undefined &&
+    String(patch.trigger_type ?? "").trim() !== String(previous.trigger_type ?? "").trim()
+  ) {
+    return true;
+  }
+  if (patch.delay_days !== undefined && Number(patch.delay_days) !== Number(previous.delay_days ?? 0)) {
+    return true;
+  }
+  if (
+    patch.delay_direction !== undefined &&
+    String(patch.delay_direction ?? "").trim() !== String(previous.delay_direction ?? "").trim()
+  ) {
+    return true;
+  }
+  if (patch.lookback_days !== undefined && lookbackKey(patch.lookback_days) !== lookbackKey(previous.lookback_days)) {
+    return true;
+  }
+  if (patch.product_filter !== undefined && idListKey(patch.product_filter) !== idListKey(previous.product_filter)) {
+    return true;
+  }
+  if (
+    patch.item_type_filter !== undefined &&
+    idListKey(patch.item_type_filter) !== idListKey(previous.item_type_filter)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Move updated_at to now. That is the rule's new activation instant. Do not call this for a template edit. */
 export async function stampTemplateRulesActivated(
   admin: unknown,
   input: { businessId: number; ruleId?: string | null; templateName?: string | null }
