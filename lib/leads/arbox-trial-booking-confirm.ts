@@ -3,9 +3,8 @@
  * A trial booking is not a purchase.
  *
  * Every enabled trial_booked rule sends its template, in or out of the 24h
- * window. Inside the window the free sales-flow message is sent as well,
- * once per contact (a trial purchase may already have sent it). A class that
- * already started sends nothing.
+ * window. The free sales-flow registration text is not sent on the same
+ * booking. A class that already started sends nothing.
  *
  * IO per run, only businesses with an enabled trial_booked rule:
  * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
@@ -136,7 +135,7 @@ export type TrialBookingTemplateFollowUp = "skip" | "send" | "wait";
 
 /**
  * A calendar registration sends every configured trial_booked template.
- * The free in-window message is additional and does not replace a template.
+ * The free registration text is a separate path and does not replace one.
  * Skip only when the rule has no template name, or the template is not approved yet.
  */
 export function trialBookingTemplateFollowUp(input: {
@@ -712,6 +711,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     const signupNotice = await loadTrialSignupNotice(admin, businessId, phone);
     const freeAlreadySent =
       sentinelSettled || trialPurchaseTemplateBlockedByZoe(signupNotice) || counts.free >= 1;
+    const templateCoversBooking =
+      pendingRules.some((rule) => Boolean(rule.template_name?.trim())) ||
+      priorRows.some((row) => row.template_status === "sent");
     const sendFreeMessage =
       activeRuleIds.size > 0 &&
       planTrialRegistrationSends({
@@ -720,9 +722,22 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       inWindow: true,
       freeAlreadySent,
       classStarted: false,
-      trialBookedRuleCount: pendingRules.length,
+      trialBookedRuleCount: templateCoversBooking ? Math.max(pendingRules.length, 1) : 0,
       purchaseRuleCount: 0,
     }).freeMessage;
+    if (!sendFreeMessage && !sentinelSettled && templateCoversBooking) {
+      await writeLog(
+        admin,
+        businessId,
+        item,
+        SYNC_LOG_SENTINEL_TRIGGER_ID,
+        "skipped",
+        "skipped",
+        "skipped",
+        attempts,
+        now
+      );
+    }
     if (sendFreeMessage) {
       const freeBlock = trialSendCapBlock({
         channel: "free",

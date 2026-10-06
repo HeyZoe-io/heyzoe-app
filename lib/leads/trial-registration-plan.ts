@@ -1,12 +1,11 @@
 /**
  * What a trial registration sends.
  *
- * A calendar booking sends every enabled trial_booked template, and also the
- * free sales-flow message when the contact is inside the 24h window.
- * A trial purchase never sends a purchase template. The free message is sent
- * at most once per contact, from whichever path happens first.
- * A trial purchase with no booking yet sends only that free message (if in
- * the window). The trial_booked templates wait until a booking appears.
+ * A calendar booking sends every enabled trial_booked template, and does not
+ * also send the free sales-flow registration text. That text is only for a
+ * trial purchase that has no booking yet, once per contact, inside the 24h
+ * window. A trial purchase never sends a purchase template. The templates
+ * wait until a booking appears.
  */
 export type TrialRegistrationPlan = {
   freeMessage: boolean;
@@ -30,7 +29,7 @@ export function planTrialRegistrationSends(input: {
       return { freeMessage: false, trialBookedTemplates: 0, purchaseTemplates: 0 };
     }
     return {
-      freeMessage: input.inWindow && !input.freeAlreadySent,
+      freeMessage: input.inWindow && !input.freeAlreadySent && trialBooked === 0,
       trialBookedTemplates: trialBooked,
       purchaseTemplates: 0,
     };

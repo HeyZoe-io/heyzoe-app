@@ -11,8 +11,8 @@ const base = {
 
 assert.deepEqual(
   planTrialRegistrationSends({ ...base, source: "booking", inWindow: true }),
-  { freeMessage: true, trialBookedTemplates: 1, purchaseTemplates: 0 },
-  "booking in window: template and free message"
+  { freeMessage: false, trialBookedTemplates: 1, purchaseTemplates: 0 },
+  "booking in window: template only, no registration confirm"
 );
 
 assert.deepEqual(
@@ -60,8 +60,8 @@ assert.deepEqual(
     inWindow: true,
     trialBookedRuleCount: 2,
   }),
-  { freeMessage: true, trialBookedTemplates: 2, purchaseTemplates: 0 },
-  "two trial_booked rules: both templates"
+  { freeMessage: false, trialBookedTemplates: 2, purchaseTemplates: 0 },
+  "two trial_booked rules: both templates, no registration confirm"
 );
 
 assert.deepEqual(
