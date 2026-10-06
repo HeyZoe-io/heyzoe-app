@@ -104,7 +104,7 @@ const NON_MUTATING_HE_PAST = new Set([
 const NON_MUTATING_EN_PAST =
   /^(wanted|needed|asked|told|hoped|expected|noticed|checked|saw|heard|loved|liked|missed|called|emailed|messaged|reminded|thanked)$/i;
 
-function hebrewMutatingPastClaimsBooking(text: string): boolean {
+export function hebrewMutatingPastClaimsBooking(text: string): boolean {
   const re = /(?<![א-ת])([א-ת]{2,14}תי)(?![א-ת])/gu;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {

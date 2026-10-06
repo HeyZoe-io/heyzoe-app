@@ -25,6 +25,10 @@ assert.equal(extractReplyRoute("[[route:nope]]\nטקסט").body, "טקסט");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").tagStatus, "ok");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").route, "schedule");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").body, "מה יש");
+assert.equal(
+  extractReplyRoute("[[route:schedule]]\nלהלן לוח: יום ב בשעה 18:30").body,
+  "על איזה יום מדובר?"
+);
 
 assert.equal(
   extractReplyRoute("[[route:answer]]\nמחיר 100\n[[route:schedule]]\nעוד").body,

@@ -90,7 +90,16 @@ export function extractReplyRoute(raw: string): ExtractedReplyRoute {
   if (!isWaReplyRoute(name)) {
     return { route: null, body, tagStatus: "invalid" };
   }
-  return { route: name, body, tagStatus: "ok" };
+  const sentBody = name === "schedule" ? scheduleBodyWithoutInventedBoard(body) : body;
+  return { route: name, body: sentBody, tagStatus: "ok" };
+}
+
+/** A schedule body that lists hours or points at a board is not sent. The image path replaces it where one exists. */
+function scheduleBodyWithoutInventedBoard(body: string): string {
+  if (/\d{1,2}:\d{2}/u.test(body) || /לוח|אפליקצ|באתר|להלן/u.test(body)) {
+    return "על איזה יום מדובר?";
+  }
+  return body;
 }
 
 /**
@@ -203,9 +212,12 @@ export function buildReplyRoutePromptBlock(): string {
 - "צריך להביא מזרן?" -> [[route:answer]]
 - "תודה רבה" -> [[route:answer]]
 דוגמאות schedule:
+- "מערכת שעות" -> [[route:schedule]]
 - "מה יש ביום שני בבוקר?" -> [[route:schedule]]
 - "יש שיעורים אחרי 18:00?" -> [[route:schedule]]
 - "מתי יש פילאטיס השבוע?" -> [[route:schedule]]
+- "מתי מתקיימים שיעורי עיצוב וחיטוב?" -> [[route:schedule]]
+בתג schedule אסור לפרט ימים ושעות, ואסור לכתוב שהלוח נמצא כאן, באפליקציה או באתר.
 דוגמאות booking_change (ביטול, גם כשיש בהן שעה):
 - "אני רשומה לחמש וחצי ואני רוצה לבוא בשש וחצי" -> [[route:booking_change]]
 - "נרשמתי בטעות ל-18:00, רציתי את השיעור של 19:30" -> [[route:booking_change]]
@@ -283,9 +295,14 @@ export function buildReplyRoutePromptBlock(): string {
 - "אוקיי", "מה?", "תודה", "לא אוכל היום" בלי בקשה להעביר שיעור, ופנייה לעבודה הן answer גם אם יש השערה.
 - בקשה שמישהו יחזור אליה בוואטסאפ או בטלפון, כשההשערה היא human_agent, היא handoff.
 - "אני לא מצליחה להירשם" כשההשערה היא membership_lookup היא handoff, לא signup.
-- "אני רשומה לחמש וחצי ואני רוצה לבוא בשש וחצי" היא booking_change. השעות הן השיעור הקיים והשעה הרצויה, לא שאלה על הלוח.
+- "אני רשומה לחמש וחצי ואני רוצה לבוא בשש וחצי" היא booking_change. "אני רשום לשעה 19:30 ואני רוצה להעביר לשעה 17:30" היא booking_change. אותו יום ושעה אחרת אינם class_move. יום אחר הוא class_move.
 - סיפור על רשימת המתנה, ביטול, וביטול מאוחר שצריך לבטל הוא booking_change, לא schedule. «לשני אימונים» הוא המספר שתיים, לא יום שלישי. «נרשמתי» בתוך הסיפור הזה אינו שאלה מה יש בלוח.
 - "אני רשומה לשיעור של מחר?" בלי בקשה לשנות היא registration_check.
-- "מתי האימון שלי?" היא my_schedule. "מתי מתקיימים השיעורים?" היא schedule.
+- "מתי האימון שלי?" היא my_schedule. "מתי מתקיימים השיעורים?" ו"מתי מתקיימים שיעורי עיצוב וחיטוב?" הן schedule. אסור לפרט ימים ושעות שלא כתובים בידע.
+- "מערכת שעות" לבדה היא schedule. אסור לשאול מה השעות, אסור להבטיח שלוח יישלח, ואסור לכתוב שהלוח נמצא באפליקציה או באתר.
+- הודעה שהיא רק מספר טלפון, כשההשערה היא schedule_lookup, היא my_schedule.
+- "קניתי כרטיסייה ולא נותן לי להירשם" היא handoff, לא member_or_trial_unclear.
+- ב-interest וב-signup הגוף ריק כשאין עובדה בידע. אסור לנקוב בסוג אימון, עיר, כתובת או מחיר.
+- בשאלת מדיניות אסור לאשר מספר ימים או שעות אם המספר לא כתוב בידע.
 אסור לכתוב את התג באמצע ההודעה או אחריה. אחרי השורה הזו רק הטקסט שהלקוחה צריכה לקרוא.`;
 }

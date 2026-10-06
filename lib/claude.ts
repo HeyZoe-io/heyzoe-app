@@ -23,15 +23,10 @@ export function isAnthropicCreditExhausted(error: unknown): boolean {
   return /credit balance is too low|plans?\s*&\s*billing|purchase credits/i.test(msg);
 }
 
+/** Leads are not sent a connection-error sentence. A model failure sends nothing. */
 export function formatUserFacingClaudeError(error: unknown): string {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (/429|rate.?limit|too.?many.?requests/i.test(msg)) {
-    return "יש עומס רגעי על השירות. נסו שוב בעוד דקה — זואי תשמח לענות.";
-  }
-  if (/529|overloaded/i.test(msg)) {
-    return "השירות עמוס זמנית. נסו שוב בעוד רגע.";
-  }
-  return "משהו השתבש בחיבור. נסו שוב בעוד רגע — אנחנו כאן.";
+  void error;
+  return "";
 }
 
 export function friendlyHttpErrorMessage(status: number): string {

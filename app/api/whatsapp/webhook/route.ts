@@ -594,10 +594,10 @@ import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
   resolveClaudeApiKey,
-  isAnthropicCreditExhausted,
-  isRetryableClaudeError,
   sleepMs,
 } from "@/lib/claude";
+import { resolveWhatsAppModelReply } from "@/lib/wa-model-fallback";
+import { noteAiModelFailure } from "@/lib/wa-model-failure-alert";
 import { recordAiUsage } from "@/lib/ai-usage";
 import {
   extractErrorCode,
@@ -12922,103 +12922,39 @@ async function processIncoming(
       const usageContactId =
         typeof contactId === "string" && contactId.trim() ? contactId.trim() : null;
 
-      try {
-        let response: Awaited<ReturnType<typeof runClaude>> | null = null;
-        try {
-          response = await runClaude();
-        } catch (e) {
-          // One quick retry on transient errors (Twilio webhook must stay fast)
-          if (isRetryableClaudeError(e)) {
-            await sleepMs(900);
-            response = await runClaude();
-          } else {
-            throw e;
-          }
-        }
-
-        const extractCombinedText = (resObj: any) => {
-          const textBlocks =
-            Array.isArray(resObj?.content)
-              ? resObj.content
-                  .filter(
-                    (b: any) =>
-                      b && typeof b === "object" && b.type === "text" && typeof b.text === "string"
-                  )
-                  .map((b: any) => String(b.text).trim())
-                  .filter(Boolean)
-              : [];
-          return textBlocks.join("\n").trim();
-        };
-
-        // Some rare Anthropic responses return end_turn with empty content.
-        // Retry once even if no error was thrown.
-        let combinedText = extractCombinedText(response as any);
-        if (!combinedText) {
-          await sleepMs(700);
-          const retryResp = await runClaude();
-          combinedText = extractCombinedText(retryResp as any);
-          response = retryResp;
-        }
-
-        if (!combinedText) {
-          const types =
-            Array.isArray((response as any)?.content)
-              ? (response as any).content.map((b: any) => String(b?.type ?? "unknown")).join(",")
-              : "no_content";
-          const stopReason = String((response as any)?.stop_reason ?? "");
-          const model = String((response as any)?.model ?? "");
-          const id = String((response as any)?.id ?? "");
-          console.warn("[WA Webhook] Claude empty_response", { id, model, stopReason, types });
-          replyErrorCode = replyErrorCode ?? "empty_response";
-          throw new Error("Claude empty response");
-        }
-
-        replyCore = combinedText;
-        const claudeUsage = response?.usage ?? null;
+      const modelReply = await resolveWhatsAppModelReply({
+        runClaude: async () => {
+          const response = await runClaude();
+          return { content: response.content, usage: response.usage };
+        },
+        runGemini,
+      });
+      if (modelReply.billing || !modelReply.ok) {
+        const errorType = modelReply.ok ? "billing" : modelReply.errorType;
+        console.error(`[WA Webhook] model failure for ${business_slug}`, errorType);
+        after(() => noteAiModelFailure({ admin: supabase, errorType }));
+      }
+      if (modelReply.ok) {
+        replyCore = modelReply.text;
+        if (modelReply.provider === "google") replyModelUsed = GEMINI_WHATSAPP_MODEL;
+        const usageProvider = modelReply.provider;
+        const usageModel =
+          usageProvider === "google" ? GEMINI_WHATSAPP_MODEL : CLAUDE_WHATSAPP_MODEL;
+        const usage = modelReply.usage;
         after(() =>
           recordAiUsage({
             businessId: usageBusinessId,
             contactId: usageContactId,
-            provider: "anthropic",
-            model: CLAUDE_WHATSAPP_MODEL,
+            provider: usageProvider,
+            model: usageModel,
             callType: "generation",
-            usage: claudeUsage,
+            usage,
           })
         );
-      } catch (claudeError) {
-        if (isAnthropicCreditExhausted(claudeError)) {
-          console.error(`[WA Webhook] Anthropic credit exhausted; not replying`, {
-            business_slug,
-            sessionId,
-          });
-          replyCore = "";
-          replyErrorCode = "credit_exhausted";
-          isFallbackErrorReply = true;
-        } else {
-          console.error(`[WA Webhook] Claude error for ${business_slug}, falling back to Gemini:`, claudeError);
-          try {
-            const geminiOut = await runGemini();
-            replyCore = geminiOut.text;
-            replyModelUsed = GEMINI_WHATSAPP_MODEL;
-            const geminiUsage = geminiOut.usageMetadata ?? null;
-            after(() =>
-              recordAiUsage({
-                businessId: usageBusinessId,
-                contactId: usageContactId,
-                provider: "google",
-                model: GEMINI_WHATSAPP_MODEL,
-                callType: "generation",
-                usage: geminiUsage,
-              })
-            );
-          } catch (geminiError) {
-            console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
-            replyCore = "";
-            replyErrorCode =
-              extractErrorCode(geminiError) ?? extractErrorCode(claudeError) ?? "claude_failed";
-            isFallbackErrorReply = true;
-          }
-        }
+      } else {
+        replyCore = "";
+        replyErrorCode = modelReply.errorType;
+        isFallbackErrorReply = true;
       }
     } catch (e) {
       console.error(`[WA Webhook] Claude/Gemini setup error for ${business_slug}:`, e);

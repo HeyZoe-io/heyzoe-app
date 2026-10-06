@@ -82,7 +82,7 @@ async function main() {
   let input = 0;
   let output = 0;
   let cursor = 0;
-  const out: Array<Judged & { category: string; route: string | null; closed: boolean; ok: boolean }> = [];
+  const out: Array<Judged & { category: string; route: string | null; closed: boolean; ok: boolean; text: string }> = [];
 
   async function worker() {
     while (cursor < rows.length) {
@@ -100,7 +100,7 @@ async function main() {
       const extracted = extractReplyRoute(reply.text);
       const closed = closedResponse(category, reply.text);
       const ok = row.verdict === "fits" ? closed : !closed;
-      out.push({ ...row, category, route: extracted.route, closed, ok });
+      out.push({ ...row, category, route: extracted.route, closed, ok, text: extracted.body });
       if (out.length % 20 === 0) console.log(`done ${out.length}/${rows.length}`);
     }
   }
@@ -127,6 +127,7 @@ async function main() {
       route: row.route,
       closed: row.closed,
       inbound: row.inbound,
+      text: row.text,
     })),
   };
   writeFileSync("/tmp/heyzoe-hint-eval.json", JSON.stringify(summary, null, 2));
