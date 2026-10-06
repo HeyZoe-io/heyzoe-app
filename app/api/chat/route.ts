@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { CLAUDE_CHAT_MODEL, CLAUDE_MAX_TOKENS, formatUserFacingClaudeError, resolveClaudeApiKey, sleepMs } from '@/lib/claude';
+import { CLAUDE_CHAT_MODEL, CLAUDE_MAX_TOKENS, resolveClaudeApiKey, sleepMs } from '@/lib/claude';
 import { extractErrorCode, logMessage } from '@/lib/analytics';
 import { getBusinessKnowledgePack, buildSystemPrompt } from '@/lib/business-context';
 import { loadZoePlatformGuidelines } from '@/lib/business-zoe-platform';
@@ -97,17 +97,15 @@ export async function POST(req: NextRequest) {
         }
 
         if (!success) {
-          console.error("[Chat API] All Claude attempts failed:", lastError);
-          const errMsg = formatUserFacingClaudeError(lastError);
+          console.error("[Chat API] All Claude attempts failed; not sending an error message:", lastError);
           await logMessage({
             business_slug: String(slug),
-            role: "assistant",
-            content: errMsg,
+            role: "event",
+            content: "[heyzoe:ai_reply_failed]",
             model_used: CLAUDE_CHAT_MODEL,
             session_id: typeof session_id === "string" ? session_id : null,
             error_code: extractErrorCode(lastError),
           });
-          controller.enqueue(encoder.encode(errMsg));
         } else {
           await logMessage({
             business_slug: String(slug),

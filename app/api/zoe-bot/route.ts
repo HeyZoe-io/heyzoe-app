@@ -128,8 +128,12 @@ export async function POST(req: NextRequest) {
 
     const answer =
       Array.isArray(response.content) && response.content[0]?.type === "text"
-        ? response.content[0].text
-        : "אופס, משהו השתבש 😅";
+        ? response.content[0].text.trim()
+        : "";
+    if (!answer) {
+      console.error("Zoe bot empty response; not sending an error message");
+      return NextResponse.json({ answer: "" });
+    }
 
     void tryLogLpLandingTurn(
       typeof rawSid === "string" ? rawSid : "anon",
@@ -139,7 +143,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ answer });
   } catch (error) {
-    console.error("Zoe bot error:", error);
-    return NextResponse.json({ answer: "אופס, נתקעתי רגע. נסו שוב 😅" });
+    console.error("Zoe bot error; not sending an error message:", error);
+    return NextResponse.json({ answer: "" });
   }
 }

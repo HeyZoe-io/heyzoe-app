@@ -18,10 +18,7 @@ import {
   LayoutGroup,
   motion,
 } from 'framer-motion';
-import {
-  formatUserFacingClaudeError as formatUserFacingGeminiError,
-  friendlyHttpErrorMessage,
-} from '@/lib/claude';
+import { friendlyHttpErrorMessage } from '@/lib/claude';
 import { CHAT_STREAM_META, stripMarkdownDecorations } from '@/lib/zoe-shared';
 
 /** מניעת שליחות כפולות מהירות (לחיצה כפולה / Enter+לחיצה) */
@@ -384,15 +381,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
         },
       ]);
 
-      const failFriendly = (userMessage: string) => {
-        patchAssistant({
-          id: pendingId,
-          content: userMessage,
-          pending: false,
-          showActions: true,
-          ctaText: businessSnapshot?.cta_text || null,
-          ctaLink: businessSnapshot?.cta_link || null,
-        });
+      const dropPendingReply = () => {
+        setMessages((prev) => prev.filter((m) => m.id !== pendingId));
       };
 
       try {
@@ -409,12 +399,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
         });
 
         if (!response.ok) {
-          const errorPayload = (await response.json().catch(() => ({}))) as { error?: string };
-          if (typeof errorPayload.error === 'string' && /GEMINI_API_KEY|GOOGLE_GENERATIVE_AI_API_KEY/i.test(errorPayload.error)) {
-            failFriendly('תקלת תצורה זמנית בשירות. נסו שוב בעוד רגע או פנו לתמיכה.');
-            return;
-          }
-          failFriendly(friendlyHttpErrorMessage(response.status));
+          console.error("[ChatZoe] reply failed", response.status);
+          dropPendingReply();
           return;
         }
 
@@ -422,19 +408,17 @@ export default function ChatZoe({ slug }: { slug: string }) {
         if (contentType.includes("application/json")) {
           const payload = (await response.json().catch(() => ({}))) as { skipped?: string; error?: string };
           if (payload.skipped === "email_only") {
-            setMessages((prev) => prev.filter((m) => m.id !== pendingId));
+            dropPendingReply();
             return;
           }
-          failFriendly(
-            typeof payload.error === "string" && payload.error.trim()
-              ? payload.error
-              : friendlyHttpErrorMessage(502)
-          );
+          console.error("[ChatZoe] reply payload error", payload.error ?? "json");
+          dropPendingReply();
           return;
         }
 
         if (!response.body) {
-          failFriendly(friendlyHttpErrorMessage(502));
+          console.error("[ChatZoe] reply had no body");
+          dropPendingReply();
           return;
         }
 
@@ -455,9 +439,14 @@ export default function ChatZoe({ slug }: { slug: string }) {
         acc += decoder.decode();
         const meta = parseStreamMeta(acc);
         const finalText = stripMarkdownDecorations(visibleChatPart(acc));
+        if (!finalText) {
+          console.error("[ChatZoe] empty reply; not showing an error message");
+          dropPendingReply();
+          return;
+        }
         patchAssistant({
           id: pendingId,
-          content: finalText || formatUserFacingGeminiError(new Error('empty stream')),
+          content: finalText,
           pending: false,
           showActions: true,
           ctaText: meta.cta_text || businessSnapshot?.cta_text || null,
@@ -465,24 +454,8 @@ export default function ChatZoe({ slug }: { slug: string }) {
         });
       } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error));
-        if (err.name === 'AbortError') {
-          patchAssistant({
-            id: pendingId,
-            content: 'הבקשה בוטלה.',
-            pending: false,
-            showActions: true,
-            ctaText: businessSnapshot?.cta_text || null,
-            ctaLink: businessSnapshot?.cta_link || null,
-          });
-          return;
-        }
-        const net =
-          err.message === 'Failed to fetch' || /network|load failed/i.test(err.message);
-        failFriendly(
-          net
-            ? 'בעיית רשת — בדקו את החיבור ונסו שוב.'
-            : formatUserFacingGeminiError(err)
-        );
+        console.error("[ChatZoe] reply failed; not showing an error message:", err);
+        dropPendingReply();
       } finally {
         chatInFlightRef.current = false;
         setLoading(false);
