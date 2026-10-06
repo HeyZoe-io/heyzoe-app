@@ -14008,7 +14008,7 @@ async function processIncoming(
   }
   let assistantReplyLogged = false;
 
-  // If Claude failed and we sent a generic error, don't append menus/CTAs (keeps message clean).
+  // כישלון מודל: לא מוסיפים תפריט. הטקסט לא נשלח ללקוחה.
   if (!isFallbackErrorReply) {
     const shouldSplitCtaAnswerAndMenu =
       !shouldReaskServiceSelection &&
