@@ -407,7 +407,8 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   day (not Meta enqueue offset). Missed cron day = missed reminder (no
   catch-up). A delay-0 class starting before `REMINDER_EARLY_CUTOFF`
   (`10:00`, env override) is sent by `?slot=evening` the evening before
-  (cron-job.org, not vercel.json). The 09:00 job (`slot` omitted) sends
+  (cron-job.org at 20:30 Asia/Jerusalem, not vercel.json, and not a clock-hour
+  check). That run must finish before the 21:00 night hold. The 09:00 job (`slot` omitted) sends
   delay-0 classes at or after the cutoff, and every delay > 0 rule,
   unchanged. Both slots share the same dedup key; `slot` is not in it.
   The hourly cancel snapshot is not used — it only covers businesses with

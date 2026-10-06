@@ -1,6 +1,7 @@
 /**
  * 21:00–08:00 Asia/Jerusalem. Same window as membership_cancelled / freeze_created.
- * The 08:00 run is the first that sends. A held row is not cancelled.
+ * The 20:30 evening cron (hour 20) is outside this window. The 08:00 run is the
+ * first that sends after the hold. A held row is not cancelled.
  * incoming_lead is not included: Zoe's reply to a lead's own message stays instant.
  */
 import { isMembershipCancelledQuietHours } from "@/lib/leads/arbox-membership-cancelled";

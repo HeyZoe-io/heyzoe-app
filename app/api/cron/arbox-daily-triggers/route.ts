@@ -14,7 +14,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Returns immediately. Each eligible business runs in its own worker invocation
  * via after() → GET /api/cron/arbox-daily-triggers/business.
  * ?dry_run=1 awaits the workers in this request and does not send or write.
- * ?slot=evening runs only the trial-class reminder, for early classes tomorrow.
+ * ?slot=evening is the 20:30 Asia/Jerusalem job (cron-job.org). The slot is the
+ * query param, not the clock hour. It must finish before the 21:00 night hold.
  * No param (or slot=morning) is the existing 09:00 job. Scheduling: cron-job.org.
  */
 export const runtime = "nodejs";

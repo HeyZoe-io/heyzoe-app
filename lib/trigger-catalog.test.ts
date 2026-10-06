@@ -665,6 +665,12 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("freeze_created"), /21:00/);
   assert.match(triggerSendScheduleHintHe("lost_lead"), /09:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("trial_reminder"), /20:30/);
+  assert.doesNotMatch(triggerSendScheduleHintHe("trial_reminder"), /20:00/);
+  assert.equal(
+    triggerSendScheduleHintHe("trainer_trial_heads_up"),
+    triggerSendScheduleHintHe("trial_reminder")
+  );
   assert.match(triggerSendScheduleHintHe("milestones"), /09:00/);
   assert.match(triggerSendScheduleHintHe("nth_workout"), /09:00/);
   assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);

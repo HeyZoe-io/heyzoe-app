@@ -7,8 +7,10 @@
  * IO (10 businesses): 0 extra bookingsReport GETs when freeze-ending already prefetches
  * the shared future window; +1 GET when only trial_reminder is live. +1 /v3/membershipTypes
  * when trial ids are set (same as C4). No salesReport join.
- * Evening slot (cron-job.org, ?slot=evening): one extra bookings GET per business that
- * has an enabled trial_reminder rule, and no other trigger steps.
+ * Evening slot (cron-job.org at 20:30 Asia/Jerusalem, ?slot=evening): one extra
+ * bookings GET per business that has an enabled trial_reminder rule, and no
+ * other trigger steps. The slot is the query param. Hour 20 is outside the
+ * 21:00 night hold, so a 20:30 start is not held.
  */
 import { logMessage } from "@/lib/analytics";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";

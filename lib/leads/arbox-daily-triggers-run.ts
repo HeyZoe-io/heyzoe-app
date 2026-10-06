@@ -265,7 +265,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now?: Date;
-  /** evening runs trial_reminder plus trainer heads-up when that body includes the date. */
+  /** 20:30 Asia/Jerusalem via ?slot=evening. Clock hour is not checked here. */
   slot?: "morning" | "evening";
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
