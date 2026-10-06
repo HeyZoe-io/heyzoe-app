@@ -49,9 +49,7 @@ import {
   creatableCatalogEntriesForCell,
   defaultDelayDays,
   defaultDelayDirection,
-  defaultLookbackDays,
   formatDelayLabel,
-  formatLookbackLabel,
   isArboxDependentTriggerType,
   isAttendanceGapTriggerType,
   isBirthdayFamilyTriggerType,
@@ -59,12 +57,10 @@ import {
   isIncomingLeadTriggerType,
   isNthWorkoutTriggerType,
   minDelayDaysForTrigger,
-  NTH_WORKOUT_LOOKBACK_MAX,
   plannedCatalogEntriesForCell,
   PURCHASE_ITEM_TYPE_LABELS_HE,
   PURCHASE_ITEM_TYPE_VALUES,
   showsItemTypeFilter,
-  showsLookbackDays,
   showsProductFilter,
   TRIGGER_TYPE_OPTIONS,
   triggerCatalogEntry,
@@ -386,7 +382,6 @@ export default function TemplatesClient({
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editDelayDirection, setEditDelayDirection] = useState<DelayDirection>("after");
-  const [editLookbackDays, setEditLookbackDays] = useState(defaultLookbackDays());
   const [editTemplateName, setEditTemplateName] = useState("");
   const [triggerEditSaving, setTriggerEditSaving] = useState(false);
 
@@ -412,7 +407,6 @@ export default function TemplatesClient({
   >({ plan: "", session: "", service: "" });
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
-  const [newLookbackDays, setNewLookbackDays] = useState(defaultLookbackDays());
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
   const [newTemplateMode, setNewTemplateMode] = useState<TriggerTemplateMode>("create_new");
@@ -534,7 +528,6 @@ export default function TemplatesClient({
   useEffect(() => {
     setNewDelayDirection(defaultDelayDirection(newTriggerType));
     setNewDelayDays(defaultDelayDays(newTriggerType));
-    setNewLookbackDays(defaultLookbackDays());
     if (isTrialScopeTrigger(newTriggerType)) {
       setNewProductFilter([...savedTrialMembershipTypeIdsRef.current]);
       setNewProductFilterQuery("");
@@ -713,12 +706,7 @@ export default function TemplatesClient({
           ? 0
           : Math.max(newDelayDaysMin, newDelayDays),
         delay_direction: hideNewDelayDirection ? "after" : newDelayDirection,
-                        lookback_days: showsLookbackDays(input.trigger_type)
-                          ? Math.min(
-                              NTH_WORKOUT_LOOKBACK_MAX,
-                              Math.max(1, Math.trunc(Number(newLookbackDays) || defaultLookbackDays()))
-                            )
-                          : null,
+        lookback_days: null,
         template_name: input.template_name,
         enabled: input.enabled,
       }),
@@ -884,7 +872,6 @@ export default function TemplatesClient({
       setClassProductQuery({ plan: "", session: "", service: "" });
       setNewDelayDays(0);
       setNewDelayDirection("after");
-      setNewLookbackDays(defaultLookbackDays());
       setNewTemplateName("");
       setNewTriggerEnabled(true);
       setNewTemplateMode("create_new");
@@ -953,11 +940,6 @@ export default function TemplatesClient({
         ? storedDirection
         : (directionOptions[0]?.value ?? storedDirection)
     );
-    setEditLookbackDays(
-      trigger.lookback_days != null && trigger.lookback_days > 0
-        ? trigger.lookback_days
-        : defaultLookbackDays()
-    );
     setEditTemplateName(trigger.template_name ?? "");
   }
 
@@ -978,12 +960,6 @@ export default function TemplatesClient({
       };
       if (allowsDelayBefore(trigger.trigger_type) && !immediate) {
         body.delay_direction = editDelayDirection;
-      }
-      if (showsLookbackDays(trigger.trigger_type)) {
-        body.lookback_days = Math.min(
-          NTH_WORKOUT_LOOKBACK_MAX,
-          Math.max(1, Math.trunc(Number(editLookbackDays) || defaultLookbackDays()))
-        );
       }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
         method: "PATCH",
@@ -1748,11 +1724,6 @@ export default function TemplatesClient({
                           trigger.delay_days,
                           trigger.delay_direction
                         )}
-                        {showsLookbackDays(trigger.trigger_type)
-                          ? ` · ${formatLookbackLabel(
-                              trigger.lookback_days ?? defaultLookbackDays()
-                            )}`
-                          : ""}
                       </p>
                       <p className="text-xs text-zinc-500">
                         {triggerSendScheduleHintHe(trigger.trigger_type)}
@@ -1791,29 +1762,12 @@ export default function TemplatesClient({
                                   onChange={(e) => setEditDelayDays(Number(e.target.value))}
                                   className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
                                 />
+                                {isNthWorkoutTriggerType(trigger.trigger_type) ? (
+                                  <p className="text-xs text-zinc-500">
+                                    אחרי כמה אימונים עם נוכחות נשלחת ההודעה, פעם אחת.
+                                  </p>
+                                ) : null}
                               </div>
-                              {showsLookbackDays(trigger.trigger_type) ? (
-                                <div className="space-y-1">
-                                  <label className="text-xs font-medium text-zinc-700">
-                                    ימים כלקוח חדש
-                                  </label>
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={NTH_WORKOUT_LOOKBACK_MAX}
-                                    value={editLookbackDays}
-                                    onChange={(e) =>
-                                      setEditLookbackDays(
-                                        Math.min(
-                                          NTH_WORKOUT_LOOKBACK_MAX,
-                                          Math.max(1, Number(e.target.value) || 1)
-                                        )
-                                      )
-                                    }
-                                    className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
-                                  />
-                                </div>
-                              ) : null}
                               {delayDirectionOptions(trigger.trigger_type).length > 0 ? (
                                 <div className="space-y-1">
                                   <label className="text-xs font-medium text-zinc-700">כיוון</label>
@@ -2222,8 +2176,7 @@ export default function TemplatesClient({
                                 </p>
                               ) : isNthWorkoutTriggerType(newTriggerType) ? (
                                 <p className="text-xs text-zinc-500">
-                                  מספר האימונים (check-in) מאז ההצטרפות. יורה כשהספירה מגיעה ל־N או
-                                  עוברת אותו, פעם אחת.
+                                  אחרי כמה אימונים עם נוכחות נשלחת ההודעה, פעם אחת.
                                 </p>
                               ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
                                 <p className="text-xs text-zinc-500">
@@ -2231,32 +2184,6 @@ export default function TemplatesClient({
                                 </p>
                               ) : null}
                             </div>
-                            {showsLookbackDays(newTriggerType) ? (
-                              <div className="space-y-1.5">
-                                <label className="text-sm font-medium text-zinc-800">
-                                  ימים כלקוח חדש
-                                </label>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={NTH_WORKOUT_LOOKBACK_MAX}
-                                  step={1}
-                                  value={newLookbackDays}
-                                  onChange={(e) =>
-                                    setNewLookbackDays(
-                                      Math.min(
-                                        NTH_WORKOUT_LOOKBACK_MAX,
-                                        Math.max(1, Number(e.target.value) || 1)
-                                      )
-                                    )
-                                  }
-                                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-                                />
-                                <p className="text-xs text-zinc-500">
-                                  כמה ימים מאז ההצטרפות נחשב לקוח חדש — מקסימום {NTH_WORKOUT_LOOKBACK_MAX}.
-                                </p>
-                              </div>
-                            ) : null}
                             {!hideNewDelayDirection ? (
                               <div className="space-y-1.5">
                                 <label className="text-sm font-medium text-zinc-800">כיוון</label>
