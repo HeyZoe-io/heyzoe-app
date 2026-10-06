@@ -1,4 +1,5 @@
 import type { ContactStatusInput } from "@/lib/contact-status";
+import { extractPersonFirstName, isRejectedFirstNameToken } from "@/lib/template-first-name";
 import { SALES_FLOW_START_BUTTON_LABEL_HE } from "@/lib/sales-flow-start-triggers";
 import { salesFlowOpeningResetPatch } from "@/lib/wa-warmup-awaiting-idx";
 
@@ -173,10 +174,10 @@ export function isRejectedTemplateNameToken(token: string): boolean {
 }
 
 export function firstNameFromFullName(fullName: string): string {
-  const trimmed = fullName.trim();
-  if (!trimmed) return NAME_FALLBACK;
-  const first = trimmed.split(/\s+/).filter(Boolean)[0] ?? "";
-  if (!first || isRejectedTemplateNameToken(first)) return NAME_FALLBACK;
+  const first = extractPersonFirstName(fullName);
+  if (!first || isRejectedFirstNameToken(first) || isRejectedTemplateNameToken(first)) {
+    return NAME_FALLBACK;
+  }
   return first;
 }
 

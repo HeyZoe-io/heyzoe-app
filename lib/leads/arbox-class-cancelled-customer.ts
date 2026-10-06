@@ -28,7 +28,7 @@ import {
   parseClassDateYmd,
 } from "@/lib/leads/arbox-trial-attended";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
-import { isUsableStoredFirstName } from "@/lib/template-first-name";
+import { extractPersonFirstName, isUsableStoredFirstName } from "@/lib/template-first-name";
 import {
   bodyTextFromTemplateComponents,
   extractBodyVarCount,
@@ -307,9 +307,9 @@ export function formatClassDateDdMm(ymd: string): string | null {
 }
 
 function sanitizedFirstName(raw: string | null): string {
-  const token = String(raw ?? "").trim().split(/\s+/).filter(Boolean)[0] ?? "";
-  if (!isUsableStoredFirstName(token)) return NAME_FALLBACK;
-  return token;
+  const name = extractPersonFirstName(raw);
+  if (!isUsableStoredFirstName(name)) return NAME_FALLBACK;
+  return name;
 }
 
 /**

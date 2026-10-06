@@ -40,3 +40,11 @@ assert.equal(resolveTrialReminderFirstName({ full_name: "iilan6857" }, "iilan685
 assert.equal(resolveTrialReminderFirstName(null, null), "🙂");
 assert.equal(resolveTrialReminderFirstName(null, "rachel"), "Rachel");
 assert.equal(resolveTrialReminderFirstName({ full_name: "משה כהן" }, ""), "משה");
+assert.equal(resolveTemplateFirstName({ full_name: "בת חן כהן" }), "בת חן");
+assert.equal(resolveTemplateFirstName(null, "בת חן כהן"), "בת חן");
+assert.equal(resolveTemplateFirstName({ full_name: "בן ציון לוי" }), "בן ציון");
+assert.equal(resolveTemplateFirstName({ full_name: "בתיה כהן" }), "בתיה");
+assert.equal(resolveTemplateFirstName({ full_name: "בת" }), null);
+assert.equal(resolveTemplateFirstName({ full_name: "משה" }, "בת"), null);
+assert.equal(resolveTrialReminderFirstName({ full_name: "בת" }), "🙂");
+assert.equal(resolveTrialReminderFirstName({ full_name: "בת חן" }, "בת"), "בת חן");

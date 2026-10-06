@@ -43,8 +43,20 @@ function capitalizeLowerLatin(token: string): string {
   return token.charAt(0).toUpperCase() + token.slice(1);
 }
 
-function firstToken(raw: string | null | undefined): string {
-  return capitalizeLowerLatin(nameTokens(raw)[0] ?? "");
+const COMPOUND_FIRST_NAME_PREFIXES = new Set(["בת", "בן"]);
+
+/**
+ * First name from a full name. "בת" / "בן" plus another token is one name
+ * ("בת חן", "בן ציון"). "בתיה" stays one token. A lone "בת" is not a name.
+ */
+export function extractPersonFirstName(raw: string | null | undefined): string {
+  const tokens = nameTokens(raw);
+  const first = tokens[0] ?? "";
+  if (!first) return "";
+  if (COMPOUND_FIRST_NAME_PREFIXES.has(first) && tokens[1]) {
+    return `${first} ${capitalizeLowerLatin(tokens[1])}`;
+  }
+  return capitalizeLowerLatin(first);
 }
 
 function normalizedToken(token: string): string {
@@ -66,6 +78,7 @@ export function isRejectedFirstNameToken(token: string): boolean {
   if (!name) return true;
   if (/[0-9@]/.test(name)) return true;
   if (/:\/\//.test(name) || /^www\./i.test(name)) return true;
+  if (name === "בת") return true;
   return false;
 }
 
@@ -86,9 +99,9 @@ export const TRIAL_REMINDER_NAME_FALLBACK = "🙂";
 function storedContactFirstName(contact: TemplateNameContact | null | undefined): string | null {
   const tokens = nameTokens(contact?.full_name);
   if (tokens.some((token) => isBusinessLikeToken(token))) return null;
-  const stored = tokens[0] ?? "";
+  const stored = extractPersonFirstName(contact?.full_name);
   if (!isUsableStoredFirstName(stored)) return null;
-  return capitalizeLowerLatin(stored);
+  return stored;
 }
 
 /**
@@ -101,7 +114,7 @@ export function resolveTemplateFirstName(
   contact: TemplateNameContact | null | undefined,
   arboxFirstName?: string | null
 ): string | null {
-  const fromArbox = firstToken(arboxFirstName);
+  const fromArbox = extractPersonFirstName(arboxFirstName);
   if (fromArbox) {
     if (isRejectedFirstNameToken(fromArbox)) return null;
     return fromArbox;
@@ -117,7 +130,7 @@ export function resolveTrialReminderFirstName(
   contact: TemplateNameContact | null | undefined,
   arboxFirstName?: string | null
 ): string {
-  const fromArbox = firstToken(arboxFirstName);
+  const fromArbox = extractPersonFirstName(arboxFirstName);
   if (fromArbox && !isRejectedFirstNameToken(fromArbox)) return fromArbox;
   return storedContactFirstName(contact) ?? TRIAL_REMINDER_NAME_FALLBACK;
 }

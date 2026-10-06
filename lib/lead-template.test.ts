@@ -61,6 +61,10 @@ const ARBOX_NEW_LEAD_COMPONENTS = [
 
 {
   assert.equal(firstNameFromFullName("דנה כהן"), "דנה");
+  assert.equal(firstNameFromFullName("בת חן כהן"), "בת חן");
+  assert.equal(firstNameFromFullName("בן ציון לוי"), "בן ציון");
+  assert.equal(firstNameFromFullName("בתיה כהן"), "בתיה");
+  assert.equal(firstNameFromFullName("בת"), "שלום");
   assert.equal(firstNameFromFullName(""), "שלום");
   assert.equal(firstNameFromFullName("shulamit.henn@gmail.con"), "שלום");
   assert.equal(firstNameFromFullName("https://example.com/x"), "שלום");
