@@ -1,4 +1,5 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
+import { outboundSendsHeld } from "@/lib/business-sends-hold";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   evaluateLeadTemplateSendByPhoneNumberId,
@@ -134,6 +135,18 @@ export async function sendBusinessTemplate(input: {
   }
 
   if (isArboxDailyDryRun()) return { ok: true };
+
+  if (
+    await outboundSendsHeld({
+      phoneNumberId,
+      to,
+      kind: "template",
+      templateName,
+      preview: templateName,
+    })
+  ) {
+    return { ok: false, error: "sends_hold" };
+  }
 
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`;
   const body: Record<string, unknown> = {

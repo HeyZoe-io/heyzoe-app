@@ -8,6 +8,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildArboxNewLeadScheduledDedupKey,
@@ -482,7 +483,7 @@ async function sendArboxNewLeadTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-new-lead] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   const sessionId = buildWaSessionId(phoneNumberId, input.phone);

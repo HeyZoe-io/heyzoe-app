@@ -11,6 +11,7 @@ import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
   buildWaSessionId,
   contactPhoneLookupVariants,
@@ -467,7 +468,7 @@ async function dispatchNoResponseTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[no-response-reengage] template send failed:", sendResult.error);
-    return "send_failed";
+    return templateFailureDispatch(sendResult.error);
   }
 
   const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);

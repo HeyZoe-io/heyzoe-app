@@ -35,6 +35,7 @@ import {
 } from "@/lib/template-presets";
 import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
 import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -1261,6 +1262,10 @@ async function sendPending(input: {
         skipOptOutGate: true,
         components: classCancelledCustomerBodyComponents(values),
       });
+      if (!send.ok && isSendsHoldError(send.error)) {
+        companion.after(rule.template_name, "gated");
+        continue;
+      }
       if (send.ok) {
         companion.after(rule.template_name, "immediate");
         const ok = await recordCancelNotify({

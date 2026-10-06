@@ -36,6 +36,7 @@ import {
   sendWhatsAppMediaMessage,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
 
 const WA_USER_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -48,6 +49,7 @@ export type TrialRegisteredWaReplyResult =
         | "outside_24h_window"
         | "no_user_session"
         | "send_failed"
+        | "sends_hold"
         | "opted_out"
         | "trial_template_already_sent";
     };
@@ -364,6 +366,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
 
     return { sent: true };
   } catch (e) {
+    if (isSendsHoldError(e)) return { sent: false, reason: "sends_hold" };
     console.error("[trial-registered-wa-reply] send failed:", {
       businessSlug,
       phone: input.phone.slice(-4),

@@ -488,16 +488,20 @@ export function decideScheduledSendGate(input: {
   return { action: "send" };
 }
 
-/** After a Meta send attempt on a sendable row. */
+/** After a Meta send attempt on a sendable row. `held` leaves the row pending. */
 export function decideScheduledSendAfterMeta(input: {
   ok: boolean;
   error?: string | null;
 }):
   | { status: "sent"; last_error: null }
   | { status: "failed"; last_error: string }
-  | { status: "canceled"; last_error: string } {
+  | { status: "canceled"; last_error: string }
+  | { status: "held"; last_error: "sends_hold" } {
   if (input.ok) return { status: "sent", last_error: null };
   const last_error = String(input.error ?? "send_failed").slice(0, 500) || "send_failed";
+  if (last_error === "sends_hold" || last_error.startsWith("sends_hold")) {
+    return { status: "held", last_error: "sends_hold" };
+  }
   if (last_error === SUPPRESSED_OPT_OUT_ERROR || last_error.includes(SUPPRESSED_OPT_OUT_ERROR)) {
     return { status: "canceled", last_error: SUPPRESSED_OPT_OUT_ERROR };
   }

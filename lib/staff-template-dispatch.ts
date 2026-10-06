@@ -4,6 +4,7 @@
  */
 import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
   templateBodyUsesSlot,
   templateSendPayload,
@@ -96,7 +97,7 @@ export async function dispatchStaffTemplateImmediate(input: {
       businessId: input.businessId,
       triggerType: input.triggerType,
     });
-    return "send_failed";
+    return templateFailureDispatch(sendResult.error);
   }
   return "sent";
 }

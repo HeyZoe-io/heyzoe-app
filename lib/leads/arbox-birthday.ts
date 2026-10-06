@@ -12,6 +12,7 @@ import {
 } from "@/lib/leads/arbox-active-product";
 import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
@@ -469,7 +470,7 @@ async function sendBirthdayTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-birthday] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

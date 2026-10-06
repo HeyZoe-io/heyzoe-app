@@ -10,6 +10,7 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { arboxFlagYes } from "@/lib/leads/arbox-membership-expiring";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildTrialAttendedScheduledDedupKey,
@@ -495,7 +496,7 @@ async function dispatchTrialAttendedTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-trial-attended] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

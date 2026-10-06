@@ -23,6 +23,7 @@ import { SYNC_LOG_SENTINEL_TRIGGER_ID } from "@/lib/multi-rule-dedup";
 import { logMessage } from "@/lib/analytics";
 import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
 import { buildWaSessionId, canonicalContactPhone, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
@@ -276,7 +277,7 @@ async function sendTrialBookedTemplate(input: {
   classTime: string;
   rule: PurchaseTemplateTriggerRule;
   template: ApprovedTrialBookedTemplate;
-}): Promise<"sent" | "skipped" | "waiting" | "failed"> {
+}): Promise<"sent" | "skipped" | "waiting" | "failed" | "held"> {
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   if (!phoneNumberId) return "waiting";
@@ -311,6 +312,7 @@ async function sendTrialBookedTemplate(input: {
     ...(sendComponents ? { components: sendComponents } : {}),
   });
   if (!sendResult.ok) {
+    if (isSendsHoldError(sendResult.error)) return "held";
     console.error(LOG, "template send failed:", sendResult.error);
     return "failed";
   }
@@ -755,6 +757,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
             summary.sent += 1;
             counts.free += 1;
             counts.last24h += 1;
+          } else if (waResult.reason === "sends_hold") {
+            await releaseTrialBookingClaim(admin, businessId, item, SYNC_LOG_SENTINEL_TRIGGER_ID, "free");
           } else {
             await writeLog(
               admin,
@@ -815,6 +819,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         await writeLog(admin, businessId, item, rule.id, "sent", "skipped", "sent", attempts, now);
         summary.template_sent += 1;
         counts.last24h += 1;
+      } else if (outcome === "held") {
+        await releaseTrialBookingClaim(admin, businessId, item, rule.id, "template");
       } else {
         await writeLog(admin, businessId, item, rule.id, "failed", "skipped", "failed", attempts, now);
         summary.errors += 1;
@@ -826,6 +832,34 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 }
 
 
+
+async function releaseTrialBookingClaim(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  item: { userId: number; classDate: string; classTime: string; className: string },
+  triggerId: string,
+  channel: "free" | "template"
+): Promise<void> {
+  const { error } = await admin
+    .from(TABLE)
+    .delete()
+    .eq("business_id", businessId)
+    .eq("trigger_id", triggerId)
+    .eq("user_id", item.userId)
+    .eq("class_date", item.classDate)
+    .eq("class_time", item.classTime)
+    .eq("class_name", item.className)
+    .eq("channel", channel)
+    .eq("status", "pending");
+  if (error) {
+    logDedupBlockedSend({
+      log: LOG,
+      businessId,
+      triggerId,
+      reason: error.message,
+    });
+  }
+}
 
 async function claimTrialBookingSlot(
   admin: ReturnType<typeof createSupabaseAdminClient>,

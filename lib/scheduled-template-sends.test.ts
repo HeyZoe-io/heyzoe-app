@@ -150,6 +150,16 @@ const eventDate = new Date("2026-08-01T12:00:00.000Z");
   assert.equal(after.last_error, SUPPRESSED_OPT_OUT_ERROR);
 }
 
+/** dry-run hold leaves the row pending instead of failed */
+{
+  const after = decideScheduledSendAfterMeta({
+    ok: false,
+    error: "sends_hold",
+  });
+  assert.equal(after.status, "held");
+  assert.equal(after.last_error, "sends_hold");
+}
+
 /** transient Meta error → failed (not canceled) */
 {
   const after = decideScheduledSendAfterMeta({

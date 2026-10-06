@@ -43,6 +43,7 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildPostTrialFollowupScheduledDedupKey,
@@ -514,7 +515,7 @@ async function dispatchFollowupTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-post-trial-followup] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

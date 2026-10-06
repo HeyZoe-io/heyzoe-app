@@ -20,6 +20,7 @@ import {
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { stripModelThoughtLeak, type ThoughtStripLog } from "@/lib/wa-model-thought-strip";
 import { applyStudioPurpleHeartPolicy, applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
+import { isSendsHoldError, outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
 
 function noteWaOutboundSent(content: string): void {
   const t = String(content ?? "").trim();
@@ -913,6 +914,7 @@ export async function sendWhatsAppIdleFollowupMessage(
           noteWaTextSent(bodyText);
           return;
         } catch (e) {
+          if (isSendsHoldError(e)) throw e;
           console.warn("[WhatsApp idle followup] reply button send failed, falling back to plain text:", e);
         }
     }
@@ -942,6 +944,7 @@ export async function sendWhatsAppIdleFollowupMessage(
       noteWaTextSent(bodyText);
       return;
     } catch (e) {
+      if (isSendsHoldError(e)) throw e;
       console.warn("[WhatsApp idle followup] cta_url send failed, falling back to plain text:", e);
     }
   }
@@ -1007,6 +1010,17 @@ export async function sendMetaWhatsAppMessage(
     applyStudioPurpleHeartPolicyDeep(outgoing, { fromNumber: phoneNumberId })
   );
   if (!prepared) return;
+  const preview = prepared.type === "text" ? prepared.text : "interactive";
+  if (
+    await outboundSendsHeld({
+      phoneNumberId,
+      to,
+      kind: prepared.type === "text" ? "text" : "interactive",
+      preview,
+    })
+  ) {
+    throw new SendsHoldError();
+  }
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -1072,6 +1086,7 @@ export async function sendWhatsAppTextOrMenu(
           noteWaTextSent(withFooterPlain(baseBody));
           return;
         } catch (e) {
+          if (isSendsHoldError(e)) throw e;
           // Meta interactive can fail if body text is too long (common with AI answers).
           // Retry once with a minimal body so the user still gets buttons.
           console.warn("[Meta WA] interactive send failed, retrying with minimal body:", e);
@@ -1084,6 +1099,7 @@ export async function sendWhatsAppTextOrMenu(
               return;
             }
           } catch (e2) {
+            if (isSendsHoldError(e2)) throw e2;
             console.warn("[Meta WA] interactive retry failed, falling back to plain text:", e2);
           }
         }
@@ -1120,6 +1136,16 @@ export async function sendWhatsAppMessage(
   if (stripped === null) return;
   text = stripped;
   const bodyText = formatWhatsAppRtlBody(sanitizeZoeDashes(text));
+  if (
+    await outboundSendsHeld({
+      phoneNumberId: fromNumber,
+      to,
+      kind: "text",
+      preview: bodyText,
+    })
+  ) {
+    throw new SendsHoldError();
+  }
 
   const metaToken = resolveMetaAccessToken();
   if (isMetaCloudPhoneNumberId(fromNumber) && metaToken) {
@@ -1233,7 +1259,7 @@ async function sendMetaAudioPayload(
   try {
     await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, withVoice);
   } catch (e) {
-    if (!voice) throw e;
+    if (!voice || isSendsHoldError(e)) throw e;
     console.warn("[Meta WA audio] voice note send failed, retrying as audio file:", e);
     await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, audio);
   }
@@ -1299,6 +1325,16 @@ async function sendWhatsAppAudioMessage(
   authToken: string,
   caption?: string
 ): Promise<void> {
+  if (
+    await outboundSendsHeld({
+      phoneNumberId: fromNumber,
+      to,
+      kind: "audio",
+      preview: caption || mediaUrl,
+    })
+  ) {
+    throw new SendsHoldError();
+  }
   const probedBytes = await probePublicMediaBytes(mediaUrl);
   if (probedBytes != null && probedBytes > WHATSAPP_AUDIO_MAX_BYTES) {
     throw new Error(
@@ -1316,6 +1352,7 @@ async function sendWhatsAppAudioMessage(
         noteWaMediaSent(mediaUrl, caption);
         return;
       } catch (linkErr) {
+        if (isSendsHoldError(linkErr)) throw linkErr;
         console.warn("[Meta WA audio] link send failed, trying upload:", linkErr);
       }
     }
@@ -1481,6 +1518,17 @@ export async function sendWhatsAppMediaMessage(
     return;
   }
 
+  if (
+    await outboundSendsHeld({
+      phoneNumberId: fromNumber,
+      to,
+      kind: "media",
+      preview: caption || cleanUrl,
+    })
+  ) {
+    throw new SendsHoldError();
+  }
+
   const isVideo = inferMediaIsVideo(mediaKind, cleanUrl);
   const maxBytes = whatsappMediaMaxBytes(isVideo);
   const probedBytes = await probePublicMediaBytes(cleanUrl);
@@ -1508,6 +1556,7 @@ export async function sendWhatsAppMediaMessage(
         noteWaMediaSent(cleanUrl, caption);
         return;
       } catch (linkErr) {
+        if (isSendsHoldError(linkErr)) throw linkErr;
         console.warn("[Meta WA media] link send failed, trying upload:", linkErr);
       }
     }

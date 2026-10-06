@@ -5,6 +5,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
 import {
   buildPurchaseScheduledDedupKey,
   computeDueAt,
@@ -389,6 +390,7 @@ async function sendOnePurchaseTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-trial-sale-registered] template send failed:", sendResult.error);
+    if (isSendsHoldError(sendResult.error)) return { outcome: "send_failed", dispatch: "gated" };
     return { outcome: "send_failed", dispatch };
   }
 
@@ -896,6 +898,14 @@ export async function handleArboxTrialSaleRegistered(input: {
         whatsapp = "skipped_zoe_confirm";
       } else if (waResult.reason === "send_failed") {
         whatsapp = "send_failed";
+      } else if (waResult.reason === "sends_hold") {
+        whatsapp = "send_failed";
+        await input.admin
+          .from("arbox_trial_sync_log")
+          .delete()
+          .eq("business_id", businessId)
+          .eq("sale_id", saleId)
+          .eq("trigger_id", SALE_LOG_SENTINEL_TRIGGER_ID);
       } else if (waResult.reason === "opted_out") {
         whatsapp = "opted_out";
       } else {
@@ -920,6 +930,14 @@ export async function handleArboxTrialSaleRegistered(input: {
       isTrialProduct: false,
     });
     whatsapp = templateResult.outcome;
+    if (templateResult.outcome === "send_failed" && templateResult.dispatch === "gated") {
+      await input.admin
+        .from("arbox_trial_sync_log")
+        .delete()
+        .eq("business_id", businessId)
+        .eq("sale_id", saleId)
+        .eq("trigger_id", SALE_LOG_SENTINEL_TRIGGER_ID);
+    }
   }
 
   // 7) Throttle stamp only after a real notify (in-window send or out-of-window template no-op)

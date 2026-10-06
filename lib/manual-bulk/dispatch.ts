@@ -153,6 +153,10 @@ async function dispatchOne(
     ok: sendResult.ok,
     error: sendResult.error,
   });
+  if (afterMeta.status === "held") {
+    console.info("[manual-bulk] sends hold, left pending", { id: row.id, businessId });
+    return "skipped";
+  }
   if (afterMeta.status === "failed") {
     await markQueued(admin, row.id, { status: "failed", last_error: afterMeta.last_error });
     return "failed";

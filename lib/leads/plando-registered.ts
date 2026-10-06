@@ -278,7 +278,11 @@ export async function handlePlandoCustomerRegistered(input: {
     });
   }
 
-  const whatsapp = waResult.sent ? "sent" : waResult.reason;
+  const whatsapp = waResult.sent
+    ? "sent"
+    : waResult.reason === "sends_hold"
+      ? "send_failed"
+      : waResult.reason;
   if (!waResult.sent) {
     console.info("[leads/plando-registered] whatsapp skipped", {
       businessSlug,

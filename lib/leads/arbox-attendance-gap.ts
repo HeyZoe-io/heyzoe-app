@@ -24,6 +24,7 @@ import {
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildAttendanceGapScheduledDedupKey,
@@ -441,7 +442,7 @@ async function dispatchGapTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-attendance-gap] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

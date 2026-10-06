@@ -514,6 +514,12 @@ async function dispatchOrEnqueue(input: {
       });
   const nowIso = new Date().toISOString();
   const afterImmediate = decideScheduledSendAfterMeta({ ok: sent.ok, error: sent.error });
+  if (afterImmediate.status === "held") {
+    console.info("[marketing-template-dispatch] sends hold, left pending", {
+      dedup_key: input.dedupKey,
+    });
+    return;
+  }
   const { error: markErr } = await input.admin
     .from("scheduled_marketing_template_sends")
     .update({
@@ -941,6 +947,10 @@ export async function dispatchDueMarketingScheduledSend(
           bodyParams,
         });
   const after = decideScheduledSendAfterMeta({ ok: sent.ok, error: sent.error });
+  if (after.status === "held") {
+    console.info("[marketing-template-dispatch] sends hold, left pending", { id: row.id });
+    return "skipped";
+  }
   if (after.status === "failed") {
     await mark("failed", after.last_error);
     return "failed";

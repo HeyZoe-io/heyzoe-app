@@ -370,6 +370,14 @@ async function dispatchOneScheduledSend(
     error: sendResult.error,
   });
 
+  if (afterMeta.status === "held") {
+    console.info("[cron/scheduled-template-sends] sends hold, left pending", {
+      id: row.id,
+      businessId,
+    });
+    return "skipped";
+  }
+
   if (afterMeta.status === "failed") {
     await markScheduledSend(admin, row.id, {
       status: "failed",

@@ -34,6 +34,7 @@ import {
   membershipTypeNameLooksLikeTrial,
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, canonicalContactPhone } from "@/lib/phone-normalize";
 import { rulesNotYetHandled } from "@/lib/multi-rule-dedup";
 import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activation";
@@ -424,7 +425,7 @@ async function sendWelcome(input: {
     console.error(`${LOG} template send failed:`, sendResult.error, {
       businessId: input.businessId,
     });
-    return "send_failed";
+    return templateFailureDispatch(sendResult.error);
   }
 
   const sessionId = buildWaSessionId(phoneNumberId, input.phone);

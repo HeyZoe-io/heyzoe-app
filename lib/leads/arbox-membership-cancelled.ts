@@ -9,6 +9,7 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
@@ -496,7 +497,7 @@ async function dispatchMembershipCancelledTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-membership-cancelled] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

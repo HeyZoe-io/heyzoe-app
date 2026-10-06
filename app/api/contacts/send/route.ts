@@ -5,6 +5,7 @@ import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notif
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
+import { outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
 
 export const runtime = "nodejs";
 
@@ -29,12 +30,22 @@ function resolveMetaWhatsAppAccessToken(): string {
   return process.env.META_WHATSAPP_ACCESS_TOKEN?.trim() ?? process.env.WHATSAPP_CLOUD_API_TOKEN?.trim() ?? "";
 }
 
-async function sendMetaWhatsAppText(params: {
+export async function sendMetaWhatsAppText(params: {
   phoneNumberId: string;
   to: string;
   body: string;
   accessToken: string;
 }): Promise<void> {
+  if (
+    await outboundSendsHeld({
+      phoneNumberId: params.phoneNumberId,
+      to: params.to,
+      kind: "dashboard_text",
+      preview: params.body,
+    })
+  ) {
+    throw new SendsHoldError();
+  }
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(params.phoneNumberId)}/messages`;
   const res = await fetch(url, {
     method: "POST",
@@ -104,7 +115,7 @@ export async function POST(req: NextRequest) {
     .order("created_at", { ascending: false })
     .maybeSingle();
 
-  const phoneNumberId = String((channel as any)?.phone_number_id ?? "").trim();
+  const phoneNumberId = String((channel as { phone_number_id?: unknown } | null)?.phone_number_id ?? "").trim();
   if (!phoneNumberId) {
     return NextResponse.json({ error: "no_active_whatsapp_channel" }, { status: 400 });
   }
@@ -154,7 +165,7 @@ export async function POST(req: NextRequest) {
   }
 
   for (const c of contacts ?? []) {
-    const to = String((c as any)?.phone ?? "").trim();
+    const to = String((c as { phone?: unknown }).phone ?? "").trim();
     if (!to) continue;
     try {
       await sendMetaWhatsAppText({ phoneNumberId, to, body: finalMessage, accessToken: metaToken });

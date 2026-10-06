@@ -37,6 +37,7 @@ import {
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
@@ -372,7 +373,7 @@ async function dispatchNthWorkoutTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-nth-workout] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

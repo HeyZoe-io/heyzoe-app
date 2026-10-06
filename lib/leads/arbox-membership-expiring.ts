@@ -6,6 +6,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
@@ -426,7 +427,7 @@ async function dispatchMembershipExpiringTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-membership-expiring] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({

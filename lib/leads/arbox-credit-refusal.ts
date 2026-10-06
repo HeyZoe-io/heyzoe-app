@@ -7,6 +7,7 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildCreditRefusalScheduledDedupKey,
@@ -481,7 +482,7 @@ async function sendCreditRefusalTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-credit-refusal] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   const sessionId = buildWaSessionId(phoneNumberId, input.phone);

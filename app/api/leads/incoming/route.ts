@@ -18,6 +18,7 @@ import {
   matchesActiveProduct,
 } from "@/lib/leads/arbox-active-product";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
 import {
   buildSiteLeadScheduledDedupKey,
   computeDueAt,
@@ -471,6 +472,11 @@ export async function POST(req: NextRequest) {
       });
       if (!sendResult.ok) {
         console.error("[api/leads/incoming] template send failed:", sendResult.error);
+        if (isSendsHoldError(sendResult.error)) {
+          companion.after(ruleTemplate, "gated");
+          gated += 1;
+          continue;
+        }
         companion.after(ruleTemplate, "send_failed");
         hardError = "template_send_failed";
         continue;
@@ -606,6 +612,16 @@ export async function POST(req: NextRequest) {
 
   if (!sendResult.ok) {
     console.error("[api/leads/incoming] template send failed:", sendResult.error);
+    if (isSendsHoldError(sendResult.error)) {
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "validated",
+        statusCode: 200,
+        errorDetail: "gated:sends_hold",
+      });
+      return NextResponse.json({ ok: true, dispatch: "gated", gate: "sends_hold" });
+    }
     await writeIncomingAudit({
       admin,
       body: bodyRecord,

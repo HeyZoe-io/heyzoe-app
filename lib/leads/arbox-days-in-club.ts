@@ -34,6 +34,7 @@ import {
   type CancellationSyncLogStatus,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -376,7 +377,7 @@ async function dispatchDaysInClubTemplate(input: {
 
   if (!sendResult.ok) {
     console.error("[leads/arbox-days-in-club] template send failed:", sendResult.error);
-    return { dispatch: "send_failed", ok: false };
+    return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
 
   await logMessage({
