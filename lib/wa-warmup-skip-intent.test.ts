@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import {
+  claudeSignupTagMayOpenSalesFlow,
   isJoinSignupIntentText,
   isWarmupSkipIntentText,
   shouldStartSalesFlowFromOutOfFlowSignup,
@@ -100,5 +101,14 @@ assert.equal(
   false,
   "reschedule must stay on closed playbook"
 );
+
+assert.equal(
+  claudeSignupTagMayOpenSalesFlow(
+    "אמא שלי מסכימה, תרצי להגיד לי איך מעבירים לכם כסף או לשלוח לך את המספר שלה?"
+  ),
+  false,
+  "payment or a parent's number must not open the sales flow"
+);
+assert.equal(claudeSignupTagMayOpenSalesFlow("איך נרשמים לשיעור ניסיון?"), true);
 
 console.log("wa-warmup-skip-intent: extra join-signup / flow-entry assertions passed");

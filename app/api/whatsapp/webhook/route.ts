@@ -449,6 +449,7 @@ import {
   WA_BOT_CONFIG_META_MODEL,
 } from "@/lib/wa-bot-config-meta";
 import {
+  claudeSignupTagMayOpenSalesFlow,
   isJoinSignupIntentText,
   isWarmupSkipIntentText,
   shouldStartSalesFlowFromOutOfFlowSignup,
@@ -13489,7 +13490,16 @@ async function processIncoming(
       (waReplyRoute.route === "signup" || waReplyRoute.route === "interest")
     ) {
       const alreadyInFlow = salesFlowStarted && !inboundReopenedAfterDormancy;
+      const explicitSignup =
+        waReplyRoute.route !== "signup" || claudeSignupTagMayOpenSalesFlow(msg.text);
+      if (waReplyRoute.route === "signup" && !explicitSignup) {
+        console.info("[WA Webhook] signup tag ignored; message is not a signup ask", {
+          business_slug,
+          sessionId,
+        });
+      }
       const startFlow =
+        explicitSignup &&
         !alreadyInFlow &&
         contactTrialRegistered !== true &&
         contactSessionPhase !== "registered";

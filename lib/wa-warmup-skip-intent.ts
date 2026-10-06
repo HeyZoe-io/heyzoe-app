@@ -186,3 +186,11 @@ export function shouldStartSalesFlowFromOutOfFlowSignup(input: {
   if (detectClosedPlaybookIntent(input.inbound)) return false;
   return true;
 }
+
+/**
+ * Claude's [[route:signup]] may open the sales flow only when the message
+ * itself is a signup ask. A payment or parent-phone question is not one.
+ */
+export function claudeSignupTagMayOpenSalesFlow(inbound: string): boolean {
+  return isJoinSignupIntentText(inbound);
+}
