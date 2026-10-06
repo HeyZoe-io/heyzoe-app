@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import {
   MARKETING_NOTE_STATUS_OPTIONS,
   type MarketingNoteStatus,
@@ -143,6 +144,7 @@ export default function MarketingConversationNotesPanel({
   const [templatesError, setTemplatesError] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [confirmSendOpen, setConfirmSendOpen] = useState(false);
   const [templateNotice, setTemplateNotice] = useState("");
   const [templateNoticeOk, setTemplateNoticeOk] = useState(false);
   const loadGenRef = useRef(0);
@@ -286,9 +288,7 @@ export default function MarketingConversationNotesPanel({
 
   async function sendTemplateNow() {
     const name = templateName.trim();
-    const label = templates.find((row) => row.name === name)?.label || name;
     if (!name || sendingTemplate || (!phone.trim() && !sessionId.trim())) return;
-    if (!window.confirm(`לשלוח עכשיו את הטמפלייט «${label}» לליד הזה?`)) return;
     setSendingTemplate(true);
     setTemplateNotice("");
     setTemplateNoticeOk(false);
@@ -315,6 +315,7 @@ export default function MarketingConversationNotesPanel({
       setTemplateNotice("בעיית רשת בשליחת הטמפלייט.");
     } finally {
       setSendingTemplate(false);
+      setConfirmSendOpen(false);
     }
   }
 
@@ -649,7 +650,10 @@ export default function MarketingConversationNotesPanel({
             </select>
             <button
               type="button"
-              onClick={() => void sendTemplateNow()}
+              onClick={() => {
+                if (sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())) return;
+                setConfirmSendOpen(true);
+              }}
               disabled={sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())}
               style={{
                 alignSelf: "flex-start",
@@ -713,6 +717,75 @@ export default function MarketingConversationNotesPanel({
           {saving ? "שומר…" : dirty ? "שמירת הערות" : "נשמר"}
         </button>
       </footer>
+      {confirmSendOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="send-template-confirm-title"
+              onClick={() => {
+                if (!sendingTemplate) setConfirmSendOpen(false);
+              }}
+            >
+              <div
+                className="w-full max-w-xs rounded-2xl bg-white p-4 text-right shadow-xl"
+                dir="rtl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2
+                  id="send-template-confirm-title"
+                  style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#1a0a3c" }}
+                >
+                  האם לשלוח?
+                </h2>
+                <p style={{ margin: "8px 0 0", fontSize: 13, color: "#374151", lineHeight: 1.5 }}>
+                  הטמפלייט «{templates.find((row) => row.name === templateName)?.label || templateName}» יישלח
+                  עכשיו.
+                </p>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmSendOpen(false)}
+                    disabled={sendingTemplate}
+                    style={{
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      background: "#fff",
+                      color: "#374151",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      padding: "7px 12px",
+                      cursor: sendingTemplate ? "default" : "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void sendTemplateNow()}
+                    disabled={sendingTemplate}
+                    style={{
+                      borderRadius: 8,
+                      border: "none",
+                      background: sendingTemplate ? "#c4b5e0" : PURPLE,
+                      color: "#fff",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: "7px 12px",
+                      cursor: sendingTemplate ? "default" : "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {sendingTemplate ? "שולח…" : "שליחה"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </aside>
   );
 }
