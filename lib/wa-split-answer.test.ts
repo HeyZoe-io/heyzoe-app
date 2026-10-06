@@ -10,6 +10,8 @@ import {
   looksLikeLeadQuestion,
   replyAlreadyEndsWithQuestion,
   replyAlreadyHasHelpOffer,
+  interestFlowPreamble,
+  sanitizeInterestFlowPreamble,
   stripSalesFlowCtaHookFromAnswer,
   stripTrailingFollowUpQuestion,
 } from "@/lib/wa-split-answer";
@@ -177,6 +179,29 @@ assert.equal(
 assert.match(
   stripSalesFlowCtaHookFromAnswer("כן, יש שיעור מחר.\nמה דעתך שנבדוק מתי האימון ניסיון הבא?"),
   /יש שיעור מחר/
+);
+
+assert.equal(
+  sanitizeInterestFlowPreamble("אנחנו ברחוב הרצל 12.\nהאימון עולה 80 ₪.\n1. הרשמה לניסיון\nשנשריין לך את האימון?"),
+  "אנחנו ברחוב הרצל 12."
+);
+assert.equal(sanitizeInterestFlowPreamble("לא בטוחה שהבנתי עד הסוף, יש מצב לנסות לנסח לי שוב?"), "");
+assert.equal(
+  interestFlowPreamble(
+    "איפה אתם נמצאים ומה יש?",
+    "הסטודיו שלנו נמצא ביפה נוף 98, קריית אונו. יש אצלנו יוגה.",
+    "יפה נוף 98 קריית אונו"
+  ),
+  "הסטודיו שלנו נמצא ביפה נוף 98, קריית אונו."
+);
+assert.equal(interestFlowPreamble("כמה עולה?", "האימון עולה 80 ₪.", "יפה נוף 98"), "");
+assert.equal(
+  interestFlowPreamble(
+    "אשמח לשמוע פרטים על האימונים סוגים משך זמן מחיר ומיקום",
+    "יש אצלנו גם שיעורי עמידות ידיים.\nכתובת: רוטשילד 122, תל אביב\nמה בא לך להשיג באימונים אצלנו?",
+    "רוטשילד 122, תל אביב"
+  ),
+  "כתובת: רוטשילד 122, תל אביב"
 );
 
 console.log("wa-split-answer.test.ts: ok");

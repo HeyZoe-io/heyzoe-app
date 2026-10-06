@@ -190,6 +190,34 @@ export async function ensureSalesFlowStartedMarker(input: {
   return true;
 }
 
+/** דגמי ההודעות האחרונות של זואי בסשן, מהחדשה לישנה. שאילתה ממוקדת ב-session_id. */
+export async function fetchRecentAssistantModels(input: {
+  business_slug: string;
+  session_id: string;
+  limit?: number;
+}): Promise<string[]> {
+  const sessionId = String(input.session_id ?? "").trim();
+  if (!sessionId) return [];
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from("messages")
+      .select("model_used")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", sessionId)
+      .eq("role", "assistant")
+      .order("created_at", { ascending: false })
+      .limit(input.limit ?? 24);
+    if (error || !data?.length) return [];
+    return data
+      .map((row) => String((row as { model_used?: unknown }).model_used ?? "").trim())
+      .filter(Boolean);
+  } catch (e) {
+    console.error("[analytics] fetchRecentAssistantModels failed:", e);
+    return [];
+  }
+}
+
 export async function fetchLastAssistantModelUsed(input: {
   business_slug: string;
   session_id: string | string[];

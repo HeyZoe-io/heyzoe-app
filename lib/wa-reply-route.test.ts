@@ -31,6 +31,10 @@ assert.equal(
   "מחיר 100\nעוד"
 );
 
+assert.equal(extractReplyRoute("[[route:interest]]").tagStatus, "ok");
+assert.equal(extractReplyRoute("[[route:interest]]").route, "interest");
+assert.equal(extractReplyRoute("[[route:interest]]").body, "");
+assert.equal(extractReplyRoute("[[route:signup]]").tagStatus, "ok");
 assert.equal(extractReplyRoute("[[route:handoff]]").tagStatus, "missing");
 assert.equal(extractReplyRoute("[[route:handoff]]").body, "");
 assert.equal(extractReplyRoute("[[route:handoff]]\n   ").tagStatus, "missing");

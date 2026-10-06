@@ -718,6 +718,8 @@ export type WhatsAppPromptContext = {
   unclearClarifyAlreadySent?: boolean;
   /** הליד נעל קהל יעד (מבוגרים / ילדים / נוער) — לא לערבב שעות של קהל אחר */
   leadAgeBand?: "adults" | "kids" | "youth" | null;
+  /** false = אין פלואו פתוח עכשיו (לידה חדשה, או חזרה אחרי מחזור פולואפ). */
+  salesFlowCurrentlyOpen?: boolean;
 };
 
 function formatCommittedScheduleLabel(date: string, time: string): string {
@@ -1066,5 +1068,13 @@ ${saleFlowExtra}
       ? `\n${waCtx.israelNowScheduleBlock.trim()}`
       : ""
   }${bookingTruthBlock}
+
+${
+    waCtx?.salesFlowCurrentlyOpen === true
+      ? "מצב פלואו: הלידה כבר באמצע פלואו המכירה. שאלה על מחיר או פרטים היא answer, לא interest ולא signup.\n"
+      : waCtx?.salesFlowCurrentlyOpen === false
+        ? "מצב פלואו: הלידה לא באמצע פלואו המכירה. בקשת מידע, פרטים, סוגי אימון, מחיר או מיקום כדי להצטרף היא interest. הגוף ריק, אלא אם שאלה כתובת או מיקום - אז משפט אחד עם הכתובת מהידע, בלי מחיר ובלי תפריט.\n"
+        : ""
+  }חובה: השורה הראשונה היא [[route:X]] מהרשימה למעלה, לפני כל טקסט ללקוחה. לידה חדשה שמבקשת מידע, פרטים, מחיר או מיקום כדי להצטרף היא interest, והגוף ריק אלא אם שאלה כתובת - אז משפט אחד עם הכתובת מהידע. שאלה על חלון ביטול, הקפאה או החזר היא policy_question. אם היא כבר באמצע הפלואו, זו answer.
 `;
 }

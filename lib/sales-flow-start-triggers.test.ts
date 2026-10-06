@@ -7,8 +7,11 @@ import {
   buildCasualHiGreetingReply,
   CASUAL_HOW_ARE_YOU_REPLY_HE,
   isOpeningServicePickMenuModel,
+  assistantModelsShowTrainingsPresented,
+  assistantModelsShowCurrentFlowTrainings,
   salesFlowGreetingMarkerCountsAsStarted,
   sessionCountsAsSalesFlowStarted,
+  mayHandleSalesFlowCtaMenu,
   businessStartsSalesFlowOnHi,
   businessOpensSalesFlowOnAnyNewLeadMessage,
   businessUsesConversationFollowupNodes,
@@ -203,5 +206,64 @@ assert.equal(
   }),
   false
 );
+
+assert.equal(
+  mayHandleSalesFlowCtaMenu({
+    sessionPhase: "opening",
+    salesFlowStarted: false,
+    productsPresented: false,
+  }),
+  false
+);
+assert.equal(
+  mayHandleSalesFlowCtaMenu({
+    sessionPhase: "opening",
+    salesFlowStarted: true,
+    productsPresented: false,
+  }),
+  false
+);
+assert.equal(
+  mayHandleSalesFlowCtaMenu({
+    sessionPhase: "opening",
+    salesFlowStarted: true,
+    productsPresented: true,
+  }),
+  true
+);
+assert.equal(
+  mayHandleSalesFlowCtaMenu({ sessionPhase: "cta", salesFlowStarted: false, productsPresented: true }),
+  false
+);
+assert.equal(
+  mayHandleSalesFlowCtaMenu({ sessionPhase: "cta", salesFlowStarted: true, productsPresented: true }),
+  true
+);
+assert.equal(
+  mayHandleSalesFlowCtaMenu({ sessionPhase: "warmup", salesFlowStarted: true, productsPresented: true }),
+  false
+);
+assert.equal(
+  assistantModelsShowTrainingsPresented(["claude-haiku-4-5", "flow_continuation_opening_service_pick"]),
+  true
+);
+assert.equal(assistantModelsShowTrainingsPresented(["claude-haiku-4-5#route=answer;tag=ok"]), false);
+assert.equal(
+  assistantModelsShowCurrentFlowTrainings([
+    "wa_followup_2",
+    "wa_followup_3",
+    "flow_continuation_opening_service_pick",
+  ]),
+  false
+);
+assert.equal(
+  assistantModelsShowCurrentFlowTrainings([
+    "flow_continuation_opening_service_pick",
+    "wa_followup_3",
+  ]),
+  true
+);
+assert.equal(assistantModelsShowCurrentFlowTrainings(["sales_flow_cta"]), true);
+assert.equal(assistantModelsShowCurrentFlowTrainings(["claude-haiku-4-5"]), false);
 
 console.log("sales-flow-start-triggers.test.ts: ok");

@@ -2,6 +2,7 @@
  * ניקוי תשובת AI כשהמערכת שולחת CTA / המשך פלואו / תפריט כפתורים בהודעה נפרדת.
  */
 
+import { isAddressOrDirectionsIntent } from "@/lib/wa-address-intent";
 import { CTA_SERVICE_REPICK_BRIDGE_QUESTION } from "@/lib/wa-cta-service-repick";
 import { OPENING_SERVICE_LIST_PICK_BRIDGE } from "@/lib/wa-opening-service-list-pick-bridge";
 import { SCHEDULE_WHEN_CONVENIENT_QUESTION } from "@/lib/wa-outbound-registration-guard";
@@ -101,6 +102,7 @@ function isSalesFlowCtaHookLine(line: string): boolean {
   if (n.startsWith("מה דעתך? שנשריין אימון ניסיון")) return true;
   if (/מה דעתך.*אימון.*ניסיון/u.test(n)) return true;
   if (/עכשיו רק נותר לשריין/u.test(n)) return true;
+  if (/שנשריין/u.test(n)) return true;
   if (/^לשמור לך מקום/u.test(n) || /^לשמור לכם מקום/u.test(n)) return true;
   if (/תשלום מאובטח/u.test(n) && /הטבה דרך השיחה/u.test(n)) return true;
   return false;
@@ -110,6 +112,61 @@ function isSalesFlowCtaHookLine(line: string): boolean {
  * CTA-phase split only: drop leaked booking-prompt closings from the free-text answer
  * before the real interactive CTA is sent separately.
  */
+const INTEREST_PREAMBLE_DROP = [
+  "לא בטוחה שהבנתי עד הסוף",
+  "לא בטוחה שאני יכולה לעזור",
+  "not sure i fully understood",
+  "not sure i can help",
+];
+
+/** גוף לפני פתיחת פלואו: בלי מחיר, בלי תפריט, בלי «שנשריין». מספר בית בכתובת נשאר. */
+export function sanitizeInterestFlowPreamble(text: string): string {
+  const raw = stripSalesFlowCtaHookFromAnswer(text)
+    .split("\n")
+    .filter((line) => !/^\d+\.\s+\S/u.test(line.trim()))
+    .join("\n");
+  const kept: string[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+    if (INTEREST_PREAMBLE_DROP.some((snippet) => lower.includes(snippet))) continue;
+    if (/שנשריין/u.test(trimmed)) continue;
+    const withoutPrices = trimmed
+      .replace(/[^.!?\n]*₪[^.!?\n]*[.!?]?/gu, "")
+      .replace(/[^.!?\n]*\d+\s*%[^.!?\n]*[.!?]?/gu, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    if (withoutPrices) kept.push(withoutPrices);
+  }
+  return kept.join("\n").trim();
+}
+
+/** לפני הפלואו נשאר רק משפט הכתובת, אם היא שאלה מיקום. כל השאר נזרק. */
+export function interestFlowPreamble(inbound: string, body: string, address: string): string {
+  if (!isAddressOrDirectionsIntent(inbound)) return "";
+  const clean = sanitizeInterestFlowPreamble(body);
+  if (!clean) return "";
+  const street = String(address ?? "")
+    .replace(/[(),]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentences = clean
+    .split(/\n+/u)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/u))
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence && !/[?؟]\s*$/u.test(sentence));
+  const hit = sentences.find((sentence) => addressSentenceMatches(sentence, street));
+  return (hit ?? "").trim();
+}
+
+function addressSentenceMatches(sentence: string, street: string): boolean {
+  const s = sentence.replace(/\s+/g, " ");
+  if (street.length >= 6 && s.includes(street.slice(0, 8))) return true;
+  const tokens = street.split(" ").filter((token) => token.length >= 3);
+  return tokens.some((token) => s.includes(token));
+}
+
 export function stripSalesFlowCtaHookFromAnswer(text: string): string {
   let raw = String(text ?? "").replace(/\r\n/g, "\n");
   raw = raw.replace(/([?!.…🙂💜)])\s+(עכשיו רק נותר לשריין)/gu, "$1\n$2");

@@ -157,6 +157,7 @@ import {
   stripMenuEchoFromAnswer,
   stripTrailingFollowUpQuestion,
   stripSalesFlowCtaHookFromAnswer,
+  interestFlowPreamble,
 } from "@/lib/wa-split-answer";
 import { isStudioOverviewIntentText } from "@/lib/wa-studio-overview-intent";
 import { stripAssistantInteractiveButtonsLog } from "@/lib/wa-interactive-log";
@@ -222,7 +223,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage, mayHandleSalesFlowCtaMenu, assistantModelsShowCurrentFlowTrainings } from "@/lib/sales-flow-start-triggers";
 import {
   buildOwnerAddressedGreetingReply,
   parseOwnerAddressedGreeting,
@@ -584,6 +585,7 @@ import { recordAiUsage } from "@/lib/ai-usage";
 import {
   extractErrorCode,
   fetchLastAssistantModelUsed,
+  fetchRecentAssistantModels,
   ensureSalesFlowStartedMarker,
   sessionHasSalesFlowGreeting as fetchSessionHasSalesFlowGreeting,
   fetchLastSfServiceEventName,
@@ -6615,6 +6617,8 @@ async function processIncoming(
   // Persisted registration blocks trial CTA even if the flow is reset later.
   let allowTrialCtaThisSession = false;
   let contactSessionPhase: HeyzoeSessionPhase = "opening";
+  // חזרה אחרי 48 שעות או אחרי no-response: הפלואו הישן נגמר, גם אם נשאר סמן ברכה.
+  let inboundReopenedAfterDormancy = false;
   let contactFlowStep = 0;
   let contactScheduleRequestedDate = "";
   let contactScheduleRequestedTime = "";
@@ -6679,6 +6683,7 @@ async function processIncoming(
 
       const priorNoResponseAt = String(priorContact?.wa_no_response_at ?? "").trim();
       if (priorNoResponseAt) {
+        inboundReopenedAfterDormancy = true;
         Object.assign(upsertPayload, buildNoResponseReactivationPatch());
         console.info("[WA Webhook] no-response lead reactivated on inbound message", {
           business_slug,
@@ -6695,6 +6700,7 @@ async function processIncoming(
       }
 
       if (shouldResetWaFollowupCycleOnInbound(priorContact)) {
+        inboundReopenedAfterDormancy = true;
         Object.assign(upsertPayload, WA_FOLLOWUP_CYCLE_RESET_PATCH);
         console.info("[WA Webhook] wa_followup cycle reset (48h+ since last_contact_at)", {
           business_slug,
@@ -10745,14 +10751,34 @@ async function processIncoming(
 
   // 2) Sales flow: כפתורי CTA / תפריט המשך (לפני זיהוי שאלת ניסיון — כדי ש־1/2/3 יתאימו לתפריט הנוכחי)
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId && contactSessionPhase !== "warmup") {
-    const lastAssistModelForCta = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+    const recentAssistantModels = await fetchRecentAssistantModels({
+      business_slug,
+      session_id: sessionId,
+    });
+    const lastAssistModelForCta = recentAssistantModels[0] ?? null;
     const digitOnlyForCta = /^[1-9]$/.test(msg.text.trim());
     const skipCtaBlockForDigit =
       digitOnlyForCta &&
       lastAssistModelForCta !== "sales_flow_post_link_menu" &&
       !CTA_MENU_SENT_MODELS.has(String(lastAssistModelForCta ?? "").trim());
+    const salesFlowStartedForCta = salesFlowStarted && !inboundReopenedAfterDormancy;
+    const productsPresentedForCta = assistantModelsShowCurrentFlowTrainings(recentAssistantModels);
+    const skipCtaMenuBeforeFlow = !mayHandleSalesFlowCtaMenu({
+      sessionPhase: contactSessionPhase,
+      salesFlowStarted: salesFlowStartedForCta,
+      productsPresented: productsPresentedForCta,
+    });
+    if (skipCtaMenuBeforeFlow) {
+      console.info("[WA Webhook] skip CTA menu - sales flow or trainings not ready", {
+        business_slug,
+        session_id: sessionId,
+        phase: contactSessionPhase,
+        salesFlowStarted: salesFlowStartedForCta,
+        productsPresented: productsPresentedForCta,
+      });
+    }
 
-    if (!skipCtaBlockForDigit) {
+    if (!skipCtaBlockForDigit && !skipCtaMenuBeforeFlow) {
       try {
         const cfg = knowledge.salesFlowConfig!;
         const follow = cfg.followup_after_next_class_options;
@@ -12559,6 +12585,7 @@ async function processIncoming(
         israelNowScheduleBlock: buildIsraelNowSchedulePromptBlock(salesFlowServices),
         unclearClarifyAlreadySent: sessionHasUnclearClarifyAsk(history),
         leadAgeBand,
+        salesFlowCurrentlyOpen: salesFlowStarted && !inboundReopenedAfterDormancy,
       },
       platformGuidelines,
       currentText
@@ -12581,6 +12608,12 @@ async function processIncoming(
       const lastTurn = claudeMessages[claudeMessages.length - 1];
       if (lastTurn && lastTurn.role === "user") {
         lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n\n${hintLine}`;
+      }
+    }
+    {
+      const lastTurn = claudeMessages[claudeMessages.length - 1];
+      if (lastTurn && lastTurn.role === "user") {
+        lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n\nהשורה הראשונה בתשובתך חייבת להיות [[route:X]] ורק אחריה הטקסט ללקוחה.`;
       }
     }
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
@@ -13165,44 +13198,60 @@ async function processIncoming(
         return;
       }
     }
-    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "signup") {
-      if (businessId && knowledge.salesFlowConfig) {
-        const started = await beginSalesFlowAtProductPick({
-          entryModel: appendRouteToModelUsed(
-            SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-            waReplyRoute,
-            fastPathHint?.category
-          ),
-          entryContent: "[heyzoe:signup_intent_flow_entry]",
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          allowTrialCta: true,
-          logEntry: true,
-        });
-        contactSessionPhase = started.contactSessionPhase;
-        contactFlowStep = started.contactFlowStep;
-      } else {
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: "[heyzoe:signup_intent_flow_entry]",
-          model_used: appendRouteToModelUsed(
-            SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-            waReplyRoute,
-            fastPathHint?.category
-          ),
-          session_id: sessionId,
-        });
+    if (
+      waReplyRoute.tagStatus === "ok" &&
+      (waReplyRoute.route === "signup" || waReplyRoute.route === "interest")
+    ) {
+      const alreadyInFlow = salesFlowStarted && !inboundReopenedAfterDormancy;
+      const startFlow =
+        !alreadyInFlow &&
+        contactTrialRegistered !== true &&
+        contactSessionPhase !== "registered";
+      if (startFlow) {
+        const preamble = interestFlowPreamble(
+          msg.text,
+          waReplyRoute.body,
+          String(knowledge?.addressText ?? "")
+        );
+        if (businessId && knowledge.salesFlowConfig) {
+          const started = await beginSalesFlowAtProductPick({
+            entryModel: appendRouteToModelUsed(
+              SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+              waReplyRoute,
+              fastPathHint?.category
+            ),
+            entryContent: "[heyzoe:signup_intent_flow_entry]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+            logEntry: true,
+            preambleText: preamble || undefined,
+          });
+          contactSessionPhase = started.contactSessionPhase;
+          contactFlowStep = started.contactFlowStep;
+        } else {
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: "[heyzoe:signup_intent_flow_entry]",
+            model_used: appendRouteToModelUsed(
+              SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+              waReplyRoute,
+              fastPathHint?.category
+            ),
+            session_id: sessionId,
+          });
+        }
+        return;
       }
-      return;
     }
     if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "member_or_trial_unclear") {
       try {

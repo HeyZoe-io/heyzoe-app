@@ -331,3 +331,41 @@ export function sessionCountsAsSalesFlowStarted(input: {
   }
   return isOpeningServicePickMenuModel(input.lastAssistantModel);
 }
+
+const TRAININGS_PRESENTED_MODELS = new Set<string>([
+  ...OPENING_SERVICE_PICK_MENU_MODELS,
+  "sales_flow_cta",
+  "sales_flow_cta_compact",
+  "flow_continuation_cta",
+]);
+
+/** האימונים כבר הוצגו בסשן: תפריט מוצרים, או כפתורי המוצר היחיד. */
+export function assistantModelsShowTrainingsPresented(models: readonly string[]): boolean {
+  return models.some((model) => TRAININGS_PRESENTED_MODELS.has(parseModelUsed(model).model));
+}
+
+/**
+ * האימונים הוצגו בפלואו הנוכחי. הרשימה מהחדש לישן.
+ * wa_followup_3 לפני ההצגה סוגר את הפלואו הקודם, והתפריט הישן לא נספר.
+ */
+export function assistantModelsShowCurrentFlowTrainings(models: readonly string[]): boolean {
+  for (const model of models) {
+    const name = parseModelUsed(model).model;
+    if (name === "wa_followup_3") return false;
+    if (TRAININGS_PRESENTED_MODELS.has(name)) return true;
+  }
+  return false;
+}
+
+/**
+ * תפריט «שנשריין» וכפתורי אחרי ההצגה — רק אחרי שהפלואו נפתח
+ * והאימונים הוצגו בסשן. לא לפי session_phase לבד.
+ */
+export function mayHandleSalesFlowCtaMenu(input: {
+  sessionPhase: string;
+  salesFlowStarted: boolean;
+  productsPresented: boolean;
+}): boolean {
+  if (input.sessionPhase === "warmup") return false;
+  return input.salesFlowStarted === true && input.productsPresented === true;
+}
