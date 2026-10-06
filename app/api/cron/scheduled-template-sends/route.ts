@@ -341,7 +341,11 @@ async function dispatchOneScheduledSend(
     const notesUserId = userIdFromTrainerTrialHeadsUpDedupKey(row.dedup_key);
     const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
     if (apiKey && notesUserId) {
-      clientGeneralNotes = await fetchArboxGeneralNotesText({ apiKey, userId: notesUserId });
+      clientGeneralNotes = await fetchArboxGeneralNotesText({
+        apiKey,
+        userId: notesUserId,
+        now,
+      });
     } else {
       console.error("[cron/scheduled-template-sends] general notes skipped — missing arbox user or key", {
         id: row.id,

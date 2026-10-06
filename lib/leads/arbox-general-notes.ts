@@ -6,9 +6,11 @@
  * more only if a failed send is retried.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import { TEMPLATE_GENERAL_NOTES_FALLBACK } from "@/lib/template-send-params";
 
 const NOTES_LIMIT = 3;
+const NOTES_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 /** Arbox 500s when `sort` is set on this route. Page locally after a capped GET. */
 const NOTES_FETCH_LIMIT = 100;
 const NOTES_MAX_CHARS = 400;
@@ -45,6 +47,25 @@ export function isSystemGeneratedArboxNote(comment: string): boolean {
   return SYSTEM_NOTE_BODIES.some((body) => text.includes(body));
 }
 
+/** Arbox `created_at` is a naive Asia/Jerusalem wall time. */
+export function arboxNoteCreatedAtUtc(createdAt: string): Date | null {
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?/.exec(String(createdAt ?? "").trim());
+  if (!match) return null;
+  const wall = israelWallTimeToUtc(match[1], match[2]);
+  if (Number.isNaN(wall.getTime())) return null;
+  const seconds = Number(match[3] ?? "0");
+  if (!Number.isFinite(seconds)) return wall;
+  return new Date(wall.getTime() + seconds * 1000);
+}
+
+/** True when the note was written in the 14 days before `now`, not after it. */
+export function isArboxNoteInsideSendWindow(createdAt: string, now: Date): boolean {
+  const created = arboxNoteCreatedAtUtc(createdAt);
+  if (!created) return false;
+  const ageMs = now.getTime() - created.getTime();
+  return ageMs >= 0 && ageMs <= NOTES_WINDOW_MS;
+}
+
 export function generalNoteRowsFromPayload(json: unknown): GeneralNoteRow[] {
   const data = (json as { data?: unknown } | null)?.data;
   const rows = Array.isArray(data) ? data : [];
@@ -61,10 +82,16 @@ export function generalNoteRowsFromPayload(json: unknown): GeneralNoteRow[] {
   return notes;
 }
 
-/** Newest human notes first. System notes do not consume the limit. */
-export function newestGeneralNoteComments(json: unknown, limit = NOTES_LIMIT): string[] {
+/** Newest human notes from the 14 days before send. System notes do not consume the limit. */
+export function newestGeneralNoteComments(
+  json: unknown,
+  options?: { limit?: number; now?: Date }
+): string[] {
+  const limit = options?.limit ?? NOTES_LIMIT;
+  const now = options?.now ?? new Date();
   return generalNoteRowsFromPayload(json)
     .filter((row) => !isSystemGeneratedArboxNote(row.comment))
+    .filter((row) => isArboxNoteInsideSendWindow(row.createdAt, now))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, limit)
     .map((row) => row.comment);
@@ -83,6 +110,8 @@ export function formatArboxGeneralNotesForTemplate(comments: readonly string[]):
 export async function fetchArboxGeneralNotesText(input: {
   apiKey: string;
   userId: number;
+  /** Send time. The 14-day window is measured back from this instant. */
+  now?: Date;
 }): Promise<string> {
   const apiKey = String(input.apiKey ?? "").trim();
   const userId = Math.trunc(Number(input.userId));
@@ -107,5 +136,7 @@ export async function fetchArboxGeneralNotesText(input: {
     });
     return TEMPLATE_GENERAL_NOTES_FALLBACK;
   }
-  return formatArboxGeneralNotesForTemplate(newestGeneralNoteComments(res.json));
+  return formatArboxGeneralNotesForTemplate(
+    newestGeneralNoteComments(res.json, { now: input.now ?? new Date() })
+  );
 }

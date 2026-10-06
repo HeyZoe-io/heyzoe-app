@@ -288,6 +288,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
     classDateYmd: input.classDateYmd,
     arboxApiKey: input.apiKey,
     arboxUserId: input.userId,
+    now: input.now,
   });
   if (send === "sent") {
     const marked = await markScheduledTemplateSendSentByDedupKey({

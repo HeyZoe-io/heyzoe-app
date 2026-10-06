@@ -21,16 +21,19 @@ assert.ok(formatted.length <= 400);
 assert.ok(formatted.endsWith("…"));
 
 assert.deepEqual(
-  newestGeneralNoteComments({
-    data: [
-      { comment: "ישן", created_at: "2026-01-01 00:00:00" },
-      { comment: "  " },
-      { comment: null },
-      { comment: "טסט", created_at: "2026-09-27 12:22:29" },
-      { action_by: "מאמן" },
-    ],
-  }),
-  ["טסט", "ישן"]
+  newestGeneralNoteComments(
+    {
+      data: [
+        { comment: "ישן", created_at: "2026-01-01 00:00:00" },
+        { comment: "  " },
+        { comment: null },
+        { comment: "טסט", created_at: "2026-09-27 12:22:29" },
+        { action_by: "מאמן" },
+      ],
+    },
+    { now: new Date("2026-09-28T09:22:29.000Z") }
+  ),
+  ["טסט"]
 );
 
 const eliaZoe =
@@ -47,9 +50,46 @@ const eliaPayload = {
     { comment: eliaOlder, action_by: "לאה ויצמן", created_at: "2025-01-09 13:47:23" },
   ],
 };
+const morningSend = new Date("2026-10-07T06:00:00.000Z");
 assert.equal(
-  formatArboxGeneralNotesForTemplate(newestGeneralNoteComments(eliaPayload)),
-  `${eliaHuman} · ${eliaStaff} · ${eliaOlder}`
+  formatArboxGeneralNotesForTemplate(newestGeneralNoteComments(eliaPayload, { now: morningSend })),
+  eliaHuman
+);
+assert.equal(
+  formatArboxGeneralNotesForTemplate(
+    newestGeneralNoteComments(
+      { data: [{ comment: "הערה מלפני 13 יום", created_at: "2026-09-24 09:00:00" }] },
+      { now: morningSend }
+    )
+  ),
+  "הערה מלפני 13 יום"
+);
+assert.equal(
+  formatArboxGeneralNotesForTemplate(
+    newestGeneralNoteComments(
+      { data: [{ comment: "הערה מלפני 15 יום", created_at: "2026-09-22 09:00:00" }] },
+      { now: morningSend }
+    )
+  ),
+  TEMPLATE_GENERAL_NOTES_FALLBACK
+);
+assert.equal(
+  formatArboxGeneralNotesForTemplate(
+    newestGeneralNoteComments(
+      {
+        data: [
+          { comment: eliaZoe, created_at: "2026-10-05 10:00:00" },
+          { comment: "פציעה בברך", created_at: "2026-10-04 10:00:00" },
+        ],
+      },
+      { now: morningSend }
+    )
+  ),
+  "פציעה בברך"
+);
+assert.equal(
+  formatArboxGeneralNotesForTemplate(newestGeneralNoteComments({ data: [] }, { now: morningSend })),
+  TEMPLATE_GENERAL_NOTES_FALLBACK
 );
 assert.equal(formatArboxGeneralNotesForTemplate([eliaZoe]), TEMPLATE_GENERAL_NOTES_FALLBACK);
 assert.equal(formatArboxGeneralNotesForTemplate([]), TEMPLATE_GENERAL_NOTES_FALLBACK);

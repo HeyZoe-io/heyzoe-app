@@ -30,6 +30,8 @@ export async function dispatchStaffTemplateImmediate(input: {
   /** When the approved body includes {{4}}, one Arbox notes GET for this user. */
   arboxApiKey?: string | null;
   arboxUserId?: number | null;
+  /** Send time for the trainer-notes 14-day window. */
+  now?: Date;
 }): Promise<StaffTemplateDispatch> {
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return "gated";
@@ -70,7 +72,11 @@ export async function dispatchStaffTemplateImmediate(input: {
     const apiKey = String(input.arboxApiKey ?? "").trim();
     const userId = Math.trunc(Number(input.arboxUserId));
     if (apiKey && Number.isFinite(userId) && userId > 0) {
-      clientGeneralNotes = await fetchArboxGeneralNotesText({ apiKey, userId });
+      clientGeneralNotes = await fetchArboxGeneralNotesText({
+        apiKey,
+        userId,
+        now: input.now,
+      });
     }
   }
   if (input.triggerType === "trainer_trial_heads_up") {
