@@ -474,6 +474,8 @@ function triggerCatalogAudience(type: string) {
   assert.equal(minDelayDaysForTrigger("no_response"), 2);
   assert.equal(defaultDelayDays("no_response"), 2);
   assert.equal(defaultDelayDays("purchase"), 0);
+  assert.equal(defaultDelayDays("registered_after_trial"), 0);
+  assert.equal(defaultDelayDays("not_registered_after_trial"), 3);
   assert.equal(defaultDelayDays("membership_cancelled"), 0);
   assert.equal(minDelayDaysForTrigger("purchase"), 0);
   assert.equal(minDelayDaysForTrigger("membership_cancelled"), 0);

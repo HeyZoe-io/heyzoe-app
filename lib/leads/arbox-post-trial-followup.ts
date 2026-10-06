@@ -8,15 +8,21 @@
  * that already went out. A single template keeps the old path (no extra IO).
  * The wait sits in that business's daily worker (cap 285s).
  *
- * Delay 0 also runs on the 15-minute trial-sync cron, on sales rows that cron
- * already fetched. No Arbox call on a quiet tick. A non-trial plan/session sale
- * in that batch costs one bookingsReport (the daily 7-day lookback, usually one
- * page) and membershipTypes only when this run has not loaded them already.
- * Delay of 1+ and «לא נרשם» stay on the daily cron. The same sync_log dedups both.
+ * A conversion sale on the 15-minute trial-sync cron reuses those sales rows.
+ * No Arbox call on a quiet tick. A non-trial plan/session sale in that batch
+ * costs one bookingsReport (30-day conversion lookback, usually one page) and
+ * membershipTypes only when this run has not loaded them already. Due C5 rules
+ * send on that tick (delay 0 the same day; delay N once class_date+N is due).
+ * «לא נרשם» stays on the daily cron. The same sync_log dedups both.
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  eventBeforeRuleActivation,
+  parseReportEventInstant,
+  ruleActivationMs,
+  type ActivationRule,
+} from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -217,15 +223,42 @@ export function outcomeForTrialAttendance(input: {
   salesRows: readonly ArboxSalesReportRow[];
   trialMembershipTypeIds: readonly number[];
 }): PostTrialOutcome {
+  return conversionSaleYmdForAttendance(input) ? "registered" : "not_registered";
+}
+
+/** Earliest non-trial plan/session sale on or after the trial class date. */
+export function conversionSaleYmdForAttendance(input: {
+  userId: number;
+  classDateYmd: string;
+  salesRows: readonly ArboxSalesReportRow[];
+  trialMembershipTypeIds: readonly number[];
+}): string | null {
+  let best: string | null = null;
   for (const sale of input.salesRows) {
     const saleUser = Number(sale.user_id);
     if (!Number.isFinite(saleUser) || Math.trunc(saleUser) !== input.userId) continue;
     const saleYmd = parseClassDateYmd(sale.date);
     if (!saleYmd || ymdCmp(saleYmd, input.classDateYmd) < 0) continue;
     if (!isPostTrialConversionSale(sale, input.trialMembershipTypeIds)) continue;
-    return "registered";
+    if (!best || ymdCmp(saleYmd, best) < 0) best = saleYmd;
   }
-  return "not_registered";
+  return best;
+}
+
+/**
+ * C5 event is the conversion sale, not class midnight. Same Israel calendar day
+ * as activation still sends — otherwise a rule turned on today would drop every
+ * same-day (and earlier-trial) purchase.
+ */
+export function registeredAfterTrialBlockedByActivation(input: {
+  saleYmd: string | null;
+  rule: ActivationRule;
+}): boolean {
+  if (!input.saleYmd) return true;
+  const ms = ruleActivationMs(input.rule);
+  if (!Number.isFinite(ms) || ms <= 0) return true;
+  const activationYmd = formatDateYmdIsrael(new Date(ms));
+  return ymdCmp(input.saleYmd, activationYmd) < 0;
 }
 
 export function triggerTypeForOutcome(outcome: PostTrialOutcome): PostTrialTriggerType {
@@ -275,6 +308,8 @@ export function postTrialLookbackWindow(input: {
   now: Date;
   needsSeed: boolean;
   maxDelayDays: number;
+  /** 15-minute conversion tick: find the trial even if it was up to 30 days ago. */
+  conversionLookback?: boolean;
 }): { fromDate: string; toDate: string } {
   const toDate = formatDateYmdIsrael(input.now);
   const forwardLookback = Math.min(
@@ -284,7 +319,8 @@ export function postTrialLookbackWindow(input: {
       Math.trunc(trialAttendedLookbackDays()) + Math.max(0, Math.trunc(input.maxDelayDays))
     )
   );
-  const days = input.needsSeed ? SEED_SPAN_DAYS : forwardLookback;
+  const days =
+    input.needsSeed || input.conversionLookback ? SEED_SPAN_DAYS : forwardLookback;
   const [y, m, d] = toDate.split("-").map((n) => Number(n));
   const toUtc = new Date(Date.UTC(y!, m! - 1, d!, 12, 0, 0));
   const fromUtc = new Date(toUtc.getTime() - (days - 1) * MS_PER_DAY);
@@ -688,8 +724,9 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   lookbackTo?: string;
   activeProductKeys?: ActiveProductKeys;
   /**
-   * 15-minute path. Only delay-0 registered rules. Sales rows are the trial-sync
+   * 15-minute path. Registered (C5) only — no C6. Sales rows are the trial-sync
    * batch already in memory. Bookings are fetched only after a real buyer is found.
+   * Due rules send on this tick (not only delay 0).
    */
   immediateRegisteredOnly?: boolean;
   prefetchedSalesRows?: ArboxSalesReportRow[];
@@ -736,12 +773,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
         loadEnabledNotRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
       ]);
-  let registeredRules = rulesForCompanionSend(registeredLoaded);
-  if (immediateOnly) {
-    registeredRules = registeredRules.filter(
-      (rule) => effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days) === 0
-    );
-  }
+  const registeredRules = rulesForCompanionSend(registeredLoaded);
   const notRegisteredRules = rulesForCompanionSend(notRegisteredLoaded);
   if (!registeredRules.length && !notRegisteredRules.length) {
     summary.skipped = true;
@@ -809,24 +841,28 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   }
 
   const needsSeed = !input.postTrialFollowupSeeded;
+  const lookbackWindow = postTrialLookbackWindow({
+    now,
+    needsSeed,
+    maxDelayDays,
+    conversionLookback: immediateOnly,
+  });
   let pastRows: ArboxBookingReportRow[];
   if (input.prefetchedPastRows) {
-    const window = postTrialLookbackWindow({ now, needsSeed, maxDelayDays });
-    summary.lookback_from = window.fromDate;
-    summary.lookback_to = window.toDate;
+    summary.lookback_from = lookbackWindow.fromDate;
+    summary.lookback_to = lookbackWindow.toDate;
     pastRows = input.prefetchedPastRows.filter((row) => {
       const ymd = parseClassDateYmd(row.date);
-      return Boolean(ymd && ymd >= window.fromDate && ymd <= window.toDate);
+      return Boolean(ymd && ymd >= lookbackWindow.fromDate && ymd <= lookbackWindow.toDate);
     });
     summary.pages_fetched = input.prefetchedPastPages ?? 0;
   } else {
-    const window = postTrialLookbackWindow({ now, needsSeed, maxDelayDays });
-    summary.lookback_from = window.fromDate;
-    summary.lookback_to = window.toDate;
+    summary.lookback_from = lookbackWindow.fromDate;
+    summary.lookback_to = lookbackWindow.toDate;
     const report = await fetchArboxBookingsReport({
       apiKey,
-      fromDate: window.fromDate,
-      toDate: window.toDate,
+      fromDate: lookbackWindow.fromDate,
+      toDate: lookbackWindow.toDate,
       locationId: boxId,
     });
     summary.pages_fetched = report.pagesFetched;
@@ -840,8 +876,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       console.info("[leads/arbox-post-trial-followup] 15m bookings", {
         businessId,
         buyers: conversionBuyerIds?.size ?? 0,
-        from: window.fromDate,
-        to: window.toDate,
+        from: lookbackWindow.fromDate,
+        to: lookbackWindow.toDate,
         pages: report.pagesFetched,
       });
     }
@@ -937,23 +973,31 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   }
 
   for (const att of attendances) {
-    const outcome = outcomeForTrialAttendance({
+    const saleYmd = conversionSaleYmdForAttendance({
       userId: att.userId,
       classDateYmd: att.classDateYmd,
       salesRows,
       trialMembershipTypeIds: trialTypeIds,
     });
+    const outcome: PostTrialOutcome = saleYmd ? "registered" : "not_registered";
     if (!enabledOutcomes.includes(outcome)) continue;
 
     const rules = outcome === "registered" ? registeredRules : notRegisteredRules;
-    const dueRules = rules.filter(
-      (rule) =>
-        isPostTrialDecisionDue({
+    const dueRules = rules.filter((rule) => {
+      if (
+        !isPostTrialDecisionDue({
           classDateYmd: att.classDateYmd,
           delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
           todayYmd,
-        }) && !eventBeforeRuleActivation(parseReportEventInstant(att.classDateYmd), rule)
-    );
+        })
+      ) {
+        return false;
+      }
+      if (outcome === "registered") {
+        return !registeredAfterTrialBlockedByActivation({ saleYmd, rule });
+      }
+      return !eventBeforeRuleActivation(parseReportEventInstant(att.classDateYmd), rule);
+    });
     if (!dueRules.length) continue;
     summary.due += 1;
 
