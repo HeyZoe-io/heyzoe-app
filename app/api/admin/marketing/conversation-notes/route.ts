@@ -191,7 +191,8 @@ async function sendCalendarInviteIfNeeded(input: {
 }): Promise<ZoeAdminInviteResult> {
   try {
     const plan = planZoeAdminCalendarInvite(input.previous, input.next);
-    if (plan.action !== "request" && plan.action !== "cancel") return { status: plan.action };
+    if (plan.action === "skip") return { status: "skipped" };
+    if (plan.action === "missing_slot") return { status: "missing_slot" };
     const invite = await deliverZoeAdminCalendarInvite({
       phone: input.phone,
       businessName: input.businessName,
