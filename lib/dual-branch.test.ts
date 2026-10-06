@@ -62,6 +62,7 @@ const offers = parseBranchOffers({
 
 const amiadRow = applyDualBranchToService({ ...row(), branchOffers: offers }, "amiad");
 assert.equal(amiadRow.paymentLink, "https://pay.example/amiad-page");
+assert.equal(amiadRow.priceText, "50");
 assert.deepEqual(
   amiadRow.scheduleSlots.map((s) => `${s.day} ${s.time}`),
   ["ב 18:00"]
@@ -115,10 +116,19 @@ const placed = applyDualBranchToKnowledge(
   {
     arboxLink: "",
     schedulePublicUrl: "",
+    scheduleScanImageUrl: "https://img.example/shared.png",
     addressText: "",
     directionsText: "",
     servicesText: "",
     salesFlowServices: [],
+    branchScheduleUrls: {
+      amiad: "https://sched.example/amiad",
+      kiryat_shmona: "https://sched.example/ks",
+    },
+    branchScheduleImageUrls: {
+      amiad: "https://img.example/amiad.png",
+      kiryat_shmona: "https://img.example/ks.png",
+    },
     branchLocations: {
       amiad: { address: "מושב עמיעד", directions: "חניה בכניסה" },
       kiryat_shmona: { address: "שדרות תל חי 12", directions: "קומה 2, דלת ימין" },
@@ -130,5 +140,27 @@ assert.equal(placed.addressText, "שדרות תל חי 12");
 assert.equal(placed.directionsText, "קומה 2, דלת ימין");
 assert.match(placed.servicesText, /קריית שמונה/);
 assert.doesNotMatch(placed.addressText, /עמיעד/);
+assert.equal(placed.schedulePublicUrl, "https://sched.example/ks");
+assert.equal(placed.scheduleScanImageUrl, "https://img.example/ks.png");
+assert.equal((placed as { activeDualBranch?: string }).activeDualBranch, "kiryat_shmona");
+
+const amiadPlaced = applyDualBranchToKnowledge(
+  {
+    arboxLink: "",
+    schedulePublicUrl: "",
+    scheduleScanImageUrl: "",
+    addressText: "",
+    directionsText: "",
+    servicesText: "",
+    salesFlowServices: [],
+    branchScheduleImageUrls: {
+      amiad: "https://img.example/amiad.png",
+      kiryat_shmona: "https://img.example/ks.png",
+    },
+  },
+  "amiad"
+);
+assert.equal(amiadPlaced.scheduleScanImageUrl, "https://img.example/amiad.png");
+assert.equal((amiadPlaced as { activeDualBranch?: string }).activeDualBranch, "amiad");
 
 console.log("dual-branch: ok");

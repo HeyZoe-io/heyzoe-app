@@ -19,6 +19,17 @@ assert.deepEqual(resolveSfServicePriceDuration({ priceText: "80", durationText: 
   durationText: "50",
 });
 
+assert.deepEqual(
+  resolveSfServicePriceDuration(
+    { priceText: "", durationText: "", offerKind: "trial" },
+    [
+      { priceText: "120", durationText: "60", offerKind: "workshop" },
+      { priceText: "70", durationText: "45", offerKind: "trial" },
+    ]
+  ),
+  { priceText: "70", durationText: "45" }
+);
+
 assert.equal(isSfServiceUnsetForCta("", 3), true);
 assert.equal(isSfServiceUnsetForCta("  ", 2), true);
 assert.equal(isSfServiceUnsetForCta("POWER & HIIT", 3), false);
