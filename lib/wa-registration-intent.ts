@@ -1,4 +1,5 @@
 import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
+import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
 import { lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
 import {
@@ -122,8 +123,25 @@ export const CLASS_MOVE_CLARIFY_MODEL = "class_move_clarify";
 export const CLASS_MOVE_TRIAL_HANDOFF_MODEL = "class_move_trial_team_handoff";
 export const RESCHEDULE_MEMBER_BY_FLAG_MODEL = "reschedule_member_by_flag";
 
+export const RESCHEDULE_UNKNOWN_TEAM_REPLY =
+  "אין לי את היכולת לעשות את זה אבל אני מעבירה לצוות שידאגו לך סבבה?";
+export const RESCHEDULE_UNKNOWN_TEAM_MODEL = "reschedule_unknown_team_handoff";
+export const REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL = "registration_intent_member_by_flag";
+export const REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL = "registration_intent_member_help_handoff";
+
+/** Known member skips «האם יש מנוי קיים?» and gets the existing app-registration copy. */
+export function registrationIntentMemberFlagReply(
+  arboxIsMember: boolean | null | undefined
+): { reply: string; model: string } | null {
+  if (arboxIsMember !== true) return null;
+  return {
+    reply: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+    model: REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL,
+  };
+}
+
 export type ArboxClassMoveOutcome = {
-  kind: "ask" | "member" | "trial_team";
+  kind: "ask" | "member" | "trial_team" | "team_handoff";
   reply: string;
   model: string;
   notifyTeam: boolean;
@@ -172,28 +190,49 @@ export function resolveArboxClassMoveOutcome(
 }
 
 /**
- * Known member (contacts.arbox_is_member === true) skips the member-or-trial question
- * and uses the existing member reply. false and null still ask. An explicit trial or
- * member tag from the route is left as-is.
+ * Reschedule no longer asks member-vs-trial.
+ * A known Arbox member gets the existing member reply. Anyone else, including a
+ * non-Arbox business, gets the team handoff. The handoff fires now; «סבבה?» is not a confirm step.
  */
 export function resolveRescheduleWithMemberFlag(
   raw: string,
   opts?: {
     knowledge?: ClosedPlaybookKnowledge | null;
-    stated?: "member" | "trial" | null;
     arboxIsMember?: boolean | null;
+    /** false = non-Arbox. Omitted means the caller already applied that. */
+    hasArboxConnection?: boolean;
   }
 ): ArboxClassMoveOutcome {
-  const stated = opts?.stated ?? null;
-  const skipQuestion = stated == null && opts?.arboxIsMember === true;
-  const outcome = resolveArboxClassMoveOutcome(raw, {
-    knowledge: opts?.knowledge,
-    stated: skipQuestion ? "member" : stated,
-  });
-  if (skipQuestion && outcome.kind === "member") {
-    return { ...outcome, model: RESCHEDULE_MEMBER_BY_FLAG_MODEL };
+  const knownMember = opts?.arboxIsMember === true && opts?.hasArboxConnection !== false;
+  if (knownMember) {
+    const member = arboxClassMoveMemberReply(raw, opts?.knowledge);
+    return {
+      kind: "member",
+      reply: member.reply,
+      model: RESCHEDULE_MEMBER_BY_FLAG_MODEL,
+      notifyTeam: false,
+    };
   }
-  return outcome;
+  return {
+    kind: "team_handoff",
+    reply: RESCHEDULE_UNKNOWN_TEAM_REPLY,
+    model: RESCHEDULE_UNKNOWN_TEAM_MODEL,
+    notifyTeam: true,
+  };
+}
+
+/**
+ * The message after registration_intent_member_by_flag.
+ * Help, a failed attempt, or yes → team handoff. Only used when that model was the last reply.
+ */
+export function registrationMemberFlagFollowupNeedsHandoff(raw: string): boolean {
+  const t = normalizeRegistrationIntentText(raw);
+  if (!t) return false;
+  if (classifyRegistrationIntentMembershipReply(raw) === "yes") return true;
+  if (/עזרה/u.test(t)) return true;
+  if (/לא\s+הצליח/u.test(t)) return true;
+  if (isRegistrationFailedInquiry(raw)) return true;
+  return false;
 }
 
 function inboundMentionsExistingPurchase(raw: string): boolean {

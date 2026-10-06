@@ -11,12 +11,19 @@ import {
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
   REGISTRATION_INTENT_CLARIFY_QUESTION,
+  REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+  REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL,
+  registrationIntentMemberFlagReply,
+  registrationMemberFlagFollowupNeedsHandoff,
   resolveArboxClassMoveOutcome,
   resolveRescheduleWithMemberFlag,
   RESCHEDULE_MEMBER_BY_FLAG_MODEL,
+  RESCHEDULE_UNKNOWN_TEAM_MODEL,
+  RESCHEDULE_UNKNOWN_TEAM_REPLY,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
 } from "@/lib/wa-registration-intent";
+import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
@@ -210,16 +217,27 @@ assert.equal(flaggedMember.model, RESCHEDULE_MEMBER_BY_FLAG_MODEL);
 assert.equal(flaggedMember.notifyTeam, false);
 
 const flaggedFalse = resolveRescheduleWithMemberFlag(vague, { arboxIsMember: false });
-assert.equal(flaggedFalse.kind, "ask");
-assert.equal(flaggedFalse.reply, REGISTRATION_INTENT_CLARIFY_QUESTION);
-assert.equal(flaggedFalse.model, CLASS_MOVE_CLARIFY_MODEL);
+assert.equal(flaggedFalse.kind, "team_handoff");
+assert.equal(flaggedFalse.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(flaggedFalse.model, RESCHEDULE_UNKNOWN_TEAM_MODEL);
+assert.equal(flaggedFalse.notifyTeam, true);
 
 const flaggedNull = resolveRescheduleWithMemberFlag(vague, { arboxIsMember: null });
-assert.equal(flaggedNull.kind, "ask");
-assert.equal(flaggedNull.model, CLASS_MOVE_CLARIFY_MODEL);
+assert.equal(flaggedNull.kind, "team_handoff");
+assert.equal(flaggedNull.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(flaggedNull.notifyTeam, true);
 
 const flaggedMissing = resolveRescheduleWithMemberFlag(vague);
-assert.equal(flaggedMissing.kind, "ask");
+assert.equal(flaggedMissing.kind, "team_handoff");
+assert.equal(flaggedMissing.notifyTeam, true);
+
+const flaggedNonArbox = resolveRescheduleWithMemberFlag(vague, {
+  arboxIsMember: true,
+  hasArboxConnection: false,
+});
+assert.equal(flaggedNonArbox.kind, "team_handoff");
+assert.equal(flaggedNonArbox.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(flaggedNonArbox.notifyTeam, true);
 
 const flaggedFact = resolveRescheduleWithMemberFlag(vague, {
   arboxIsMember: true,
@@ -231,19 +249,16 @@ const flaggedFact = resolveRescheduleWithMemberFlag(vague, {
 assert.equal(flaggedFact.kind, "member");
 assert.match(flaggedFact.reply, /3 שעות/);
 assert.equal(flaggedFact.model, RESCHEDULE_MEMBER_BY_FLAG_MODEL);
+assert.equal(flaggedFact.notifyTeam, false);
 
-const flaggedTrialAnswer = resolveRescheduleWithMemberFlag("זה אימון ניסיון", {
-  stated: "trial",
-  arboxIsMember: true,
-});
-assert.equal(flaggedTrialAnswer.kind, "trial_team");
-assert.equal(flaggedTrialAnswer.model, "class_move_trial_team_handoff");
-
-const flaggedAlreadyMember = resolveRescheduleWithMemberFlag(vague, {
-  stated: "member",
-  arboxIsMember: true,
-});
-assert.equal(flaggedAlreadyMember.kind, "member");
-assert.equal(flaggedAlreadyMember.model, BOOKED_CLASS_MOVE_APP_MODEL);
+const memberRegistration = registrationIntentMemberFlagReply(true);
+assert.equal(memberRegistration?.reply, REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY);
+assert.equal(memberRegistration?.model, REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL);
+assert.equal(registrationIntentMemberFlagReply(false), null);
+assert.equal(registrationIntentMemberFlagReply(null), null);
+assert.equal(registrationMemberFlagFollowupNeedsHandoff("צריך עזרה"), true);
+assert.equal(registrationMemberFlagFollowupNeedsHandoff("לא הצליח"), true);
+assert.equal(registrationMemberFlagFollowupNeedsHandoff("כן"), true);
+assert.equal(isRegistrationFailedInquiry("לא הצליח"), false);
 
 console.log("wa-registration-intent.test.ts: ok");

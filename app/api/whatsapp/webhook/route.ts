@@ -234,7 +234,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage, mayHandleSalesFlowCtaMenu, assistantModelsShowCurrentFlowTrainings } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage, mayHandleSalesFlowCtaMenu, assistantModelsShowCurrentFlowTrainings, memberSalesFlowStartGate } from "@/lib/sales-flow-start-triggers";
 import {
   buildOwnerAddressedGreetingReply,
   parseOwnerAddressedGreeting,
@@ -362,8 +362,12 @@ import {
   REGISTRATION_INTENT_CLARIFY_QUESTION,
   REGISTRATION_INTENT_HAS_MEMBER_MODEL,
   REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+  REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL,
+  REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL,
   REGISTRATION_INTENT_NO_MEMBER_MODEL,
   REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+  registrationIntentMemberFlagReply,
+  registrationMemberFlagFollowupNeedsHandoff,
 } from "@/lib/wa-registration-intent";
 import {
   assistantAskedMembershipOrTrialClarify,
@@ -1329,6 +1333,7 @@ async function recoverUnrecognizedMenuPick(input: {
   blockTrialPickMedia: boolean;
   sendOpeningMediaIfConfigured: () => Promise<boolean>;
   logModelUsed: string;
+  knownMember?: boolean;
 }): Promise<void> {
   if (input.knowledge?.salesFlowConfig && input.businessId && input.knowledge.warmupSessionEnabled !== false) {
     try {
@@ -1447,6 +1452,14 @@ async function recoverUnrecognizedMenuPick(input: {
     } catch (e) {
       console.error("[WA Webhook] menu pick recovery resend after started-flow failed:", e);
     }
+    return;
+  }
+
+  if (input.knownMember) {
+    console.info("[WA Webhook] menu pick recovery: known member — no sales-flow restart", {
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+    });
     return;
   }
 
@@ -7500,8 +7513,25 @@ async function processIncoming(
   let releasePreClaude: (() => void) | null = null;
   let skippedPreClaude = false;
   let salesFlowStarted = false;
+  let salesFlowStartedLoaded = false;
   let lastAssistForWarmupPriority: string | null = null;
   let sendOpeningMediaIfConfigured: () => Promise<boolean> = async () => false;
+  const ensureSalesFlowStarted = async (): Promise<boolean> => {
+    if (!salesFlowStartedLoaded) {
+      salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+      salesFlowStartedLoaded = true;
+    }
+    return salesFlowStarted;
+  };
+  const memberBlocksNewSalesFlow = async (): Promise<boolean> => {
+    if (contactArboxIsMember !== true) return false;
+    return (
+      memberSalesFlowStartGate({
+        arboxIsMember: contactArboxIsMember,
+        salesFlowInProgress: await ensureSalesFlowStarted(),
+      }) === "block_start"
+    );
+  };
   try {
     const preClaudeLabels =
       msg.type === "text"
@@ -7709,6 +7739,7 @@ async function processIncoming(
         }) &&
         !detectClosedPlaybookIntent(msg.text)
       ) {
+      if (!(await memberBlocksNewSalesFlow())) {
       try {
         await beginSalesFlowAtProductPick({
           entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
@@ -7730,6 +7761,7 @@ async function processIncoming(
         console.error("[WA Webhook] try-class offer → product pick failed:", e);
       }
       return;
+      }
     }
     if (shouldDeclineTryClassOffer({ inbound: msg.text, lastAssistantModel: lastAssistForTryOffer })) {
       await sendTryClassInfoOfferDecline({
@@ -8001,8 +8033,9 @@ async function processIncoming(
     const qaPair = lookupKnowledgeQaAnswerForInbound(knowledge.knowledgeQa, msg.text);
     const qaReply = qaPair ? leadFacingFactText(qaPair.answer).trim() : "";
     const trialSignupAck = trialSignupAckForInbound(msg.text);
+    const blockTrialFlowStart = advanceTrial && (await memberBlocksNewSalesFlow());
 
-    if (qaReply || (advanceTrial && salesFlowServices.length >= 1)) {
+    if (qaReply || (advanceTrial && salesFlowServices.length >= 1 && !blockTrialFlowStart)) {
       try {
         if (qaReply && !trialSignupAck) {
           await sendWhatsAppMessage(msg.toNumber, msg.from, qaReply, accountSid, authToken);
@@ -8014,7 +8047,7 @@ async function processIncoming(
             session_id: sessionId,
           });
         }
-        if (advanceTrial) {
+        if (advanceTrial && !blockTrialFlowStart) {
           const started = await beginSalesFlowAtProductPick({
             entryModel: TRIAL_TOPIC_FLOW_ENTRY_MODEL,
             entryContent: "[heyzoe:trial_topic_flow_entry]",
@@ -8095,17 +8128,20 @@ async function processIncoming(
     });
     if (playbook && isDemotedClosedPlaybook(playbook.category)) {
       fastPathHint = fastPathHint ?? { matcher: "closed_playbook", category: playbook.category };
-    } else if (playbook) {
+    } else if (playbook && !(playbook.source === "catalog" && (await memberBlocksNewSalesFlow()))) {
       if (
         playbook.source === "catalog" &&
         playbook.catalogServiceName &&
         knowledge.salesFlowConfig
       ) {
         try {
-          const salesFlowStartedForCatalog = await sessionHasSalesFlowGreeting(
-            business_slug,
-            sessionId
-          );
+          const salesFlowStartedForCatalog = salesFlowStartedLoaded
+            ? salesFlowStarted
+            : await sessionHasSalesFlowGreeting(business_slug, sessionId);
+          if (!salesFlowStartedLoaded) {
+            salesFlowStarted = salesFlowStartedForCatalog;
+            salesFlowStartedLoaded = true;
+          }
           if (!salesFlowStartedForCatalog) {
             await resetContactSalesFlowStateForGreeting({
               supabase,
@@ -8272,6 +8308,45 @@ async function processIncoming(
     userRequestedHumanAgent(msg.text.trim())
   ) {
     fastPathHint = { matcher: "human_agent", category: "human_agent" };
+  }
+
+  // After the member-registration app copy, help / failure / yes goes to the team
+  // before a registration-failed hint can send her back to an Arbox lookup.
+  if (isSalesFlowFreeTextInbound(msg) && registrationMemberFlagFollowupNeedsHandoff(msg.text)) {
+    const lastForMemberRegistration = modelUsedBase(
+      await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
+    );
+    if (lastForMemberRegistration === REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL) {
+      if (businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] registration member-flag help handoff failed:", e);
+        }
+      }
+      const helpReply = buildSalesFlowHumanAgentHandoffReply(knowledge?.customerServicePhone ?? "");
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, helpReply, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send registration member-flag help failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: helpReply,
+        model_used: REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL,
+        session_id: sessionId,
+      });
+      return;
+    }
   }
 
   // Read-only Arbox membership lookup — hint until Claude agrees.
@@ -9217,7 +9292,7 @@ async function processIncoming(
 
   // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
   // פיפמן: כל הודעה מליד שעוד לא נכנס לפלואו פותחת אותו.
-  salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+  salesFlowStarted = await ensureSalesFlowStarted();
   const openingFlowActive = salesFlowStarted;
   const salesFlowStartOpts = { slug: business_slug, businessName: knowledge?.businessName };
   const pipmanNewLeadOpensFlow =
@@ -9230,9 +9305,10 @@ async function processIncoming(
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
     if (
-      isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
-      wantsRussianFlowRestart ||
-      pipmanNewLeadOpensFlow
+      contactArboxIsMember !== true &&
+      (isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
+        wantsRussianFlowRestart ||
+        pipmanNewLeadOpensFlow)
     ) {
       // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({
@@ -9440,6 +9516,28 @@ async function processIncoming(
     contactTrialRegistered !== true &&
     matchesRegistrationIntentPhrase(msg.text)
   ) {
+    const memberRegistration = registrationIntentMemberFlagReply(contactArboxIsMember);
+    if (memberRegistration) {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          memberRegistration.reply,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send registration member-by-flag failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: memberRegistration.reply,
+        model_used: memberRegistration.model,
+        session_id: sessionId,
+      });
+      return;
+    }
     fastPathHint = fastPathHint ?? { matcher: "registration_clarify", category: "registration_clarify" };
   }
 
@@ -9738,7 +9836,8 @@ async function processIncoming(
     contactSessionPhase !== "registered" &&
     (contactSessionPhase === "opening" || !salesFlowStarted) &&
     !isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority) &&
-    looksLikeOutOfFlowCatalogClassPick(msg.text)
+    looksLikeOutOfFlowCatalogClassPick(msg.text) &&
+    !(contactArboxIsMember === true && !salesFlowStarted)
   ) {
     const familyNames = matchCatalogServicesSharingDistinctiveToken(msg.text, salesFlowServices);
     const uniqueNames = matchCatalogServicesFromFreeText(msg.text, salesFlowServices);
@@ -12261,6 +12360,7 @@ async function processIncoming(
       blockTrialPickMedia: starterBlocksMedia,
       sendOpeningMediaIfConfigured,
       logModelUsed: "predefined_choice_guard",
+      knownMember: contactArboxIsMember === true,
     });
     return;
   } else if (isWarmupSkipIntent && knowledge?.salesFlowConfig && businessId) {
@@ -12674,6 +12774,7 @@ async function processIncoming(
         blockTrialPickMedia: starterBlocksMedia,
         sendOpeningMediaIfConfigured,
         logModelUsed: "interactive_reply_claude_leak_guard",
+        knownMember: contactArboxIsMember === true,
       });
       return;
     }
@@ -13264,7 +13365,10 @@ async function processIncoming(
       } else if (hintCategory === "registration_clarify") {
         await sendClosed(REGISTRATION_INTENT_CLARIFY_QUESTION, REGISTRATION_INTENT_CLARIFY_MODEL);
         return;
-      } else if (hintCategory === "registration_no_member" || hintCategory === "signup") {
+      } else if (
+        (hintCategory === "registration_no_member" || hintCategory === "signup") &&
+        !(contactArboxIsMember === true && !salesFlowStarted)
+      ) {
         if (hintCategory === "registration_no_member") {
           await sendClosed(REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY, REGISTRATION_INTENT_NO_MEMBER_MODEL);
         }
@@ -13506,6 +13610,7 @@ async function processIncoming(
       const startFlow =
         explicitSignup &&
         !alreadyInFlow &&
+        contactArboxIsMember !== true &&
         contactTrialRegistered !== true &&
         contactSessionPhase !== "registered";
       if (startFlow) {
@@ -13663,23 +13768,16 @@ async function processIncoming(
       return;
     }
     if (
-      knowledge.hasArboxConnection === true &&
       waReplyRoute.tagStatus === "ok" &&
       (waReplyRoute.route === "class_move" ||
         waReplyRoute.route === "class_move_member" ||
         waReplyRoute.route === "class_move_trial")
     ) {
-      const stated =
-        waReplyRoute.route === "class_move_member"
-          ? "member"
-          : waReplyRoute.route === "class_move_trial"
-            ? "trial"
-            : null;
       await deliverArboxClassMoveOutcome({
         outcome: resolveRescheduleWithMemberFlag(msg.text, {
           knowledge,
-          stated,
           arboxIsMember: contactArboxIsMember,
+          hasArboxConnection: knowledge.hasArboxConnection === true,
         }),
         msg,
         accountSid,
@@ -13692,12 +13790,7 @@ async function processIncoming(
       });
       return;
     }
-    const nonArboxClassMove =
-      knowledge.hasArboxConnection !== true &&
-      (routeAction.kind === "class_move" ||
-        routeAction.kind === "class_move_member" ||
-        routeAction.kind === "class_move_trial");
-    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff" || nonArboxClassMove) {
+    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff") {
       let outbound =
         routeAction.kind === "handoff" && replyCoreClean.trim()
           ? replyCoreClean.trim()

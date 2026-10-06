@@ -390,3 +390,18 @@ export function mayHandleSalesFlowCtaMenu(input: {
   if (input.sessionPhase === "warmup") return false;
   return input.salesFlowStarted === true && input.productsPresented === true;
 }
+
+/**
+ * Known members do not start or reset a sales flow.
+ * An in-progress flow is left to its current step. false and null stay on today's path.
+ */
+export type MemberSalesFlowStartGate = "allow" | "block_start" | "leave_in_progress";
+
+export function memberSalesFlowStartGate(input: {
+  arboxIsMember?: boolean | null;
+  salesFlowInProgress: boolean;
+}): MemberSalesFlowStartGate {
+  if (input.arboxIsMember !== true) return "allow";
+  if (input.salesFlowInProgress) return "leave_in_progress";
+  return "block_start";
+}

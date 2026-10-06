@@ -12,6 +12,7 @@ import {
   salesFlowGreetingMarkerCountsAsStarted,
   sessionCountsAsSalesFlowStarted,
   mayHandleSalesFlowCtaMenu,
+  memberSalesFlowStartGate,
   businessStartsSalesFlowOnHi,
   businessOpensSalesFlowOnAnyNewLeadMessage,
   businessUsesConversationFollowupNodes,
@@ -265,5 +266,10 @@ assert.equal(
 );
 assert.equal(assistantModelsShowCurrentFlowTrainings(["sales_flow_cta"]), true);
 assert.equal(assistantModelsShowCurrentFlowTrainings(["claude-haiku-4-5"]), false);
+
+assert.equal(memberSalesFlowStartGate({ arboxIsMember: true, salesFlowInProgress: false }), "block_start");
+assert.equal(memberSalesFlowStartGate({ arboxIsMember: true, salesFlowInProgress: true }), "leave_in_progress");
+assert.equal(memberSalesFlowStartGate({ arboxIsMember: false, salesFlowInProgress: false }), "allow");
+assert.equal(memberSalesFlowStartGate({ arboxIsMember: null, salesFlowInProgress: false }), "allow");
 
 console.log("sales-flow-start-triggers.test.ts: ok");
