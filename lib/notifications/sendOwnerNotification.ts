@@ -144,7 +144,17 @@ export async function sendBusinessTemplate(input: {
     }
   }
 
-  if (isArboxDailyDryRun()) return { ok: true };
+  if (isArboxDailyDryRun()) {
+    const params = (input.components ?? []).flatMap((component) =>
+      component.type === "body" ? component.parameters.map((parameter) => parameter.text) : []
+    );
+    console.info("[dry-run] template", {
+      templateName,
+      phone: to.slice(-4),
+      params,
+    });
+    return { ok: true };
+  }
 
   if (
     await outboundSendsHeld({

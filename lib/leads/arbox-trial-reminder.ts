@@ -1102,6 +1102,8 @@ export async function syncArboxTrialReminderForBusiness(input: {
         user_id: userId,
         class_date: classDateYmd,
         class_time: classTime,
+        class_name: className,
+        full_name: resolveReportFullName(row),
         phone: maskPhoneForLog(resolved.phone),
         dispatch: send.dispatch,
       });

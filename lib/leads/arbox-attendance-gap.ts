@@ -899,6 +899,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           user_id: state.userId,
           gap_days: state.gapDays,
           gap_start: state.lastYesYmd,
+          full_name: resolveReportFullName(state.sampleRow),
           contact: maskPhoneForLog(resolved.phone),
           dispatch: sendDispatch,
           status: next.status,

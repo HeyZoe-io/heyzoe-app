@@ -1082,6 +1082,7 @@ export async function syncArboxFreezeForBusiness(input: {
               user_id: userId,
               full_name: resolveHoldFullName(row),
               contact_name: sendContact.full_name ?? null,
+              phone: sendPhone.slice(-4),
               start: startYmd,
               end: endYmd,
               dispatch: sendDispatch,
@@ -1334,6 +1335,7 @@ export async function syncArboxFreezeForBusiness(input: {
         user_id: userId,
         full_name: resolveHoldFullName(row),
         contact_name: sendContact.full_name ?? null,
+        phone: sendPhone.slice(-4),
         end: endYmd,
         dispatch: sendDispatch,
       });
