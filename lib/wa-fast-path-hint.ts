@@ -48,7 +48,21 @@ export function decideHintAction(input: {
   if (!input.hint) return "ignore_hint";
   const route = input.extracted.route;
   const tagStatus = input.extracted.tagStatus;
-  if (input.hint.category === "schedule") return "ignore_hint";
+  if (input.hint.category === "schedule" || input.hint.category === "day_timetable") {
+    return "ignore_hint";
+  }
+  if (input.hint.category === "registration_verify") {
+    return tagStatus === "ok" && route === "registration_check" ? "use_hint" : "ignore_hint";
+  }
+  if (input.hint.category === "schedule_lookup") {
+    return tagStatus === "ok" && route === "my_schedule" ? "use_hint" : "ignore_hint";
+  }
+  if (
+    input.hint.category === "membership_lookup" ||
+    input.hint.category === "membership_lookup_followup"
+  ) {
+    return tagStatus === "ok" && route === "handoff" ? "use_hint" : "ignore_hint";
+  }
   if (input.hint.category === "signup") {
     return tagStatus === "ok" && route === "signup" ? "use_hint" : "ignore_hint";
   }

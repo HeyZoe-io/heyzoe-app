@@ -124,6 +124,16 @@ import {
   isDemotedClosedPlaybook,
   type FastPathHint,
 } from "@/lib/wa-fast-path-hint";
+import { lastClosedOutboundRepeats } from "@/lib/wa-closed-copy-loop";
+import { collectPreClaudeHint } from "@/lib/wa-pre-claude-hint";
+import {
+  allowPreClaudeSends,
+  enterPreClaudeZone,
+  exitPreClaudeZone,
+  isWholeMessageOpeningTrigger,
+  resolveSendBeforeClaudeReason,
+  wholeMessageMatchesLabel,
+} from "@/lib/wa-send-before-claude";
 import {
   applyCallScheduleCtaLabelOverride,
   CALL_SCHEDULE_CTA_LABEL,
@@ -7479,6 +7489,48 @@ async function processIncoming(
     }
   }
 
+  enterPreClaudeZone();
+  let fastPathHint: FastPathHint | null = null;
+  let releasePreClaude: (() => void) | null = null;
+  let skippedPreClaude = false;
+  let salesFlowStarted = false;
+  let lastAssistForWarmupPriority: string | null = null;
+  let sendOpeningMediaIfConfigured: () => Promise<boolean> = async () => false;
+  try {
+    const preClaudeLabels =
+      msg.type === "text"
+        ? [
+            ...salesFlowServices.map((service) => service.name),
+            ...(knowledge?.salesFlowConfig
+              ? collectSalesFlowCtaChoiceLabels(
+                  knowledge.salesFlowConfig,
+                  resolveBusinessContentLanguageFromKnowledge(knowledge)
+                )
+              : []),
+          ]
+        : [];
+    const preClaudeReason =
+      msg.type !== "text"
+        ? ("interactive_reply" as const)
+        : resolveSendBeforeClaudeReason({
+            text: msg.text,
+            interactiveId: msg.metaInteractiveReplyId,
+            interactiveKind: msg.metaInteractiveReplyKind,
+            openingTrigger: isWholeMessageOpeningTrigger(msg.text, {
+              slug: business_slug,
+              businessName: knowledge?.businessName,
+            }),
+            matchesMenuLabel: wholeMessageMatchesLabel(msg.text, preClaudeLabels),
+            warmupOption: false,
+          });
+    releasePreClaude = preClaudeReason ? allowPreClaudeSends(preClaudeReason) : null;
+    customerPreClaude: {
+      if (!preClaudeReason && msg.type === "text") {
+        fastPathHint = collectPreClaudeHint(msg.text);
+        skippedPreClaude = true;
+        break customerPreClaude;
+      }
+
   // בקשת נציג — הודעת «אין בעיה» פעם אחת. זואי ממשיכה לענות על שאלות;
   // מילת פתיחה («אשמח לפרטים») מפעילה מחדש את פלואו המכירה.
   if (
@@ -7852,9 +7904,8 @@ async function processIncoming(
     }
   }
 
-  // Keyword hits below record a hint and continue to the one Claude call.
-  // A kept matcher still returns on its own.
-  let fastPathHint: FastPathHint | null = null;
+  // Keyword hits below record a hint when an allow-listed pre-Claude path is running.
+  // Free text with no allow-list reason already broke out above and never reaches these sends.
 
   // Out-of-flow signup used to open the sales flow before Claude.
   // It is a hint now. The flow starts only if Claude tags signup.
@@ -9106,7 +9157,7 @@ async function processIncoming(
     }
   }
 
-  const sendOpeningMediaIfConfigured = async (): Promise<boolean> => {
+  sendOpeningMediaIfConfigured = async (): Promise<boolean> => {
     if (starterBlocksMedia) return false;
     const mediaUrl = knowledge?.openingMediaUrl?.trim() ?? "";
     if (!mediaUrl) return false;
@@ -9160,7 +9211,7 @@ async function processIncoming(
 
   // פלואו מכירה מתחיל רק ממילות הפתיחה שהוגדרו — לא מכל הודעה ראשונה (למשל «תודה»).
   // פיפמן: כל הודעה מליד שעוד לא נכנס לפלואו פותחת אותו.
-  const salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+  salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
   const openingFlowActive = salesFlowStarted;
   const salesFlowStartOpts = { slug: business_slug, businessName: knowledge?.businessName };
   const pipmanNewLeadOpensFlow =
@@ -9244,7 +9295,7 @@ async function processIncoming(
     }
   }
 
-  const lastAssistForWarmupPriority = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+  lastAssistForWarmupPriority = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
 
   // 0.18) Booking-lookup yes/no — after short clarify (or Claude's long version of it).
   if (
@@ -11956,6 +12007,12 @@ async function processIncoming(
     }
   }
 
+    } // customerPreClaude
+  } finally {
+    releasePreClaude?.();
+    exitPreClaudeZone();
+  }
+
   // ── Quick-reply vs. "other question" routing ────────────────────────────────
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
@@ -12178,7 +12235,7 @@ async function processIncoming(
     // Static answer for a predefined quick-reply button
     replyCore = matched.reply;
     console.info(`[WA Webhook] Quick-reply match: "${matched.label}" → static response`);
-  } else if (matchedMenuGuardLabel) {
+  } else if (!skippedPreClaude && matchedMenuGuardLabel) {
     await recoverUnrecognizedMenuPick({
       knowledge,
       salesFlowServices,
@@ -12218,7 +12275,7 @@ async function processIncoming(
       instagramFollowPromptSent: contactInstagramFollowPromptSent,
     });
     return;
-  } else if (joinSignupRecovery === "service_pick" && knowledge?.salesFlowConfig && businessId) {
+  } else if (!skippedPreClaude && joinSignupRecovery === "service_pick" && knowledge?.salesFlowConfig && businessId) {
     const phoneVariants = contactPhoneLookupVariants(msg.from);
     await supabase
       .from("contacts")
@@ -12240,6 +12297,7 @@ async function processIncoming(
     });
     return;
   } else if (
+    !skippedPreClaude &&
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
     businessId &&
@@ -12281,7 +12339,7 @@ async function processIncoming(
       modelUsed: "sales_flow_cta_repick_service_menu",
     });
     return;
-  } else if (joinSignupRecovery === "cta_menu" && knowledge?.salesFlowConfig && businessId) {
+  } else if (!skippedPreClaude && joinSignupRecovery === "cta_menu" && knowledge?.salesFlowConfig && businessId) {
     // Same full-vs-compact helper as every other CTA send (flag 1 → compact, not a second full session).
     await sendSalesFlowCtaMenuWithPhaseUpdate({
       knowledge,
@@ -12303,6 +12361,7 @@ async function processIncoming(
     contactFlowStep = 0;
     return;
   } else if (
+    !skippedPreClaude &&
     !fastPathHint &&
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
@@ -12422,6 +12481,7 @@ async function processIncoming(
 
     // Last chance: awaiting product pick + free-text catalog match — never Claude.
     if (
+      !skippedPreClaude &&
       isFreeTextSalesFlowAi &&
       knowledge?.salesFlowConfig &&
       businessId &&
@@ -12548,7 +12608,7 @@ async function processIncoming(
       }
     }
 
-    if (msg.type === "text" && isMetaInteractiveMenuReply(msg)) {
+    if (!skippedPreClaude && msg.type === "text" && isMetaInteractiveMenuReply(msg)) {
       if (
         knowledge?.salesFlowConfig &&
         knowledge.warmupSessionEnabled !== false &&
@@ -13128,16 +13188,27 @@ async function processIncoming(
       const hintCategory = fastPathHint.category;
       const hintedModel = (base: string) => appendRouteToModelUsed(base, waReplyRoute, hintCategory);
       const sendClosed = async (text: string, modelBase: string) => {
+        const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+        const repeated = await lastClosedOutboundRepeats({
+          admin: supabase,
+          businessSlug: business_slug,
+          sessionId,
+          text,
+        });
+        const sameAsHandoff =
+          text.replace(/\s+/g, " ").trim() === handoffText.replace(/\s+/g, " ").trim();
+        const outbound = repeated && !sameAsHandoff ? handoffText : text;
+        if (repeated) await notifyTeam();
         try {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, text, accountSid, authToken);
+          await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
         } catch (e) {
           console.error(`[WA Webhook] confirmed hint ${hintCategory} send failed:`, e);
         }
         await logMessage({
           business_slug,
           role: "assistant",
-          content: text,
-          model_used: hintedModel(modelBase),
+          content: outbound,
+          model_used: hintedModel(repeated ? "wa_closed_copy_repeat_handoff" : modelBase),
           session_id: sessionId,
         });
       };
@@ -13298,6 +13369,81 @@ async function processIncoming(
         }
         return;
       }
+    }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "registration_check") {
+      const verifyText = ARBOX_REGISTRATION_VERIFY_REPLY;
+      const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+      const repeated = await lastClosedOutboundRepeats({
+        admin: supabase,
+        businessSlug: business_slug,
+        sessionId,
+        text: verifyText,
+      });
+      const outbound =
+        repeated && verifyText.replace(/\s+/g, " ").trim() !== handoffText.replace(/\s+/g, " ").trim()
+          ? handoffText
+          : verifyText;
+      if (repeated && businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] registration_check repeat human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] registration_check send failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: outbound,
+        model_used: appendRouteToModelUsed(
+          repeated ? "wa_closed_copy_repeat_handoff" : ARBOX_REGISTRATION_VERIFY_MODEL,
+          waReplyRoute,
+          fastPathHint?.category
+        ),
+        session_id: sessionId,
+      });
+      return;
+    }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "my_schedule" && businessId) {
+      const arboxCreds = await loadArboxScheduleLookupConnection({
+        supabase,
+        businessId: Number(businessId),
+      });
+      if (arboxCreds) {
+        const result = await lookupArboxScheduleByPhone({
+          apiKey: arboxCreds.apiKey,
+          boxId: arboxCreds.boxId,
+          lookupPhone: msg.from,
+          customerServicePhone: knowledge.customerServicePhone ?? "",
+          businessId: Number(businessId),
+          supabase,
+        });
+        await sendScheduleLookupReply({
+          result,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+          modelUsed: appendRouteToModelUsed(result.modelUsed, waReplyRoute, fastPathHint?.category),
+        });
+      }
+      return;
     }
     if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "personal") {
       try {
@@ -13524,10 +13670,25 @@ async function processIncoming(
         routeAction.kind === "class_move_member" ||
         routeAction.kind === "class_move_trial");
     if (routeAction.kind === "booking_change" || routeAction.kind === "handoff" || nonArboxClassMove) {
-      const outbound =
+      let outbound =
         routeAction.kind === "handoff" && replyCoreClean.trim()
           ? replyCoreClean.trim()
           : resolveRouteBookingChangeReply(knowledge);
+      let closedRepeat = false;
+      if (routeAction.kind !== "handoff") {
+        closedRepeat = await lastClosedOutboundRepeats({
+          admin: supabase,
+          businessSlug: business_slug,
+          sessionId,
+          text: outbound,
+        });
+        if (closedRepeat) {
+          const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+          if (outbound.replace(/\s+/g, " ").trim() !== handoffText.replace(/\s+/g, " ").trim()) {
+            outbound = handoffText;
+          }
+        }
+      }
       if (businessId) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -13553,7 +13714,11 @@ async function processIncoming(
         role: "assistant",
         content: outbound,
         model_used: appendRouteToModelUsed(
-          routeAction.kind === "handoff" ? "wa_route_handoff" : "class_reschedule_team_handoff",
+          closedRepeat
+            ? "wa_closed_copy_repeat_handoff"
+            : routeAction.kind === "handoff"
+              ? "wa_route_handoff"
+              : "class_reschedule_team_handoff",
           waReplyRoute,
           fastPathHint?.category
         ),

@@ -7,6 +7,7 @@ import {
   sortProductScheduleSlots,
 } from "@/lib/product-schedule-slots";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
+import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import {
   addIsraelDayLetter,
   formatIsraelDayMonth,
@@ -716,6 +717,7 @@ export async function tryBuildRelativeDayClassSlotsReply(
     now?: Date;
   } & ArboxOfferContext
 ): Promise<RelativeDayClassSlotsReply | null> {
+  guardPreClaudeOutbound("tryBuildRelativeDayClassSlotsReply");
   const phase = String(input.sessionPhase ?? "").trim();
   if (phase === "schedule_date" || phase === "schedule_time") return null;
 

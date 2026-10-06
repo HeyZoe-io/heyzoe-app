@@ -202,6 +202,27 @@ export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTrigg
   return matchesSalesFlowRestartIntent(text);
 }
 
+/**
+ * Whole message only. A details ask at the end of a longer sentence stays with Claude.
+ * Restart phrases are already capped at 72 characters inside matchesSalesFlowRestartIntent.
+ */
+export function isWholeMessageSalesFlowStart(text: string, opts?: SalesFlowStartTriggerOpts): boolean {
+  const normalized = normalizeSalesFlowGreetingToken(text);
+  if (!normalized || normalized.length > 80) return false;
+  if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
+  if (matchesOmersPlaceExtraStartTrigger(normalized, opts)) return true;
+  if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
+  const withoutGreeting = stripLeadingCasualGreeting(normalized);
+  if (
+    withoutGreeting !== normalized &&
+    withoutGreeting.length > 0 &&
+    SALES_FLOW_START_TRIGGERS.has(withoutGreeting)
+  ) {
+    return true;
+  }
+  return matchesSalesFlowRestartIntent(text);
+}
+
 /** «היי» לבד — ברכת זהות, בלי פלואו מכירה. */
 export function isCasualHiGreeting(text: string): boolean {
   const normalized = normalizeSalesFlowGreetingToken(text);

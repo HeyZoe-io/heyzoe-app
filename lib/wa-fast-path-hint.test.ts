@@ -38,6 +38,15 @@ assert.equal(decide("[[route:personal]]\nלא עניתי", "cancellation"), "ign
 assert.equal(decide("[[route:handoff]]\nתבטלי", "class_cancel"), "use_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", null), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", "schedule"), "ignore_hint");
+assert.equal(decide("[[route:registration_check]]\nכן", "registration_verify"), "use_hint");
+assert.equal(decide("[[route:booking_change]]\nאעביר", "registration_verify"), "ignore_hint");
+assert.equal(decide("בלי תג", "registration_verify"), "ignore_hint");
+assert.equal(decide("[[route:schedule]]\nלוח", "day_timetable"), "ignore_hint");
+assert.equal(decide("[[route:booking_change]]\nביטול", "day_timetable"), "ignore_hint");
+assert.equal(decide("בלי תג", "schedule_lookup"), "ignore_hint");
+assert.equal(decide("[[route:my_schedule]]\nמתי שלי", "schedule_lookup"), "use_hint");
+assert.equal(decide("בלי תג", "membership_lookup"), "ignore_hint");
+assert.equal(decide("[[route:handoff]]\nבדיקה", "membership_lookup"), "use_hint");
 
 const friend = "חברה שלי ביטלה ואני רוצה להצטרף במקומה";
 const cancel = "אני רוצה לבטל את המנוי";

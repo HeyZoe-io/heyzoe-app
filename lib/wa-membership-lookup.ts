@@ -21,6 +21,7 @@
  */
 
 import { arboxPublicFetch, searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
+import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { arboxFlagYes, formatDateYmdIsrael, parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
 import { normalizeIsraeliPhoneTail } from "@/lib/phone-normalize";
 
@@ -203,6 +204,7 @@ export async function lookupArboxMembershipByPhone(input: {
   lookupPhone: string;
   now?: Date;
 }): Promise<MembershipLookupReply> {
+  guardPreClaudeOutbound("lookupArboxMembershipByPhone");
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const lookupPhone = String(input.lookupPhone ?? "").trim();

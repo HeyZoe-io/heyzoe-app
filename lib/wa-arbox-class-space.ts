@@ -8,6 +8,7 @@ import { normalizeHhmm } from "@/lib/arbox-schedule-sync";
 import { getIsraelDayLetter, israelCalendarDatePlusDays, resolveNextOccurrence } from "@/lib/israel-time";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 import { hideClassFullness } from "@/lib/wa-class-full-policy";
+import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import {
   looksLikeClassSpaceQuestion,
   matchCatalogServicesFromFreeText,
@@ -176,6 +177,7 @@ export async function tryBuildArboxClassSpaceReply(input: {
   ignoreClassFullness?: boolean;
   rawDataFetcherImpl?: RawFetcher;
 }): Promise<string | null> {
+  guardPreClaudeOutbound("tryBuildArboxClassSpaceReply");
   const text = String(input.text ?? "").trim();
   if (!looksLikeClassSpaceQuestion(text)) return null;
   const now = input.now ?? new Date();

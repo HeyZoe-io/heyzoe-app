@@ -17,7 +17,7 @@ const CASES: Array<{ text: string; expected: Expected }> = [
   { text: "אני לא מצליחה לבטל באפליקציה את השיעור של מחר ב-19:00", expected: "booking_change" },
   { text: "היי תמחקו אותי בבקשה מהשיעור של יום ראשון הקרוב ותעבירו אותי ליום שני ב08.30 אי אפשר דרך האפליקציה", expected: "class_move" },
   { text: "תוציאו אותי מהשיעור של היום ותשימו אותי מחר בבוקר", expected: "class_move" },
-  { text: "נרשמתי בטעות ל-18:00, רציתי את השיעור של 19:30", expected: "class_move" },
+  { text: "נרשמתי בטעות ל-18:00, רציתי את השיעור של 19:30", expected: "booking_change" },
   { text: "אפשר להחליף לי את השיעור של ראשון לשלישי?", expected: "class_move" },
   { text: "לא מצליחה להיכנס לאפליקציה לבטל את מחר", expected: "booking_change" },
   { text: "תורידו אותי מהרשימה של חמישי ב-17:00", expected: "booking_change" },

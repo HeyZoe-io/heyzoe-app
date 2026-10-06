@@ -10,6 +10,7 @@
  */
 
 import { searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
+import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { canUseArboxScheduleLookup } from "@/lib/crm/types";
 import {
   fetchArboxBookingsReport,
@@ -283,6 +284,7 @@ export async function lookupArboxScheduleByPhone(input: {
   supabase?: ReturnType<typeof createSupabaseAdminClient>;
   now?: Date;
 }): Promise<ScheduleLookupReply> {
+  guardPreClaudeOutbound("lookupArboxScheduleByPhone");
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const lookupPhone = String(input.lookupPhone ?? "").trim();

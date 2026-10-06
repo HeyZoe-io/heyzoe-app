@@ -18,6 +18,7 @@ import {
   type BusinessContentLanguage,
 } from "@/lib/business-content-lang";
 import { sanitizeZoeDashes, sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
+import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { stripModelThoughtLeak, type ThoughtStripLog } from "@/lib/wa-model-thought-strip";
 import { applyStudioPurpleHeartPolicy, applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { isSendsHoldError, outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
@@ -1063,6 +1064,7 @@ export async function sendWhatsAppTextOrMenu(
   authToken: string,
   opts?: { footerHint?: string; language?: WaUiLanguage }
 ): Promise<void> {
+  guardPreClaudeOutbound("sendWhatsAppTextOrMenu");
   const labels = truncateWaButtonLabels(
     menuOptionLabels.map((label) => applyStudioPurpleHeartPolicy(label, { fromNumber }))
   );
@@ -1135,6 +1137,7 @@ export async function sendWhatsAppMessage(
   accountSid: string,
   authToken: string
 ): Promise<void> {
+  guardPreClaudeOutbound("sendWhatsAppMessage");
   text = applyStudioPurpleHeartPolicy(text, { fromNumber });
   const stripped = freeTextAfterThoughtStrip(text);
   if (stripped === null) return;
@@ -1513,6 +1516,7 @@ export async function sendWhatsAppMediaMessage(
   caption?: string,
   mediaKind?: "image" | "video" | "audio"
 ): Promise<void> {
+  guardPreClaudeOutbound("sendWhatsAppMediaMessage");
   const cleanUrl = mediaUrl.trim();
   if (!cleanUrl) return;
   if (caption != null) caption = applyStudioPurpleHeartPolicy(caption, { fromNumber });
