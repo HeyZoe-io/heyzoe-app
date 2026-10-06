@@ -25,6 +25,12 @@ import {
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 import {
+  arboxTrialTaskTypeIdFromSocial,
+  createArboxCrmTask,
+  shouldOpenArboxTrialPurchaseTask,
+} from "@/lib/crm/adapters/arbox";
+import { buildCrmEventNote } from "@/lib/crm/types";
+import {
   buildWaSessionId,
   canonicalContactPhone,
   contactPhoneLookupVariants,
@@ -137,6 +143,7 @@ type ExistingContactRow = {
   instagram_follow_prompt_sent?: boolean | null;
   arbox_user_id?: string | null;
   arbox_trial_last_notified_at?: string | null;
+  sales_flow_started_at?: string | null;
 };
 
 function parseMembershipTypeId(raw: unknown): number | null {
@@ -488,7 +495,7 @@ export async function handleArboxTrialSaleRegistered(input: {
 
   // 2) Contact lookup
   const contactSelect =
-    "id, phone, full_name, trial_registered, session_phase, opted_out, not_relevant_at, instagram_follow_prompt_sent, arbox_user_id, arbox_trial_last_notified_at";
+    "id, phone, full_name, trial_registered, session_phase, opted_out, not_relevant_at, instagram_follow_prompt_sent, arbox_user_id, arbox_trial_last_notified_at, sales_flow_started_at";
 
   let existing: ExistingContactRow | undefined;
 
@@ -769,7 +776,7 @@ export async function handleArboxTrialSaleRegistered(input: {
   // A non-trial purchase sends its purchase templates.
   const { data: business } = await input.admin
     .from("businesses")
-    .select("plan, arbox_trial_membership_type_ids")
+    .select("plan, arbox_trial_membership_type_ids, social_links, crm_api_key, crm_box_id")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -798,6 +805,48 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "skipped_trial_template";
 
   if (isTrialSale) {
+    const trialTaskTypeId = arboxTrialTaskTypeIdFromSocial(
+      (business as { social_links?: unknown } | null)?.social_links
+    );
+    if (
+      shouldOpenArboxTrialPurchaseTask({
+        isTrialProduct: true,
+        salesFlowStartedAt: existing?.sales_flow_started_at,
+        taskTypeId: trialTaskTypeId,
+      })
+    ) {
+      const taskTypeNum = Number.parseInt(trialTaskTypeId, 10);
+      const eventDateIl = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Jerusalem",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(new Date());
+      const taskOk = await createArboxCrmTask({
+        apiKey: String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? ""),
+        boxId: String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? ""),
+        taskTypeId: taskTypeNum,
+        userId: arboxUserId,
+        kind: "trial_registered",
+        noteText: buildCrmEventNote("trial_registered", eventDateIl, {
+          offerKind: "trial",
+          serviceName: String(input.row.item_name ?? "").trim() || null,
+        }),
+      });
+      if (!taskOk) {
+        console.error("[leads/arbox-trial-sale-registered] trial task create failed", {
+          businessSlug,
+          sale_id: saleId,
+          taskTypeId: taskTypeNum,
+        });
+      } else {
+        console.info("[leads/arbox-trial-sale-registered] trial task created", {
+          businessSlug,
+          sale_id: saleId,
+          taskTypeId: taskTypeNum,
+        });
+      }
+    }
     // Trial welcome stays once per 2 days. Purchase templates are not throttled.
     if (isWithinTwoDayNotifyThrottle(lastNotifiedAt)) {
       console.info("[leads/arbox-trial-sale-registered] notify throttled (2d)", {

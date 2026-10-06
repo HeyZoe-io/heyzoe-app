@@ -101,6 +101,26 @@ export function shouldCreateArboxHumanRequestTask(
   return kind === "human_requested" && parsePositiveIntId(taskTypeId) != null;
 }
 
+/** social_links.arbox_trial_task_type_id — empty means no task on a paid trial purchase. */
+export function arboxTrialTaskTypeIdFromSocial(social: unknown): string {
+  if (!social || typeof social !== "object" || Array.isArray(social)) return "";
+  return String((social as Record<string, unknown>).arbox_trial_task_type_id ?? "").trim();
+}
+
+/**
+ * Paid trial product, after the lead already opened Zoe's sales flow.
+ * Walk-in Arbox sales (no sales_flow_started_at) do not open a task.
+ */
+export function shouldOpenArboxTrialPurchaseTask(input: {
+  isTrialProduct: boolean;
+  salesFlowStartedAt: string | null | undefined;
+  taskTypeId: string | null | undefined;
+}): boolean {
+  if (!input.isTrialProduct) return false;
+  if (!String(input.salesFlowStartedAt ?? "").trim()) return false;
+  return parsePositiveIntId(input.taskTypeId) != null;
+}
+
 /** ליד חסר בארבוקס: יוצרים ליד גם אם «יצירת לידים» כבויה — רק כדי לשייך משימת בקשת נציג. */
 export function shouldCreateArboxLeadForMissingUser(input: {
   leadCreationEnabled: boolean;
@@ -533,6 +553,36 @@ async function createArboxTask(input: {
     body: res.rawText.slice(0, 500),
   });
   return false;
+}
+
+/** One Arbox locations GET + one POST /v3/tasks. Used for a paid trial purchase, not per message. */
+export async function createArboxCrmTask(input: {
+  apiKey: string;
+  boxId: string;
+  taskTypeId: number;
+  userId: string;
+  kind: CrmEventKind;
+  noteText: string;
+}): Promise<boolean> {
+  const apiKey = String(input.apiKey ?? "").trim();
+  const taskTypeId = input.taskTypeId;
+  if (!apiKey || !Number.isFinite(taskTypeId) || taskTypeId <= 0) return false;
+  const locationResolved = await resolveArboxLocationId(apiKey, input.boxId);
+  if (!locationResolved.ok) {
+    console.error("[crm/arbox] create task failed — location", {
+      error: locationResolved.error,
+      detail: locationResolved.detail,
+    });
+    return false;
+  }
+  return createArboxTask({
+    apiKey,
+    locationId: locationResolved.locationId,
+    taskTypeId,
+    userId: input.userId,
+    kind: input.kind,
+    noteText: input.noteText,
+  });
 }
 
 /** Arbox: חיפוש לפי טלפון → יצירת ליד אם חסר → הערה, או משימה בבקשת נציג אם הוגדר סוג. */

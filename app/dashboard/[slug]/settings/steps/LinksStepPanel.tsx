@@ -61,6 +61,8 @@ export type LinksStepPanelProps = {
   setCrmArboxStatusId: (v: string) => void;
   crmArboxHumanRequestTaskTypeId: string;
   setCrmArboxHumanRequestTaskTypeId: (v: string) => void;
+  crmArboxTrialTaskTypeId: string;
+  setCrmArboxTrialTaskTypeId: (v: string) => void;
   slug: string;
   arboxTrialMembershipTypeIds: number[];
   setArboxTrialMembershipTypeIds: React.Dispatch<React.SetStateAction<number[]>>;
@@ -155,6 +157,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmArboxStatusId,
     crmArboxHumanRequestTaskTypeId,
     setCrmArboxHumanRequestTaskTypeId,
+    crmArboxTrialTaskTypeId,
+    setCrmArboxTrialTaskTypeId,
     slug,
     arboxTrialMembershipTypeIds,
     setArboxTrialMembershipTypeIds,
@@ -264,14 +268,15 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   }, [canLoadArboxMembershipTypes, slug, arboxMembershipTypesFetchNonce]);
 
   const arboxTaskTypeOptions = useMemo(() => {
-    const selectedId = Number.parseInt(crmArboxHumanRequestTaskTypeId.trim(), 10);
-    if (!Number.isFinite(selectedId) || selectedId <= 0) return arboxTaskTypes;
-    if (arboxTaskTypes.some((row) => row.task_type_id === selectedId)) return arboxTaskTypes;
-    return [
-      { task_type_id: selectedId, task_type_name: String(selectedId) },
-      ...arboxTaskTypes,
-    ];
-  }, [arboxTaskTypes, crmArboxHumanRequestTaskTypeId]);
+    let rows = arboxTaskTypes;
+    for (const raw of [crmArboxHumanRequestTaskTypeId, crmArboxTrialTaskTypeId]) {
+      const selectedId = Number.parseInt(raw.trim(), 10);
+      if (!Number.isFinite(selectedId) || selectedId <= 0) continue;
+      if (rows.some((row) => row.task_type_id === selectedId)) continue;
+      rows = [{ task_type_id: selectedId, task_type_name: String(selectedId) }, ...rows];
+    }
+    return rows;
+  }, [arboxTaskTypes, crmArboxHumanRequestTaskTypeId, crmArboxTrialTaskTypeId]);
 
   const visibleArboxMembershipTypes = useMemo(
     () =>
@@ -706,6 +711,69 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                         </p>
                       ) : null}
                     </>
+                  )}
+                </div>
+                <div>
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-zinc-800">
+                      {t.links.trialPurchaseTask}
+                    </span>
+                    <CrmFieldHint
+                      text={t.links.trialPurchaseTaskHint}
+                      lang={lang}
+                      explainAria={t.explainAria}
+                    />
+                  </div>
+                  {!canLoadArboxMembershipTypes || arboxTaskTypesLoading || arboxTaskTypesError ? null : (
+                    <ul
+                      className="max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2"
+                      dir={dashboardDir(lang)}
+                    >
+                      <li>
+                        <label
+                          htmlFor="arbox-trial-purchase-task-none"
+                          className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                        >
+                          <input
+                            id="arbox-trial-purchase-task-none"
+                            type="radio"
+                            name="arbox-trial-purchase-task-type"
+                            className="mt-0.5 shrink-0"
+                            checked={!crmArboxTrialTaskTypeId.trim()}
+                            onChange={() => setCrmArboxTrialTaskTypeId("")}
+                          />
+                          <span className="text-[12px] leading-snug text-zinc-800">
+                            {t.links.trialPurchaseTaskNone}
+                          </span>
+                        </label>
+                      </li>
+                      {arboxTaskTypeOptions.map((row) => {
+                        const id = row.task_type_id;
+                        const inputId = `arbox-trial-purchase-task-${id}`;
+                        const selected = crmArboxTrialTaskTypeId.trim() === String(id);
+                        return (
+                          <li key={id}>
+                            <label
+                              htmlFor={inputId}
+                              className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 hover:bg-zinc-50"
+                            >
+                              <input
+                                id={inputId}
+                                type="radio"
+                                name="arbox-trial-purchase-task-type"
+                                className="mt-0.5 shrink-0"
+                                checked={selected}
+                                onChange={() => setCrmArboxTrialTaskTypeId(String(id))}
+                              />
+                              <span
+                                className="text-[12px] leading-snug text-zinc-800"
+                                dir="ltr"
+                              >{`${id} - ${row.task_type_name}`}</span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
                 <div>

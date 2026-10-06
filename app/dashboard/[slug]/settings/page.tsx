@@ -1398,6 +1398,7 @@ export default function SlugSettingsPage({
   const [crmArboxSourceId, setCrmArboxSourceId] = useState("");
   const [crmArboxStatusId, setCrmArboxStatusId] = useState("");
   const [crmArboxHumanRequestTaskTypeId, setCrmArboxHumanRequestTaskTypeId] = useState("");
+  const [crmArboxTrialTaskTypeId, setCrmArboxTrialTaskTypeId] = useState("");
   const [arboxTrialMembershipTypeIds, setArboxTrialMembershipTypeIds] = useState<number[]>([]);
   const [arboxMembershipTypesFetchNonce, setArboxMembershipTypesFetchNonce] = useState(0);
   const [schedulePublicUrl, setSchedulePublicUrl] = useState("");
@@ -1991,6 +1992,7 @@ export default function SlugSettingsPage({
               .crm_arbox_human_request_task_type_id ?? ""
           )
         );
+        setCrmArboxTrialTaskTypeId(String(sl.arbox_trial_task_type_id ?? "").trim());
         const trialIdsRaw = (business as { arbox_trial_membership_type_ids?: unknown })
           .arbox_trial_membership_type_ids;
         setArboxTrialMembershipTypeIds(
@@ -2169,6 +2171,10 @@ export default function SlugSettingsPage({
           membership_tiers: [],
           punch_cards: [],
           memberships_url: membershipsUrl.trim(),
+          arbox_trial_task_type_id: (() => {
+            const n = Number.parseInt(crmArboxTrialTaskTypeId.trim(), 10);
+            return Number.isFinite(n) && n > 0 ? String(n) : "";
+          })(),
           schedule_public_url: schedulePublicUrl.trim(),
           schedule_scan_image_url: scheduleScanImageUrl.trim(),
           ...(useKnowledgeQaUi ? { knowledge_qa: serializeKnowledgeQa(knowledgeQa) } : {}),
@@ -2234,6 +2240,7 @@ export default function SlugSettingsPage({
       crmArboxSourceId,
       crmArboxStatusId,
       crmArboxHumanRequestTaskTypeId,
+      crmArboxTrialTaskTypeId,
       arboxTrialMembershipTypeIds,
       scheduleDirectRegistration,
       warmupSessionEnabled,
@@ -3349,6 +3356,8 @@ export default function SlugSettingsPage({
               setCrmArboxStatusId={setCrmArboxStatusId}
               crmArboxHumanRequestTaskTypeId={crmArboxHumanRequestTaskTypeId}
               setCrmArboxHumanRequestTaskTypeId={setCrmArboxHumanRequestTaskTypeId}
+              crmArboxTrialTaskTypeId={crmArboxTrialTaskTypeId}
+              setCrmArboxTrialTaskTypeId={setCrmArboxTrialTaskTypeId}
               slug={slug}
               arboxTrialMembershipTypeIds={arboxTrialMembershipTypeIds}
               setArboxTrialMembershipTypeIds={setArboxTrialMembershipTypeIds}

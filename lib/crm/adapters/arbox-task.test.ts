@@ -3,8 +3,10 @@ import {
   buildArboxCreateTaskBody,
   formatArboxTaskReminder,
   parseArboxTaskTypes,
+  arboxTrialTaskTypeIdFromSocial,
   shouldCreateArboxHumanRequestTask,
   shouldCreateArboxLeadForMissingUser,
+  shouldOpenArboxTrialPurchaseTask,
 } from "@/lib/crm/adapters/arbox";
 
 {
@@ -66,6 +68,44 @@ import {
   assert.equal(shouldCreateArboxHumanRequestTask("human_requested", null), false);
   assert.equal(shouldCreateArboxHumanRequestTask("trial_registered", "7"), false);
   assert.equal(shouldCreateArboxHumanRequestTask("no_response", "7"), false);
+}
+
+{
+  assert.equal(arboxTrialTaskTypeIdFromSocial({ arbox_trial_task_type_id: " 126901 " }), "126901");
+  assert.equal(arboxTrialTaskTypeIdFromSocial(null), "");
+  assert.equal(arboxTrialTaskTypeIdFromSocial({}), "");
+  assert.equal(
+    shouldOpenArboxTrialPurchaseTask({
+      isTrialProduct: true,
+      salesFlowStartedAt: "2026-10-06T07:00:00.000Z",
+      taskTypeId: "126901",
+    }),
+    true
+  );
+  assert.equal(
+    shouldOpenArboxTrialPurchaseTask({
+      isTrialProduct: true,
+      salesFlowStartedAt: "",
+      taskTypeId: "126901",
+    }),
+    false
+  );
+  assert.equal(
+    shouldOpenArboxTrialPurchaseTask({
+      isTrialProduct: false,
+      salesFlowStartedAt: "2026-10-06T07:00:00.000Z",
+      taskTypeId: "126901",
+    }),
+    false
+  );
+  assert.equal(
+    shouldOpenArboxTrialPurchaseTask({
+      isTrialProduct: true,
+      salesFlowStartedAt: "2026-10-06T07:00:00.000Z",
+      taskTypeId: "",
+    }),
+    false
+  );
 }
 
 {

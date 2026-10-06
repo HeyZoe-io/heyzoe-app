@@ -103,6 +103,10 @@ export const dashboardSettingsI18n = {
       humanRequestTaskEmpty:
         "לא נמצאו סוגי משימות בארבוקס. צרו סוג משימה בהגדרות → משימות בארבוקס, ואז שמרו שוב.",
       humanRequestTaskFetchError: "לא הצלחנו לטעון סוגי משימות מארבוקס. בדקו את מפתח ה-API.",
+      trialPurchaseTask: "משימה אחרי רכישת שיעור ניסיון",
+      trialPurchaseTaskHint:
+        "כשלקוחה שכבר נכנסה לפלואו המכירה של זואי משלמת על מוצר ניסיון בארבוקס, נפתחת המשימה הזו. בלי בחירה — לא נפתחת משימה.",
+      trialPurchaseTaskNone: "ללא משימה",
       apiKeySecure: "המפתח נשמר בצורה מאובטחת ומשמש רק לשליחת עדכונים מזואי ל-CRM.",
       selectCrm: "בחרו תוכנת CRM כדי להזין מפתח API.",
       trialMembershipTypes: "סוגי שיעור ניסיון",
@@ -633,6 +637,10 @@ export const dashboardSettingsI18n = {
       humanRequestTaskEmpty:
         "No task types found in Arbox. Create a task type under Settings → Tasks in Arbox, then save again.",
       humanRequestTaskFetchError: "Could not load task types from Arbox. Check your API key.",
+      trialPurchaseTask: "Task after a trial purchase",
+      trialPurchaseTaskHint:
+        "When a lead who already entered Zoe's sales flow pays for a trial product in Arbox, this task is created. Leave unset and no task is opened.",
+      trialPurchaseTaskNone: "No task",
       apiKeySecure: "The key is stored securely and used only to send updates from Zoe to your CRM.",
       selectCrm: "Select a CRM to enter an API key.",
       trialMembershipTypes: "Trial lesson types",
