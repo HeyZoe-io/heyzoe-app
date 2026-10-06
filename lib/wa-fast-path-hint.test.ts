@@ -22,6 +22,7 @@ assert.equal(decide("[[route:signup]]\nבואי נתחיל", "signup"), "use_hin
 assert.equal(decide("[[route:answer]]\nמחיר", "signup"), "ignore_hint");
 assert.equal(decide("בלי תג", "signup"), "ignore_hint");
 assert.equal(decide("[[route:signup]]\nבואי", "cancellation"), "ignore_hint");
+assert.equal(decide("[[route:signup]]\nאשלח מחיר", "registration_no_member"), "use_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", null), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", "schedule"), "ignore_hint");
 

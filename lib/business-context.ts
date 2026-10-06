@@ -887,8 +887,8 @@ export function buildSystemPrompt(
     : "";
   const promotionsText = annotateExpiredIsraelDates(knowledge?.promotionsText?.trim() ?? "", promptNow);
   const promotionsRule = promotionsText
-    ? "- הנחות ומבצעים הם ידע עסקי רשמי ועדכני. אם הלקוח שואל על הנחה, מבצע, הטבה, מחיר מוזל, קופון, או ניסיון מוזל - עני ישירות מתוך שדה «הנחות ומבצעים» בלי לומר שאין מידע."
-    : "- אם נשאלת על הנחה או מבצע ואין מידע בשדה «הנחות ומבצעים» - אל תמציאי; אמרי שאין לך מבצע מוגדר כרגע והציעי לבדוק מול העסק.";
+    ? "- הנחות ומבצעים: מותר לציין רק את המשפטים שכתובים בשדה «הנחות ומבצעים», באותו תוכן. אסור להוסיף אחוז, קהל (סטודנטים, חיילים, זוג), או הטבה שלא כתובים שם. שאלה מה המבצע הקיים נענית מהשדה. בקשה אישית להנחה או למחיר אחר אינה נענית במחיר חדש."
+    : "- שדה «הנחות ומבצעים» ריק. אסור לכתוב אחוז, הנחה, מבצע, קופון, או מחיר מוזל. לשאלה אם יש מבצע עני שאין מבצע מוגדר, בלי אחוז.";
   const overflowCatalogCount = resolveKnowledgeCatalogServices({
     knowledgeCatalog: knowledge?.knowledgeCatalogServices,
     salesFlow: knowledge?.salesFlowServices,
@@ -999,7 +999,7 @@ ${
     : ""
 }
 ${formatBusinessFactsPromptBlock(knowledge, promptNow)}
-הנחות ומבצעים (ידע רשמי לשאלות פתוחות על הנחה/מבצע/מחיר מוזל): ${promotionsText || "לא הוגדר"}
+הנחות ומבצעים (אם יש כאן משפטים, «יש מבצע?» מצטטת אותם. אם כתוב «לא הוגדר», אין מבצע בשדה הזה): ${promotionsText || "לא הוגדר"}
 שירותים:
 ${annotateExpiredIsraelDates(knowledge?.servicesText ?? "", promptNow) || "לא הוגדר"}
 ${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${annotateExpiredIsraelDates(knowledge.membershipsAndCardsText, promptNow)}\n` : ""}FAQ:
