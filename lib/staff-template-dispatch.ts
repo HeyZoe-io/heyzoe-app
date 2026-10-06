@@ -8,6 +8,7 @@ import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
   templateBodyUsesSlot,
   templateSendPayload,
+  trainerHeadsUpTemplateParamValues,
 } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -25,6 +26,7 @@ export async function dispatchStaffTemplateImmediate(input: {
   className?: string | null;
   classTime?: string | null;
   expiryDateYmd?: string | null;
+  classDateYmd?: string | null;
   /** When the approved body includes {{4}}, one Arbox notes GET for this user. */
   arboxApiKey?: string | null;
   arboxUserId?: number | null;
@@ -71,6 +73,24 @@ export async function dispatchStaffTemplateImmediate(input: {
       clientGeneralNotes = await fetchArboxGeneralNotesText({ apiKey, userId });
     }
   }
+  if (input.triggerType === "trainer_trial_heads_up") {
+    const decided = trainerHeadsUpTemplateParamValues({
+      storedComponents,
+      className: input.className,
+      classTime: input.classTime,
+      clientFullName: input.clientFullName,
+      clientGeneralNotes,
+      classDateYmd: input.classDateYmd,
+    });
+    if (!decided.ok) {
+      console.error("[staff-template-dispatch] trainer param skip", {
+        businessId: input.businessId,
+        reason: decided.reason,
+        varCount: decided.varCount,
+      });
+      return "gated";
+    }
+  }
   const { sendComponents } = templateSendPayload({
     triggerType: input.triggerType,
     storedComponents,
@@ -80,6 +100,7 @@ export async function dispatchStaffTemplateImmediate(input: {
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     className: input.className,
     classTime: input.classTime,
+    classDateYmd: input.classDateYmd,
     expiryDateYmd: input.expiryDateYmd,
   });
 

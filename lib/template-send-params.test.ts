@@ -159,6 +159,7 @@ import {
     businessName: "Limitless",
     expiryDateYmd: "2026-09-15",
     membershipTypeName: "מנוי חודשי",
+    classDateYmd: "2026-10-06",
   };
   const expected: Record<string, string[]> = {
     incoming_lead: ["Limitless"],
@@ -181,7 +182,7 @@ import {
     freeze_ending_unbooked: ["דנה", "15.09.2026"],
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],
-    trial_reminder: ["דנה", "יוגה", "18:00"],
+    trial_reminder: ["דנה", "יוגה", "יום שלישי 6.10", "18:00"],
     trial_booked: ["דנה", "יוגה", "15.09.2026", "18:00"],
     milestones: ["דנה"],
     nth_workout: ["דנה", "3"],
@@ -259,6 +260,7 @@ import {
         "class_time",
         "client_full_name",
         "client_general_notes",
+        "class_day_he",
       ]);
       continue;
     }
@@ -281,7 +283,7 @@ import {
   const nameOnly = [{ type: "BODY", text: "היי {{1}}, נתראה." }];
   const none = [{ type: "BODY", text: "נתראה בשיעור." }];
   const four = [{ type: "BODY", text: "היי {{1}}, לאימון {{2}} ב{{3}} בשעה {{4}}." }];
-  const legacy = [{ type: "BODY", text: TEMPLATE_PRESETS.trial_reminder.body }];
+  const legacy = [{ type: "BODY", text: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!" }];
   const two = [{ type: "BODY", text: "היי {{1}} לשיעור {{2}}." }];
   const gap = [{ type: "BODY", text: "היי {{1}} בשעה {{3}}." }];
   assert.equal(

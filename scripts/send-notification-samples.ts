@@ -53,7 +53,7 @@ import { resolveStarterQuotaWaTemplate } from "../lib/quota-alert-template";
 import { createSupabaseAdminClient } from "../lib/supabase-admin";
 
 const TEST_EMAIL = (process.env.TEST_EMAIL ?? "liornativ@hotmail.com").trim();
-const DRY_RUN = process.env.DRY_RUN === "1";
+const DRY_RUN = process.env.DRY_RUN === "1" || !process.argv.includes("--live") || !process.argv.includes("--slug");
 /** רשימת מפתחות מופרדת בפסיק, למשל: human_agent,daily_summary */
 const WA_FILTER = (process.env.WA_FILTER ?? "")
   .split(",")

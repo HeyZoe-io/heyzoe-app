@@ -38,7 +38,6 @@ import {
   classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
   resolveTemplateBodyParamValues,
-  TEMPLATE_CLASS_TIME_FALLBACK,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
 import {
@@ -206,7 +205,7 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   assert.equal(TEMPLATE_PRESETS.trial_reminder.button_text, undefined);
   assert.equal(
     TEMPLATE_PRESETS.trial_reminder.body,
-    "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!"
+    "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} ב{{3}} בשעה {{4}}. נשמח לראותך!"
   );
   const values = resolveTemplateBodyParamValues({
     triggerType: "trial_reminder",
@@ -214,15 +213,16 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
     firstName: "דנה",
     className: "יוגה",
     classTime: "18:00",
+    classDateYmd: "2026-10-06",
   });
-  assert.deepEqual(values, ["דנה", "יוגה", "18:00"]);
+  assert.deepEqual(values, ["דנה", "יוגה", "יום שלישי 6.10", "18:00"]);
   const missingTime = resolveTemplateBodyParamValues({
     triggerType: "trial_reminder",
     storedComponents: [{ type: "BODY", text: TEMPLATE_PRESETS.trial_reminder.body }],
     firstName: "דנה",
     className: "יוגה",
   });
-  assert.equal(missingTime[2], TEMPLATE_CLASS_TIME_FALLBACK);
+  assert.deepEqual(missingTime, []);
 }
 
 {

@@ -35,6 +35,8 @@ type TriggerCatalogEntryShape = {
 const SEND_HINT_FREQUENT_HE =
   "נשלח עד כ־15 דקות אחרי האירוע, בכל שעות היום";
 const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
+const SEND_HINT_TRIAL_CLASS_HE =
+  "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:00 בערב שלפני.";
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
 const SEND_HINT_WEBHOOK_HE = "נשלח מיד כשמגיע ליד מהאתר או מהקמפיין";
 const SEND_HINT_MANUAL_HE = "שליחה ידנית — תצוגה מקדימה, אישור, ותזמון לתור";
@@ -418,7 +420,7 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "trial_reminder",
     uiOrder: 2,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: SEND_HINT_TRIAL_CLASS_HE,
   },
   {
     type: "trial_booked",
@@ -466,7 +468,7 @@ export const TRIGGER_CATALOG = [
     recipient: "staff",
     presetKey: "trainer_trial_heads_up",
     uiOrder: 1,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: SEND_HINT_TRIAL_CLASS_HE,
   },
   {
     type: "class_cancelled_staff",

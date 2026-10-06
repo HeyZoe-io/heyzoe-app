@@ -16,11 +16,15 @@ import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
+  trialReminderMatchesSlot,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
   trialReminderFutureWindow,
+  type TrialReminderSlot,
 } from "@/lib/leads/arbox-trial-reminder";
+import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
+import { trialReminderBodyPlaceholderIndexes } from "@/lib/template-send-params";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
@@ -54,7 +58,7 @@ export type TrainerTrialHeadsUpDispatch =
 
 export type TrainerTrialHeadsUpSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope";
+  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope" | "evening_needs_date";
   lookback_from?: string;
   lookback_to?: string;
   fetched: number;
@@ -203,6 +207,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
     clientFullName: input.clientFullName,
     className: input.className,
     classTime: input.classTime,
+    classDateYmd: input.classDateYmd,
     arboxApiKey: input.apiKey,
     arboxUserId: input.userId,
   });
@@ -220,6 +225,38 @@ async function dispatchTrainerTrialHeadsUp(input: {
   return { dispatch: "send_failed", ok: false };
 }
 
+/** 5-placeholder bodies use the trial_reminder evening split. Other counts stay on the 09:00 run. */
+export function trainerHeadsUpMatchesSlot(input: {
+  classDateYmd: string;
+  classTime: string;
+  todayYmd: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+  bodyVarCount: number;
+}): boolean {
+  if (input.bodyVarCount === 5) {
+    return trialReminderMatchesSlot({
+      classDateYmd: input.classDateYmd,
+      classTime: input.classTime,
+      todayYmd: input.todayYmd,
+      delayDays: input.delayDays,
+      slot: input.slot,
+    });
+  }
+  if (input.slot === "evening") return false;
+  return isTrialReminderDue({
+    classDateYmd: input.classDateYmd,
+    todayYmd: input.todayYmd,
+    delayDays: Math.max(0, Math.trunc(input.delayDays)),
+  });
+}
+
+function trainerBodyVarCount(components: unknown): number {
+  const indexes = trialReminderBodyPlaceholderIndexes(components);
+  const contiguous = indexes.every((n, i) => n === i + 1);
+  return contiguous ? indexes.length : -1;
+}
+
 export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -228,6 +265,8 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   boxId: string;
   businessTrialIds?: unknown;
   now?: Date;
+  /** Evening sends delay-0 classes before 10:00 only when the approved body has 5 placeholders. */
+  slot?: TrialReminderSlot;
   prefetchedFutureRows?: ArboxBookingReportRow[];
   prefetchedFuturePages?: number;
 }): Promise<TrainerTrialHeadsUpSyncSummary> {
@@ -250,6 +289,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
   const todayYmd = formatDateYmdIsrael(now);
+  const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
 
   if (!apiKey || !boxId) {
     summary.skipped = true;
@@ -273,6 +313,31 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   if (!sendRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
+    return summary;
+  }
+
+  const templateNames = [...new Set(sendRules.map((rule) => String(rule.template_name ?? "").trim()).filter(Boolean))];
+  const varCountByTemplate = new Map<string, number>();
+  if (templateNames.length) {
+    const { data: templateRows, error: templateErr } = await input.admin
+      .from("whatsapp_templates")
+      .select("name, components, status")
+      .eq("business_id", businessId)
+      .in("name", templateNames);
+    if (templateErr) {
+      console.error("[leads/arbox-trainer-trial-heads-up] template var count failed:", templateErr.message);
+    } else {
+      for (const row of templateRows ?? []) {
+        const name = String((row as { name?: unknown }).name ?? "").trim();
+        if (String((row as { status?: unknown }).status ?? "").toUpperCase() !== "APPROVED") continue;
+        if (name) varCountByTemplate.set(name, trainerBodyVarCount((row as { components?: unknown }).components));
+      }
+    }
+  }
+  const varCountFor = (templateName: string) => varCountByTemplate.get(templateName.trim()) ?? 0;
+  if (slot === "evening" && !sendRules.some((rule) => varCountFor(String(rule.template_name ?? "")) === 5)) {
+    summary.skipped = true;
+    summary.skip_reason = "evening_needs_date";
     return summary;
   }
 
@@ -357,6 +422,26 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   }
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
+  let classRun: Awaited<ReturnType<typeof prepareTrialBookingClasses>> | null = null;
+  try {
+    classRun = await prepareTrialBookingClasses({
+      admin: input.admin,
+      businessId,
+      apiKey,
+      rows: reportRows,
+      trialTypeIds,
+      todayYmd,
+      phase: "pre_class",
+      isCandidate: (row) => bookingMatchesTrialScope(row, trialScope),
+    });
+  } catch (error) {
+    console.error("[leads/arbox-trainer-trial-heads-up] trial class failed, name match only", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const trialDecision = (userId: number, classDate: string, classTime: string) =>
+    classRun?.forKeys(userId, classDate, classTime);
 
   const activeRuleIds = await ruleIdsActiveSinceActivation(
     input.admin,
@@ -378,7 +463,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       const className = normalizeTrialReminderClassNamePk(row.class_name);
       const trainerPhone = staffPhoneFromBooking(row);
       if (userId == null || !classDateYmd || !classTime || !className || !trainerPhone) continue;
-      if (!bookingMatchesTrialScope(row, trialScope)) continue;
+      if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
       for (const rule of freshRules) {
         const templateName = String(rule.template_name ?? "").trim();
         if (!templateName) continue;
@@ -420,7 +505,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       summary.errors += 1;
       continue;
     }
-    if (!bookingMatchesTrialScope(row, trialScope)) continue;
+    if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
     summary.trial_rows += 1;
 
     const dueRules = sendRules.filter((item) => {
@@ -441,10 +526,13 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
           return false;
         }
       }
-      return isTrialReminderDue({
+      return trainerHeadsUpMatchesSlot({
         classDateYmd,
+        classTime,
         todayYmd,
         delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+        slot,
+        bodyVarCount: varCountFor(String(item.template_name ?? "")),
       });
     });
     if (!dueRules.length) continue;
@@ -464,6 +552,24 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       }
 
       const clientFullName = clientFullNameFromBookingRow(row);
+      const freshClass = await classRun?.recheckBeforeSend({
+        userId,
+        classDate: classDateYmd,
+        classTime,
+        role: String((row as { user_role?: unknown; role?: unknown }).user_role ?? (row as { role?: unknown }).role ?? "") || null,
+        firstWorkout: ["yes", "1", "true"].includes(
+          String((row as { is_first_session?: unknown }).is_first_session ?? "").trim().toLowerCase()
+        ),
+      });
+      if (freshClass === "not_trial" || freshClass === "unknown") {
+        console.info("[leads/arbox-trainer-trial-heads-up] pre-send class skip", {
+          businessId,
+          userId,
+          classDateYmd,
+          classification: freshClass,
+        });
+        continue;
+      }
       let send: { dispatch: string } = { dispatch: "skipped" };
       for (const rule of dueRules) {
         send = await dispatchTrainerTrialHeadsUp({

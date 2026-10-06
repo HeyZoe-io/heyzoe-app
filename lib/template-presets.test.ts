@@ -7,6 +7,7 @@ import {
   paramSlotsForTriggerType,
   presetVarHint,
   trialReminderMetaExampleValues,
+  trainerHeadsUpMetaExampleValues,
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
   templateTextEdgeVariableMessage,
@@ -103,7 +104,11 @@ assert.deepEqual(paramSlotsForTriggerType("trial_reminder"), [
   "class_name",
   "class_time",
 ]);
-assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_reminder.body), 3);
+assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_reminder.body), 4);
+assert.equal(
+  TEMPLATE_PRESETS.trial_reminder.body,
+  "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} ב{{3}} בשעה {{4}}. נשמח לראותך!"
+);
 assert.equal(
   presetVarHint("trial_reminder"),
   '{{1}} = שם פרטי · {{2}} = שם השיעור · {{3}} = יום ותאריך (למשל "יום שלישי 7.10") · {{4}} = שעת השיעור. גוף יכול להשתמש ב־{{1}}–{{3}} כמו קודם (שם, שיעור, שעה), או ב־{{1}}–{{4}} עם התאריך'
@@ -145,11 +150,21 @@ assert.deepEqual(paramSlotsForTriggerType("trainer_trial_heads_up"), [
   "class_time",
   "client_full_name",
   "client_general_notes",
+  "class_day_he",
 ]);
 assert.equal(
   presetVarHint("trainer_trial_heads_up"),
-  "{{1}} = שם השיעור · {{2}} = שעת השיעור · {{3}} = שם מלא לקוח · {{4}} = הערות כלליות מארבוקס"
+  '{{1}} = שם השיעור · {{2}} = שעת השיעור · {{3}} = שם מלא של הלקוח · {{4}} = הערות (אם אין: אין) · {{5}} = יום ותאריך (למשל "יום שלישי 7.10")'
 );
+assert.deepEqual(trainerHeadsUpMetaExampleValues(5), [
+  "יוגה",
+  "18:00",
+  "דנה כהן",
+  "פציעה בברך",
+  "יום שלישי 7.10",
+]);
+assert.deepEqual(trainerHeadsUpMetaExampleValues(1), ["יוגה"]);
+assert.equal(trainerHeadsUpMetaExampleValues(2), null);
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.class_cancelled_staff.button_text, undefined);
 assert.equal(

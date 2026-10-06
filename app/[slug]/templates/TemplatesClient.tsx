@@ -21,6 +21,7 @@ import {
   presetExampleForSlot,
   presetVarHint,
   trialReminderMetaExampleValues,
+  trainerHeadsUpMetaExampleValues,
   TEMPLATE_PRESETS,
   templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
@@ -785,8 +786,12 @@ export default function TemplatesClient({
         if (!inlineDraft.body.trim()) {
           throw new Error("גוף ההודעה חובה");
         }
+        const inlineCount = extractBodyVarCount(inlineDraft.body);
         const exampleValues =
-          trialReminderMetaExampleValues(extractBodyVarCount(inlineDraft.body)) ??
+          (newTriggerType === "trial_reminder" ? trialReminderMetaExampleValues(inlineCount) : null) ??
+          (newTriggerType === "trainer_trial_heads_up"
+            ? trainerHeadsUpMetaExampleValues(inlineCount)
+            : null) ??
           paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
         const components = buildMetaComponents({
           body: inlineDraft.body,
@@ -1317,8 +1322,12 @@ export default function TemplatesClient({
     }
     setCreating(true);
     try {
+      const purposeCount = extractBodyVarCount(body);
       const exampleValues = purposeTrigger
-        ? (trialReminderMetaExampleValues(extractBodyVarCount(body)) ??
+        ? ((purposeTrigger === "trial_reminder" ? trialReminderMetaExampleValues(purposeCount) : null) ??
+          (purposeTrigger === "trainer_trial_heads_up"
+            ? trainerHeadsUpMetaExampleValues(purposeCount)
+            : null) ??
           paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot))
         : isEditing && editExampleValues.length > 0
           ? editExampleValues

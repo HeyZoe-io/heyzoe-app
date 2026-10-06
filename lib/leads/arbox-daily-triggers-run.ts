@@ -220,7 +220,7 @@ export async function listArboxDailyBusinessIds(
     .in("business_id", eligible)
     .eq("enabled", true);
   const { data: rules, error: ruleErr } = evening
-    ? await ruleQuery.eq("trigger_type", "trial_reminder")
+    ? await ruleQuery.in("trigger_type", ["trial_reminder", "trainer_trial_heads_up"])
     : await ruleQuery.in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
 
@@ -265,7 +265,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now?: Date;
-  /** evening runs only the trial-reminder step. Default morning keeps every step. */
+  /** evening runs trial_reminder plus trainer heads-up when that body includes the date. */
   slot?: "morning" | "evening";
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
@@ -302,6 +302,27 @@ export async function runArboxDailyTriggersForBusiness(input: {
         error: message,
       });
       entry.trial_reminder = { errors: 1, fetch_error: message };
+    }
+    try {
+      entry.trainer_trial_heads_up = await timeStep(timings, business.id, "trainer_trial_heads_up", () =>
+        syncArboxTrainerTrialHeadsUpForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          businessTrialIds: business.arbox_trial_membership_type_ids,
+          now,
+          slot: "evening",
+        })
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] evening trainer_trial_heads_up threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.trainer_trial_heads_up = { errors: 1, fetch_error: message };
     }
     const ctx = arboxDailyContext();
     return {
@@ -1008,6 +1029,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       boxId: business.crm_box_id,
       businessTrialIds: business.arbox_trial_membership_type_ids,
       now,
+      slot: "morning",
       ...(trainerHeadsUpPlan.needsTrainerTrialHeadsUp &&
       trainerHeadsUpPlan.hasTrialProductIds &&
       prefetchedFutureRows

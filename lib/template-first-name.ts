@@ -37,8 +37,13 @@ function nameTokens(raw: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function capitalizeLowerLatin(token: string): string {
+  if (!/^[a-z]+$/.test(token)) return token;
+  return token.charAt(0).toUpperCase() + token.slice(1);
+}
+
 function firstToken(raw: string | null | undefined): string {
-  return nameTokens(raw)[0] ?? "";
+  return capitalizeLowerLatin(nameTokens(raw)[0] ?? "");
 }
 
 function normalizedToken(token: string): string {
@@ -81,5 +86,5 @@ export function resolveTemplateFirstName(
   if (tokens.some((token) => isBusinessLikeToken(token))) return null;
   const stored = tokens[0] ?? "";
   if (!isUsableStoredFirstName(stored)) return null;
-  return stored;
+  return capitalizeLowerLatin(stored);
 }

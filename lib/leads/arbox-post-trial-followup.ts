@@ -22,6 +22,7 @@ import {
   trialBookingIdentityKey,
   trialIdentityInputsFromRows,
 } from "@/lib/leads/arbox-trial-booking-identity";
+import { prepareTrialBookingClasses, type TrialBookingClass } from "@/lib/leads/trial-booking-class";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
@@ -286,6 +287,8 @@ export function collectTrialAttendances(input: {
   trialMatchMode: "ids_names" | "name_fallback";
   /** business+user+class time keys already stamped while the product name was present. */
   persistedKeys?: ReadonlySet<string>;
+  /** Stored snapshot. Post-class does not re-classify a trial after a later purchase. */
+  decisionFor?: (userId: number, classDate: string, classTime: string) => TrialBookingClass | undefined;
 }): PostTrialAttendance[] {
   const byKey = new Map<string, PostTrialAttendance>();
   for (const row of input.pastRows) {
@@ -308,7 +311,9 @@ export function collectTrialAttendances(input: {
     const classTime = String(row.time ?? "");
     const persistedKey = trialBookingIdentityKey(userId, classDateYmd, classTime);
     const persistedTrial = Boolean(persistedKey && input.persistedKeys?.has(persistedKey));
-    if (!liveTrial && !persistedTrial) continue;
+    const decision = input.decisionFor?.(userId, classDateYmd, classTime);
+    if (decision === "not_trial" || decision === "unknown") continue;
+    if (decision !== "trial" && !liveTrial && !persistedTrial) continue;
 
     const key = `${userId}|${classDateYmd}`;
     if (byKey.has(key)) continue;
@@ -907,6 +912,27 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   summary.fetched_bookings = pastRows.length;
 
   const identityScope = { trialTypeIds, trialTypeNamesNormalized };
+  let classRun: Awaited<ReturnType<typeof prepareTrialBookingClasses>> | null = null;
+  try {
+    classRun = await prepareTrialBookingClasses({
+      admin: input.admin,
+      businessId,
+      apiKey,
+      rows: identitySource,
+      trialTypeIds,
+      todayYmd,
+      phase: "post_class",
+      isCandidate: (row) =>
+        trialMatchMode === "name_fallback"
+          ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+          : bookingMatchesTrialScope(row, identityScope),
+    });
+  } catch (error) {
+    console.error("[leads/arbox-post-trial-followup] trial class failed, name match only", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   await rememberTrialBookingIdentities(
     input.admin,
     businessId,
@@ -963,6 +989,12 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     trialTypeNamesNormalized,
     trialMatchMode,
     persistedKeys,
+    ...(classRun?.ready
+      ? {
+          decisionFor: (userId: number, classDate: string, classTime: string) =>
+            classRun?.forKeys(userId, classDate, classTime),
+        }
+      : {}),
   });
   summary.trial_attended = attendances.length;
 

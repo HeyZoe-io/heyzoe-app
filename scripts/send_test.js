@@ -66,6 +66,10 @@ async function main() {
   };
 
   console.log("[WA TEST] Request body:", JSON.stringify(body, null, 2));
+  if (!process.argv.includes("--live") || !process.argv.includes("--slug")) {
+    console.log("[dry-run] no sends. To run: --live --slug <business>");
+    process.exit(0);
+  }
 
   try {
     const resPhone = await sendTemplate({

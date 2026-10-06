@@ -8,6 +8,7 @@ import {
   trialBookingIdentityKey,
   trialIdentityInputsFromRows,
 } from "@/lib/leads/arbox-trial-booking-identity";
+import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
@@ -159,8 +160,11 @@ const ARBOX_TRIAL_CLASS_TITLE_KEY = "trialclasstitle";
  */
 export function bookingMatchesTrialScope(
   row: ArboxBookingReportRow,
-  scope: { trialTypeIds: number[]; trialTypeNamesNormalized: Set<string> }
+  scope: { trialTypeIds: number[]; trialTypeNamesNormalized: Set<string> },
+  decision?: "trial" | "not_trial" | "unknown" | null
 ): boolean {
+  if (decision === "trial") return true;
+  if (decision === "not_trial" || decision === "unknown") return false;
   const idRaw = Number(row.membership_type_id);
   if (Number.isFinite(idRaw) && idRaw > 0 && scope.trialTypeIds.includes(Math.trunc(idRaw))) {
     return true;
@@ -655,6 +659,27 @@ export async function syncArboxTrialAttendedForBusiness(input: {
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
   const nameFallback = trialMatchMode === "name_fallback";
+  let classRun: Awaited<ReturnType<typeof prepareTrialBookingClasses>> | null = null;
+  try {
+    classRun = await prepareTrialBookingClasses({
+      admin: input.admin,
+      businessId,
+      apiKey,
+      rows: reportRows,
+      trialTypeIds,
+      todayYmd: formatDateYmdIsrael(now),
+      phase: "post_class",
+      isCandidate: (row) =>
+        nameFallback
+          ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+          : bookingMatchesTrialScope(row, trialScope),
+    });
+  } catch (error) {
+    console.error("[leads/arbox-trial-attended] trial class failed, name match only", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   const persistedKeys = await loadTrialBookingIdentityKeys({
     admin: input.admin,
     businessId,
@@ -704,11 +729,16 @@ export async function syncArboxTrialAttendedForBusiness(input: {
     summary.attended += 1;
 
     const persistedKey = trialBookingIdentityKey(userId, classDateYmd, String(row.time ?? ""));
-    const isTrial =
-      (nameFallback
-        ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
-        : bookingMatchesTrialScope(row, trialScope)) ||
-      Boolean(persistedKey && persistedKeys.has(persistedKey));
+    const decision = classRun?.forKeys(userId, classDateYmd, String(row.time ?? ""));
+    const isTrial = classRun?.ready
+      ? nameFallback
+        ? decision === "trial" ||
+          (decision == null && membershipTypeNameLooksLikeTrial(row.membership_type_name))
+        : bookingMatchesTrialScope(row, trialScope, decision)
+      : (nameFallback
+          ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+          : bookingMatchesTrialScope(row, trialScope)) ||
+        Boolean(persistedKey && persistedKeys.has(persistedKey));
 
     if (!isTrial) {
       summary.skipped_non_trial += 1;

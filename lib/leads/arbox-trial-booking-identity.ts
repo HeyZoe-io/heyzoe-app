@@ -97,19 +97,33 @@ export async function loadTrialBookingIdentityKeys(input: {
   const userIds = [...new Set((input.userIds ?? []).filter((id) => Number.isFinite(id) && id > 0))];
   let query = input.admin
     .from(TABLE)
-    .select("user_id, class_date, class_time")
+    .select("user_id, class_date, class_time, classification")
     .eq("business_id", input.businessId);
   if (input.fromDate) query = query.gte("class_date", input.fromDate);
   if (input.toDate) query = query.lte("class_date", input.toDate);
   if (userIds.length) query = query.in("user_id", userIds);
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+  if (error && /classification/i.test(error.message)) {
+    let retry = input.admin
+      .from(TABLE)
+      .select("user_id, class_date, class_time")
+      .eq("business_id", input.businessId);
+    if (input.fromDate) retry = retry.gte("class_date", input.fromDate);
+    if (input.toDate) retry = retry.lte("class_date", input.toDate);
+    if (userIds.length) retry = retry.in("user_id", userIds);
+    const again = await retry;
+    data = again.data as typeof data;
+    error = again.error;
+  }
   if (error) {
     if (isMissingIdentityTable(error.message)) warnMissingTable();
     else console.error(LOG, "load failed:", error.message);
     return keys;
   }
   for (const row of data ?? []) {
+    const classification = String((row as { classification?: unknown }).classification ?? "trial");
+    if (classification === "not_trial" || classification === "unknown") continue;
     const userId = Number((row as { user_id?: unknown }).user_id);
     const classDate = String((row as { class_date?: unknown }).class_date ?? "").slice(0, 10);
     const classTime = String((row as { class_time?: unknown }).class_time ?? "");

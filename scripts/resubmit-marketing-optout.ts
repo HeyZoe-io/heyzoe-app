@@ -880,9 +880,13 @@ async function pollCanary(admin: ReturnType<typeof createSupabaseAdminClient>): 
 }
 
 async function main() {
+  const { liveScriptSlug } = await import("./live-guard");
+  const onlySlug = liveScriptSlug();
+  if (!onlySlug) return;
   const admin = createSupabaseAdminClient();
   if (CATEGORY_SYNC) {
-    await runCategorySync(admin);
+    if (onlySlug === "apex") await runCategorySync(admin);
+    else console.log(`[dry-run] category sync writes apex only, got --slug ${onlySlug}`);
     if (!ONLY_NEW_VERSION && !WATCH_CANARY && !EXECUTE && !ONLY_DEFERRED && !heldEdits) return;
   }
   if (WATCH_CANARY) {
@@ -906,7 +910,7 @@ async function main() {
       name: norm(row.name),
       waba_id: norm(row.waba_id).replace(/\s+/g, ""),
     }))
-    .filter((row) => row.waba_id && Number.isFinite(row.id));
+    .filter((row) => row.waba_id && Number.isFinite(row.id) && row.slug === onlySlug);
 
   const marketingWabaId = await resolveMarketingWabaId();
   const groups = new Map<string, WabaGroup>();

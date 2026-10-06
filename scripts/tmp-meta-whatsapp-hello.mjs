@@ -15,6 +15,7 @@ import {
   resolveBusinessFromSlug,
   resolveWarmupTestSlug,
 } from "./warmup-test-config.mjs";
+import { liveScriptSlug } from "./live-guard.mjs";
 
 const TO = enforceWarmupTestSafe("tmp-meta-whatsapp-hello");
 const SLUG = resolveWarmupTestSlug();
@@ -40,6 +41,8 @@ console.log(
     2
   )
 );
+
+if (!liveScriptSlug(slug)) process.exit(0);
 
 const url = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
 

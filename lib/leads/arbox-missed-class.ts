@@ -34,6 +34,7 @@ import {
   trialAttendedLookbackDays,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
+import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -690,6 +691,28 @@ export async function syncArboxMissedClassForBusiness(input: {
     return products.keys;
   }
 
+  let classRun: Awaited<ReturnType<typeof prepareTrialBookingClasses>> | null = null;
+  try {
+    classRun = await prepareTrialBookingClasses({
+      admin: input.admin,
+      businessId,
+      apiKey,
+      rows,
+      trialTypeIds,
+      todayYmd: formatDateYmdIsrael(now),
+      phase: "post_class",
+      isCandidate: (row) =>
+        trialMatchMode === "name_fallback"
+          ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+          : bookingMatchesTrialScope(row, trialScope),
+    });
+  } catch (error) {
+    console.error("[leads/arbox-missed-class] trial class failed, name match only", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   for (const row of rows) {
     if (!isBookingCheckInNo(row.check_in)) continue;
     if (isBookingCheckedIn(row.check_in)) continue;
@@ -705,8 +728,13 @@ export async function syncArboxMissedClassForBusiness(input: {
     if (!isMissedClassDatePast(classDateYmd, now)) continue;
     summary.missed_rows += 1;
 
-    const isTrial =
-      trialMatchMode === "name_fallback"
+    const decision = classRun?.forKeys(userId, classDateYmd, classTime);
+    const isTrial = classRun?.ready
+      ? trialMatchMode === "name_fallback"
+        ? decision === "trial" ||
+          (decision == null && membershipTypeNameLooksLikeTrial(row.membership_type_name))
+        : bookingMatchesTrialScope(row, trialScope, decision)
+      : trialMatchMode === "name_fallback"
         ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
         : bookingMatchesTrialScope(row, trialScope);
 
@@ -722,10 +750,14 @@ export async function syncArboxMissedClassForBusiness(input: {
           const name = nameById.get(id);
           if (name) names.add(normalizeMembershipTypeName(name));
         }
-        return bookingMatchesTrialScope(row, {
-          trialTypeIds: ids,
-          trialTypeNamesNormalized: names,
-        });
+        return bookingMatchesTrialScope(
+          row,
+          {
+            trialTypeIds: ids,
+            trialTypeNamesNormalized: names,
+          },
+          decision
+        );
       });
       if (!batch.length) continue;
       summary.routed_trial += 1;

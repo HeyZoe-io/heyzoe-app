@@ -28,6 +28,8 @@ export type TemplateSendParamContext = {
   clientFullName?: string | null;
   /** Trainer heads-up {{4}}: Arbox client-card general notes, already flattened. */
   clientGeneralNotes?: string | null;
+  /** Trainer heads-up {{5}}: class date YYYY-MM-DD, rendered as "יום שלישי 7.10". */
+  classDateYmd?: string | null;
   workoutN?: number | string | null;
 };
 
@@ -129,6 +131,15 @@ export function userIdFromTrainerTrialHeadsUpDedupKey(dedupKey: string): number 
   const userId = Number((beforeHash.split(":")[4] ?? "").trim());
   if (!Number.isFinite(userId) || userId <= 0) return null;
   return Math.trunc(userId);
+}
+
+/** trainer_trial_heads_up delayed send: class date is the YYYY-MM-DD segment before the time. */
+export function classDateYmdFromTrainerHeadsUpDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("trainer_trial_heads_up:")) return null;
+  const beforeHash = raw.split("#")[0] ?? "";
+  const ymd = (beforeHash.split(":")[5] ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
 }
 
 /** Staff B2: client name (full name on new keys) is the first hash segment. */
@@ -264,6 +275,9 @@ export function resolveTemplateSlotValue(
     const raw = String(ctx.firstName ?? "").trim();
     return raw || TEMPLATE_NAME_FALLBACK;
   }
+  if (slot === "class_day_he") {
+    return formatTrialReminderClassDay(ctx.classDateYmd) || "";
+  }
   if (slot === "client_general_notes") {
     const notes = String(ctx.clientGeneralNotes ?? "")
       .replace(/[\r\n\t]+/g, " ")
@@ -297,7 +311,65 @@ export function resolveTemplateSlotValue(
   return formatted || TEMPLATE_EXPIRY_FALLBACK;
 }
 
+/**
+ * Body params for one trainer_trial_heads_up send, counted from the approved body.
+ * 1 → [class name]. 4 → [class, time, full name, notes]. 5 adds the Hebrew day.
+ * Empty notes are "אין". Any other count is a skip.
+ */
+export function trainerHeadsUpTemplateParamValues(input: {
+  storedComponents?: unknown;
+  className?: string | null;
+  classTime?: string | null;
+  clientFullName?: string | null;
+  firstName?: string | null;
+  clientGeneralNotes?: string | null;
+  classDateYmd?: string | null;
+}): { ok: true; values: string[] } | { ok: false; reason: string; varCount: number } {
+  const indexes = trialReminderBodyPlaceholderIndexes(input.storedComponents);
+  const contiguous = indexes.every((n, i) => n === i + 1);
+  const count = indexes.length;
+  if (!contiguous || (count !== 1 && count !== 4 && count !== 5)) {
+    return { ok: false, reason: "trainer_heads_up_param_count", varCount: count };
+  }
+  const className = String(input.className ?? "").trim() || "השיעור";
+  if (count === 1) return { ok: true, values: [className] };
+  const classTime = String(input.classTime ?? "").trim() || TEMPLATE_CLASS_TIME_FALLBACK;
+  const fullName =
+    String(input.clientFullName ?? "").trim() ||
+    String(input.firstName ?? "").trim() ||
+    TEMPLATE_NAME_FALLBACK;
+  const notesRaw = String(input.clientGeneralNotes ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  const notes = notesRaw
+    ? notesRaw.length <= 400
+      ? notesRaw
+      : `${notesRaw.slice(0, 399).trimEnd()}…`
+    : "אין";
+  if (count === 4) return { ok: true, values: [className, classTime, fullName, notes] };
+  const day = formatTrialReminderClassDay(input.classDateYmd);
+  if (!day) return { ok: false, reason: "trainer_heads_up_param_missing_day", varCount: count };
+  return { ok: true, values: [className, classTime, fullName, notes, day] };
+}
+
 export function resolveTemplateBodyParamValues(ctx: TemplateSendParamContext): string[] {
+  if (ctx.triggerType === "trial_reminder" && bodyTextFromTemplateComponents(ctx.storedComponents)) {
+    const decided = trialReminderTemplateParamValues({
+      storedComponents: ctx.storedComponents,
+      firstName: ctx.firstName ?? null,
+      className: ctx.className,
+      classTime: ctx.classTime,
+      classDateYmd: ctx.classDateYmd,
+    });
+    if (!decided.ok) return [];
+    return decided.values;
+  }
+  if (ctx.triggerType === "trainer_trial_heads_up" && bodyTextFromTemplateComponents(ctx.storedComponents)) {
+    const decided = trainerHeadsUpTemplateParamValues(ctx);
+    if (!decided.ok) return [];
+    return decided.values;
+  }
   const body = bodyTextFromTemplateComponents(ctx.storedComponents);
   const slots = paramSlotsForTriggerType(ctx.triggerType);
   const varCount = body ? extractBodyVarCount(body) : slots.length;

@@ -21,6 +21,7 @@ import {
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
 import {
   ATTENDANCE_GAP_FUTURE_SPAN_DAYS,
   sharedFutureBookingsWindow,
@@ -749,6 +750,26 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
+  let classRun: Awaited<ReturnType<typeof prepareTrialBookingClasses>> | null = null;
+  try {
+    classRun = await prepareTrialBookingClasses({
+      admin: input.admin,
+      businessId,
+      apiKey,
+      rows: reportRows,
+      trialTypeIds,
+      todayYmd,
+      phase: "pre_class",
+      isCandidate: (row) => bookingMatchesTrialScope(row, trialScope),
+    });
+  } catch (error) {
+    console.error("[leads/arbox-trial-reminder] trial class failed, name match only", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const trialDecision = (userId: number, classDate: string, classTime: string) =>
+    classRun?.forKeys(userId, classDate, classTime);
 
   const needsFullSeed = !input.trialReminderSeeded;
   let needsSoftSeed = false;
@@ -775,7 +796,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
       const classTime = normalizeTrialReminderClassTimePk(row.time);
       const className = normalizeTrialReminderClassNamePk(row.class_name);
       if (userId == null || !classDateYmd || !classTime || !className) continue;
-      if (!bookingMatchesTrialScope(row, trialScope)) continue;
+      if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
       summary.trial_rows += 1;
       let ok = true;
       for (const rule of sendRules) {
@@ -867,7 +888,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
       const className = normalizeTrialReminderClassNamePk(row.class_name);
       if (userId == null || !classDateYmd || !classTime || !className) continue;
       if (userId === TRIAL_REMINDER_SOFT_SEED_SENTINEL_USER_ID) continue;
-      if (!bookingMatchesTrialScope(row, trialScope)) continue;
+      if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
       for (const rule of freshRules) {
         const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
           {
@@ -902,7 +923,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
       continue;
     }
     if (userId === TRIAL_REMINDER_SOFT_SEED_SENTINEL_USER_ID) continue;
-    if (!bookingMatchesTrialScope(row, trialScope)) continue;
+    if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
     summary.trial_rows += 1;
 
     const dueRules = sendRules.filter((item) => {
@@ -996,6 +1017,24 @@ export async function syncArboxTrialReminderForBusiness(input: {
 
       const sendPhone = resolved.phone;
       if (!sendPhone) continue;
+      const freshClass = await classRun?.recheckBeforeSend({
+        userId,
+        classDate: classDateYmd,
+        classTime,
+        role: String((row as { user_role?: unknown; role?: unknown }).user_role ?? (row as { role?: unknown }).role ?? "") || null,
+        firstWorkout: ["yes", "1", "true"].includes(
+          String((row as { is_first_session?: unknown }).is_first_session ?? "").trim().toLowerCase()
+        ),
+      });
+      if (freshClass === "not_trial" || freshClass === "unknown") {
+        console.info("[leads/arbox-trial-reminder] pre-send class skip", {
+          businessId,
+          userId,
+          classDateYmd,
+          classification: freshClass,
+        });
+        continue;
+      }
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),

@@ -14,6 +14,7 @@ import {
   enforceWarmupTestPhoneOnly,
   resolveBusinessFromSlug,
 } from "./warmup-test-config.mjs";
+import { liveScriptSlug } from "./live-guard.mjs";
 
 const PREVIEW_BASE = process.env.PREVIEW_BASE?.replace(/\/$/, "") ?? "";
 const BYPASS_TOKEN = process.env.BYPASS_TOKEN ?? "";
@@ -191,6 +192,8 @@ async function messagesSince(sinceIso) {
   if (error) throw new Error(error.message);
   return data ?? [];
 }
+
+if (!liveScriptSlug(slug)) process.exit(0);
 
 const startedAt = new Date().toISOString();
 const contactBefore = await loadContact();

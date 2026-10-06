@@ -26,6 +26,9 @@ function components() {
 }
 
 async function main() {
+  const { liveScriptSlug } = await import("./live-guard");
+  const onlySlug = liveScriptSlug();
+  if (!onlySlug) return;
   const admin = createSupabaseAdminClient();
   const { data: businesses, error } = await admin
     .from("businesses")
@@ -37,6 +40,7 @@ async function main() {
   for (const raw of businesses ?? []) {
     const businessId = Number((raw as { id?: unknown }).id);
     const slug = String((raw as { slug?: unknown }).slug ?? "");
+    if (slug.trim().toLowerCase() !== onlySlug) continue;
     const wabaId = String((raw as { waba_id?: unknown }).waba_id ?? "")
       .trim()
       .replace(/\s+/g, "");

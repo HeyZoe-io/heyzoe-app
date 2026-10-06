@@ -12,6 +12,7 @@ import {
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
+import { isCrmNightHold } from "@/lib/leads/crm-night-hold";
 import { syncArboxFreezeForBusiness } from "@/lib/leads/arbox-freeze";
 import {
   salesBatchMayRegisterAfterTrial,
@@ -69,6 +70,7 @@ export type BusinessSummary = {
   business_id: number;
   slug: string;
   skipped?: boolean;
+  skip_reason?: "quiet_hours";
   fetched: number;
   processed: number;
   already: number;
@@ -436,6 +438,23 @@ export async function runArboxTrialSyncForBusiness(input: {
       pages_fetched: 0,
       cursor_advanced: false,
     };
+
+    if (isCrmNightHold(now)) {
+      summary.skipped = true;
+      summary.skip_reason = "quiet_hours";
+      console.info("[cron/arbox-trial-sync] night hold 21:00-08:00", {
+        slug: business.slug,
+        held: [
+          "trial_booked",
+          "purchase",
+          "first_paid_purchase",
+          "credit_refusal",
+          "arbox_new_lead",
+          "registered_after_trial_delay_0",
+        ],
+      });
+      return summary;
+    }
 
     const purchaseRules = await loadEnabledPurchaseTemplateTriggers(admin, business.id);
     const classByProductId = new Map<number, PurchaseItemType>();

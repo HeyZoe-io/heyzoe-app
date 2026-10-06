@@ -15,7 +15,8 @@ export type TemplateParamSlot =
   | "class_date"
   | "workout_n"
   | "client_full_name"
-  | "client_general_notes";
+  | "client_general_notes"
+  | "class_day_he";
 
 export type TemplatePreset = {
   name: string;
@@ -50,7 +51,13 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   trial_booked: ["first_name", "class_name", "class_date", "class_time"],
   milestones: ["first_name"],
   nth_workout: ["first_name", "workout_n"],
-  trainer_trial_heads_up: ["class_name", "class_time", "client_full_name", "client_general_notes"],
+  trainer_trial_heads_up: [
+    "class_name",
+    "class_time",
+    "client_full_name",
+    "client_general_notes",
+    "class_day_he",
+  ],
   class_cancelled_staff: ["class_name", "class_date", "class_time"],
   class_cancelled_customer: ["first_name", "class_name", "class_date", "class_time"],
 };
@@ -170,7 +177,7 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   trial_reminder: {
     name: "trial_reminder",
     category: "UTILITY",
-    body: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} בשעה {{3}}. נשמח לראותך!",
+    body: "היי {{1}}, רציתי לוודא הגעה לאימון הניסיון {{2}} ב{{3}} בשעה {{4}}. נשמח לראותך!",
   },
   trial_booked: {
     name: "trial_booked",
@@ -600,6 +607,7 @@ export function presetExampleForSlot(slot: TemplateParamSlot): string {
   if (slot === "class_time") return "18:00";
   if (slot === "client_full_name") return "דנה כהן";
   if (slot === "client_general_notes") return "פציעה בברך, להתחיל לאט";
+  if (slot === "class_day_he") return "יום שלישי 7.10";
   if (slot === "workout_n") return "3";
   return "01.09.2026";
 }
@@ -614,7 +622,24 @@ export function trialReminderMetaExampleValues(varCount: number): string[] | nul
   return null;
 }
 
+/** Meta sample values for a new trainer_trial_heads_up submission. */
+export function trainerHeadsUpMetaExampleValues(varCount: number): string[] | null {
+  if (varCount === 1) return ["יוגה"];
+  if (varCount === 4) return ["יוגה", "18:00", "דנה כהן", "פציעה בברך"];
+  if (varCount === 5) return ["יוגה", "18:00", "דנה כהן", "פציעה בברך", "יום שלישי 7.10"];
+  return null;
+}
+
 export function presetVarHint(triggerType: TriggerType): string {
+  if (triggerType === "trainer_trial_heads_up") {
+    return [
+      "{{1}} = שם השיעור",
+      "{{2}} = שעת השיעור",
+      "{{3}} = שם מלא של הלקוח",
+      "{{4}} = הערות (אם אין: אין)",
+      '{{5}} = יום ותאריך (למשל "יום שלישי 7.10")',
+    ].join(" · ");
+  }
   if (triggerType === "trial_reminder") {
     return [
       "{{1}} = שם פרטי",
@@ -637,6 +662,7 @@ export function presetVarHint(triggerType: TriggerType): string {
     workout_n: "מספר האימון",
     client_full_name: "שם מלא לקוח",
     client_general_notes: "הערות כלליות מארבוקס",
+    class_day_he: "יום ותאריך",
   };
   return slots
     .map((slot, i) => `{{${i + 1}}} = ${labels[slot]}`)

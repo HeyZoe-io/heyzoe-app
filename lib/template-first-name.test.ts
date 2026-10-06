@@ -11,6 +11,9 @@ assert.equal(resolveTemplateFirstName({ full_name: "קרבון גריפ בעמ" 
 assert.equal(resolveTemplateFirstName({ full_name: "משה כהן" }), "משה");
 assert.equal(resolveTemplateFirstName({ full_name: "רחל" }), "רחל");
 assert.equal(resolveTemplateFirstName({ full_name: "Amitay Klein" }), "Amitay");
+assert.equal(resolveTemplateFirstName({ full_name: "rachel cohen" }), "Rachel");
+assert.equal(resolveTemplateFirstName(null, "rachel"), "Rachel");
+assert.equal(resolveTemplateFirstName({ full_name: "Rachel" }), "Rachel");
 assert.equal(resolveTemplateFirstName({ full_name: "user123" }), null);
 
 assert.equal(resolveTemplateFirstName({ full_name: "אייזן רחל" }, "רחל אייזן"), "רחל");
