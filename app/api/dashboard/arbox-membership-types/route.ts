@@ -59,5 +59,17 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return NextResponse.json({ types: result.types });
+  const trialRaw = (biz as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids;
+  const trialTypeIds = Array.isArray(trialRaw)
+    ? [
+        ...new Set(
+          trialRaw
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0)
+            .map((n) => Math.trunc(n))
+        ),
+      ]
+    : [];
+
+  return NextResponse.json({ types: result.types, trial_type_ids: trialTypeIds });
 }

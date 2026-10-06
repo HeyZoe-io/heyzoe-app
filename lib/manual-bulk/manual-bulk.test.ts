@@ -8,7 +8,12 @@ import {
   MANUAL_BULK_DRAIN_INTERVAL_MINUTES,
   MANUAL_BULK_FLUSH_LIMIT,
 } from "@/lib/manual-bulk/constants";
-import { membershipTypeMatchesFilter } from "@/lib/manual-bulk/audience";
+import {
+  membershipAudienceExcludesTypeName,
+  membershipTypeMatchesFilter,
+  trialMembershipNamesToExclude,
+} from "@/lib/manual-bulk/audience";
+import { normalizeMembershipTypeName } from "@/lib/leads/arbox-trial-attended";
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
@@ -55,6 +60,39 @@ import {
   assert.equal(membershipTypeMatchesFilter("מנוי שנתי", []), true);
   assert.equal(membershipTypeMatchesFilter("מנוי שנתי", ["מנוי שנתי"]), true);
   assert.equal(membershipTypeMatchesFilter("כרטיסייה", ["מנוי שנתי"]), false);
+
+  const excluded = trialMembershipNamesToExclude({
+    types: [
+      {
+        membership_type_id: 586473,
+        membership_type_name: "שיעור הכרות - סטודיו tights",
+        type: "session",
+      },
+      {
+        membership_type_id: 1,
+        membership_type_name: "סטודיו - 2 פעמים בשבוע (9 כניסות בחודש)",
+        type: "plan",
+      },
+      { membership_type_id: 2, membership_type_name: "אימון ניסיון", type: "plan" },
+      { membership_type_id: 3, membership_type_name: "פילאטיס מכשירים", type: "trial" },
+    ],
+    trialTypeIds: [586473],
+  });
+  assert.equal(
+    excluded.has(normalizeMembershipTypeName("שיעור הכרות - סטודיו tights")),
+    true
+  );
+  assert.equal(excluded.has(normalizeMembershipTypeName("אימון ניסיון")), true);
+  assert.equal(excluded.has(normalizeMembershipTypeName("פילאטיס מכשירים")), true);
+  assert.equal(
+    membershipAudienceExcludesTypeName("סטודיו - 2 פעמים בשבוע (9 כניסות בחודש)", excluded),
+    false
+  );
+  assert.equal(
+    membershipAudienceExcludesTypeName("כרטיסיה של 10 כניסות - חיילת", excluded),
+    false
+  );
+  assert.equal(membershipAudienceExcludesTypeName("שיעור הכרות - סטודיו tights", excluded), true);
 }
 
 {

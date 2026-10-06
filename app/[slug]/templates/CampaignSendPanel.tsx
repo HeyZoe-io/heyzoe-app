@@ -24,6 +24,7 @@ import {
   filterArboxPlanAndPunchCardTypes,
   type ArboxMembershipTypeRow,
 } from "@/lib/arbox-membership-types";
+import { membershipTypeNameLooksLikeTrial } from "@/lib/leads/arbox-trial-attended";
 import { PURCHASE_ITEM_TYPE_LABELS_HE } from "@/lib/trigger-catalog";
 
 export type CampaignSendTemplateOption = {
@@ -80,6 +81,7 @@ export default function CampaignSendPanel(props: {
   const [weeks, setWeeks] = useState(MANUAL_BULK_WEEKS_DEFAULT);
   const [templateName, setTemplateName] = useState(props.templates[0]?.name ?? "");
   const [membershipTypes, setMembershipTypes] = useState<MembershipTypeRow[]>([]);
+  const [trialTypeIds, setTrialTypeIds] = useState<number[]>([]);
   const [membershipTypesLoading, setMembershipTypesLoading] = useState(false);
   const [membershipTypeQuery, setMembershipTypeQuery] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
@@ -133,10 +135,16 @@ export default function CampaignSendPanel(props: {
         );
         const j = (await res.json().catch(() => ({}))) as {
           types?: MembershipTypeRow[];
+          trial_type_ids?: number[];
           error?: string;
         };
         if (cancelled || !res.ok) return;
         setMembershipTypes(Array.isArray(j.types) ? j.types : []);
+        setTrialTypeIds(
+          Array.isArray(j.trial_type_ids)
+            ? j.trial_type_ids.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)
+            : []
+        );
       } catch {
         /* types stay empty — filter = all */
       } finally {
@@ -148,9 +156,16 @@ export default function CampaignSendPanel(props: {
     };
   }, [audienceType, props.slug]);
 
+  const trialTypeIdSet = useMemo(() => new Set(trialTypeIds), [trialTypeIds]);
+
   const planAndPunchCardTypes = useMemo(
-    () => filterArboxPlanAndPunchCardTypes(membershipTypes),
-    [membershipTypes]
+    () =>
+      filterArboxPlanAndPunchCardTypes(membershipTypes).filter(
+        (row) =>
+          !trialTypeIdSet.has(row.membership_type_id) &&
+          !membershipTypeNameLooksLikeTrial(row.membership_type_name)
+      ),
+    [membershipTypes, trialTypeIdSet]
   );
 
   const selectedMembershipTypeIds = useMemo(() => {
@@ -424,7 +439,8 @@ export default function CampaignSendPanel(props: {
           <div className="space-y-2">
             <p className="text-sm text-zinc-700">סוגי מנוי וכרטיסיות</p>
             <p className="text-xs text-zinc-500">
-              ריק = כולם. אפשר לבחור מספר קבלים.
+              ריק = כל המנויים והכרטיסיות הפעילים. שיעורי ניסיון והכרות לא נכללים. אפשר לבחור מספר
+              סוגים.
             </p>
             {membershipTypesLoading ? (
               <p className="text-xs text-zinc-500">טוען סוגי מנוי וכרטיסיות…</p>
@@ -561,7 +577,6 @@ export default function CampaignSendPanel(props: {
                 checked={whenMode === "now"}
                 onChange={() => {
                   setWhenMode("now");
-                  setPreview(null);
                   setAck(false);
                 }}
               />
@@ -574,7 +589,6 @@ export default function CampaignSendPanel(props: {
                 checked={whenMode === "later"}
                 onChange={() => {
                   setWhenMode("later");
-                  setPreview(null);
                   setAck(false);
                 }}
               />
@@ -587,7 +601,6 @@ export default function CampaignSendPanel(props: {
                 checked={whenMode === "recurring"}
                 onChange={() => {
                   setWhenMode("recurring");
-                  setPreview(null);
                   setAck(false);
                 }}
               />

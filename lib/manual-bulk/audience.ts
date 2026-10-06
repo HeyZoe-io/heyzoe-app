@@ -1,3 +1,7 @@
+import {
+  fetchAllArboxMembershipTypes,
+  type ArboxMembershipTypeRow,
+} from "@/lib/arbox-membership-types";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
@@ -13,6 +17,10 @@ import {
   isArboxActiveCustomerSessionStatus,
 } from "@/lib/leads/arbox-customer-set";
 import { parseLeadIdFromUserId } from "@/lib/leads/arbox-all-leads-report";
+import {
+  membershipTypeNameLooksLikeTrial,
+  normalizeMembershipTypeName,
+} from "@/lib/leads/arbox-trial-attended";
 import { fetchArboxPagedReportRows } from "@/lib/leads/arbox-paged-report";
 import { phoneFromWaMessageSessionId } from "@/lib/manual-bulk/session-phone";
 import {
@@ -100,6 +108,54 @@ export function membershipTypeMatchesFilter(
   if (!name) return false;
   const wanted = new Set(filterNames.map(normalizeTypeName).filter(Boolean));
   return wanted.has(name);
+}
+
+function parseTrialTypeIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((n) => Math.trunc(n))
+    ),
+  ];
+}
+
+/**
+ * Names that must never enter the membership/punch-card campaign:
+ * the studio's configured trial products (even when Arbox types them as session),
+ * catalog rows typed `trial`, and names that read as a trial class.
+ */
+export function trialMembershipNamesToExclude(input: {
+  types: readonly Pick<ArboxMembershipTypeRow, "membership_type_id" | "membership_type_name" | "type">[];
+  trialTypeIds: readonly number[];
+}): Set<string> {
+  const ids = new Set(input.trialTypeIds);
+  const names = new Set<string>();
+  for (const row of input.types) {
+    const normalized = normalizeMembershipTypeName(row.membership_type_name);
+    if (!normalized) continue;
+    const type = String(row.type ?? "").trim().toLowerCase();
+    if (
+      ids.has(row.membership_type_id) ||
+      type === "trial" ||
+      membershipTypeNameLooksLikeTrial(row.membership_type_name)
+    ) {
+      names.add(normalized);
+    }
+  }
+  return names;
+}
+
+export function membershipAudienceExcludesTypeName(
+  typeName: unknown,
+  excludedNames: ReadonlySet<string>
+): boolean {
+  const normalized = normalizeMembershipTypeName(typeName);
+  if (!normalized) return false;
+  if (excludedNames.has(normalized)) return true;
+  return membershipTypeNameLooksLikeTrial(typeName);
 }
 
 function reportPhone(row: Record<string, unknown>): string | null {
@@ -264,6 +320,7 @@ async function fetchMembershipAudienceRows(input: {
   boxId: string;
   includePunchCards: boolean;
   typeNames: string[];
+  excludedTypeNames: ReadonlySet<string>;
 }): Promise<
   | { ok: true; rows: Array<{ userId: number; phone: string | null; typeName: string }>; pages: number }
   | { ok: false; error: string }
@@ -309,6 +366,7 @@ async function fetchMembershipAudienceRows(input: {
     const isMembership = isArboxActiveCustomerMembershipStatus(row.status);
     const isSession = isArboxActiveCustomerSessionStatus(row.status);
     if (!isMembership && !isSession) continue;
+    if (membershipAudienceExcludesTypeName(row.membership_type_name, input.excludedTypeNames)) continue;
     if (!membershipTypeMatchesFilter(row.membership_type_name, input.typeNames)) continue;
     const userId = parseLeadIdFromUserId(row.user_id);
     if (userId == null) continue;
@@ -358,7 +416,7 @@ export async function buildManualBulkAudience(input: {
   if (input.audienceType === "membership") {
     const { data: biz, error: bizErr } = await input.admin
       .from("businesses")
-      .select("crm_type, crm_api_key, crm_box_id")
+      .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
       .eq("id", input.businessId)
       .maybeSingle();
     if (bizErr) {
@@ -372,11 +430,26 @@ export async function buildManualBulkAudience(input: {
     const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (!apiKey || !boxId) throw new Error("missing_crm_credentials");
 
+    // One membershipTypes GET per preview / weekly run, so a trial product typed as
+    // session (Tights «שיעור הכרות») cannot ride along with punch cards.
+    const catalog = await fetchAllArboxMembershipTypes({
+      apiKey,
+      logLabel: "manual-bulk/membershipTypes",
+    });
+    if (!catalog.ok) throw new Error("membership_types_lookup_failed");
+    const excludedTypeNames = trialMembershipNamesToExclude({
+      types: catalog.types,
+      trialTypeIds: parseTrialTypeIds(
+        (biz as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids
+      ),
+    });
+
     const report = await fetchMembershipAudienceRows({
       apiKey,
       boxId,
       includePunchCards: Boolean(input.includePunchCards),
       typeNames: (input.membershipTypeNames ?? []).map(normalizeTypeName).filter(Boolean),
+      excludedTypeNames,
     });
     if (!report.ok) throw new Error(report.error);
 
@@ -446,7 +519,7 @@ export async function buildManualBulkAudience(input: {
     .eq("id", input.businessId)
     .maybeSingle();
   let activeKeys: ActiveProductKeys | null = null;
-  let customerPages = 0;
+  const customerPages = 0;
   if (businessHasArboxConnection(biz)) {
     const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
     const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
