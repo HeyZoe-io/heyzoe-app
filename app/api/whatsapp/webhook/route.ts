@@ -13164,6 +13164,70 @@ async function processIncoming(
         return;
       }
     }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "signup") {
+      if (businessId && knowledge.salesFlowConfig) {
+        const started = await beginSalesFlowAtProductPick({
+          entryModel: appendRouteToModelUsed(
+            SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+            waReplyRoute,
+            fastPathHint?.category
+          ),
+          entryContent: "[heyzoe:signup_intent_flow_entry]",
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          allowTrialCta: true,
+          logEntry: true,
+        });
+        contactSessionPhase = started.contactSessionPhase;
+        contactFlowStep = started.contactFlowStep;
+      } else {
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: "[heyzoe:signup_intent_flow_entry]",
+          model_used: appendRouteToModelUsed(
+            SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+            waReplyRoute,
+            fastPathHint?.category
+          ),
+          session_id: sessionId,
+        });
+      }
+      return;
+    }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "member_or_trial_unclear") {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_CLARIFY_QUESTION,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] member_or_trial_unclear send failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_CLARIFY_QUESTION,
+        model_used: appendRouteToModelUsed(
+          REGISTRATION_INTENT_CLARIFY_MODEL,
+          waReplyRoute,
+          fastPathHint?.category
+        ),
+        session_id: sessionId,
+      });
+      return;
+    }
     if (routeAction.kind === "timetable") {
       console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });
       await sendClassTimesAsScheduleImage({

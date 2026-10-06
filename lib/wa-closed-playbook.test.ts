@@ -380,11 +380,21 @@ const discountWithPromo = resolveClosedPlaybook({
   knowledge: { promotionsText: "20% הנחה על מנוי שנתי" },
 });
 assert.equal(discountWithPromo?.source, "promo");
-assert.equal(discountWithPromo?.notifyHumanRequested, false);
+assert.equal(discountWithPromo?.notifyHumanRequested, true);
+assert.match(discountWithPromo?.reply ?? "", /20% הנחה על מנוי שנתי/);
+assert.match(discountWithPromo?.reply ?? "", /אין לי ממש יכולת לעזור כאן/);
+
+const discountGenericStillQuotes = resolveClosedPlaybook({
+  inbound: "תעשי לי הנחה",
+  knowledge: { promotionsText: "20% הנחה על מנוי שנתי" },
+});
+assert.equal(discountGenericStillQuotes?.source, "promo");
+assert.match(discountGenericStillQuotes?.reply ?? "", /20% הנחה על מנוי שנתי/);
+assert.equal(discountGenericStillQuotes?.notifyHumanRequested, true);
 
 const discountNoPromo = resolveClosedPlaybook({
   inbound: "תעשי לי הנחה",
-  knowledge: { promotionsText: "20% הנחה על מנוי שנתי" },
+  knowledge: { promotionsText: "" },
 });
 assert.equal(discountNoPromo?.reply, CLOSED_PLAYBOOK_DISCOUNT_NO_PROMO_REPLY);
 assert.equal(discountNoPromo?.notifyHumanRequested, true);

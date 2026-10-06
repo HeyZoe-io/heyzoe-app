@@ -3,7 +3,7 @@ import {
   buildNonArboxClassChangeTeamHandoffReply,
   closedPlaybookModelUsed,
 } from "@/lib/wa-closed-playbook-copy";
-import { findRelevantActivePromo, findMatchingGroupCatalogProduct, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
+import { findMatchingGroupCatalogProduct, lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import type {
   ClosedPlaybookKnowledge,
@@ -36,7 +36,8 @@ export {
  * Class-cancel: knowledge fact if one exists. Arbox with no fact → app how-to.
  * Any other business with no fact → team handoff that names the request.
  * Group + unique catalog product → catalog (webhook: product-pick menu), no notify.
- * Discount + relevant promo → promo text, no notify.
+ * Discount: configured promotions text, then the closed copy, and the team is notified.
+ * No promotions text → the closed copy only, and the team is notified.
  * Coach/owner → default, notify (no facts-check).
  */
 
@@ -90,21 +91,22 @@ export function resolveClosedPlaybook(opts: {
   }
 
   if (intent.category === "discount") {
-    const promo = findRelevantActivePromo(opts.inbound, knowledge.promotionsText);
+    const promo = String(knowledge.promotionsText ?? "").trim();
+    const closed = buildClosedPlaybookDefaultReply("discount", botName);
     if (promo) {
       return {
         category: "discount",
         shape: intent.shape,
-        reply: promo,
+        reply: `${promo}\n\n${closed}`,
         modelUsed: closedPlaybookModelUsed("discount", "promo"),
-        notifyHumanRequested: false,
+        notifyHumanRequested: true,
         source: "promo",
       };
     }
     return {
       category: "discount",
       shape: intent.shape,
-      reply: buildClosedPlaybookDefaultReply("discount", botName),
+      reply: closed,
       modelUsed: closedPlaybookModelUsed("discount", "default"),
       notifyHumanRequested: true,
       source: "default",

@@ -29,7 +29,7 @@ export function isDemotedClosedPlaybook(category: string): boolean {
  * booking_change on those would send the wrong closed copy (a class cancel that
  * shares the word "לבטל" is not a membership cancellation).
  * A missing tag still uses the hint. signup confirms only route signup.
- * A signup tag on a registration hint still uses that hint's fixed reply.
+ * A clear signup route is not overridden by a registration hint.
  */
 const BOOKING_CHANGE_HINTS = new Set([
   "reschedule",
@@ -37,13 +37,6 @@ const BOOKING_CHANGE_HINTS = new Set([
   "class_change_app_failed",
   "booked_class_move_app",
   "booking_mutation",
-]);
-
-/** A signup tag on these still uses the fixed registration reply, not a promised callback. */
-const REGISTRATION_HINTS = new Set([
-  "registration_no_member",
-  "registration_has_member",
-  "registration_clarify",
 ]);
 
 export function decideHintAction(input: {
@@ -60,7 +53,6 @@ export function decideHintAction(input: {
   if (tagStatus !== "ok" || !route) return "use_hint";
   if (route === "handoff") return "use_hint";
   if (route === "booking_change" && BOOKING_CHANGE_HINTS.has(input.hint.category)) return "use_hint";
-  if (route === "signup" && REGISTRATION_HINTS.has(input.hint.category)) return "use_hint";
   return "ignore_hint";
 }
 

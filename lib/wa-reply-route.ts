@@ -6,7 +6,14 @@ import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
  * Intent tag on a free-text WhatsApp reply. Same Claude/Gemini call, no extra request.
  * Routing lives in code. The tag is stripped before the lead sees the text.
  */
-export const WA_REPLY_ROUTES = ["answer", "schedule", "booking_change", "handoff", "signup"] as const;
+export const WA_REPLY_ROUTES = [
+  "answer",
+  "schedule",
+  "booking_change",
+  "handoff",
+  "signup",
+  "member_or_trial_unclear",
+] as const;
 
 export type WaReplyRoute = (typeof WA_REPLY_ROUTES)[number];
 
@@ -151,7 +158,8 @@ export function buildReplyRoutePromptBlock(): string {
 - schedule - הלקוחה שואלת אילו שיעורים או שעות קיימים בלוח, בלי לבקש לשנות שיבוץ שלה.
 - booking_change - הלקוחה רוצה לבטל, להעביר, להחליף או לתקן שיעור שהיא כבר רשומה אליו, או מדווחת שנרשמה בטעות. שעה שהיא מציינת בתוך הבקשה היא היעד של השינוי, לא שאלה מה יש בלוח.
 - handoff - צריך אדם מהצוות: תלונה, החזר, ביטול מנוי, הקפאה, כאב או מגבלה בגוף, בקשה מפורשת לנציג, בקשה אישית להנחה או למחיר אחר, או שאלה על חלון ביטול שיעור כשהמספר לא נאמר בשיחה. שאלה מה לעשות עם כאב או פציעה היא handoff, גם כשהיא נשמעת כמו שאלה רגילה.
-- signup - הלקוחה רוצה להתחיל הרשמה או להצטרף לשיעור או למנוי, ואין לה כבר מקום שהיא מבקשת לשנות.
+- signup - היא חדשה ורוצה להתחיל: מציגה את עצמה, הופנתה על ידי מישהי, או שואלת על שיעור ועלות כדי להצטרף. זה signup גם אם ההשערה אומרת שאין לה מנוי.
+- member_or_trial_unclear - לא ברור אם היא כבר חברה. הרשמה נכשלה או «נרשמתי ולא עובד», בלי הפניה, בלי שיעור שהיא רוצה להתחיל, ובלי שאלה על עלות כדי להצטרף.
 
 דוגמאות answer:
 - "כמה עולה כרטיסייה?" -> [[route:answer]]
@@ -177,12 +185,16 @@ export function buildReplyRoutePromptBlock(): string {
 דוגמאות signup:
 - "איך נרשמים לשיעור ניסיון?" -> [[route:signup]]
 - "אשמח להגיע לשיעור ניסיון" -> [[route:signup]]
-- "אשמח על פרטים ומה העלות כדי להצטרף", כשההשערה היא signup -> [[route:signup]]
-אם מופיעה שורה Possible intent detected by keyword, זו השערה בלבד ולא עובדה. ברירת המחדל היא answer.
+- "אשמח על פרטים ומה העלות כדי להצטרף" -> [[route:signup]]
+- "היי אני שירה, אורית הפנתה אותי, אשמח ליוגה ביום שני בערב ומה העלות" -> [[route:signup]]
+דוגמאות member_or_trial_unclear:
+- "נרשמתי ולא עובד" -> [[route:member_or_trial_unclear]]
+- "לא מצליחה להירשם" בלי סימן שהיא חדשה -> [[route:member_or_trial_unclear]]
+אם מופיעה שורה Possible intent detected by keyword, זו השערה בלבד ולא עובדה. ברירת המחדל היא answer. השערה לא גוברת על מסלול ברור.
 תייגי handoff אם ההשערה עצמה היא מה שהלקוחה מבקשת עכשיו: ביטול מנוי, הקפאה, החזר, נציג, בדיקת מנוי, או מתי נקבע השיעור שלה. תייגי handoff גם בלי השערה כשהבקשה היא הנחה אישית, מחיר אחר, מחיר לזוג, או מחיר לחברה.
 תייגי booking_change רק אם היא מבקשת להזיז או לבטל שיעור אחד שהיא כבר רשומה אליו, וההשערה היא על השיעור ולא על המנוי.
-תייגי signup כשההשערה היא signup והיא רוצה פרטים או עלות כדי להצטרף.
-אם ההשערה אינה signup ואין מחיר בשיחה, בקשה להירשם יחד עם שאלה על עלות היא handoff, לא signup.
+תייגי signup כשהיא חדשה ורוצה להצטרף, גם אם ההשערה אומרת registration_no_member.
+תייגי member_or_trial_unclear רק כשאי אפשר לדעת אם יש לה מנוי. «אני לא מצליחה להירשם» כשההשערה היא membership_lookup היא handoff, לא signup.
 מילה מההשערה בתוך בקשה אחרת אינה אישור.
 אסור לכתוב אחוז, הנחה, או מבצע שלא כתובים בשדה «הנחות ומבצעים» או בתשובת FAQ. אם השדה מלא, «יש מבצע?» היא answer שמצטטת אותו. אם השדה הוא «לא הוגדר» ואין FAQ עם ההנחה שנשאלה, עני שאין מבצע מוגדר, בלי אחוז. אסור «אבדוק אם אוכל לתת לך».
 אסור להמציא מסלול או מספר שעות לביטול. אסור להבטיח שהצוות יחזור או שתשלחי מחירון שאין לך, אלא בתג handoff. בתג handoff על מחיר, הגוף הוא רק שהפנייה עוברת לצוות. בלי «אבדוק», בלי «מחיר מיוחד», ובלי הטבה שלא כתובה בידע.
