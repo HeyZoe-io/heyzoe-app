@@ -428,8 +428,9 @@ async function createArboxLead(input: {
     first_name: first,
     phone: phoneDisplay,
     location_id: input.locationId,
-    comment: input.noteText.trim(),
   };
+  const comment = ARBOX_CRM_NOTE_WRITES_ENABLED ? input.noteText.trim() : "";
+  if (comment) body.comment = comment;
   if (last) body.last_name = last;
   if (input.sourceId != null) body.source_id = input.sourceId;
   if (input.statusId != null) body.status_id = input.statusId;
@@ -439,7 +440,7 @@ async function createArboxLead(input: {
     locationId: input.locationId,
     sourceId: input.sourceId ?? null,
     statusId: input.statusId ?? null,
-    hasComment: Boolean(input.noteText.trim()),
+    hasComment: Boolean(comment),
   });
 
   const res = await arboxPublicFetch("/v3/leads", {
@@ -473,12 +474,27 @@ function buildArboxNoteDescription(kind: CrmEventKind, noteText: string): string
   return `${notePrefixForKind(kind)}\n\n${noteText}`.trim();
 }
 
+/**
+ * Zoe no longer writes client-card notes. The same events still update the
+ * HeyZoe contact and still open an Arbox task when one is configured.
+ * Existing Arbox notes are left as they are.
+ */
+export const ARBOX_CRM_NOTE_WRITES_ENABLED = false;
+
 async function appendArboxNote(input: {
   apiKey: string;
   userId: string;
   kind: CrmEventKind;
   noteText: string;
 }): Promise<boolean> {
+  if (!ARBOX_CRM_NOTE_WRITES_ENABLED) {
+    console.info("[crm/arbox] note write skipped", {
+      userId: input.userId,
+      kind: input.kind,
+    });
+    return true;
+  }
+
   const description = buildArboxNoteDescription(input.kind, input.noteText);
   const userIdNum = Number.parseInt(input.userId, 10);
   if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
