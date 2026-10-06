@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  firstNameFromFullName,
   previewFromWhatsappTemplateComponents,
   renderLeadTemplateMessageContent,
   resolveLeadTemplateDisplayContent,
@@ -56,6 +57,19 @@ const ARBOX_NEW_LEAD_COMPONENTS = [
   assert.match(text, /3 שאלות כדי שנתאים לכם את האימון המושלם/);
   assert.equal(text.includes("5 שאלות"), false);
   assert.equal(text.includes("להתחיל לתרגל"), false);
+}
+
+{
+  assert.equal(firstNameFromFullName("דנה כהן"), "דנה");
+  assert.equal(firstNameFromFullName(""), "שלום");
+  assert.equal(firstNameFromFullName("shulamit.henn@gmail.con"), "שלום");
+  assert.equal(firstNameFromFullName("https://example.com/x"), "שלום");
+  assert.equal(firstNameFromFullName("www.example.com"), "שלום");
+  assert.equal(firstNameFromFullName("0501234567"), "שלום");
+  assert.equal(firstNameFromFullName("+972501234567"), "שלום");
+  assert.equal(firstNameFromFullName("050-123-4567"), "שלום");
+  assert.equal(firstNameFromFullName("12345"), "שלום");
+  assert.equal(firstNameFromFullName("Michal"), "Michal");
 }
 
 console.log("lead-template.test.ts: ok");

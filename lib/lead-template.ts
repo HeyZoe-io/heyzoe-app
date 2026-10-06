@@ -158,10 +158,26 @@ export function leadTemplateUsesFirstName(templateName: string): boolean {
   return preview.body.includes("{{1}}");
 }
 
+const NAME_FALLBACK = "שלום";
+
+/** Email, URL, phone, or digits-only is not a person's name. */
+export function isRejectedTemplateNameToken(token: string): boolean {
+  const raw = String(token ?? "").trim();
+  if (!raw) return true;
+  if (raw.includes("@")) return true;
+  if (/^https?:\/\//i.test(raw) || /^www\./i.test(raw)) return true;
+  if (/^\d+$/.test(raw)) return true;
+  const compact = raw.replace(/[\s().-]/g, "");
+  if (/^\+?\d{7,}$/.test(compact)) return true;
+  return false;
+}
+
 export function firstNameFromFullName(fullName: string): string {
   const trimmed = fullName.trim();
-  if (!trimmed) return "שלום";
-  return trimmed.split(/\s+/).filter(Boolean)[0] ?? trimmed;
+  if (!trimmed) return NAME_FALLBACK;
+  const first = trimmed.split(/\s+/).filter(Boolean)[0] ?? "";
+  if (!first || isRejectedTemplateNameToken(first)) return NAME_FALLBACK;
+  return first;
 }
 
 export function renderLeadTemplateMessageContent(

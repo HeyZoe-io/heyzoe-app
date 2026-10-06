@@ -280,37 +280,37 @@ import {
 {
   const nameOnly = [{ type: "BODY", text: "היי {{1}}, נתראה." }];
   const none = [{ type: "BODY", text: "נתראה בשיעור." }];
-  const dateBody = [{ type: "BODY", text: "היי {{1}}, נתראה ביום {{2}} בשעה {{3}}." }];
+  const four = [{ type: "BODY", text: "היי {{1}}, לאימון {{2}} ב{{3}} בשעה {{4}}." }];
   const legacy = [{ type: "BODY", text: TEMPLATE_PRESETS.trial_reminder.body }];
   const two = [{ type: "BODY", text: "היי {{1}} לשיעור {{2}}." }];
   const gap = [{ type: "BODY", text: "היי {{1}} בשעה {{3}}." }];
-  assert.deepEqual(
+  assert.equal(
     trialReminderTemplateParamValues({
       storedComponents: none,
       firstName: "דנה כהן",
       classDateYmd: "2026-10-07",
       classTime: "07:00",
-    }),
-    { ok: true, values: [] }
+    }).ok,
+    false
   );
-  assert.deepEqual(
+  assert.equal(
     trialReminderTemplateParamValues({
       storedComponents: nameOnly,
       firstName: "דנה כהן",
       classDateYmd: "2026-10-07",
       classTime: "07:00",
-    }),
-    { ok: true, values: ["דנה"] }
+    }).ok,
+    false
   );
   assert.deepEqual(
     trialReminderTemplateParamValues({
-      storedComponents: dateBody,
+      storedComponents: four,
       firstName: "דנה כהן",
       className: "יוגה",
       classDateYmd: "2026-10-07",
       classTime: "7:00",
     }),
-    { ok: true, values: ["דנה", "יום רביעי 7.10", "07:00"] }
+    { ok: true, values: ["דנה", "יוגה", "יום רביעי 7.10", "07:00"] }
   );
   assert.deepEqual(
     trialReminderTemplateParamValues({
@@ -367,13 +367,24 @@ import {
   assert.equal(formatTrialReminderClassDay("2026-10-26"), "יום שני 26.10");
   const eveningClass = "2026-10-07";
   const shown = trialReminderTemplateParamValues({
-    storedComponents: [{ type: "BODY", text: "היי {{1}}, נתראה ביום {{2}} בשעה {{3}}." }],
+    storedComponents: [{ type: "BODY", text: "היי {{1}}, לאימון {{2}} ב{{3}} בשעה {{4}}." }],
     firstName: "דנה",
+    className: "יוגה",
     classDateYmd: eveningClass,
     classTime: "07:00",
   });
-  assert.deepEqual(shown, { ok: true, values: ["דנה", "יום רביעי 7.10", "07:00"] });
-  assert.equal(String((shown as { values: string[] }).values[1]).includes("6.10"), false);
+  assert.deepEqual(shown, { ok: true, values: ["דנה", "יוגה", "יום רביעי 7.10", "07:00"] });
+  assert.equal(String((shown as { values: string[] }).values[2]).includes("6.10"), false);
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: [{ type: "BODY", text: "היי {{1}}, נתראה ביום {{2}} בשעה {{3}}." }],
+      firstName: "דנה",
+      className: "יוגה",
+      classDateYmd: "2026-10-07",
+      classTime: "18:00",
+    }),
+    { ok: true, values: ["דנה", "יוגה", "18:00"] }
+  );
 }
 
 console.log("template-send-params.test.ts: ok");
