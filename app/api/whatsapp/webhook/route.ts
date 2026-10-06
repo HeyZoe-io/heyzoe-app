@@ -7647,6 +7647,7 @@ async function processIncoming(
     const regCta = resolveRegistrationCtaDecision({
       currentText: msg.text,
       recentUserTexts: recentUserForRegCta,
+      recentAssistantTexts: recentForRegCta.filter((m) => m.role === "assistant").map((m) => m.content),
       services: salesFlowServices,
       committedServiceName: lastPickedForRegCta,
       sessionPhase: contactSessionPhase,

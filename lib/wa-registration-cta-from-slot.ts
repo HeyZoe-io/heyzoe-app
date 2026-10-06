@@ -93,6 +93,84 @@ export function conversationBlobForRegistrationCta(
   return parts.slice(-6).join("\n");
 }
 
+/**
+ * שאלה או בירור — לא התחייבות להרשמה.
+ * «איך נרשמים» נשאר הרשמה כי isJoinSignupIntentText תופס אותו לפני הקריאה לכאן.
+ */
+export function inboundAsksInsteadOfRegistering(raw: string): boolean {
+  const original = String(raw ?? "");
+  const t = normalizeTrialSignupIntentText(original);
+  if (!t) return false;
+  if (/[?؟]/.test(original)) return true;
+  if (
+    /(?:^|\s)(?:what|how much|how many|is there|can i|can we|do you|does it|could i|before (?:i |we )?(?:sign|regist))\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return /(?:^|\s)(?:מה|כמה|האם|למה|איפה|איזה|איזו|מתי|לברר|לא\s+ברור|יש\s+אפשרות|לפני\s+(?:ש)?נרשמ|לפני\s+הרישום)(?:\s|$)/u.test(
+    t
+  );
+}
+
+function namesConcreteSlot(raw: string): boolean {
+  if (parseRequestedClassDays(raw).length > 0) return true;
+  if (/(?:[01]?\d|2[0-3]):[0-5]\d/.test(raw)) return true;
+  if (/\b(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/i.test(raw)) return true;
+  const t = normalizeTrialSignupIntentText(raw);
+  return /(?:^|\s)(?:מחר|היום|tomorrow|today)(?:\s|$)/iu.test(t);
+}
+
+function hasClockTime(raw: string): boolean {
+  return (
+    /(?:[01]?\d|2[0-3]):[0-5]\d/.test(raw) ||
+    /\b(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/i.test(raw)
+  );
+}
+
+/** «רביעי 16:45» / «At the 8am class» — אישור מועד, לא פסקה שמזכירה יום. */
+function isBareSlotConfirmation(raw: string): boolean {
+  const t = normalizeTrialSignupIntentText(raw);
+  if (!t || t.length > 60) return false;
+  if (inboundAsksInsteadOfRegistering(raw)) return false;
+  if (!namesConcreteSlot(raw)) return false;
+  let rest = ` ${t} `;
+  rest = rest.replace(
+    /\b(?:at|the|a|an|class|in|on|for|to|tomorrow|today|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi,
+    " "
+  );
+  rest = rest.replace(
+    /(?:^|\s)(?:ביום|יום|בשעה|שעה|מחר|היום|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת|ב|ל|את|השיעור|שיעור|אימון)(?=\s|$)/gu,
+    " "
+  );
+  rest = rest.replace(/(?:^|\s)ב?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?=\s|$)/gu, " ");
+  rest = rest.replace(/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g, " ");
+  rest = rest.replace(/\b(?:[1-9]|1[0-2])(?::[0-5]\d)?\s*(?:am|pm)\b/gi, " ");
+  rest = rest.replace(/[\s:.,-]+/g, " ").trim();
+  return rest.length === 0;
+}
+
+/**
+ * הודעה נוכחית שמקדמת הרשמה. היסטוריה יכולה לזהות איזה שיעור,
+ * אבל לא מספיקה לבד כדי לשלוח לינק.
+ */
+function currentTurnAdvancesRegistration(current: string): boolean {
+  if (isJoinSignupIntentText(current)) return true;
+  if (inboundAsksInsteadOfRegistering(current)) return false;
+  if (isBareSlotConfirmation(current)) return true;
+  return looksLikeTrialVisitIntent(current) && hasClockTime(current);
+}
+
+function registrationLinkAlreadySent(serviceName: string, input: {
+  services: SfServiceRow[];
+  recentAssistantTexts?: string[];
+}): boolean {
+  const url = input.services.find((s) => s.name === serviceName)?.paymentLink?.trim() ?? "";
+  if (!url) return false;
+  return (input.recentAssistantTexts ?? []).some((text) => text.includes(url));
+}
+
 /** «come in tomorrow for a trial» / ניסיון / הרשמה — בלי שאלת לוח. */
 export function looksLikeTrialVisitIntent(raw: string): boolean {
   const t = normalizeTrialSignupIntentText(raw);
@@ -136,6 +214,8 @@ export function resolveRegistrationCtaDecision(input: {
   sessionPhase?: string | null;
   trialRegistered?: boolean | null;
   now?: Date;
+  /** תשובות זואי אחרונות — אותו לינק לא נשלח שוב בלי בקשת הרשמה מפורשת. */
+  recentAssistantTexts?: string[];
 }): RegistrationCtaDecision {
   const phase = String(input.sessionPhase ?? "").trim();
   if (SKIP_PHASES.has(phase)) return { action: "none" };
@@ -148,18 +228,22 @@ export function resolveRegistrationCtaDecision(input: {
 
   const blob = conversationBlobForRegistrationCta(current, input.recentUserTexts);
   const registerAsk = isJoinSignupIntentText(current);
-  const trialInBlob = looksLikeTrialVisitIntent(blob);
-  const uniqueSlot = matchCatalogServiceByDayAndTime(blob, input.services, input.now ?? new Date());
+  const now = input.now ?? new Date();
+  const uniqueSlot = matchCatalogServiceByDayAndTime(blob, input.services, now);
   const matched = resolveMatchedServiceName({
     currentText: current,
     blob,
     services: input.services,
     committedServiceName: registerAsk ? input.committedServiceName : uniqueSlot ? input.committedServiceName : null,
-    now: input.now ?? new Date(),
+    now,
   });
 
-  const canSend =
-    Boolean(matched) && (registerAsk || (trialInBlob && Boolean(uniqueSlot)));
+  const advances = currentTurnAdvancesRegistration(current);
+  const canSend = Boolean(matched) && advances && (registerAsk || Boolean(uniqueSlot));
+
+  if (canSend && matched && !registerAsk && registrationLinkAlreadySent(matched, input)) {
+    return { action: "none" };
+  }
 
   if (canSend && matched) {
     const matchedSlot = matchCatalogServiceSlotByDayAndTime(blob, input.services, input.now ?? new Date());

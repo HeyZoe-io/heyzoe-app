@@ -222,4 +222,95 @@ assert.equal(
   "רגע, אני רואה שהמפגש של Power&HIIT ב-08:00 לא מתקיים השבוע. השיעור עצמו קבוע במערכת, אז סביר שהוא חוזר בשבוע הבא - אני מעבירה את הפנייה לצוות שיעדכן אותך בדיוק, בסדר?"
 );
 
+const kravKids = svc("קרב מגע לילדים", [
+  { day: "א", time: "16:45" },
+  { day: "ד", time: "16:45" },
+], "https://www.bitpay.co.il/app/me/E6C5E6B7");
+const kravCatalog = [
+  kravKids,
+  svc("קרב מגע לנוער", [{ day: "ב", time: "19:00" }]),
+  svc("קרב מגע למבוגרים", [{ day: "ג", time: "20:00" }]),
+];
+const hadasHistory = [
+  "היי יגאל הבן שלי רוצה להגיע אלייך לשיעור ניסיון ביום רביעי, האם אפשרי?",
+  "קרב מגע לילדים",
+  "רביעי 16:45",
+];
+const hadasNow = new Date("2026-10-05T15:29:00.000Z");
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "רציתי לברר גם מה המחיר? והאם זה בעצם פעמיים בשבוע? יש לבן שלי שני חברים אצלך והבנתי שזה גם בראשון וגם ברביעי",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+  });
+  assert.deepEqual(d, { action: "none" }, "price and schedule question must not resend the registration link");
+}
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "יש אפשרות להגיע לשיעור ניסיון קודם? לפני שנרשמים",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+  });
+  assert.deepEqual(d, { action: "none" }, "trial-before-signup question is not a registration");
+}
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "לא ברור לי איזה סכום צריך להעביר בביט. ואני שוב רוצה לברר האם יש אפשרות להגיע לשיעור ניסיון לפני הרישום?",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+  });
+  assert.deepEqual(d, { action: "none" }, "repeat clarification must not loop the same link");
+}
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "הבנתי שזה גם בראשון וגם ברביעי",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+  });
+  assert.deepEqual(d, { action: "none" }, "a weekday mention in history context is not a new registration");
+}
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "רביעי 16:45",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+    recentAssistantTexts: ["נרשמים ממש כאן:\nhttps://www.bitpay.co.il/app/me/E6C5E6B7"],
+  });
+  assert.deepEqual(d, { action: "none" }, "the same payment link is not sent again");
+}
+
+{
+  const d = resolveRegistrationCtaDecision({
+    currentText: "איך נרשמים",
+    recentUserTexts: hadasHistory,
+    services: kravCatalog,
+    committedServiceName: "קרב מגע לילדים",
+    sessionPhase: "cta",
+    now: hadasNow,
+    recentAssistantTexts: ["נרשמים ממש כאן:\nhttps://www.bitpay.co.il/app/me/E6C5E6B7"],
+  });
+  assert.equal(d.action, "send_link", "an explicit how-to-register still sends the link");
+  if (d.action === "send_link") assert.equal(d.serviceName, "קרב מגע לילדים");
+}
+
 console.log("wa-registration-cta-from-slot.test.ts: ok");
