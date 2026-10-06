@@ -6,8 +6,6 @@ import {
   matchesCantAttendScheduledClass,
   matchesTrialTopicIntent,
 } from "@/lib/wa-trial-topic-intent";
-import { matchesComposableTrialSignupIntent } from "@/lib/wa-trial-signup-intent";
-
 /** שאלת הבהרה לכוונת הרשמה מעורפלת — לפני standalone-help / Claude. */
 export const REGISTRATION_INTENT_CLARIFY_QUESTION =
   "היי! 👋 יש לך מנוי קיים אצלנו או שמדובר באימון ניסיון?";
@@ -130,23 +128,6 @@ export type ArboxClassMoveOutcome = {
   notifyTeam: boolean;
 };
 
-/** ההודעה עצמה כבר אומרת שמדובר באימון ניסיון שכבר קיים, לא בבקשה לקבוע ניסיון חדש. */
-function messageSpecifiesTrialClass(raw: string): boolean {
-  if (matchesExistingMembershipClaim(raw)) return false;
-  if (isExistingTrialEnrollmentMention(raw)) return true;
-  const t = normalizeRegistrationIntentText(raw);
-  if (/אין(?:\s+לי|\s+לנו)?\s+מנוי/u.test(t)) return true;
-  if (matchesComposableTrialSignupIntent(raw)) return false;
-  if (/(?:אימון|שיעור)\s*ה?(?:ניסיון|נסיון|היכרות|הכרות)/u.test(t)) return true;
-  if (/^(?:אימון\s+)?(?:ניסיון|נסיון)(?:\s|$|[.,!?])/u.test(t)) return true;
-  return false;
-}
-
-function messageSpecifiesMembership(raw: string): boolean {
-  if (matchesExistingMembershipClaim(raw)) return true;
-  return /כרטיסי[יה]|punch\s*card/iu.test(normalizeRegistrationIntentText(raw));
-}
-
 function arboxClassMoveMemberReply(
   raw: string,
   knowledge: ClosedPlaybookKnowledge | null | undefined
@@ -157,29 +138,27 @@ function arboxClassMoveMemberReply(
 }
 
 /**
- * Arbox: a request to move a class asks membership vs trial unless the message
- * (or Claude's tag) already says which. Membership gets the app swap steps,
- * replaced by a knowledge fact when the business wrote one. Trial goes to the team.
+ * Arbox class move. The branch is Claude's route tag only — not words in the message.
+ * class_move asks. class_move_member sends the app steps, or a knowledge fact when one exists.
+ * class_move_trial hands off to the team.
  */
 export function resolveArboxClassMoveOutcome(
   raw: string,
   opts?: {
     knowledge?: ClosedPlaybookKnowledge | null;
-    /** Claude already classified this turn. Overrides the wording of `raw`. */
     stated?: "member" | "trial" | null;
   }
 ): ArboxClassMoveOutcome {
   const knowledge = opts?.knowledge ?? null;
-  const trial = {
-    kind: "trial_team" as const,
-    reply: buildClassRescheduleTeamHandoffReply(knowledge?.botName ?? ""),
-    model: CLASS_MOVE_TRIAL_HANDOFF_MODEL,
-    notifyTeam: true,
-  };
-  if (opts?.stated === "trial" || (opts?.stated !== "member" && messageSpecifiesTrialClass(raw))) {
-    return trial;
+  if (opts?.stated === "trial") {
+    return {
+      kind: "trial_team",
+      reply: buildClassRescheduleTeamHandoffReply(knowledge?.botName ?? ""),
+      model: CLASS_MOVE_TRIAL_HANDOFF_MODEL,
+      notifyTeam: true,
+    };
   }
-  if (opts?.stated === "member" || messageSpecifiesMembership(raw)) {
+  if (opts?.stated === "member") {
     const member = arboxClassMoveMemberReply(raw, knowledge);
     return { kind: "member", reply: member.reply, model: member.model, notifyTeam: false };
   }

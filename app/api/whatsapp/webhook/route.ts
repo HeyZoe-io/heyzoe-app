@@ -239,7 +239,6 @@ import {
 } from "@/lib/wa-arbox-registration-verify";
 import {
   buildClassRescheduleTeamHandoffReply,
-  matchesClassRescheduleUpdate,
   resolveUnauthorizedBookingHandoff,
 } from "@/lib/wa-class-reschedule";
 import {
@@ -7868,37 +7867,6 @@ async function processIncoming(
 
   // Keyword hits below record a hint and continue to the one Claude call.
   // A kept matcher still returns on its own.
-  // Arbox class-move clarify: a clear membership / trial answer is sent here, before trial signup or Claude.
-  if (
-    isSalesFlowFreeTextInbound(msg) &&
-    businessId &&
-    knowledge?.hasArboxConnection === true
-  ) {
-    const lastForClassMove = modelUsedBase(
-      await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
-    );
-    if (lastForClassMove === CLASS_MOVE_CLARIFY_MODEL) {
-      const yn = classifyRegistrationIntentMembershipReply(msg.text);
-      if (yn === "yes" || yn === "no") {
-        await deliverArboxClassMoveOutcome({
-          outcome: resolveArboxClassMoveOutcome(msg.text, {
-            knowledge,
-            stated: yn === "yes" ? "member" : "trial",
-          }),
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          nowIso,
-        });
-        return;
-      }
-    }
-  }
-
   let fastPathHint: FastPathHint | null = null;
 
   // Out-of-flow signup used to open the sales flow before Claude.
@@ -13202,33 +13170,6 @@ async function processIncoming(
           console.error(`[WA Webhook] confirmed hint ${hintCategory} human_requested failed:`, e);
         }
       };
-      const classMoveStated =
-        waReplyRoute.route === "class_move_member"
-          ? "member"
-          : waReplyRoute.route === "class_move_trial"
-            ? "trial"
-            : null;
-      const arboxClassMoveHint =
-        knowledge.hasArboxConnection === true &&
-        (hintCategory === "booked_class_move_app" ||
-          (hintCategory === "reschedule" && !matchesClassRescheduleUpdate(msg.text)));
-      if (arboxClassMoveHint) {
-        await deliverArboxClassMoveOutcome({
-          outcome: resolveArboxClassMoveOutcome(msg.text, {
-            knowledge,
-            stated: classMoveStated,
-          }),
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          nowIso,
-        });
-        return;
-      }
       if (isDemotedClosedPlaybook(hintCategory)) {
         const confirmed = resolveClosedPlaybook({
           inbound: msg.text.trim(),

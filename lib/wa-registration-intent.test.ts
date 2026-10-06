@@ -173,17 +173,18 @@ assert.equal(resolveArboxClassMoveOutcome(vagueMove).model, CLASS_MOVE_CLARIFY_M
 assert.equal(resolveArboxClassMoveOutcome(vagueMove).notifyTeam, false);
 
 assert.equal(resolveArboxClassMoveOutcome("אפשר להזיז את האימון?").kind, "ask");
-assert.equal(
-  resolveArboxClassMoveOutcome("יש לי מנוי, אפשר להזיז את האימון למחר?").kind,
-  "member"
-);
-assert.equal(
-  resolveArboxClassMoveOutcome("יש לי מנוי, אפשר להזיז את האימון למחר?").reply,
-  BOOKED_CLASS_MOVE_APP_REPLY
-);
-assert.equal(resolveArboxClassMoveOutcome("יש לי כרטיסיה, אפשר להחליף שיעור?").kind, "member");
+assert.equal(resolveArboxClassMoveOutcome("יש לי מנוי, אפשר להזיז את האימון למחר?").kind, "ask");
+assert.equal(resolveArboxClassMoveOutcome("רשומה לשיעור ניסיון, אפשר להחליף?").kind, "ask");
+assert.equal(resolveArboxClassMoveOutcome(sickReschedule).kind, "ask");
+assert.equal(resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה").kind, "ask");
 
-const memberFact = resolveArboxClassMoveOutcome("יש לי מנוי ואשמח להזיז שיעור", {
+const memberFromClaude = resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", { stated: "member" });
+assert.equal(memberFromClaude.kind, "member");
+assert.equal(memberFromClaude.reply, BOOKED_CLASS_MOVE_APP_REPLY);
+assert.equal(memberFromClaude.notifyTeam, false);
+
+const memberFact = resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", {
+  stated: "member",
   knowledge: {
     botName: "זואי",
     knowledgeQa: [{ question: "החלפת שיעור", answer: "אצלנו מחליפים רק עד 3 שעות לפני, דרך הוואטסאפ של הצוות." }],
@@ -192,20 +193,10 @@ const memberFact = resolveArboxClassMoveOutcome("יש לי מנוי ואשמח �
 assert.equal(memberFact.kind, "member");
 assert.match(memberFact.reply, /3 שעות/);
 assert.equal(memberFact.model, "closed_playbook_fact_reschedule");
-assert.equal(memberFact.notifyTeam, false);
 
-assert.equal(resolveArboxClassMoveOutcome("רשומה לשיעור ניסיון, אפשר להחליף?").kind, "trial_team");
-assert.equal(resolveArboxClassMoveOutcome("אפשר להזיז את שיעור הניסיון?").kind, "trial_team");
-assert.equal(resolveArboxClassMoveOutcome("זה אימון הניסיון שלי").kind, "trial_team");
-assert.equal(resolveArboxClassMoveOutcome(sickReschedule).kind, "trial_team");
-assert.match(resolveArboxClassMoveOutcome("אימון ניסיון", { stated: "trial" }).reply, /צוות/);
-assert.equal(resolveArboxClassMoveOutcome("אימון ניסיון", { stated: "trial" }).notifyTeam, true);
-
-assert.equal(resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", { stated: "member" }).kind, "member");
-assert.equal(
-  resolveArboxClassMoveOutcome("מתאמנת אצלכם כבר שנה", { stated: "member" }).reply,
-  BOOKED_CLASS_MOVE_APP_REPLY
-);
-assert.equal(resolveArboxClassMoveOutcome("לא בטוחה", { stated: "trial" }).kind, "trial_team");
+const trialFromClaude = resolveArboxClassMoveOutcome("זה השיעור הראשון שלי", { stated: "trial" });
+assert.equal(trialFromClaude.kind, "trial_team");
+assert.match(trialFromClaude.reply, /צוות/);
+assert.equal(trialFromClaude.notifyTeam, true);
 
 console.log("wa-registration-intent.test.ts: ok");
