@@ -604,7 +604,26 @@ export function presetExampleForSlot(slot: TemplateParamSlot): string {
   return "01.09.2026";
 }
 
+/**
+ * Meta sample values for a new trial_reminder submission.
+ * 3 placeholders stay name, class, time. 4 placeholders put the day in {{3}}.
+ */
+export function trialReminderMetaExampleValues(varCount: number): string[] | null {
+  if (varCount === 3) return ["דנה", "יוגה", "18:00"];
+  if (varCount === 4) return ["דנה", "יוגה", "יום שלישי 7.10", "18:00"];
+  return null;
+}
+
 export function presetVarHint(triggerType: TriggerType): string {
+  if (triggerType === "trial_reminder") {
+    return [
+      "{{1}} = שם פרטי",
+      "{{2}} = שם השיעור",
+      '{{3}} = יום ותאריך (למשל "יום שלישי 7.10")',
+      "{{4}} = שעת השיעור",
+    ].join(" · ") +
+      ". גוף יכול להשתמש ב־{{1}}–{{3}} כמו קודם (שם, שיעור, שעה), או ב־{{1}}–{{4}} עם התאריך";
+  }
   const slots = TEMPLATE_PARAM_SLOTS[triggerType];
   const labels: Record<TemplateParamSlot, string> = {
     first_name: "שם פרטי",

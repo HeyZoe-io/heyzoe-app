@@ -20,6 +20,7 @@ import {
   parseDashboardTemplateComponents,
   presetExampleForSlot,
   presetVarHint,
+  trialReminderMetaExampleValues,
   TEMPLATE_PRESETS,
   templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
@@ -784,7 +785,9 @@ export default function TemplatesClient({
         if (!inlineDraft.body.trim()) {
           throw new Error("גוף ההודעה חובה");
         }
-        const exampleValues = paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
+        const exampleValues =
+          trialReminderMetaExampleValues(extractBodyVarCount(inlineDraft.body)) ??
+          paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
         const components = buildMetaComponents({
           body: inlineDraft.body,
           header: inlineDraft.header,
@@ -1315,7 +1318,8 @@ export default function TemplatesClient({
     setCreating(true);
     try {
       const exampleValues = purposeTrigger
-        ? paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot)
+        ? (trialReminderMetaExampleValues(extractBodyVarCount(body)) ??
+          paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot))
         : isEditing && editExampleValues.length > 0
           ? editExampleValues
           : undefined;

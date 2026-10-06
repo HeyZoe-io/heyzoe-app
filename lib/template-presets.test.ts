@@ -6,6 +6,7 @@ import {
   isPresetAvailable,
   paramSlotsForTriggerType,
   presetVarHint,
+  trialReminderMetaExampleValues,
   parseDashboardTemplateComponents,
   TEMPLATE_PRESETS,
   templateTextEdgeVariableMessage,
@@ -103,6 +104,13 @@ assert.deepEqual(paramSlotsForTriggerType("trial_reminder"), [
   "class_time",
 ]);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.trial_reminder.body), 3);
+assert.equal(
+  presetVarHint("trial_reminder"),
+  '{{1}} = שם פרטי · {{2}} = שם השיעור · {{3}} = יום ותאריך (למשל "יום שלישי 7.10") · {{4}} = שעת השיעור. גוף יכול להשתמש ב־{{1}}–{{3}} כמו קודם (שם, שיעור, שעה), או ב־{{1}}–{{4}} עם התאריך'
+);
+assert.deepEqual(trialReminderMetaExampleValues(3), ["דנה", "יוגה", "18:00"]);
+assert.deepEqual(trialReminderMetaExampleValues(4), ["דנה", "יוגה", "יום שלישי 7.10", "18:00"]);
+assert.equal(trialReminderMetaExampleValues(2), null);
 assert.equal(isPresetAvailable("trial_reminder", false), false);
 assert.equal(isPresetAvailable("trial_reminder", true), true);
 assert.equal(TEMPLATE_PRESETS.milestones.category, "MARKETING");
