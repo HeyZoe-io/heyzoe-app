@@ -56,12 +56,20 @@ assert.deepEqual(parseModelUsed("claude-haiku-4-5#route=schedule;tag=ok"), {
   model: "claude-haiku-4-5",
   route: "schedule",
   tagStatus: "ok",
+  hint: null,
 });
-assert.deepEqual(parseModelUsed("greeting"), { model: "greeting", route: null, tagStatus: null });
+assert.deepEqual(parseModelUsed("greeting"), { model: "greeting", route: null, tagStatus: null, hint: null });
 assert.deepEqual(parseModelUsed("claude-haiku-4-5#route=nope;tag=ok"), {
   model: "claude-haiku-4-5",
   route: null,
   tagStatus: "invalid",
+  hint: null,
+});
+assert.deepEqual(parseModelUsed("claude-haiku-4-5#route=handoff;tag=ok;hint=cancellation"), {
+  model: "claude-haiku-4-5",
+  route: "handoff",
+  tagStatus: "ok",
+  hint: "cancellation",
 });
 assert.equal(modelUsedBase("claude-haiku-4-5#route=schedule;tag=ok"), "claude-haiku-4-5");
 assert.equal(

@@ -135,11 +135,11 @@ async function postText(wamid, text) {
 function parseLoggedModel(raw) {
   const value = String(raw ?? "").trim();
   const hash = value.indexOf("#");
-  if (hash === -1) return { model: value, route: null, tagStatus: null };
+  if (hash === -1) return { model: value, route: null, tagStatus: null, hint: null };
   const model = value.slice(0, hash);
-  const match = /^#route=([a-z_]+);tag=(ok|missing|invalid)$/.exec(value.slice(hash));
-  if (!match) return { model, route: null, tagStatus: null };
-  return { model, route: match[1], tagStatus: match[2] };
+  const match = /^#route=([a-z_]+);tag=(ok|missing|invalid)(?:;hint=([a-z0-9_]+))?$/.exec(value.slice(hash));
+  if (!match) return { model, route: null, tagStatus: null, hint: null };
+  return { model, route: match[1], tagStatus: match[2], hint: match[3] ?? null };
 }
 
 function isTimetable(row) {
@@ -216,6 +216,7 @@ for (let i = 0; i < texts.length; i++) {
     httpBody: http.snippet,
     route: parsed.route,
     tagStatus: parsed.tagStatus,
+    hint: parsed.hint,
     model: parsed.model || null,
     timetableImage: timetable,
     teamNotified,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
+import { isExplicitTimetableRequest, isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
 
 assert.equal(isScheduleIntent("צפייה במערכת השעות"), true);
 assert.equal(isScheduleIntent("צפייה במערכת שעות"), true);
@@ -12,6 +12,10 @@ assert.equal(isScheduleIntent("עם מי לתאם הגעה לשיעור ניסי
 assert.equal(isScheduleIntent("אשמח לדעת עלויות"), false);
 assert.equal(isScheduleIntent("לא. תודה."), false);
 assert.equal(isScheduleIntent("שיעור ניסיון"), false);
+
+assert.equal(isExplicitTimetableRequest("שלחי לי את מערכת השעות"), true);
+assert.equal(isExplicitTimetableRequest("מתי יש שיעור"), false);
+assert.equal(isExplicitTimetableRequest("מתי ניתן להגיע לשיעור ניסיון?"), false);
 
 assert.equal(
   shouldSendScheduleBoardOnAsk({

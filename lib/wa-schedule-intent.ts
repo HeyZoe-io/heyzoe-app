@@ -1,3 +1,22 @@
+/** בקשה מפורשת למערכת השעות. נשארת נתיב מהיר. ניסוחים רחבים יותר מחכים לתג של קלוד. */
+export function isExplicitTimetableRequest(text: string): boolean {
+  const n = String(text ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,?;:~'"`\-]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!n) return false;
+  return (
+    n.includes("מערכת שעות") ||
+    n.includes("מערכת השעות") ||
+    n.includes("לוח שיעורים") ||
+    n.includes("לוח הזמנים") ||
+    n.includes("לוח זמנים") ||
+    n.includes("צפייה במערכת") ||
+    (n.includes("שוב") && n.includes("מערכת"))
+  );
+}
+
 /** זיהוי בקשה ללוח שעות / מערכת שעות (טקסט חופשי, לא רק לחיצה על כפתור). */
 export function isScheduleIntent(text: string): boolean {
   const n = String(text ?? "")

@@ -6,7 +6,7 @@ import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
  * Intent tag on a free-text WhatsApp reply. Same Claude/Gemini call, no extra request.
  * Routing lives in code. The tag is stripped before the lead sees the text.
  */
-export const WA_REPLY_ROUTES = ["answer", "schedule", "booking_change", "handoff"] as const;
+export const WA_REPLY_ROUTES = ["answer", "schedule", "booking_change", "handoff", "signup"] as const;
 
 export type WaReplyRoute = (typeof WA_REPLY_ROUTES)[number];
 
@@ -98,22 +98,24 @@ export type ParsedModelUsed = {
   model: string;
   route: WaReplyRoute | null;
   tagStatus: WaReplyRouteTagStatus | null;
+  hint: string | null;
 };
 
-const MODEL_SUFFIX_RE = /^#route=([a-z_]+);tag=(ok|missing|invalid)$/;
+const MODEL_SUFFIX_RE = /^#route=([a-z_]+);tag=(ok|missing|invalid)(?:;hint=([a-z0-9_]+))?$/;
 
-/** Split "<base>#route=X;tag=Y". Comparisons and groupings use `model` only. */
+/** Split "<base>#route=X;tag=Y;hint=Z". Comparisons and groupings use `model` only. */
 export function parseModelUsed(value: string | null | undefined): ParsedModelUsed {
   const raw = String(value ?? "").trim();
   const hash = raw.indexOf("#");
-  if (hash === -1) return { model: raw, route: null, tagStatus: null };
+  if (hash === -1) return { model: raw, route: null, tagStatus: null, hint: null };
   const model = raw.slice(0, hash);
   const match = MODEL_SUFFIX_RE.exec(raw.slice(hash));
-  if (!match) return { model, route: null, tagStatus: null };
+  if (!match) return { model, route: null, tagStatus: null, hint: null };
   const routeName = String(match[1] ?? "");
   const tagStatus = match[2] as WaReplyRouteTagStatus;
-  if (!isWaReplyRoute(routeName)) return { model, route: null, tagStatus: "invalid" };
-  return { model, route: routeName, tagStatus };
+  const hint = String(match[3] ?? "").trim() || null;
+  if (!isWaReplyRoute(routeName)) return { model, route: null, tagStatus: "invalid", hint };
+  return { model, route: routeName, tagStatus, hint };
 }
 
 export function modelUsedBase(model: string | null | undefined): string {
@@ -123,11 +125,13 @@ export function modelUsedBase(model: string | null | undefined): string {
 /** Stored on the assistant row that is already written. No extra update. */
 export function appendRouteToModelUsed(
   base: string,
-  extracted: ExtractedReplyRoute
+  extracted: ExtractedReplyRoute,
+  hint?: string | null
 ): string {
   const root = modelUsedBase(base) || "unknown";
   const route = extracted.tagStatus === "ok" && extracted.route ? extracted.route : "answer";
-  return `${root}#route=${route};tag=${extracted.tagStatus}`;
+  const hintPart = hint && /^[a-z0-9_]+$/.test(hint) ? `;hint=${hint}` : "";
+  return `${root}#route=${route};tag=${extracted.tagStatus}${hintPart}`;
 }
 
 export function assistantModelOrFilter(names: readonly string[]): string {
@@ -146,7 +150,8 @@ export function buildReplyRoutePromptBlock(): string {
 - answer - תשובה רגילה: מחיר, ציוד, כתובת, מדיניות, ברכה, או כל דבר שאינו שאלה על הלוח ואינו שינוי של שיעור שהלקוחה כבר רשומה אליו.
 - schedule - הלקוחה שואלת אילו שיעורים או שעות קיימים בלוח, בלי לבקש לשנות שיבוץ שלה.
 - booking_change - הלקוחה רוצה לבטל, להעביר, להחליף או לתקן שיעור שהיא כבר רשומה אליו, או מדווחת שנרשמה בטעות. שעה שהיא מציינת בתוך הבקשה היא היעד של השינוי, לא שאלה מה יש בלוח.
-- handoff - צריך אדם מהצוות: תלונה, החזר, כאב או מגבלה בגוף, או בקשה מפורשת לנציג, כשזו לא בקשת שינוי שיעור. שאלה מה לעשות עם כאב או פציעה היא handoff, גם כשהיא נשמעת כמו שאלה רגילה.
+- handoff - צריך אדם מהצוות: תלונה, החזר, ביטול מנוי, הקפאה, כאב או מגבלה בגוף, או בקשה מפורשת לנציג, כשזו לא בקשת שינוי שיעור. שאלה מה לעשות עם כאב או פציעה היא handoff, גם כשהיא נשמעת כמו שאלה רגילה.
+- signup - הלקוחה רוצה להתחיל הרשמה או להצטרף לשיעור או למנוי, ואין לה כבר מקום שהיא מבקשת לשנות.
 
 דוגמאות answer:
 - "כמה עולה כרטיסייה?" -> [[route:answer]]
@@ -165,5 +170,20 @@ export function buildReplyRoutePromptBlock(): string {
 - "אני רוצה לדבר עם המנהלת" -> [[route:handoff]]
 - "יש לי תלונה על השיעור" -> [[route:handoff]]
 - "אפשר לקבל החזר?" -> [[route:handoff]]
+- "אני רוצה לבטל את המנוי" -> [[route:handoff]]
+דוגמאות signup:
+- "איך נרשמים לשיעור ניסיון?" -> [[route:signup]]
+- "אשמח להגיע לשיעור ניסיון" -> [[route:signup]]
+אם מופיעה שורה Possible intent detected by keyword, זו השערה בלבד ולא עובדה. ברירת המחדל היא answer.
+תייגי handoff רק אם ההשערה עצמה היא מה שהלקוחה מבקשת עכשיו: ביטול מנוי, הקפאה, החזר, נציג, בדיקת מנוי, או מתי נקבע השיעור שלה.
+תייגי booking_change רק אם היא מבקשת להזיז או לבטל שיעור אחד שהיא כבר רשומה אליו, וההשערה היא על השיעור ולא על המנוי.
+תייגי signup רק אם היא מבקשת להתחיל הרשמה.
+מילה מההשערה בתוך בקשה אחרת אינה אישור.
+- "חברה שלי ביטלה ואני רוצה להצטרף במקומה" היא answer גם אם ההשערה אומרת cancellation.
+- "אבל אני רוצה להרשם לא לבטל רישום" היא answer גם אם ההשערה אומרת cancellation או freeze, וגם אם המנוי בהקפאה. זו לא בקשת ביטול.
+- "אני לא רוצה להקפיא, תבטלי את האימון של היום" היא booking_change גם אם ההשערה אומרת freeze.
+- "אוקיי", "מה?", "תודה", "לא אוכל היום" בלי בקשה להעביר שיעור, ופנייה לעבודה הן answer גם אם יש השערה.
+- בקשה שמישהו יחזור אליה בוואטסאפ או בטלפון, כשההשערה היא human_agent, היא handoff.
+- "אני לא מצליחה להירשם" כשההשערה היא membership_lookup היא handoff, לא signup.
 אסור לכתוב את התג באמצע ההודעה או אחריה. אחרי השורה הזו רק הטקסט שהלקוחה צריכה לקרוא.`;
 }

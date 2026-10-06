@@ -120,6 +120,12 @@ import {
   type ExtractedReplyRoute,
 } from "@/lib/wa-reply-route";
 import {
+  decideHintAction,
+  formatFastPathHintLine,
+  isDemotedClosedPlaybook,
+  type FastPathHint,
+} from "@/lib/wa-fast-path-hint";
+import {
   applyCallScheduleCtaLabelOverride,
   CALL_SCHEDULE_CTA_LABEL,
   CALL_SCHEDULE_CTA_LABEL_EN,
@@ -222,7 +228,7 @@ import {
   parseOwnerAddressedGreeting,
 } from "@/lib/wa-owner-addressed-greeting";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
-import { isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
+import { isExplicitTimetableRequest, isScheduleIntent, shouldSendScheduleBoardOnAsk } from "@/lib/wa-schedule-intent";
 import {
   ARBOX_REGISTRATION_VERIFY_MODEL,
   ARBOX_REGISTRATION_VERIFY_REPLY,
@@ -1709,6 +1715,7 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
   authToken: string;
   business_slug: string;
   sessionId: string;
+  modelUsed?: string;
 }): Promise<boolean> {
   const inbound = String(input.inboundText ?? "").trim();
   if (!inbound || !userRequestedHumanAgent(inbound)) return false;
@@ -1725,7 +1732,9 @@ async function trySendSalesFlowHumanAgentHandoff(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: txt,
-    model_used: csPhone ? "sales_flow_human_agent_handoff" : "sales_flow_human_agent_handoff_no_phone",
+    model_used:
+      input.modelUsed ??
+      (csPhone ? "sales_flow_human_agent_handoff" : "sales_flow_human_agent_handoff_no_phone"),
     session_id: input.sessionId,
   });
   return true;
@@ -1892,6 +1901,7 @@ async function sendScheduleLookupReply(input: {
   business_slug: string;
   sessionId: string;
   nowIso: string;
+  modelUsed?: string;
 }): Promise<void> {
   if (input.result.notifyHumanRequested && input.businessId) {
     try {
@@ -1923,7 +1933,7 @@ async function sendScheduleLookupReply(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: input.result.text,
-    model_used: input.result.modelUsed,
+    model_used: input.modelUsed ?? input.result.modelUsed,
     session_id: input.sessionId,
   });
 }
@@ -1938,6 +1948,7 @@ async function sendMembershipLookupReply(input: {
   business_slug: string;
   sessionId: string;
   nowIso: string;
+  modelUsed?: string;
 }): Promise<void> {
   if (input.result.notifyHumanRequested && input.businessId) {
     try {
@@ -1969,7 +1980,7 @@ async function sendMembershipLookupReply(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: input.result.text,
-    model_used: input.result.modelUsed,
+    model_used: input.modelUsed ?? input.result.modelUsed,
     session_id: input.sessionId,
   });
 }
@@ -7067,27 +7078,6 @@ async function processIncoming(
     }
   }
 
-  if (msg.type === "text" && businessId) {
-    try {
-      if (
-        !detectClosedPlaybookIntent(msg.text) &&
-        userRequestedHumanAgent(msg.text)
-      ) {
-        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        await handleLeadHumanRequested({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          nowIso,
-          sessionId,
-        });
-      }
-    } catch (e) {
-      console.warn("[WA Webhook] human_requested handling failed:", e);
-    }
-  }
-
   // לינק בלבד — לא שאלה. לא לענות (גם לא באנגלית בגלל אותיות מה-URL).
   if (msg.type === "text" && looksLikeLinkOnlyMessage(msg.text)) {
     console.info("[WA Webhook] link-only inbound — skip auto-reply", {
@@ -7761,11 +7751,12 @@ async function processIncoming(
     }
   }
 
-  // Out-of-flow «איך נרשמים / רוצה להירשם לשיעור ניסיון» — start sales flow at product pick
-  // (or CTA if one product). Immediately before closed-playbook so «אני רוצה להירשם» is not
-  // stolen by cancel («לבטל את ההרשמה») / reschedule. Playbook still wins if both match.
-  // Ambiguous «תרשמי אותי לאימון כוח» / «אשמח להירשם» without «ניסיון» — fall through to
-  // membership-vs-trial (0.3), do not open the trial funnel yet.
+  // Keyword hits below record a hint and continue to the one Claude call.
+  // A kept matcher still returns on its own.
+  let fastPathHint: FastPathHint | null = null;
+
+  // Out-of-flow signup used to open the sales flow before Claude.
+  // It is a hint now. The flow starts only if Claude tags signup.
   if (
     msg.type === "text" &&
     businessId &&
@@ -7782,27 +7773,7 @@ async function processIncoming(
         sessionPhase: contactSessionPhase,
       })
     ) {
-      try {
-        await beginSalesFlowAtProductPick({
-          entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
-          entryContent: "[heyzoe:signup_intent_flow_entry]",
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          allowTrialCta: true,
-          preambleText: trialSignupAckForInbound(msg.text),
-        });
-      } catch (e) {
-        console.error("[WA Webhook] out-of-flow signup flow-entry failed:", e);
-      }
-      return;
+      fastPathHint = { matcher: "signup", category: "signup" };
     }
   }
 
@@ -7921,113 +7892,35 @@ async function processIncoming(
     }
   }
 
-  // Booked class swap — app if already purchased (membership / punch / trial); product pick only
-  // in an unpaid sales flow. 0 extra Claude / Arbox IO; skips bookingsReport (1–20 pages).
-  if (isSalesFlowFreeTextInbound(msg) && businessId && matchesBookedClassMoveIntent(msg.text)) {
+  // Booked-class move is a hint. The app how-to or product pick runs only if Claude agrees.
+  if (
+    !fastPathHint &&
+    isSalesFlowFreeTextInbound(msg) &&
+    businessId &&
+    matchesBookedClassMoveIntent(msg.text)
+  ) {
     if (inboundSaysClassChangeAppFailed(msg.text)) {
-      try {
-        const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-        await handleLeadHumanRequested({
-          supabase,
-          businessId: Number(businessId),
-          businessSlug: business_slug,
-          phone: msg.from,
-          nowIso,
-          sessionId,
-        });
-      } catch (e) {
-        console.error("[WA Webhook] class-change app-failed human_requested failed:", e);
-      }
-      const handoffTxt = buildNonArboxClassChangeTeamHandoffReply(msg.text);
-      try {
-        await sendWhatsAppMessage(msg.toNumber, msg.from, handoffTxt, accountSid, authToken);
-      } catch (e) {
-        console.error("[WA Webhook] Send class-change app-failed handoff failed:", e);
-      }
-      await logMessage({
+      fastPathHint = { matcher: "class_change_app_failed", category: "class_change_app_failed" };
+    } else {
+      const lastForMove = await fetchLastAssistantModelUsed({
         business_slug,
-        role: "assistant",
-        content: handoffTxt,
-        model_used: "class_reschedule_team_handoff",
         session_id: sessionId,
       });
-      return;
-    }
-    const lastForMove = await fetchLastAssistantModelUsed({
-      business_slug,
-      session_id: sessionId,
-    });
-    if (
-      lastForMove !== REGISTRATION_INTENT_CLARIFY_MODEL &&
-      lastForMove !== BOOKING_LOOKUP_CLARIFY_MODEL
-    ) {
-      const salesFlowStartedForMove = await sessionHasSalesFlowGreeting(business_slug, sessionId);
-      const moveBranch = resolveBookedClassMoveBranch(msg.text, {
-        trialRegistered: contactTrialRegistered === true,
-        sessionPhase: contactSessionPhase,
-        salesFlowStarted: salesFlowStartedForMove,
-      });
-      if (moveBranch === "product_pick") {
-        try {
-          await sendWhatsAppMessage(
-            msg.toNumber,
-            msg.from,
-            REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
-            accountSid,
-            authToken
-          );
-        } catch (e) {
-          console.error("[WA Webhook] Send booked-class-move product-pick failed:", e);
-        }
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
-          model_used: REGISTRATION_INTENT_NO_MEMBER_MODEL,
-          session_id: sessionId,
+      if (
+        lastForMove !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+        lastForMove !== BOOKING_LOOKUP_CLARIFY_MODEL
+      ) {
+        const salesFlowStartedForMove = await sessionHasSalesFlowGreeting(business_slug, sessionId);
+        const moveBranch = resolveBookedClassMoveBranch(msg.text, {
+          trialRegistered: contactTrialRegistered === true,
+          sessionPhase: contactSessionPhase,
+          salesFlowStarted: salesFlowStartedForMove,
         });
-        if (knowledge?.salesFlowConfig) {
-          const started = await beginSalesFlowAtProductPick({
-            entryModel: REGISTRATION_INTENT_NO_MEMBER_MODEL,
-            entryContent: "[heyzoe:registration_intent_no_member]",
-            knowledge,
-            salesFlowServices,
-            msg,
-            accountSid,
-            authToken,
-            supabase,
-            businessId,
-            business_slug,
-            sessionId,
-            blockTrialPickMedia: starterBlocksMedia,
-            allowTrialCta: true,
-            logEntry: false,
-          });
-          contactSessionPhase = started.contactSessionPhase;
-          contactFlowStep = started.contactFlowStep;
-          contactTrialRegistered = false;
-          contactTrialRegisteredAt = null;
-          allowTrialCtaThisSession = true;
-          sfClickedCtaKinds = [];
-          contactInstagramFollowPromptSent = false;
+        if (moveBranch === "product_pick") {
+          fastPathHint = { matcher: "booked_class_move", category: "registration_no_member" };
+        } else if (knowledge?.hasArboxConnection === true) {
+          fastPathHint = { matcher: "booked_class_move", category: "booked_class_move_app" };
         }
-        return;
-      }
-      if (knowledge?.hasArboxConnection === true) {
-        const appReply = buildBookedClassMoveAppReply(msg.text);
-        try {
-          await sendWhatsAppMessage(msg.toNumber, msg.from, appReply, accountSid, authToken);
-        } catch (e) {
-          console.error("[WA Webhook] Send booked-class-move app failed:", e);
-        }
-        await logMessage({
-          business_slug,
-          role: "assistant",
-          content: appReply,
-          model_used: BOOKED_CLASS_MOVE_APP_MODEL,
-          session_id: sessionId,
-        });
-        return;
       }
     }
   }
@@ -8039,7 +7932,9 @@ async function processIncoming(
       knowledge,
       hasArbox: knowledge.hasArboxConnection === true,
     });
-    if (playbook) {
+    if (playbook && isDemotedClosedPlaybook(playbook.category)) {
+      fastPathHint = fastPathHint ?? { matcher: "closed_playbook", category: playbook.category };
+    } else if (playbook) {
       if (
         playbook.source === "catalog" &&
         playbook.catalogServiceName &&
@@ -8197,90 +8092,43 @@ async function processIncoming(
     }
   }
 
-  // בקשת יומן (תבטלי שיעור) שלא נתפסה בפלייבוק — לא לוח, לא קלוד
+  // בקשת יומן (תבטלי שיעור) שלא נתפסה בפלייבוק — רמז, קלוד מאשר
   if (
+    !fastPathHint &&
     msg.type === "text" &&
     businessId &&
     isSalesFlowFreeTextInbound(msg) &&
     classifyInboundSpeechAct(msg.text) === "booking_mutation"
   ) {
-    try {
-      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-      await handleLeadHumanRequested({
-        supabase,
-        businessId: Number(businessId),
-        businessSlug: business_slug,
-        phone: msg.from,
-        nowIso,
-        sessionId,
-      });
-    } catch (e) {
-      console.error("[WA Webhook] booking-mutation human_requested failed:", e);
-    }
-    try {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
-        accountSid,
-        authToken
-      );
-    } catch (e) {
-      console.error("[WA Webhook] Send booking-mutation team handoff failed:", e);
-    }
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
-      model_used: "wa_booking_mutation_team_handoff",
-      session_id: sessionId,
-    });
-    return;
+    fastPathHint = { matcher: "booking_mutation", category: "booking_mutation" };
   }
 
-  // בקשת נציג כללית — אחרי coach/owner playbook כדי לא לדרוס «תעבירי למאמנת»
-  if (msg.type === "text" && businessId && userRequestedHumanAgent(msg.text.trim())) {
-    if (knowledge?.salesFlowConfig) {
-      await trySendSalesFlowHumanAgentHandoff({
-        inboundText: msg.text.trim(),
-        knowledge,
-        msg,
-        accountSid,
-        authToken,
-        business_slug,
-        sessionId,
-      });
-    }
-    return;
+  // בקשת נציג כללית — רמז. קלוד מאשר עם handoff ואז נשלח אותו טקסט.
+  if (
+    !fastPathHint &&
+    msg.type === "text" &&
+    businessId &&
+    userRequestedHumanAgent(msg.text.trim())
+  ) {
+    fastPathHint = { matcher: "human_agent", category: "human_agent" };
   }
 
-  // Read-only Arbox membership lookup — explicit registration_failed_inquiry only (never per inbound).
+  // Read-only Arbox membership lookup — hint until Claude agrees.
   // CRM gate first (before phone normalize): non-Arbox (Boostapp / no-CRM) falls through —
   // never send "number not found in the system" when there is no system to check.
   // Always looks up msg.from only. Structured templates skip Claude.
-  if (isSalesFlowFreeTextInbound(msg) && businessId && isRegistrationFailedInquiry(msg.text)) {
+  if (
+    !fastPathHint &&
+    isSalesFlowFreeTextInbound(msg) &&
+    businessId &&
+    isRegistrationFailedInquiry(msg.text)
+  ) {
     const arboxCreds = await loadArboxScheduleLookupConnection({
       supabase,
       businessId: Number(businessId),
     });
     if (arboxCreds) {
-      const result = await lookupArboxMembershipByPhone({
-        apiKey: arboxCreds.apiKey,
-        boxId: arboxCreds.boxId,
-        lookupPhone: msg.from,
-      });
-      await sendMembershipLookupReply({
-        result,
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-        nowIso,
-      });
-      return;
+      fastPathHint = { matcher: "membership_lookup", category: "membership_lookup" };
     }
   }
 
@@ -8299,19 +8147,8 @@ async function processIncoming(
       business_slug,
       session_id: sessionId,
     });
-    if (lastAssistForMembership === MEMBERSHIP_LOOKUP_ACTIVE_MODEL) {
-      await sendMembershipLookupReply({
-        result: mapMembershipLookupReply("active_followup"),
-        msg,
-        accountSid,
-        authToken,
-        supabase,
-        businessId,
-        business_slug,
-        sessionId,
-        nowIso,
-      });
-      return;
+    if (!fastPathHint && lastAssistForMembership === MEMBERSHIP_LOOKUP_ACTIVE_MODEL) {
+      fastPathHint = { matcher: "membership_lookup", category: "membership_lookup_followup" };
     }
   }
 
@@ -8324,32 +8161,13 @@ async function processIncoming(
     const inquiry = isScheduleInquiryIntent(msg.text);
     const barePhone = looksLikeBarePhoneMessage(msg.text);
     let lastModelForPhone: string | null = null;
-    if (inquiry) {
+    if (!fastPathHint && inquiry) {
       const arboxCreds = await loadArboxScheduleLookupConnection({
         supabase,
         businessId: Number(businessId),
       });
       if (arboxCreds) {
-        const result = await lookupArboxScheduleByPhone({
-          apiKey: arboxCreds.apiKey,
-          boxId: arboxCreds.boxId,
-          lookupPhone: msg.from,
-          customerServicePhone: knowledge?.customerServicePhone ?? "",
-          businessId: Number(businessId),
-          supabase,
-        });
-        await sendScheduleLookupReply({
-          result,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          nowIso,
-        });
-        return;
+        fastPathHint = { matcher: "schedule_lookup", category: "schedule_lookup" };
       }
     }
     if (barePhone) {
@@ -8612,7 +8430,7 @@ async function processIncoming(
     // Tights: a day plus a question mark is not precise enough to send the timetable.
     // Only an explicit schedule phrase skips Claude. Anything else waits for the route tag.
     const tightsDefersBroadTimetable =
-      scheduleTimesReplyUsesImage(business_slug) && !isScheduleIntent(inboundForDaySlots);
+      scheduleTimesReplyUsesImage(business_slug) && !isExplicitTimetableRequest(inboundForDaySlots);
     const shouldCheckRelativeDaySlots =
       !tightsDefersBroadTimetable &&
       shouldAnswerFromClassTimetable(inboundForDaySlots) &&
@@ -9361,76 +9179,15 @@ async function processIncoming(
   // Precedence: after greeting trigger (0), before warmup (0.5) and before
   // isStandaloneWhatsAppOpenQuestion. sessionHasSalesFlowGreeting already ran above.
   if (
+    !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
     lastAssistForWarmupPriority === REGISTRATION_INTENT_CLARIFY_MODEL
   ) {
     const yn = classifyRegistrationIntentMembershipReply(msg.text);
     if (yn === "yes") {
-      try {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
-          accountSid,
-          authToken
-        );
-      } catch (e) {
-        console.error("[WA Webhook] Send registration-intent has-membership failed:", e);
-      }
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
-        model_used: REGISTRATION_INTENT_HAS_MEMBER_MODEL,
-        session_id: sessionId,
-      });
-      return;
-    }
-    if (yn === "no") {
-      try {
-        await sendWhatsAppMessage(
-          msg.toNumber,
-          msg.from,
-          REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
-          accountSid,
-          authToken
-        );
-      } catch (e) {
-        console.error("[WA Webhook] Send registration-intent no-membership failed:", e);
-      }
-      await logMessage({
-        business_slug,
-        role: "assistant",
-        content: REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
-        model_used: REGISTRATION_INTENT_NO_MEMBER_MODEL,
-        session_id: sessionId,
-      });
-      if (businessId && knowledge?.salesFlowConfig) {
-        const started = await beginSalesFlowAtProductPick({
-          entryModel: REGISTRATION_INTENT_NO_MEMBER_MODEL,
-          entryContent: "[heyzoe:registration_intent_no_member]",
-          knowledge,
-          salesFlowServices,
-          msg,
-          accountSid,
-          authToken,
-          supabase,
-          businessId,
-          business_slug,
-          sessionId,
-          blockTrialPickMedia: starterBlocksMedia,
-          allowTrialCta: true,
-          logEntry: false,
-        });
-        contactSessionPhase = started.contactSessionPhase;
-        contactFlowStep = started.contactFlowStep;
-        contactTrialRegistered = false;
-        contactTrialRegisteredAt = null;
-        allowTrialCtaThisSession = true;
-        sfClickedCtaKinds = [];
-        contactInstagramFollowPromptSent = false;
-      }
-      return;
+      fastPathHint = { matcher: "registration_clarify", category: "registration_has_member" };
+    } else if (yn === "no") {
+      fastPathHint = { matcher: "registration_clarify", category: "registration_no_member" };
     }
     // unclear — fall through to current behavior, no loop
   }
@@ -9481,6 +9238,7 @@ async function processIncoming(
   // 0.28) Scheduled-class / calendar lookup — non-Arbox: short membership-vs-trial, then team handoff.
   // Arbox businesses are handled earlier (read-only bookingsReport lookup).
   if (
+    !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
     lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
     lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
@@ -9517,25 +9275,7 @@ async function processIncoming(
     contactTrialRegistered !== true &&
     matchesRegistrationIntentPhrase(msg.text)
   ) {
-    try {
-      await sendWhatsAppMessage(
-        msg.toNumber,
-        msg.from,
-        REGISTRATION_INTENT_CLARIFY_QUESTION,
-        accountSid,
-        authToken
-      );
-    } catch (e) {
-      console.error("[WA Webhook] Send registration-intent clarify failed:", e);
-    }
-    await logMessage({
-      business_slug,
-      role: "assistant",
-      content: REGISTRATION_INTENT_CLARIFY_QUESTION,
-      model_used: REGISTRATION_INTENT_CLARIFY_MODEL,
-      session_id: sessionId,
-    });
-    return;
+    fastPathHint = fastPathHint ?? { matcher: "registration_clarify", category: "registration_clarify" };
   }
 
   // 0.5) חימום — בחירות תפריט (כולל list_reply / button_reply; inbound תמיד type:"text")
@@ -9585,13 +9325,14 @@ async function processIncoming(
       knowledge,
       scheduleTimesReplyUsesImage(business_slug) ? false : starterBlocksMedia
     );
-    if (
-      shouldSendScheduleBoardOnAsk({
-        text: msg.text,
-        canSendImage: askedScheduleAssets.canSendScheduleImage && Boolean(askedScheduleAssets.scheduleImgUrl),
-        hasLink: askedScheduleAssets.link.trim().length > 0,
-      })
-    ) {
+    const scheduleAsk = shouldSendScheduleBoardOnAsk({
+      text: msg.text,
+      canSendImage: askedScheduleAssets.canSendScheduleImage && Boolean(askedScheduleAssets.scheduleImgUrl),
+      hasLink: askedScheduleAssets.link.trim().length > 0,
+    });
+    if (scheduleAsk && !isExplicitTimetableRequest(msg.text)) {
+      fastPathHint = fastPathHint ?? { matcher: "schedule_board", category: "schedule" };
+    } else if (scheduleAsk) {
       const delivery = scheduleTimesReplyUsesImage(business_slug)
         ? await sendClassTimesAsScheduleImage({
             knowledge,
@@ -9644,6 +9385,7 @@ async function processIncoming(
 
   // handoff / בקשת קשר — לפני repick (שומר על שלב השיחה)
   if (
+    !fastPathHint &&
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
     businessId &&
@@ -10306,6 +10048,7 @@ async function processIncoming(
   ) {
     try {
       if (
+        !fastPathHint &&
         await trySendSalesFlowHumanAgentHandoff({
           inboundText: msg.text.trim(),
           knowledge,
@@ -10467,6 +10210,7 @@ async function processIncoming(
   if (msg.type === "text" && knowledge?.salesFlowConfig && businessId) {
     try {
       if (
+        !fastPathHint &&
         await trySendSalesFlowHumanAgentHandoff({
           inboundText: msg.text.trim(),
           knowledge,
@@ -12431,6 +12175,7 @@ async function processIncoming(
     contactFlowStep = 0;
     return;
   } else if (
+    !fastPathHint &&
     msg.type === "text" &&
     knowledge?.salesFlowConfig &&
     businessId &&
@@ -12828,6 +12573,13 @@ async function processIncoming(
     ) {
       claudeMessages.push({ role: "user" as const, content: currentText });
     }
+    if (fastPathHint) {
+      const hintLine = formatFastPathHintLine(fastPathHint);
+      const lastTurn = claudeMessages[claudeMessages.length - 1];
+      if (lastTurn && lastTurn.role === "user") {
+        lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n\n${hintLine}`;
+      }
+    }
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
@@ -13218,7 +12970,7 @@ async function processIncoming(
       role: "assistant",
       content: bookingHandoffTxt,
       model_used: didCallClaude
-        ? appendRouteToModelUsed("class_reschedule_team_handoff", waReplyRoute)
+        ? appendRouteToModelUsed("class_reschedule_team_handoff", waReplyRoute, fastPathHint?.category)
         : "class_reschedule_team_handoff",
       session_id: sessionId,
     });
@@ -13232,6 +12984,184 @@ async function processIncoming(
       suppressTimetable:
         contactSessionPhase === "schedule_date" || contactSessionPhase === "schedule_time",
     });
+    if (decideHintAction({ hint: fastPathHint, extracted: waReplyRoute }) === "use_hint" && fastPathHint) {
+      const hintCategory = fastPathHint.category;
+      const hintedModel = (base: string) => appendRouteToModelUsed(base, waReplyRoute, hintCategory);
+      const sendClosed = async (text: string, modelBase: string) => {
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, text, accountSid, authToken);
+        } catch (e) {
+          console.error(`[WA Webhook] confirmed hint ${hintCategory} send failed:`, e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: text,
+          model_used: hintedModel(modelBase),
+          session_id: sessionId,
+        });
+      };
+      const notifyTeam = async () => {
+        if (!businessId) return;
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error(`[WA Webhook] confirmed hint ${hintCategory} human_requested failed:`, e);
+        }
+      };
+      if (isDemotedClosedPlaybook(hintCategory)) {
+        const confirmed = resolveClosedPlaybook({
+          inbound: msg.text.trim(),
+          knowledge,
+          hasArbox: knowledge.hasArboxConnection === true,
+        });
+        if (confirmed) {
+          if (confirmed.notifyHumanRequested) await notifyTeam();
+          await sendClosed(confirmed.reply, confirmed.modelUsed);
+          return;
+        }
+      } else if (hintCategory === "class_change_app_failed") {
+        await notifyTeam();
+        await sendClosed(buildNonArboxClassChangeTeamHandoffReply(msg.text), "class_reschedule_team_handoff");
+        return;
+      } else if (hintCategory === "booked_class_move_app") {
+        await sendClosed(buildBookedClassMoveAppReply(msg.text), BOOKED_CLASS_MOVE_APP_MODEL);
+        return;
+      } else if (hintCategory === "registration_has_member") {
+        await sendClosed(REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY, REGISTRATION_INTENT_HAS_MEMBER_MODEL);
+        return;
+      } else if (hintCategory === "registration_clarify") {
+        await sendClosed(REGISTRATION_INTENT_CLARIFY_QUESTION, REGISTRATION_INTENT_CLARIFY_MODEL);
+        return;
+      } else if (hintCategory === "registration_no_member" || hintCategory === "signup") {
+        if (hintCategory === "registration_no_member") {
+          await sendClosed(REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY, REGISTRATION_INTENT_NO_MEMBER_MODEL);
+        }
+        if (businessId && knowledge.salesFlowConfig) {
+          const started = await beginSalesFlowAtProductPick({
+            entryModel: hintedModel(
+              hintCategory === "signup" ? SIGNUP_INTENT_FLOW_ENTRY_MODEL : REGISTRATION_INTENT_NO_MEMBER_MODEL
+            ),
+            entryContent:
+              hintCategory === "signup"
+                ? "[heyzoe:signup_intent_flow_entry]"
+                : "[heyzoe:registration_intent_no_member]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+            logEntry: hintCategory === "signup",
+            preambleText: hintCategory === "signup" ? trialSignupAckForInbound(msg.text) : undefined,
+          });
+          contactSessionPhase = started.contactSessionPhase;
+          contactFlowStep = started.contactFlowStep;
+        }
+        return;
+      } else if (hintCategory === "human_agent") {
+        await notifyTeam();
+        await trySendSalesFlowHumanAgentHandoff({
+          inboundText: msg.text.trim(),
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          modelUsed: hintedModel("sales_flow_human_agent_handoff"),
+        });
+        return;
+      } else if (hintCategory === "booking_mutation") {
+        await notifyTeam();
+        await sendClosed(CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY, "wa_booking_mutation_team_handoff");
+        return;
+      } else if (hintCategory === "membership_lookup" || hintCategory === "membership_lookup_followup") {
+        if (businessId) {
+          if (hintCategory === "membership_lookup_followup") {
+            const followup = mapMembershipLookupReply("active_followup");
+            await sendMembershipLookupReply({
+              result: followup,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              nowIso,
+              modelUsed: hintedModel(followup.modelUsed),
+            });
+          } else {
+            const arboxCreds = await loadArboxScheduleLookupConnection({
+              supabase,
+              businessId: Number(businessId),
+            });
+            if (arboxCreds) {
+              const result = await lookupArboxMembershipByPhone({
+                apiKey: arboxCreds.apiKey,
+                boxId: arboxCreds.boxId,
+                lookupPhone: msg.from,
+              });
+              await sendMembershipLookupReply({
+                result,
+                msg,
+                accountSid,
+                authToken,
+                supabase,
+                businessId,
+                business_slug,
+                sessionId,
+                nowIso,
+                modelUsed: hintedModel(result.modelUsed),
+              });
+            }
+          }
+        }
+        return;
+      } else if (hintCategory === "schedule_lookup" && businessId) {
+        const arboxCreds = await loadArboxScheduleLookupConnection({
+          supabase,
+          businessId: Number(businessId),
+        });
+        if (arboxCreds) {
+          const result = await lookupArboxScheduleByPhone({
+            apiKey: arboxCreds.apiKey,
+            boxId: arboxCreds.boxId,
+            lookupPhone: msg.from,
+            customerServicePhone: knowledge.customerServicePhone ?? "",
+            businessId: Number(businessId),
+            supabase,
+          });
+          await sendScheduleLookupReply({
+            result,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            nowIso,
+            modelUsed: hintedModel(result.modelUsed),
+          });
+        }
+        return;
+      }
+    }
     if (routeAction.kind === "timetable") {
       console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });
       await sendClassTimesAsScheduleImage({
@@ -13242,7 +13172,7 @@ async function processIncoming(
         business_slug,
         sessionId,
         blockMedia: starterBlocksMedia,
-        modelUsed: appendRouteToModelUsed("sales_flow_schedule_board_on_ask", waReplyRoute),
+        modelUsed: appendRouteToModelUsed("sales_flow_schedule_board_on_ask", waReplyRoute, fastPathHint?.category),
       });
       return;
     }
@@ -13277,7 +13207,8 @@ async function processIncoming(
         content: outbound,
         model_used: appendRouteToModelUsed(
           routeAction.kind === "booking_change" ? "class_reschedule_team_handoff" : "wa_route_handoff",
-          waReplyRoute
+          waReplyRoute,
+          fastPathHint?.category
         ),
         session_id: sessionId,
       });
@@ -14016,7 +13947,7 @@ async function processIncoming(
       model_used: matched?.reply
         ? "static"
         : didCallClaude
-          ? appendRouteToModelUsed(replyModelUsed, waReplyRoute)
+          ? appendRouteToModelUsed(replyModelUsed, waReplyRoute, fastPathHint?.category)
           : replyModelUsed,
       session_id: sessionId,
       error_code: replyErrorCode,
