@@ -3,6 +3,7 @@ import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotifi
 import {
   bodyTextFromTemplateComponents,
   extractBodyVarCount,
+  normalizeTemplatePlaceholderText,
   paramSlotsForTriggerType,
   type TemplateParamSlot,
 } from "@/lib/template-presets";
@@ -152,6 +153,17 @@ export function classDateYmdFromStaffDedupKey(dedupKey: string): string | null {
   const hash = raw.indexOf("#");
   if (hash < 0) return null;
   const ymd = (raw.slice(hash + 1).split("#")[1] ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
+}
+
+/** trial_reminder delayed send: class date is the YYYY-MM-DD segment before the time. */
+export function classDateYmdFromTrialReminderDedupKey(dedupKey: string): string | null {
+  const raw = String(dedupKey ?? "");
+  if (!raw.startsWith("trial_reminder:")) return null;
+  const beforeHash = raw.split("#")[0] ?? "";
+  const parts = beforeHash.split(":");
+  if (parts.length < 6) return null;
+  const ymd = (parts[4] ?? "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : null;
 }
 
@@ -340,6 +352,111 @@ export function freezeCreatedTemplateParamValues(input: {
   const end = formatFreezeCreatedDate(input.endYmd);
   if (!start || !end) return { ok: false, varCount: count };
   return { ok: true, values: [first, start, end] };
+}
+
+const TRIAL_REMINDER_HEBREW_DAYS = [
+  "יום ראשון",
+  "יום שני",
+  "יום שלישי",
+  "יום רביעי",
+  "יום חמישי",
+  "יום שישי",
+  "יום שבת",
+] as const;
+
+/** Class calendar day in Israel, from the booking date. "יום שלישי 7.10". */
+export function formatTrialReminderClassDay(ymd: string | null | undefined): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? "").trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const dt = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (dt.getUTCFullYear() !== year || dt.getUTCMonth() !== month - 1 || dt.getUTCDate() !== day) {
+    return null;
+  }
+  const name = TRIAL_REMINDER_HEBREW_DAYS[dt.getUTCDay()];
+  return `${name} ${day}.${month}`;
+}
+
+/** Wall-clock class start as HH:MM. "9:00" and "18:00:00" both become zero-padded HH:MM. */
+export function formatTrialReminderClassTime(raw: unknown): string | null {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(raw ?? "").trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/**
+ * What {{2}} means in an approved trial_reminder body.
+ * Current templates put the class name there ("אימון הניסיון {{2}}").
+ * The date convention is the words ביום / בתאריך / ליום immediately before {{2}}.
+ */
+export function trialReminderSecondPlaceholderRole(
+  body: string
+): "class_name" | "class_day" | "unknown" {
+  const normalized = normalizeTemplatePlaceholderText(body);
+  const idx = normalized.indexOf("{{2}}");
+  if (idx < 0) return "unknown";
+  const before = normalized.slice(Math.max(0, idx - 40), idx);
+  if (/(?:ביום|בתאריך|ליום)\s*$/.test(before)) return "class_day";
+  if (/ניסיון|היכרות|שיעור|אימון/.test(before)) return "class_name";
+  return "unknown";
+}
+
+export function trialReminderBodyPlaceholderIndexes(components: unknown): number[] {
+  const body = bodyTextFromTemplateComponents(components) ?? "";
+  const found = new Set<number>();
+  for (const match of normalizeTemplatePlaceholderText(body).matchAll(/\{\{(\d+)\}\}/g)) {
+    const n = Number(match[1]);
+    if (Number.isFinite(n) && n > 0) found.add(n);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
+/**
+ * Body params for one trial_reminder send, counted from the approved components.
+ * 0 → []. 1 → [first name]. 3 and a date-shaped {{2}} → [name, "יום שלישי 7.10", HH:MM].
+ * 3 and the current class-name {{2}} → [name, class name, time], same as today.
+ * Any other shape is a skip: do not send a mismatched array to Meta.
+ */
+export function trialReminderTemplateParamValues(input: {
+  storedComponents: unknown;
+  firstName: string | null;
+  className?: string | null;
+  classTime?: string | null;
+  classDateYmd?: string | null;
+}): { ok: true; values: string[] } | { ok: false; reason: string; varCount: number } {
+  const indexes = trialReminderBodyPlaceholderIndexes(input.storedComponents);
+  const contiguous = indexes.every((n, i) => n === i + 1);
+  const count = indexes.length;
+  if (!contiguous) {
+    return { ok: false, reason: "trial_reminder_param_gap", varCount: count };
+  }
+  if (count !== 0 && count !== 1 && count !== 3) {
+    return { ok: false, reason: "trial_reminder_param_count", varCount: count };
+  }
+  if (count === 0) return { ok: true, values: [] };
+  const first = firstNameFromFullName(String(input.firstName ?? "").trim()) || TEMPLATE_NAME_FALLBACK;
+  if (count === 1) return { ok: true, values: [first] };
+  const body = bodyTextFromTemplateComponents(input.storedComponents) ?? "";
+  const role = trialReminderSecondPlaceholderRole(body);
+  if (role === "class_name") {
+    const className = String(input.className ?? "").trim() || "השיעור";
+    const classTime = String(input.classTime ?? "").trim() || TEMPLATE_CLASS_TIME_FALLBACK;
+    return { ok: true, values: [first, className, classTime] };
+  }
+  if (role !== "class_day") {
+    return { ok: false, reason: "trial_reminder_param_shape", varCount: count };
+  }
+  const day = formatTrialReminderClassDay(input.classDateYmd);
+  const time = formatTrialReminderClassTime(input.classTime);
+  if (!day || !time) {
+    return { ok: false, reason: "trial_reminder_param_missing_class", varCount: count };
+  }
+  return { ok: true, values: [first, day, time] };
 }
 
 export function templateSendPayload(ctx: TemplateSendParamContext): {

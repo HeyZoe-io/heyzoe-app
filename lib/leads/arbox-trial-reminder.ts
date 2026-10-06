@@ -47,7 +47,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import { templateBodyUsesFirstNameSlot, trialReminderTemplateParamValues } from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
@@ -509,14 +509,32 @@ async function dispatchTrialReminderTemplate(input: {
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
-  const { sendComponents, bodyParams } = templateSendPayload({
-    triggerType: "trial_reminder",
+  const filled = trialReminderTemplateParamValues({
     storedComponents,
     firstName,
-    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     className: input.className,
     classTime: input.classTime,
+    classDateYmd: input.classDateYmd,
   });
+  if (!filled.ok) {
+    console.info("[leads/arbox-trial-reminder] skip", {
+      reason: filled.reason,
+      var_count: filled.varCount,
+      template: templateName,
+      businessId: input.businessId,
+    });
+    return { dispatch: "skipped", ok: false };
+  }
+  const bodyParams = filled.values;
+  const sendComponents =
+    bodyParams.length > 0
+      ? [
+          {
+            type: "body" as const,
+            parameters: bodyParams.map((text) => ({ type: "text" as const, text })),
+          },
+        ]
+      : undefined;
 
   const sendResult = await sendBusinessTemplate({
     to: input.phone,

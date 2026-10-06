@@ -11,8 +11,10 @@ import {
   classDateYmdFromStaffDedupKey,
   expiryYmdFromScheduledDedupKey,
   formatTemplateExpiryDate,
+  formatTrialReminderClassDay,
   membershipTypeNameFromScheduledDedupKey,
   resolveTemplateBodyParamValues,
+  trialReminderTemplateParamValues,
   TEMPLATE_BUSINESS_NAME_FALLBACK,
   TEMPLATE_NAME_FALLBACK,
   triggerTypeFromScheduledDedupKey,
@@ -273,6 +275,105 @@ import {
       assert.equal(slots.indexOf("expiry_date"), 2);
     }
   }
+}
+
+{
+  const nameOnly = [{ type: "BODY", text: "היי {{1}}, נתראה." }];
+  const none = [{ type: "BODY", text: "נתראה בשיעור." }];
+  const dateBody = [{ type: "BODY", text: "היי {{1}}, נתראה ביום {{2}} בשעה {{3}}." }];
+  const legacy = [{ type: "BODY", text: TEMPLATE_PRESETS.trial_reminder.body }];
+  const two = [{ type: "BODY", text: "היי {{1}} לשיעור {{2}}." }];
+  const gap = [{ type: "BODY", text: "היי {{1}} בשעה {{3}}." }];
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: none,
+      firstName: "דנה כהן",
+      classDateYmd: "2026-10-07",
+      classTime: "07:00",
+    }),
+    { ok: true, values: [] }
+  );
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: nameOnly,
+      firstName: "דנה כהן",
+      classDateYmd: "2026-10-07",
+      classTime: "07:00",
+    }),
+    { ok: true, values: ["דנה"] }
+  );
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: dateBody,
+      firstName: "דנה כהן",
+      className: "יוגה",
+      classDateYmd: "2026-10-07",
+      classTime: "7:00",
+    }),
+    { ok: true, values: ["דנה", "יום רביעי 7.10", "07:00"] }
+  );
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: legacy,
+      firstName: "דנה כהן",
+      className: "יוגה",
+      classDateYmd: "2026-10-07",
+      classTime: "18:00",
+    }),
+    { ok: true, values: ["דנה", "יוגה", "18:00"] }
+  );
+  const legacyValues = resolveTemplateBodyParamValues({
+    triggerType: "trial_reminder",
+    storedComponents: legacy,
+    firstName: "דנה כהן",
+    className: "יוגה",
+    classTime: "18:00",
+  });
+  assert.deepEqual(legacyValues, ["דנה", "יוגה", "18:00"]);
+  assert.equal(
+    trialReminderTemplateParamValues({
+      storedComponents: two,
+      firstName: "דנה",
+      classDateYmd: "2026-10-07",
+      classTime: "18:00",
+    }).ok,
+    false
+  );
+  assert.equal(
+    trialReminderTemplateParamValues({
+      storedComponents: gap,
+      firstName: "דנה",
+      classDateYmd: "2026-10-07",
+      classTime: "18:00",
+    }).ok,
+    false
+  );
+}
+
+{
+  const days: Array<[string, string]> = [
+    ["2026-10-04", "יום ראשון 4.10"],
+    ["2026-10-05", "יום שני 5.10"],
+    ["2026-10-06", "יום שלישי 6.10"],
+    ["2026-10-07", "יום רביעי 7.10"],
+    ["2026-10-08", "יום חמישי 8.10"],
+    ["2026-10-09", "יום שישי 9.10"],
+    ["2026-10-10", "יום שבת 10.10"],
+  ];
+  for (const [ymd, label] of days) {
+    assert.equal(formatTrialReminderClassDay(ymd), label, ymd);
+  }
+  assert.equal(formatTrialReminderClassDay("2026-10-25"), "יום ראשון 25.10");
+  assert.equal(formatTrialReminderClassDay("2026-10-26"), "יום שני 26.10");
+  const eveningClass = "2026-10-07";
+  const shown = trialReminderTemplateParamValues({
+    storedComponents: [{ type: "BODY", text: "היי {{1}}, נתראה ביום {{2}} בשעה {{3}}." }],
+    firstName: "דנה",
+    classDateYmd: eveningClass,
+    classTime: "07:00",
+  });
+  assert.deepEqual(shown, { ok: true, values: ["דנה", "יום רביעי 7.10", "07:00"] });
+  assert.equal(String((shown as { values: string[] }).values[1]).includes("6.10"), false);
 }
 
 console.log("template-send-params.test.ts: ok");

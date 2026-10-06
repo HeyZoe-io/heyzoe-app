@@ -22,6 +22,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
 import {
   classDateYmdFromStaffDedupKey,
+  classDateYmdFromTrialReminderDedupKey,
   classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
   clientFirstNameFromStaffDedupKey,
@@ -32,6 +33,7 @@ import {
   startDateYmdFromScheduledDedupKey,
   templateBodyUsesFirstNameSlot,
   templateSendPayload,
+  trialReminderTemplateParamValues,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
 import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
@@ -340,7 +342,7 @@ async function dispatchOneScheduledSend(
       });
     }
   }
-  const { sendComponents, bodyParams } = templateSendPayload({
+  let { sendComponents, bodyParams } = templateSendPayload({
     triggerType,
     storedComponents,
     firstName,
@@ -354,6 +356,39 @@ async function dispatchOneScheduledSend(
     className: classNameFromScheduledDedupKey(row.dedup_key),
     classTime: classTimeFromScheduledDedupKey(row.dedup_key),
   });
+  if (triggerType === "trial_reminder") {
+    const filled = trialReminderTemplateParamValues({
+      storedComponents,
+      firstName,
+      className: classNameFromScheduledDedupKey(row.dedup_key),
+      classTime: classTimeFromScheduledDedupKey(row.dedup_key),
+      classDateYmd: classDateYmdFromTrialReminderDedupKey(row.dedup_key),
+    });
+    if (!filled.ok) {
+      console.info("[cron/scheduled-template-sends] skip", {
+        reason: filled.reason,
+        var_count: filled.varCount,
+        id: row.id,
+        businessId,
+        triggerType,
+      });
+      await markScheduledSend(admin, row.id, {
+        status: "canceled",
+        last_error: filled.reason,
+      });
+      return "canceled";
+    }
+    bodyParams = filled.values;
+    sendComponents =
+      filled.values.length > 0
+        ? [
+            {
+              type: "body",
+              parameters: filled.values.map((text) => ({ type: "text" as const, text })),
+            },
+          ]
+        : undefined;
+  }
 
   const sendResult = await sendBusinessTemplate({
     to: phone,
