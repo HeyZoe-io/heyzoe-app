@@ -110,7 +110,8 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "registered_after_trial",
     uiOrder: 6,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe:
+      "השהייה 0 נשלחת תוך כ־15 דקות. השהייה של יום ומעלה נשלחת ב־09:00 (שעון ישראל)",
   },
   {
     type: "not_registered_after_trial",

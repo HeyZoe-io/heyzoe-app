@@ -218,6 +218,9 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   send the same day it is seen («באותו הרגע»); C6 min 1 so the invite waits until the
   morning after the trial. Send immediate once due; do not use delay as Meta enqueue offset.
   Today's checked-in trial is in the attendance set so delay 0 is due on that calendar day.
+  Delay 0 also runs on the 15-minute trial-sync cron, reusing that run's salesReport.
+  A bookingsReport is added only when the batch contains a non-trial plan/session sale
+  (quiet ticks add no Arbox call). Delay of 1+ and C6 stay on the daily cron.
 - Dedup: `arbox_post_trial_followup_sync_log` PK `(business_id, user_id, class_date)` with
   `outcome` registered | not_registered — one message per attendance.
 - Seed: `businesses.arbox_post_trial_followup_seeded` + soft-seed per outcome. A9 retry.

@@ -1,4 +1,4 @@
-import { fetchAllArboxMembershipTypes } from "@/lib/arbox-membership-types";
+import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import {
   hasEnabledFirstPaidPurchaseTrigger,
@@ -13,6 +13,11 @@ import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-ref
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { syncArboxFreezeForBusiness } from "@/lib/leads/arbox-freeze";
+import {
+  salesBatchMayRegisterAfterTrial,
+  syncArboxPostTrialFollowupForBusiness,
+} from "@/lib/leads/arbox-post-trial-followup";
+import { normalizeMembershipTypeName } from "@/lib/leads/arbox-trial-attended";
 import {
   syncTrialBookingConfirmForBusiness,
   trialBookingConfirmEnabled,
@@ -57,6 +62,7 @@ export type BusinessRow = {
   arbox_leads_seeded: boolean;
   arbox_cancellation_seeded: boolean;
   arbox_freeze_seeded: boolean;
+  arbox_post_trial_followup_seeded: boolean;
 };
 
 export type BusinessSummary = {
@@ -79,6 +85,7 @@ export type BusinessSummary = {
   trial_booking_confirm?: Awaited<ReturnType<typeof syncTrialBookingConfirmForBusiness>>;
   membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
   freeze_created?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
+  registered_after_trial?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
 };
 
 function formatDateYmdIsrael(d: Date): string {
@@ -297,7 +304,7 @@ export const ARBOX_TRIAL_SYNC_TRIGGER_TYPES = [
 ] as const;
 
 const BUSINESS_SELECT =
-  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded";
+  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded";
 
 function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
   const id = Number(row.id);
@@ -318,6 +325,7 @@ function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
     arbox_leads_seeded: row.arbox_leads_seeded === true,
     arbox_cancellation_seeded: row.arbox_cancellation_seeded === true,
     arbox_freeze_seeded: row.arbox_freeze_seeded === true,
+    arbox_post_trial_followup_seeded: row.arbox_post_trial_followup_seeded === true,
   };
 }
 
@@ -431,6 +439,7 @@ export async function runArboxTrialSyncForBusiness(input: {
 
     const purchaseRules = await loadEnabledPurchaseTemplateTriggers(admin, business.id);
     const classByProductId = new Map<number, PurchaseItemType>();
+    let prefetchedTrialTypeNames: Set<string> | undefined;
     const needsClassMap = purchaseRules.some(
       (rule) => (rule.product_filter?.length ?? 0) > 0 && (rule.item_type_filter?.length ?? 0) > 0
     );
@@ -442,6 +451,12 @@ export async function runArboxTrialSyncForBusiness(input: {
         logLabel: "cron/arbox-trial-sync",
       });
       if (types.ok) {
+        const namesById = membershipTypeNameById(types.types);
+        prefetchedTrialTypeNames = new Set<string>();
+        for (const id of business.arbox_trial_membership_type_ids) {
+          const name = namesById.get(id);
+          if (name) prefetchedTrialTypeNames.add(normalizeMembershipTypeName(name));
+        }
         for (const row of types.types) {
           const kind = String(row.type ?? "").trim().toLowerCase();
           if (isPurchaseItemType(kind)) classByProductId.set(row.membership_type_id, kind);
@@ -606,6 +621,34 @@ export async function runArboxTrialSyncForBusiness(input: {
         summary.fetch_error = summary.fetch_error ?? "cursor_update_failed";
       } else {
         summary.cursor_advanced = true;
+      }
+
+      if (
+        business.arbox_post_trial_followup_seeded &&
+        salesBatchMayRegisterAfterTrial(report.rows, business.arbox_trial_membership_type_ids)
+      ) {
+        try {
+          summary.registered_after_trial = await syncArboxPostTrialFollowupForBusiness({
+            admin,
+            businessId: business.id,
+            businessSlug: business.slug,
+            apiKey: business.crm_api_key,
+            boxId: business.crm_box_id,
+            postTrialFollowupSeeded: true,
+            now,
+            immediateRegisteredOnly: true,
+            prefetchedSalesRows: report.rows as ArboxSalesReportRow[],
+            trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+            ...(prefetchedTrialTypeNames ? { prefetchedTrialTypeNames } : {}),
+          });
+          summary.errors += summary.registered_after_trial.errors;
+        } catch (e) {
+          summary.errors += 1;
+          console.error("[cron/arbox-trial-sync] registered_after_trial step threw", {
+            slug: business.slug,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
       }
     } catch (e) {

@@ -9,6 +9,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
  * Frequent Arbox dispatcher (purchase, credit refusal, new lead, trial booking).
+ * Delay-0 «נרשם אחרי ניסיון» reuses this run's sales rows; bookings are fetched
+ * only when that batch has a non-trial plan/session sale.
  * Scheduling: cron-job.org GET (not Vercel crons — Hobby). Bearer CRON_SECRET.
  * Returns immediately. Each eligible business runs in its own worker via after()
  * → GET /api/cron/arbox-trial-sync/business. Same URL cron-job.org already calls.

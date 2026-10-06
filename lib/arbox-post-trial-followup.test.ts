@@ -6,6 +6,7 @@ import {
   effectivePostTrialDelayDays,
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
+  salesBatchMayRegisterAfterTrial,
   orderSameTriggerTemplateRules,
   outcomeForTrialAttendance,
   postTrialDecisionYmd,
@@ -60,6 +61,28 @@ assert.equal(
     "trial-like item_name must not count"
   );
 }
+
+assert.equal(
+  salesBatchMayRegisterAfterTrial(
+    [{ user_id: 4, item_type: "trial", membership_type_id: 55, item_name: "ניסיון" }],
+    [55]
+  ),
+  false
+);
+assert.equal(
+  salesBatchMayRegisterAfterTrial(
+    [{ user_id: 4, item_type: "plan", membership_type_id: 10, item_name: "מנוי חודשי" }],
+    [55]
+  ),
+  true
+);
+assert.equal(
+  salesBatchMayRegisterAfterTrial(
+    [{ user_id: 4, item_type: "plan", membership_type_id: 55, item_name: "מנוי ניסיון" }],
+    [55]
+  ),
+  false
+);
 
 /** plan and session (non-trial) are real conversions → C5. */
 {

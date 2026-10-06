@@ -637,8 +637,10 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerSendScheduleHintHe("purchase"), triggerSendScheduleHintHe("credit_refusal"));
   assert.equal(
     triggerSendScheduleHintHe("membership_expiring"),
-    triggerSendScheduleHintHe("registered_after_trial")
+    triggerSendScheduleHintHe("not_registered_after_trial")
   );
+  assert.match(triggerSendScheduleHintHe("registered_after_trial"), /15/);
+  assert.match(triggerSendScheduleHintHe("registered_after_trial"), /09:00/);
   assert.equal(
     triggerSendScheduleHintHe("sessions_expiring"),
     triggerSendScheduleHintHe("membership_expiring")

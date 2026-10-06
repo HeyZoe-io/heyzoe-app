@@ -7,6 +7,12 @@
  * indexed dedup read and one insert per template, so a retry skips a send
  * that already went out. A single template keeps the old path (no extra IO).
  * The wait sits in that business's daily worker (cap 285s).
+ *
+ * Delay 0 also runs on the 15-minute trial-sync cron, on sales rows that cron
+ * already fetched. No Arbox call on a quiet tick. A non-trial plan/session sale
+ * in that batch costs one bookingsReport (the daily 7-day lookback, usually one
+ * page) and membershipTypes only when this run has not loaded them already.
+ * Delay of 1+ and «לא נרשם» stay on the daily cron. The same sync_log dedups both.
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
@@ -90,7 +96,7 @@ export type PostTrialAttendance = {
 
 export type PostTrialSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "not_seeded" | "no_sale";
   lookback_from?: string;
   lookback_to?: string;
   sales_from?: string;
@@ -171,6 +177,38 @@ export function isPostTrialConversionSale(
   if (name && membershipTypeNameLooksLikeTrial(name)) return false;
 
   return true;
+}
+
+/** True when this already-fetched sales batch has a buyer who may have registered after a trial. */
+export function salesBatchMayRegisterAfterTrial(
+  rows: readonly {
+    user_id?: unknown;
+    item_type?: unknown;
+    membership_type_id?: unknown;
+    item_name?: unknown;
+  }[],
+  trialMembershipTypeIds: readonly number[]
+): boolean {
+  return postTrialConversionBuyerIds(rows, trialMembershipTypeIds).size > 0;
+}
+
+function postTrialConversionBuyerIds(
+  rows: readonly {
+    user_id?: unknown;
+    item_type?: unknown;
+    membership_type_id?: unknown;
+    item_name?: unknown;
+  }[],
+  trialMembershipTypeIds: readonly number[]
+): Set<number> {
+  const ids = new Set<number>();
+  for (const row of rows) {
+    if (!isPostTrialConversionSale(row, trialMembershipTypeIds)) continue;
+    const userId = Number(row.user_id);
+    if (!Number.isFinite(userId) || userId <= 0) continue;
+    ids.add(Math.trunc(userId));
+  }
+  return ids;
 }
 
 export function outcomeForTrialAttendance(input: {
@@ -648,6 +686,15 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   lookbackFrom?: string;
   lookbackTo?: string;
   activeProductKeys?: ActiveProductKeys;
+  /**
+   * 15-minute path. Only delay-0 registered rules. Sales rows are the trial-sync
+   * batch already in memory. Bookings are fetched only after a real buyer is found.
+   */
+  immediateRegisteredOnly?: boolean;
+  prefetchedSalesRows?: ArboxSalesReportRow[];
+  trialMembershipTypeIds?: readonly number[];
+  /** Names already resolved this run, so membershipTypes is not fetched again. */
+  prefetchedTrialTypeNames?: ReadonlySet<string>;
 }): Promise<PostTrialSyncSummary> {
   const summary: PostTrialSyncSummary = {
     fetched_bookings: 0,
@@ -681,15 +728,28 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     return summary;
   }
 
-  const [registeredLoaded, notRegisteredLoaded] = await Promise.all([
-    loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
-    loadEnabledNotRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
-  ]);
-  const registeredRules = rulesForCompanionSend(registeredLoaded);
+  const immediateOnly = input.immediateRegisteredOnly === true;
+  const [registeredLoaded, notRegisteredLoaded] = immediateOnly
+    ? [await loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId), []]
+    : await Promise.all([
+        loadEnabledRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
+        loadEnabledNotRegisteredAfterTrialTemplateTriggers(input.admin, businessId),
+      ]);
+  let registeredRules = rulesForCompanionSend(registeredLoaded);
+  if (immediateOnly) {
+    registeredRules = registeredRules.filter(
+      (rule) => effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days) === 0
+    );
+  }
   const notRegisteredRules = rulesForCompanionSend(notRegisteredLoaded);
   if (!registeredRules.length && !notRegisteredRules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
+    return summary;
+  }
+  if (immediateOnly && !input.postTrialFollowupSeeded) {
+    summary.skipped = true;
+    summary.skip_reason = "not_seeded";
     return summary;
   }
 
@@ -698,25 +758,41 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     followupLookbackDelayDays(notRegisteredRules)
   );
 
-  const { data: bizRow } = await input.admin
-    .from("businesses")
-    .select("arbox_trial_membership_type_ids")
-    .eq("id", businessId)
-    .maybeSingle();
-  const businessTrialIds = parseIdList(
-    (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-      ?.arbox_trial_membership_type_ids
-  );
+  let businessTrialIds = input.trialMembershipTypeIds
+    ? parseIdList(input.trialMembershipTypeIds)
+    : [];
+  if (!input.trialMembershipTypeIds) {
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("arbox_trial_membership_type_ids")
+      .eq("id", businessId)
+      .maybeSingle();
+    businessTrialIds = parseIdList(
+      (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+        ?.arbox_trial_membership_type_ids
+    );
+  }
   const productFilterIds = parseIdList(
     registeredRules[0]?.product_filter ?? notRegisteredRules[0]?.product_filter
   );
   const trialTypeIds = productFilterIds.length ? productFilterIds : businessTrialIds;
+  const conversionBuyerIds = immediateOnly
+    ? postTrialConversionBuyerIds(input.prefetchedSalesRows ?? [], trialTypeIds)
+    : null;
+  if (conversionBuyerIds && conversionBuyerIds.size === 0) {
+    summary.skipped = true;
+    summary.skip_reason = "no_sale";
+    return summary;
+  }
 
   let trialMatchMode: "ids_names" | "name_fallback" = trialTypeIds.length
     ? "ids_names"
     : "name_fallback";
   const trialTypeNamesNormalized = new Set<string>();
-  if (trialTypeIds.length) {
+  if (input.prefetchedTrialTypeNames) {
+    for (const name of input.prefetchedTrialTypeNames) trialTypeNamesNormalized.add(name);
+    if (trialTypeIds.length && !trialTypeNamesNormalized.size) trialMatchMode = "name_fallback";
+  } else if (trialTypeIds.length) {
     const typesResult = await fetchAllArboxMembershipTypes({
       apiKey,
       logLabel: "leads/arbox-post-trial-followup",
@@ -759,6 +835,21 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       return summary;
     }
     pastRows = report.rows;
+    if (immediateOnly) {
+      console.info("[leads/arbox-post-trial-followup] 15m bookings", {
+        businessId,
+        buyers: conversionBuyerIds?.size ?? 0,
+        from: window.fromDate,
+        to: window.toDate,
+        pages: report.pagesFetched,
+      });
+    }
+  }
+  if (conversionBuyerIds) {
+    pastRows = pastRows.filter((row) => {
+      const userId = Number(row.user_id);
+      return Number.isFinite(userId) && conversionBuyerIds.has(Math.trunc(userId));
+    });
   }
   summary.fetched_bookings = pastRows.length;
 
@@ -766,20 +857,26 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   const salesTo = summary.lookback_to!;
   summary.sales_from = salesFrom;
   summary.sales_to = salesTo;
-  const salesReport = await fetchAllSalesReportRows({
-    apiKey,
-    fromDate: salesFrom,
-    toDate: salesTo,
-    locationId: boxId,
-  });
-  summary.pages_fetched += salesReport.pagesFetched;
-  if (!salesReport.ok) {
-    summary.fetch_error = salesReport.error;
-    summary.errors += 1;
-    return summary;
+  let salesRows: ArboxSalesReportRow[];
+  if (input.prefetchedSalesRows) {
+    salesRows = input.prefetchedSalesRows;
+    summary.fetched_sales = salesRows.length;
+  } else {
+    const salesReport = await fetchAllSalesReportRows({
+      apiKey,
+      fromDate: salesFrom,
+      toDate: salesTo,
+      locationId: boxId,
+    });
+    summary.pages_fetched += salesReport.pagesFetched;
+    if (!salesReport.ok) {
+      summary.fetch_error = salesReport.error;
+      summary.errors += 1;
+      return summary;
+    }
+    salesRows = salesReport.rows as ArboxSalesReportRow[];
+    summary.fetched_sales = salesRows.length;
   }
-  const salesRows = salesReport.rows as ArboxSalesReportRow[];
-  summary.fetched_sales = salesRows.length;
 
   const attendances = collectTrialAttendances({
     pastRows,
@@ -795,7 +892,9 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   if (notRegisteredRules.length) enabledOutcomes.push("not_registered");
 
   let softSeedOutcomes: PostTrialOutcome[] = [];
-  if (needsSeed) {
+  if (immediateOnly) {
+    softSeedOutcomes = [];
+  } else if (needsSeed) {
     softSeedOutcomes = [...enabledOutcomes];
   } else {
     softSeedOutcomes = await findPostTrialOutcomesNeedingSoftSeed({
