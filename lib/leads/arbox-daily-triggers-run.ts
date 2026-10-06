@@ -192,7 +192,8 @@ export function parseArboxDailyBusiness(row: Record<string, unknown>): ArboxDail
 
 /** Arbox businesses with a key, a box, and at least one enabled rule this cron runs. */
 export async function listArboxDailyBusinessIds(
-  admin: Admin
+  admin: Admin,
+  opts?: { slot?: "morning" | "evening" }
 ): Promise<{ ok: true; ids: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
@@ -212,12 +213,15 @@ export async function listArboxDailyBusinessIds(
   }
   if (!eligible.length) return { ok: true, ids: [] };
 
-  const { data: rules, error: ruleErr } = await admin
+  const evening = opts?.slot === "evening";
+  const ruleQuery = admin
     .from("template_triggers")
     .select("business_id, template_name")
     .in("business_id", eligible)
-    .eq("enabled", true)
-    .in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
+    .eq("enabled", true);
+  const { data: rules, error: ruleErr } = evening
+    ? await ruleQuery.eq("trigger_type", "trial_reminder")
+    : await ruleQuery.in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
 
   const withRule = new Set<number>();
@@ -261,16 +265,55 @@ export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now?: Date;
+  /** evening runs only the trial-reminder step. Default morning keeps every step. */
+  slot?: "morning" | "evening";
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
   const business = input.business;
   const now = input.now ?? new Date();
+  const slot = input.slot === "evening" ? "evening" : "morning";
   const timings: ArboxDailyStepTiming[] = [];
   const started = Date.now();
   const entry: { business_id: number; slug: string; [step: string]: unknown } = {
     business_id: business.id,
     slug: business.slug,
+    slot,
   };
+
+  if (slot === "evening") {
+    try {
+      entry.trial_reminder = await timeStep(timings, business.id, "trial_reminder", () =>
+        syncArboxTrialReminderForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          trialReminderSeeded: business.arbox_trial_reminder_seeded,
+          businessTrialIds: business.arbox_trial_membership_type_ids,
+          now,
+          slot: "evening",
+        })
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] evening trial_reminder threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.trial_reminder = { errors: 1, fetch_error: message };
+    }
+    const ctx = arboxDailyContext();
+    return {
+      business_id: business.id,
+      slug: business.slug,
+      elapsed_ms: Date.now() - started,
+      arbox_calls: ctx?.arboxCalls ?? 0,
+      arbox_reports: [...(ctx?.arboxReports ?? [])],
+      steps: timings,
+      summary: entry,
+    };
+  }
 
   // --- Shared activeMembershipsReport (birthday customer set + C8 days-in-club + C7 nth_workout) ---
   let prefetchedMembershipRows: Record<string, unknown>[] | undefined;
@@ -920,6 +963,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       trialReminderSeeded: business.arbox_trial_reminder_seeded,
       businessTrialIds: business.arbox_trial_membership_type_ids,
       now,
+      slot: "morning",
       ...(trialReminderPlan.needsTrialReminder &&
       trialReminderPlan.hasTrialProductIds &&
       prefetchedFutureRows

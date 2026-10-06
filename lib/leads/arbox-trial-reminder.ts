@@ -7,6 +7,8 @@
  * IO (10 businesses): 0 extra bookingsReport GETs when freeze-ending already prefetches
  * the shared future window; +1 GET when only trial_reminder is live. +1 /v3/membershipTypes
  * when trial ids are set (same as C4). No salesReport join.
+ * Evening slot (cron-job.org, ?slot=evening): one extra bookings GET per business that
+ * has an enabled trial_reminder rule, and no other trigger steps.
  */
 import { logMessage } from "@/lib/analytics";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
@@ -152,6 +154,127 @@ export function isTrialReminderDue(input: {
   const days = Math.max(0, Math.trunc(input.delayDays));
   const diff = ymdDiffDays(input.classDateYmd, input.todayYmd);
   return diff === days;
+}
+
+/** Classes starting before this Israel wall time are reminded the evening before. */
+export const REMINDER_EARLY_CUTOFF = "10:00";
+
+export type TrialReminderSlot = "morning" | "evening";
+
+/** Absent or `morning` keeps the 09:00 job. Only the literal `evening` switches slots. */
+export function parseTrialReminderSlot(raw: string | null | undefined): TrialReminderSlot | "invalid" {
+  if (raw == null || raw === "" || raw === "morning") return "morning";
+  if (raw === "evening") return "evening";
+  return "invalid";
+}
+
+/** `REMINDER_EARLY_CUTOFF` env overrides the constant. Invalid values stay on 10:00. */
+export function reminderEarlyCutoffHm(): string {
+  const raw = String(process.env.REMINDER_EARLY_CUTOFF ?? "").trim();
+  const parsed = classStartMinutes(raw);
+  if (parsed == null || !raw.includes(":")) return REMINDER_EARLY_CUTOFF;
+  const hour = Math.floor(parsed / 60);
+  const minute = parsed % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/** Arbox `time` is an Israel wall clock (`9:00`, `09:59`, `10:00:00`). Not a UTC instant. */
+export function classStartMinutes(raw: unknown): number | null {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(raw ?? "").trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+/** Calendar add on a YYYY-MM-DD. Uses UTC noon so a DST fallback cannot shift the date. */
+export function addIsraelCalendarDays(ymd: string, days: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return null;
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days, 12, 0, 0));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Morning sends the existing due day, except a delay-0 class that starts before
+ * the cutoff (that one already went out the previous evening).
+ * Evening sends only delay-0 classes whose date is tomorrow and whose start is
+ * before the cutoff. delay > 0 stays on the morning job: that due day is already
+ * before the class, so 09:00 is not after the class.
+ */
+export function trialReminderMatchesSlot(input: {
+  classDateYmd: string;
+  classTime: string;
+  todayYmd: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+  cutoffHm?: string;
+}): boolean {
+  const minutes = classStartMinutes(input.classTime);
+  const cutoff = classStartMinutes(input.cutoffHm ?? reminderEarlyCutoffHm());
+  if (minutes == null || cutoff == null) return false;
+  const early = minutes < cutoff;
+  const delay = Math.max(0, Math.trunc(input.delayDays));
+  if (input.slot === "evening") {
+    if (delay !== 0 || !early) return false;
+    const tomorrow = addIsraelCalendarDays(input.todayYmd, 1);
+    return tomorrow != null && input.classDateYmd === tomorrow;
+  }
+  if (
+    !isTrialReminderDue({
+      classDateYmd: input.classDateYmd,
+      todayYmd: input.todayYmd,
+      delayDays: delay,
+    })
+  ) {
+    return false;
+  }
+  if (delay === 0 && early) return false;
+  return true;
+}
+
+/**
+ * Slot is not part of the key. Evening and morning share
+ * (business, trigger, user, class date, class time, class name).
+ */
+export function claimTrialReminderSend(input: {
+  claimedKeys: Set<string>;
+  businessId: number;
+  triggerId: string;
+  userId: number;
+  classDateYmd: string;
+  classTime: string;
+  className: string;
+  todayYmd: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+}): "sent" | "skip_slot" | "skip_dedup" {
+  if (
+    !trialReminderMatchesSlot({
+      classDateYmd: input.classDateYmd,
+      classTime: input.classTime,
+      todayYmd: input.todayYmd,
+      delayDays: input.delayDays,
+      slot: input.slot,
+    })
+  ) {
+    return "skip_slot";
+  }
+  const key = buildTrialReminderScheduledDedupKey(
+    input.businessId,
+    input.triggerId,
+    input.userId,
+    input.classDateYmd,
+    input.classTime,
+    input.className
+  );
+  if (input.claimedKeys.has(key)) return "skip_dedup";
+  input.claimedKeys.add(key);
+  return "sent";
 }
 
 /** Flag already true + empty log → soft-seed (rule added later) instead of blasting. */
@@ -473,6 +596,8 @@ export async function syncArboxTrialReminderForBusiness(input: {
   now?: Date;
   prefetchedFutureRows?: ArboxBookingReportRow[];
   prefetchedFuturePages?: number;
+  /** morning = 09:00 job. evening = early classes only, nothing else in the cron. */
+  slot?: TrialReminderSlot;
 }): Promise<TrialReminderSyncSummary> {
   const summary: TrialReminderSyncSummary = {
     fetched: 0,
@@ -498,6 +623,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
   const todayYmd = formatDateYmdIsrael(now);
+  const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
 
   if (!apiKey || !boxId) {
     summary.skipped = true;
@@ -779,10 +905,12 @@ export async function syncArboxTrialReminderForBusiness(input: {
           return false;
         }
       }
-      return isTrialReminderDue({
+      return trialReminderMatchesSlot({
         classDateYmd,
+        classTime,
         todayYmd,
         delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+        slot,
       });
     });
     if (!dueRules.length) continue;

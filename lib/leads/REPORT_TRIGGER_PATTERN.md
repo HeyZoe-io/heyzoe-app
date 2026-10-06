@@ -405,7 +405,13 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   `class_date === today + delay_days`. `0` = morning of class; `1` = day
   before. Default delay 1. Send **immediate** on the daily cron of the due
   day (not Meta enqueue offset). Missed cron day = missed reminder (no
-  catch-up).
+  catch-up). A delay-0 class starting before `REMINDER_EARLY_CUTOFF`
+  (`10:00`, env override) is sent by `?slot=evening` the evening before
+  (cron-job.org, not vercel.json). The 09:00 job (`slot` omitted) sends
+  delay-0 classes at or after the cutoff, and every delay > 0 rule,
+  unchanged. Both slots share the same dedup key; `slot` is not in it.
+  The hourly cancel snapshot is not used — it only covers businesses with
+  `class_cancelled_customer`.
 - Audience: leads. Catalog `uniquePerBusiness: true`, `uniqueCreateMode: "warn"`.
 - Preset **UTILITY** (reminder, no offer/CTA). Slots: `first_name`,
   `class_name`, `class_time`. Generic body — owner adds arrival/parking

@@ -73,11 +73,17 @@ export function resolveArboxDailyWorkerOrigin(req: {
   return "https://heyzoe.io";
 }
 
-export function arboxDailyWorkerUrl(origin: string, businessId: number, dryRun: boolean): string {
+export function arboxDailyWorkerUrl(
+  origin: string,
+  businessId: number,
+  dryRun: boolean,
+  slot: "morning" | "evening" = "morning"
+): string {
   const base = origin.endsWith("/") ? origin : `${origin}/`;
   const url = new URL("/api/cron/arbox-daily-triggers/business", base);
   url.searchParams.set("business_id", String(businessId));
   if (dryRun) url.searchParams.set("dry_run", "1");
+  if (slot === "evening") url.searchParams.set("slot", "evening");
   return url.toString();
 }
 
@@ -86,9 +92,12 @@ export async function dispatchArboxDailyWorkers(input: {
   businessIds: number[];
   dryRun: boolean;
   authorization: string | null;
+  slot?: "morning" | "evening";
 }): Promise<{ total_ms: number; businesses: WorkerDispatchResult[] }> {
   const started = Date.now();
-  const settled = await Promise.allSettled(input.businessIds.map((id) => callWorker(input, id)));
+  const settled = await Promise.allSettled(
+    input.businessIds.map((id) => callWorker(input, id, input.slot === "evening" ? "evening" : "morning"))
+  );
   const businesses: WorkerDispatchResult[] = settled.map((result, index) => {
     if (result.status === "fulfilled") return result.value;
     const reason = result.reason;
@@ -106,6 +115,7 @@ export async function dispatchArboxDailyWorkers(input: {
   console.info("[cron/arbox-daily-triggers] dispatch done", {
     total_ms,
     dry_run: input.dryRun,
+    slot: input.slot === "evening" ? "evening" : "morning",
     businesses: businesses.map((row) => ({
       business_id: row.business_id,
       http: row.http,
@@ -123,10 +133,11 @@ async function callWorker(
     dryRun: boolean;
     authorization: string | null;
   },
-  businessId: number
+  businessId: number,
+  slot: "morning" | "evening"
 ): Promise<WorkerDispatchResult> {
   const started = Date.now();
-  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun);
+  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot);
   const secret = resolveCronSecret();
   const authorization =
     input.authorization ?? (secret ? `Bearer ${secret}` : null);

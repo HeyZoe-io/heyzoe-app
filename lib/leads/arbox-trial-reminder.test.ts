@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import {
+  addIsraelCalendarDays,
+  claimTrialReminderSend,
+  classStartMinutes,
   isTrialReminderDue,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
+  reminderEarlyCutoffHm,
   trialReminderFutureWindow,
   trialReminderHasConfiguredIds,
+  trialReminderMatchesSlot,
   trialReminderNeedsSoftSeed,
   TRIAL_REMINDER_FUTURE_SPAN_DAYS,
   TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_DATE,
@@ -27,6 +32,7 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { shouldFetchNextArboxReportPage, ARBOX_REPORT_PAGE_SIZE } from "@/lib/leads/arbox-sales-report";
 import { buildTrialReminderScheduledDedupKey } from "@/lib/scheduled-template-sends";
+import { formatDateYmdIsrael } from "@/lib/leads/arbox-membership-cancelled";
 import { TEMPLATE_PRESETS } from "@/lib/template-presets";
 import {
   classNameFromScheduledDedupKey,
@@ -228,6 +234,163 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   assert.equal(defaultDelayDirection("trial_reminder"), "before");
   assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "בוקר האימון");
   assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
+}
+
+{
+  const today = "2026-10-06";
+  const tomorrow = "2026-10-07";
+  const early = {
+    classTime: "09:59",
+    todayYmd: today,
+    delayDays: 0,
+    cutoffHm: "10:00",
+  };
+  const onTime = { ...early, classTime: "10:00" };
+  assert.equal(
+    trialReminderMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "evening" }),
+    true,
+    "09:59 tomorrow is evening only"
+  );
+  assert.equal(
+    trialReminderMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "morning" }),
+    false
+  );
+  assert.equal(
+    trialReminderMatchesSlot({ ...early, classDateYmd: today, slot: "morning" }),
+    false,
+    "09:59 on the class morning is not the 09:00 job"
+  );
+  assert.equal(
+    trialReminderMatchesSlot({ ...onTime, classDateYmd: today, slot: "morning" }),
+    true,
+    "10:00 is morning only"
+  );
+  assert.equal(
+    trialReminderMatchesSlot({ ...onTime, classDateYmd: tomorrow, slot: "evening" }),
+    false
+  );
+  assert.equal(
+    trialReminderMatchesSlot({
+      classDateYmd: tomorrow,
+      classTime: "07:00",
+      todayYmd: today,
+      delayDays: 1,
+      slot: "evening",
+    }),
+    false,
+    "delay 1 stays on the morning job"
+  );
+  assert.equal(
+    trialReminderMatchesSlot({
+      classDateYmd: tomorrow,
+      classTime: "07:00",
+      todayYmd: today,
+      delayDays: 1,
+      slot: "morning",
+    }),
+    true
+  );
+}
+
+{
+  const fallbackInstant = new Date("2026-10-24T23:30:00.000Z");
+  const israelToday = formatDateYmdIsrael(fallbackInstant);
+  assert.equal(israelToday, "2026-10-25");
+  assert.notEqual(fallbackInstant.toISOString().slice(0, 10), israelToday);
+  const tomorrow = addIsraelCalendarDays(israelToday, 1);
+  assert.equal(tomorrow, "2026-10-26");
+  assert.equal(
+    trialReminderMatchesSlot({
+      classDateYmd: "2026-10-26",
+      classTime: "07:00",
+      todayYmd: israelToday,
+      delayDays: 0,
+      slot: "evening",
+    }),
+    true,
+    "DST fallback evening still targets the Israel tomorrow"
+  );
+  assert.equal(
+    trialReminderMatchesSlot({
+      classDateYmd: "2026-10-25",
+      classTime: "07:00",
+      todayYmd: israelToday,
+      delayDays: 0,
+      slot: "evening",
+    }),
+    false
+  );
+}
+
+{
+  const booking = {
+    businessId: 1,
+    triggerId: "rule-1",
+    userId: 42,
+    classDateYmd: "2026-10-07",
+    classTime: "09:59",
+    className: "ניסיון",
+    delayDays: 0,
+  };
+  const eveningDay = "2026-10-06";
+  const morningDay = "2026-10-07";
+  const run = (order: Array<"evening" | "morning">) => {
+    const claimed = new Set<string>();
+    const results = order.map((slot) =>
+      claimTrialReminderSend({
+        ...booking,
+        claimedKeys: claimed,
+        todayYmd: slot === "evening" ? eveningDay : morningDay,
+        slot,
+      })
+    );
+    return results.filter((row) => row === "sent").length;
+  };
+  assert.equal(run(["evening", "morning"]), 1);
+  assert.equal(run(["morning", "evening"]), 1);
+  const morningKey = buildTrialReminderScheduledDedupKey(
+    booking.businessId,
+    booking.triggerId,
+    booking.userId,
+    booking.classDateYmd,
+    booking.classTime,
+    booking.className
+  );
+  assert.equal(morningKey.includes("slot"), false);
+  assert.equal(morningKey.includes("evening"), false);
+  assert.equal(classStartMinutes("10:00:00"), 10 * 60);
+  assert.equal(classStartMinutes("09:59"), 9 * 60 + 59);
+}
+
+{
+  const previous = process.env.REMINDER_EARLY_CUTOFF;
+  process.env.REMINDER_EARLY_CUTOFF = "08:30";
+  try {
+    assert.equal(reminderEarlyCutoffHm(), "08:30");
+    assert.equal(
+      trialReminderMatchesSlot({
+        classDateYmd: "2026-10-07",
+        classTime: "08:29",
+        todayYmd: "2026-10-06",
+        delayDays: 0,
+        slot: "evening",
+      }),
+      true
+    );
+    assert.equal(
+      trialReminderMatchesSlot({
+        classDateYmd: "2026-10-06",
+        classTime: "08:30",
+        todayYmd: "2026-10-06",
+        delayDays: 0,
+        slot: "morning",
+      }),
+      true
+    );
+  } finally {
+    if (previous === undefined) delete process.env.REMINDER_EARLY_CUTOFF;
+    else process.env.REMINDER_EARLY_CUTOFF = previous;
+  }
 }
 
 console.log("arbox-trial-reminder.test.ts: ok");

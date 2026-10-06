@@ -30,6 +30,14 @@ assert.equal(
   arboxDailyWorkerUrl("https://heyzoe.io", 3445, true),
   "https://heyzoe.io/api/cron/arbox-daily-triggers/business?business_id=3445&dry_run=1"
 );
+assert.equal(
+  arboxDailyWorkerUrl("https://heyzoe.io", 3445, false, "evening"),
+  "https://heyzoe.io/api/cron/arbox-daily-triggers/business?business_id=3445&slot=evening"
+);
+assert.equal(
+  arboxDailyWorkerUrl("https://heyzoe.io", 3445, true, "morning"),
+  "https://heyzoe.io/api/cron/arbox-daily-triggers/business?business_id=3445&dry_run=1"
+);
 assert.equal(ARBOX_DAILY_WORKER_ABORT_MS, 285_000);
 
 async function main() {

@@ -6,6 +6,7 @@ import {
   loadArboxDailyBusiness,
   runArboxDailyTriggersForBusiness,
 } from "@/lib/leads/arbox-daily-triggers-run";
+import { parseTrialReminderSlot } from "@/lib/leads/arbox-trial-reminder";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
@@ -31,6 +32,10 @@ export async function GET(req: NextRequest) {
   }
 
   const dryRun = req.nextUrl.searchParams.get("dry_run") === "1";
+  const slot = parseTrialReminderSlot(req.nextUrl.searchParams.get("slot"));
+  if (slot === "invalid") {
+    return NextResponse.json({ error: "invalid_slot" }, { status: 400 });
+  }
   const started = Date.now();
   try {
     const admin = createSupabaseAdminClient();
@@ -52,6 +57,7 @@ export async function GET(req: NextRequest) {
         runArboxDailyTriggersForBusiness({
           admin: dryRun ? dryRunSupabase(admin) : admin,
           business,
+          slot,
         })
     );
 
