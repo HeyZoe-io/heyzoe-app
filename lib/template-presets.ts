@@ -1,4 +1,5 @@
 import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
+import { isTriggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
 import { isArboxDependentTriggerType, type TriggerType } from "@/lib/template-trigger-types";
 
 export type TemplatePresetCategory = "MARKETING" | "UTILITY";
@@ -544,14 +545,16 @@ export function parseDashboardTemplateComponents(
       const list = Array.isArray(c.buttons) ? c.buttons : [];
       const editable = list.filter((bRaw) => {
         if (!bRaw || typeof bRaw !== "object") return false;
-        return !isMarketingOptOutButtonText(String((bRaw as { text?: unknown }).text ?? ""));
+        const text = String((bRaw as { text?: unknown }).text ?? "");
+        return !isMarketingOptOutButtonText(text) && !isTriggerAlertMuteButtonText(text);
       });
       if (editable.length > DASHBOARD_MAX_BUTTONS) return null;
       for (const bRaw of list) {
         if (!bRaw || typeof bRaw !== "object") continue;
         const b = bRaw as Record<string, unknown>;
         const bType = String(b.type ?? "").toUpperCase();
-        if (isMarketingOptOutButtonText(String(b.text ?? ""))) continue;
+        const label = String(b.text ?? "");
+        if (isMarketingOptOutButtonText(label) || isTriggerAlertMuteButtonText(label)) continue;
         if (!DASHBOARD_BUTTON_TYPES.has(bType)) return null;
         buttons.push({
           kind: bType === "URL" ? "URL" : "QUICK_REPLY",

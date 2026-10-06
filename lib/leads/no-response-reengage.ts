@@ -453,6 +453,7 @@ async function dispatchNoResponseTemplate(input: {
     to: phoneNorm,
     phoneNumberId,
     templateName: input.templateName,
+    alertTriggerId: input.rule.id,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

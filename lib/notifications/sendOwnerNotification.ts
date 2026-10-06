@@ -2,10 +2,18 @@ import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { outboundSendsHeld } from "@/lib/business-sends-hold";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
+  contactAlertMuted,
+  graphTemplateMessageId,
+  lookupBusinessIdByPhoneNumberId,
+  recordTemplateSendRef,
+  SUPPRESSED_ALERT_MUTE_ERROR,
+} from "@/lib/contact-alert-mute";
+import {
   evaluateLeadTemplateSendByPhoneNumberId,
   SUPPRESSED_OPT_OUT_ERROR,
   suppressMarketingOptOutFromSendError,
 } from "@/lib/wa-marketing-opt-out";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
@@ -101,6 +109,8 @@ export async function sendBusinessTemplate(input: {
   skipOptOutGate?: boolean;
   /** Staff recipient: skip customer opt-out and do not insert a contacts row on 131050. */
   recipientKind?: "customer" | "staff";
+  /** template_triggers.id for this send. Empty = a template that is not a trigger. */
+  alertTriggerId?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
@@ -148,6 +158,37 @@ export async function sendBusinessTemplate(input: {
     return { ok: false, error: "sends_hold" };
   }
 
+  let admin: ReturnType<typeof createSupabaseAdminClient> | null = null;
+  let businessId: number | null = null;
+  if (!isStaffRecipient) {
+    try {
+      admin = createSupabaseAdminClient();
+      businessId = await lookupBusinessIdByPhoneNumberId(admin, phoneNumberId);
+      if (businessId) {
+        const muted = await contactAlertMuted({
+          admin,
+          businessId,
+          phone: to,
+          templateName,
+          triggerId: input.alertTriggerId,
+        });
+        if (muted) {
+          console.info("[sendBusinessTemplate] suppressed alert mute", {
+            phoneNumberId,
+            to,
+            templateName,
+            triggerId: input.alertTriggerId ?? null,
+          });
+          return { ok: false, error: SUPPRESSED_ALERT_MUTE_ERROR };
+        }
+      }
+    } catch (e) {
+      console.error("[sendBusinessTemplate] alert mute check failed:", e);
+      admin = null;
+      businessId = null;
+    }
+  }
+
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`;
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
@@ -189,6 +230,22 @@ export async function sendBusinessTemplate(input: {
         );
       }
       return { ok: false, error: errText || `http_${res.status}` };
+    }
+    const json = (await res.json().catch(() => null)) as unknown;
+    const wamid = graphTemplateMessageId(json);
+    if (!isStaffRecipient && admin && businessId && wamid) {
+      await recordTemplateSendRef({
+        admin,
+        wamid,
+        businessId,
+        phone: to,
+        templateName,
+        triggerId: input.alertTriggerId,
+      }).catch((e) => console.error("[sendBusinessTemplate] alert ref failed:", e));
+    } else if (!isStaffRecipient && !wamid) {
+      console.error("[sendBusinessTemplate] missing wamid — alert mute button cannot map this send", {
+        templateName,
+      });
     }
     return { ok: true };
   } catch (e) {

@@ -371,6 +371,7 @@ async function dispatchDaysInClubTemplate(input: {
     to: input.phone,
     phoneNumberId,
     templateName,
+    alertTriggerId: input.rule.id,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

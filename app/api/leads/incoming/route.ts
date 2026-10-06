@@ -459,6 +459,7 @@ export async function POST(req: NextRequest) {
         to: phoneNorm,
         phoneNumberId,
         templateName: ruleTemplate,
+        alertTriggerId: rule.id,
         languageCode,
         ...(sendComponents ? { components: sendComponents } : {}),
       });

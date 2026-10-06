@@ -378,6 +378,7 @@ async function sendWelcome(input: {
   phone: string;
   fullName: string | null;
   templateName: string;
+  triggerId: string;
 }): Promise<"sent" | "gated" | "skipped" | "send_failed"> {
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
@@ -418,6 +419,7 @@ async function sendWelcome(input: {
     to: input.phone,
     phoneNumberId,
     templateName: input.templateName,
+    alertTriggerId: input.triggerId,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -595,6 +597,7 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
         phone,
         fullName: reportFullName(row),
         templateName: String(rule.template_name ?? "").trim(),
+        triggerId: rule.id,
       });
       seen.add(rule.id);
       if (outcome === "gated") {

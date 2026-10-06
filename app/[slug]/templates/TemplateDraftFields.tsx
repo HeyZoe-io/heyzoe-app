@@ -9,6 +9,10 @@ import {
   isMarketingOptOutButtonText,
   marketingOptOutButtonText,
 } from "@/lib/meta-marketing-opt-out-button";
+import {
+  isTriggerAlertMuteButtonText,
+  triggerAlertMuteButtonText,
+} from "@/lib/meta-trigger-alert-mute-button";
 
 export type TemplateButtonDraft = {
   kind: "QUICK_REPLY" | "URL";
@@ -72,11 +76,16 @@ export function TemplateDraftFields({
 }) {
   const nameValid = isTemplateDraftNameValid(value.name);
   const optOutLabel = marketingOptOutButtonText(value.language);
+  const alertMuteLabel = triggerAlertMuteButtonText(value.language);
   const showMarketingOptOut = value.category === "MARKETING";
   const editableButtons = value.buttons
     .map((button, index) => ({ button, index }))
     .filter(
-      ({ button }) => !(showMarketingOptOut && isMarketingOptOutButtonText(button.text))
+      ({ button }) =>
+        !(
+          showMarketingOptOut &&
+          (isMarketingOptOutButtonText(button.text) || isTriggerAlertMuteButtonText(button.text))
+        )
     );
 
   function patch(partial: Partial<TemplateDraftValue>) {
@@ -208,8 +217,17 @@ export function TemplateDraftFields({
           )}
         </div>
         {showMarketingOptOut ? (
-          <div className="space-y-1 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-            <p className="text-xs font-medium text-zinc-700">כפתור אוטומטי</p>
+          <div className="space-y-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+            <p className="text-xs font-medium text-zinc-700">כפתורים אוטומטיים</p>
+            <input
+              value={alertMuteLabel}
+              readOnly
+              disabled
+              className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
+            />
+            <p className="text-xs text-zinc-500">
+              לחיצה עוצרת רק את הטריגר של ההודעה הזו אצל הלקוחה שלחצה.
+            </p>
             <input
               value={optOutLabel}
               readOnly
@@ -217,7 +235,7 @@ export function TemplateDraftFields({
               className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
             />
             <p className="text-xs text-zinc-500">
-              נוסף לבד בכל טמפלייט שיווקי. הטקסט קבוע לפי שפה, ואין צורך להוסיף אותו ידנית.
+              לחיצה עוצרת את כל הודעות הקידום. הטקסט קבוע לפי שפה.
             </p>
           </div>
         ) : null}

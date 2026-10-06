@@ -12,6 +12,7 @@ import {
 } from "@/lib/template-presets";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { withMarketingOptOutButton } from "@/lib/meta-marketing-opt-out-button";
+import { withTriggerAlertMuteButton } from "@/lib/meta-trigger-alert-mute-button";
 import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
 import { stampTemplateRulesActivated } from "@/lib/rule-activation";
 
@@ -155,7 +156,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   });
   const prepared = withNormalizedTemplateComponents(styled);
   const components =
-    category === "MARKETING" ? withMarketingOptOutButton(prepared, language) : prepared;
+    category === "MARKETING"
+      ? withMarketingOptOutButton(withTriggerAlertMuteButton(prepared, language), language)
+      : prepared;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
   }
@@ -328,7 +331,10 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
   const components =
     nextCategory === "MARKETING"
-      ? withMarketingOptOutButton(prepared, language || existingLanguage || "he")
+      ? withMarketingOptOutButton(
+          withTriggerAlertMuteButton(prepared, language || existingLanguage || "he"),
+          language || existingLanguage || "he"
+        )
       : prepared;
   const edgeMessage = templateComponentsMetaPolicyMessage(components);
   if (edgeMessage) {

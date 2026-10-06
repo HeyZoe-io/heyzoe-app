@@ -359,6 +359,7 @@ async function dispatchOneScheduledSend(
     to: phone,
     phoneNumberId,
     templateName,
+    alertTriggerId: row.trigger_id,
     languageCode,
     skipOptOutGate: true,
     ...(isStaffRecipient ? { recipientKind: "staff" as const } : {}),

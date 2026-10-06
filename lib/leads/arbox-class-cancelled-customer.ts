@@ -1258,6 +1258,7 @@ async function sendPending(input: {
         to: phone,
         phoneNumberId,
         templateName: rule.template_name,
+        alertTriggerId: rule.id,
         languageCode: tpl?.language || "he",
         skipOptOutGate: true,
         components: classCancelledCustomerBodyComponents(values),

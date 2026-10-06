@@ -374,6 +374,7 @@ async function sendOnePurchaseTemplate(input: {
     to: input.phone,
     phoneNumberId,
     templateName,
+    alertTriggerId: matchedRule.id,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

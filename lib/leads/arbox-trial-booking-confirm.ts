@@ -308,6 +308,7 @@ async function sendTrialBookedTemplate(input: {
     to: input.phone,
     phoneNumberId,
     templateName: input.template.name,
+    alertTriggerId: input.rule.id,
     languageCode: input.template.language,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

@@ -490,6 +490,7 @@ async function dispatchTrialAttendedTemplate(input: {
     to: input.phone,
     phoneNumberId,
     templateName,
+    alertTriggerId: input.rule.id,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

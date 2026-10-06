@@ -141,6 +141,8 @@ export type WaIncomingText = {
   metaInteractiveReplyId?: string;
   /** Meta `interactive` subtype when inbound was button_reply / list_reply (not plain text). */
   metaInteractiveReplyKind?: "button_reply" | "list_reply";
+  /** wamid of the message this button answered. */
+  replyToWamid?: string;
 };
 
 export type WaIncomingUnsupported = {
@@ -351,6 +353,7 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
       String(btn?.text ?? "").trim() ||
       String(btn?.payload ?? "").trim();
     if (!text) return null;
+    const contextId = String((m.context as { id?: unknown } | undefined)?.id ?? "").trim();
     return {
       type: "text",
       messageId,
@@ -359,6 +362,7 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
       text,
       profileName: profileName || undefined,
       metaInteractiveReplyKind: "button_reply",
+      ...(contextId ? { replyToWamid: contextId } : {}),
     };
   }
 

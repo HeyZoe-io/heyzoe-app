@@ -505,6 +505,9 @@ export function decideScheduledSendAfterMeta(input: {
   if (last_error === SUPPRESSED_OPT_OUT_ERROR || last_error.includes(SUPPRESSED_OPT_OUT_ERROR)) {
     return { status: "canceled", last_error: SUPPRESSED_OPT_OUT_ERROR };
   }
+  if (last_error === "suppressed_alert_mute" || last_error.includes("suppressed_alert_mute")) {
+    return { status: "canceled", last_error: "suppressed_alert_mute" };
+  }
   return { status: "failed", last_error };
 }
 

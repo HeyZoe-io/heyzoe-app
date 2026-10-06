@@ -24,7 +24,10 @@ export function isSendsHoldError(error: unknown): boolean {
 
 /** Held template sends stay retryable. They are not a Meta failure. */
 export function templateFailureDispatch(error: unknown): "gated" | "send_failed" {
-  return isSendsHoldError(error) ? "gated" : "send_failed";
+  if (isSendsHoldError(error)) return "gated";
+  const text = error instanceof Error ? error.message : String(error ?? "");
+  if (text === "suppressed_alert_mute" || text.includes("suppressed_alert_mute")) return "gated";
+  return "send_failed";
 }
 
 export type WouldSendRecord = {

@@ -618,6 +618,8 @@ import {
   parseUserPreferencesWebhook,
 } from "@/lib/wa-marketing-opt-out";
 import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
+import { isTriggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
+import { claimContactAlertMute, loadTemplateSendRef } from "@/lib/contact-alert-mute";
 import { originalTemplateName } from "@/lib/marketing-optout-resubmit-plan";
 import {
   applyOptOutVersionSwitchover,
@@ -6851,6 +6853,63 @@ async function processIncoming(
       return "error";
     }
     return markedOut?.length ? "claimed" : "already";
+  }
+
+  // «הפסק התראה» — this trigger (or this non-trigger template) for this customer.
+  // «הפסקת הודעות הקידום» below still stops every marketing template.
+  if (
+    msg.type === "text" &&
+    msg.metaInteractiveReplyKind === "button_reply" &&
+    isTriggerAlertMuteButtonText(incomingTextRaw)
+  ) {
+    if (!processOpts?.skipUserLog) {
+      await logMessage({
+        business_slug,
+        role: "user",
+        content: msg.text,
+        session_id: earlySessionId,
+      });
+    }
+    const ref = msg.replyToWamid ? await loadTemplateSendRef(supabase, msg.replyToWamid) : null;
+    const claimed = ref
+      ? await claimContactAlertMute({
+          admin: supabase,
+          businessId: ref.businessId,
+          phone: msg.from,
+          templateName: ref.templateName,
+          triggerId: ref.triggerId,
+        })
+      : "error";
+    if (claimed === "error") {
+      console.error("[WA Webhook] alert mute unresolved", {
+        business_slug,
+        phone: msg.from,
+        reply_to: msg.replyToWamid ?? null,
+      });
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "לא הצלחנו לזהות איזו התראה לעצור. כתבי לנו ונסייע.",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] alert mute unresolved reply failed:", e));
+      return;
+    }
+    if (claimed === "claimed") {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        "הפסקנו את ההתראה הזו. הודעות אחרות יימשכו.",
+        accountSid,
+        authToken
+      ).catch((e) => console.error("[WA Webhook] alert mute reply failed:", e));
+    } else {
+      console.info("[WA Webhook] alert mute already applied", {
+        business_slug,
+        phone: msg.from,
+      });
+    }
+    return;
   }
 
   // Meta marketing opt-out button («הפסקת הודעות הקידום» / «Stop promotions»).
