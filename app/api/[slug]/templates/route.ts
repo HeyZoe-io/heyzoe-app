@@ -155,9 +155,13 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     slug: String(slug ?? "").trim().toLowerCase(),
   });
   const prepared = withNormalizedTemplateComponents(styled);
+  const withAlertMute =
+    category === "MARKETING" && body.include_alert_mute === true
+      ? withTriggerAlertMuteButton(prepared, language)
+      : prepared;
   const components =
     category === "MARKETING"
-      ? withMarketingOptOutButton(withTriggerAlertMuteButton(prepared, language), language)
+      ? withMarketingOptOutButton(withAlertMute, language)
       : prepared;
   if (category !== "MARKETING" && category !== "UTILITY") {
     return NextResponse.json({ error: "invalid_category" }, { status: 400 });
@@ -329,12 +333,14 @@ export async function PUT(req: NextRequest, ctx: RouteContext) {
   }
 
   const existingLanguage = String((existing as { language?: unknown }).language ?? "").trim();
+  const editLanguage = language || existingLanguage || "he";
+  const withAlertMute =
+    nextCategory === "MARKETING" && body.include_alert_mute === true
+      ? withTriggerAlertMuteButton(prepared, editLanguage)
+      : prepared;
   const components =
     nextCategory === "MARKETING"
-      ? withMarketingOptOutButton(
-          withTriggerAlertMuteButton(prepared, language || existingLanguage || "he"),
-          language || existingLanguage || "he"
-        )
+      ? withMarketingOptOutButton(withAlertMute, editLanguage)
       : prepared;
   const edgeMessage = templateComponentsMetaPolicyMessage(components);
   if (edgeMessage) {

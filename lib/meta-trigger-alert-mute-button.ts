@@ -1,6 +1,6 @@
 /**
- * Quick reply on MARKETING templates. Stops one trigger (or one non-trigger
- * template) for the customer who tapped it. Does not set marketing_opted_out.
+ * Quick reply for the weekly recurring campaign only.
+ * Stops that reminder for the customer who tapped it. Does not set marketing_opted_out.
  */
 
 export const TRIGGER_ALERT_MUTE_BUTTON_HE = "הפסק התראה";

@@ -26,6 +26,7 @@ import {
 } from "@/lib/arbox-membership-types";
 import { membershipTypeNameLooksLikeTrial } from "@/lib/leads/arbox-trial-attended";
 import { PURCHASE_ITEM_TYPE_LABELS_HE } from "@/lib/trigger-catalog";
+import { triggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
 
 export type CampaignSendTemplateOption = {
   name: string;
@@ -76,6 +77,7 @@ export default function CampaignSendPanel(props: {
   audienceType: ManualBulkAudienceType;
   templates: CampaignSendTemplateOption[];
   onClose?: () => void;
+  onCreateAlertMuteTemplate?: () => void;
 }) {
   const audienceType = props.audienceType;
   const [weeks, setWeeks] = useState(MANUAL_BULK_WEEKS_DEFAULT);
@@ -617,6 +619,30 @@ export default function CampaignSendPanel(props: {
                   onChange={(e) => setScheduledLocal(e.target.value)}
                 />
               </label>
+            ) : null}
+            {whenMode === "recurring" ? (
+              <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <p className="text-xs font-medium text-zinc-700">כפתור בקמפיין השבועי</p>
+                <input
+                  value={triggerAlertMuteButtonText("he")}
+                  readOnly
+                  disabled
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
+                />
+                <p className="text-xs text-zinc-500">
+                  רק בתזכורת שחוזרת כל שבוע. לחיצה עוצרת את התזכורת הזו. שאר הטריגרים בלי הכפתור.
+                  השתמשו בטמפלייט שלא מחובר לטריגר אחר.
+                </p>
+                {props.onCreateAlertMuteTemplate ? (
+                  <button
+                    type="button"
+                    onClick={props.onCreateAlertMuteTemplate}
+                    className="text-xs font-medium text-[#7133da] hover:underline"
+                  >
+                    צרו טמפלייט עם הכפתור
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             {whenMode === "recurring" ? (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

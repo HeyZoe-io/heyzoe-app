@@ -24,6 +24,7 @@ import {
   templateComponentsMetaPolicyMessage,
   uniqueTemplateName,
 } from "@/lib/template-presets";
+import { isTriggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
 import {
   EMPTY_TEMPLATE_BUTTONS,
@@ -1003,6 +1004,7 @@ export default function TemplatesClient({
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<TemplateButtonDraft[]>(EMPTY_TEMPLATE_BUTTONS);
   const [purposeTrigger, setPurposeTrigger] = useState<TriggerType | "">("");
+  const [includeAlertMute, setIncludeAlertMute] = useState(false);
   const isEditing = editingTemplate != null;
   const categoryLocked =
     isEditing && String(editingTemplate.status).toUpperCase() === "APPROVED";
@@ -1014,6 +1016,7 @@ export default function TemplatesClient({
 
   function applyPurposePreset(type: TriggerType | "") {
     setPurposeTrigger(type);
+    if (type) setIncludeAlertMute(false);
     if (!type) return;
     const preset = TEMPLATE_PRESETS[type];
     if (!preset) return;
@@ -1040,9 +1043,37 @@ export default function TemplatesClient({
     setEditExampleValues([]);
   }
 
+  function componentsHaveAlertMute(components: unknown): boolean {
+    if (!Array.isArray(components)) return false;
+    for (const raw of components) {
+      if (!raw || typeof raw !== "object") continue;
+      const type = String((raw as { type?: unknown }).type ?? "").toUpperCase();
+      if (type !== "BUTTONS") continue;
+      const buttons = (raw as { buttons?: unknown }).buttons;
+      if (!Array.isArray(buttons)) continue;
+      if (
+        buttons.some((button) =>
+          isTriggerAlertMuteButtonText(String((button as { text?: unknown }).text ?? ""))
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function openCreateModal() {
     setError(null);
     resetCreateForm();
+    setIncludeAlertMute(false);
+    setShowCreate(true);
+  }
+
+  function openWeeklyAlertMuteTemplate() {
+    setError(null);
+    resetCreateForm();
+    setIncludeAlertMute(true);
+    setCategory("MARKETING");
     setShowCreate(true);
   }
 
@@ -1083,6 +1114,10 @@ export default function TemplatesClient({
     setButtons(draft.buttons);
     setEditExampleValues(draft.exampleValues);
     setPurposeTrigger("");
+    const usedByTrigger = triggers.some(
+      (row) => String(row.template_name ?? "").trim() === t.name
+    );
+    setIncludeAlertMute(componentsHaveAlertMute(t.components) && !usedByTrigger);
     setShowCreate(true);
   }
 
@@ -1298,12 +1333,16 @@ export default function TemplatesClient({
                   : { name: editingTemplate.name, language: editingTemplate.language }),
                 category,
                 components,
+                include_alert_mute:
+                  includeAlertMute && !purposeTrigger && category === "MARKETING",
               }
             : {
                 name,
                 category,
                 language,
                 components,
+                include_alert_mute:
+                  includeAlertMute && !purposeTrigger && category === "MARKETING",
               }
         ),
       });
@@ -2398,6 +2437,7 @@ export default function TemplatesClient({
                         audienceType={manualType}
                         templates={marketingTemplates}
                         onClose={() => setActiveManualCampaign(null)}
+                        onCreateAlertMuteTemplate={openWeeklyAlertMuteTemplate}
                       />
                     ) : null}
                   </li>
@@ -2494,6 +2534,7 @@ export default function TemplatesClient({
               nameDisabled={isEditing}
               languageDisabled={isEditing}
               categoryLocked={categoryLocked}
+              showAlertMute={includeAlertMute && !purposeTrigger}
               bodyHint={
                 purposeTrigger
                   ? `אפשר להשתמש ב־{{1}}, {{2}} וכו׳. ${presetVarHint(purposeTrigger)}.`

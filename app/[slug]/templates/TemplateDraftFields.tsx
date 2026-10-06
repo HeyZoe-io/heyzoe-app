@@ -63,6 +63,7 @@ export function TemplateDraftFields({
   bodyRequired = true,
   bodyHint,
   nameHint,
+  showAlertMute = false,
 }: {
   value: TemplateDraftValue;
   onChange: (next: TemplateDraftValue) => void;
@@ -73,11 +74,14 @@ export function TemplateDraftFields({
   bodyRequired?: boolean;
   bodyHint?: string;
   nameHint?: string;
+  /** Weekly recurring campaign only. Automatic triggers do not get this button. */
+  showAlertMute?: boolean;
 }) {
   const nameValid = isTemplateDraftNameValid(value.name);
   const optOutLabel = marketingOptOutButtonText(value.language);
   const alertMuteLabel = triggerAlertMuteButtonText(value.language);
   const showMarketingOptOut = value.category === "MARKETING";
+  const showWeeklyAlertMute = showAlertMute && showMarketingOptOut;
   const editableButtons = value.buttons
     .map((button, index) => ({ button, index }))
     .filter(
@@ -219,15 +223,19 @@ export function TemplateDraftFields({
         {showMarketingOptOut ? (
           <div className="space-y-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
             <p className="text-xs font-medium text-zinc-700">כפתורים אוטומטיים</p>
-            <input
-              value={alertMuteLabel}
-              readOnly
-              disabled
-              className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
-            />
-            <p className="text-xs text-zinc-500">
-              לחיצה עוצרת רק את הטריגר של ההודעה הזו אצל הלקוחה שלחצה.
-            </p>
+            {showWeeklyAlertMute ? (
+              <>
+                <input
+                  value={alertMuteLabel}
+                  readOnly
+                  disabled
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-500"
+                />
+                <p className="text-xs text-zinc-500">
+                  לקמפיין השבועי בלבד. לחיצה עוצרת את התזכורת הזו אצל הלקוחה שלחצה.
+                </p>
+              </>
+            ) : null}
             <input
               value={optOutLabel}
               readOnly
