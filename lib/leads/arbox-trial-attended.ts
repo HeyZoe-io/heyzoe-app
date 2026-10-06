@@ -2,6 +2,12 @@ import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { logMessage } from "@/lib/analytics";
+import {
+  loadTrialBookingIdentityKeys,
+  rememberTrialBookingIdentities,
+  trialBookingIdentityKey,
+  trialIdentityInputsFromRows,
+} from "@/lib/leads/arbox-trial-booking-identity";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
@@ -648,6 +654,27 @@ export async function syncArboxTrialAttendedForBusiness(input: {
   }
 
   const trialScope = { trialTypeIds, trialTypeNamesNormalized };
+  const nameFallback = trialMatchMode === "name_fallback";
+  const persistedKeys = await loadTrialBookingIdentityKeys({
+    admin: input.admin,
+    businessId,
+    fromDate: summary.lookback_from,
+    toDate: summary.lookback_to,
+  });
+  const liveIdentityRows = trialIdentityInputsFromRows(
+    reportRows,
+    (row) =>
+      nameFallback
+        ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+        : bookingMatchesTrialScope(row, trialScope),
+    (row) => ({
+      userId: Number.isFinite(Number(row.user_id)) ? Math.trunc(Number(row.user_id)) : null,
+      classDate: parseClassDateYmd(row.date),
+      classTime: row.time,
+      className: row.class_name,
+      membershipTypeName: row.membership_type_name,
+    })
+  );
 
   for (const row of reportRows) {
     const userIdRaw = Number(row.user_id);
@@ -676,10 +703,12 @@ export async function syncArboxTrialAttendedForBusiness(input: {
     }
     summary.attended += 1;
 
+    const persistedKey = trialBookingIdentityKey(userId, classDateYmd, String(row.time ?? ""));
     const isTrial =
-      trialMatchMode === "name_fallback"
+      (nameFallback
         ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
-        : bookingMatchesTrialScope(row, trialScope);
+        : bookingMatchesTrialScope(row, trialScope)) ||
+      Boolean(persistedKey && persistedKeys.has(persistedKey));
 
     if (!isTrial) {
       summary.skipped_non_trial += 1;
@@ -785,6 +814,8 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       });
     }
   }
+
+  await rememberTrialBookingIdentities(input.admin, businessId, liveIdentityRows);
 
   return summary;
 }

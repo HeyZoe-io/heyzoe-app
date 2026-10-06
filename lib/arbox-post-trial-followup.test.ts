@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { trialBookingIdentityKey } from "@/lib/leads/arbox-trial-booking-identity";
 import {
   addDaysYmd,
   collectTrialAttendances,
@@ -6,6 +7,9 @@ import {
   effectivePostTrialDelayDays,
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
+  postTrialActivationInstant,
+  postTrialLogStatusBlocksSend,
+  saleDateActivationInstant,
   salesBatchMayRegisterAfterTrial,
   orderSameTriggerTemplateRules,
   outcomeForTrialAttendance,
@@ -13,6 +17,7 @@ import {
   SAME_TRIGGER_TEMPLATE_GAP_MS,
   triggerTypeForOutcome,
 } from "@/lib/leads/arbox-post-trial-followup";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import type { ArboxSalesReportRow } from "@/lib/leads/arbox-trial-sale-registered";
 import { buildPostTrialFollowupScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
@@ -252,6 +257,104 @@ assert.equal(
     "same-day check-in is eligible; a future class is not"
   );
 }
+/** Name still on the booking → trial. Name gone needs a persisted identity. */
+{
+  const base = {
+    pastRows: [
+      {
+        user_id: 11512127,
+        date: "2026-10-04",
+        time: "19:00",
+        check_in: "Yes",
+        class_name: "BODY PUMP",
+        membership_type_name: "trialClassTitle",
+      },
+    ],
+    todayYmd: "2026-10-06",
+    trialTypeIds: [586473],
+    trialTypeNamesNormalized: new Set<string>(),
+    trialMatchMode: "ids_names" as const,
+  };
+  assert.equal(collectTrialAttendances(base).length, 1, "live name present → trial");
+
+  const gone = {
+    ...base,
+    pastRows: [{ ...base.pastRows[0], membership_type_name: null }],
+  };
+  const key = trialBookingIdentityKey(11512127, "2026-10-04", "19:00");
+  assert.ok(key);
+  assert.equal(
+    collectTrialAttendances({ ...gone, persistedKeys: new Set([key!]) }).length,
+    1,
+    "name gone + persisted record → trial"
+  );
+  assert.equal(collectTrialAttendances(gone).length, 0, "name gone + no record → not trial");
+  assert.equal(
+    collectTrialAttendances({
+      ...gone,
+      pastRows: [{ ...gone.pastRows[0], check_in: "No" }],
+      persistedKeys: new Set([key!]),
+    }).length,
+    0,
+    "persisted identity does not replace a live check-in"
+  );
+}
+
+/** Purchase clock, not class date, is the registered_after_trial cutoff. */
+{
+  const rule = {
+    id: "registered",
+    created_at: "2026-09-28T12:35:16.641Z",
+    updated_at: "2026-10-06T08:55:16.526Z",
+  };
+  const before = saleDateActivationInstant("2026-10-05");
+  const after = saleDateActivationInstant("2026-10-06");
+  assert.equal(eventBeforeRuleActivation(before, rule), true, "purchase before activation → skipped");
+  assert.equal(
+    eventBeforeRuleActivation(parseReportEventInstant("2026-10-04"), rule),
+    true,
+    "class date alone is before the re-enable"
+  );
+  assert.equal(
+    eventBeforeRuleActivation(
+      postTrialActivationInstant({
+        outcome: "registered",
+        classDateYmd: "2026-10-04",
+        saleDate: "2026-10-06",
+      }),
+      rule
+    ),
+    false,
+    "purchase after activation for a class before activation → eligible"
+  );
+  assert.equal(after && eventBeforeRuleActivation(after, rule), false);
+  assert.equal(
+    eventBeforeRuleActivation(
+      postTrialActivationInstant({
+        outcome: "not_registered",
+        classDateYmd: "2026-10-04",
+        saleDate: "2026-10-06",
+      }),
+      rule
+    ),
+    true,
+    "not_registered still uses the class date"
+  );
+  const timed = saleDateActivationInstant("2026-10-06T10:00:00+03:00");
+  assert.equal(eventBeforeRuleActivation(timed, rule), true, "a clock before activation is not end-of-day");
+
+  let status: string | null = null;
+  let sends = 0;
+  const eligible = !eventBeforeRuleActivation(after, rule);
+  for (let i = 0; i < 2; i += 1) {
+    if (eligible && !postTrialLogStatusBlocksSend(status)) {
+      sends += 1;
+      status = "sent";
+    }
+  }
+  assert.equal(sends, 1, "re-running twice → a single send");
+}
+
 assert.equal(postTrialDecisionYmd("2026-09-01", 1), "2026-09-02");
 assert.equal(
   isPostTrialDecisionDue({

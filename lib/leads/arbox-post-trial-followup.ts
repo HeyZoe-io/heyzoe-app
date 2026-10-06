@@ -16,6 +16,12 @@
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import {
+  loadTrialBookingIdentityKeys,
+  rememberTrialBookingIdentities,
+  trialBookingIdentityKey,
+  trialIdentityInputsFromRows,
+} from "@/lib/leads/arbox-trial-booking-identity";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
@@ -211,21 +217,61 @@ function postTrialConversionBuyerIds(
   return ids;
 }
 
-export function outcomeForTrialAttendance(input: {
+export function conversionSaleForTrialAttendance(input: {
   userId: number;
   classDateYmd: string;
   salesRows: readonly ArboxSalesReportRow[];
   trialMembershipTypeIds: readonly number[];
-}): PostTrialOutcome {
+}): ArboxSalesReportRow | null {
   for (const sale of input.salesRows) {
     const saleUser = Number(sale.user_id);
     if (!Number.isFinite(saleUser) || Math.trunc(saleUser) !== input.userId) continue;
     const saleYmd = parseClassDateYmd(sale.date);
     if (!saleYmd || ymdCmp(saleYmd, input.classDateYmd) < 0) continue;
     if (!isPostTrialConversionSale(sale, input.trialMembershipTypeIds)) continue;
-    return "registered";
+    return sale;
   }
-  return "not_registered";
+  return null;
+}
+
+export function outcomeForTrialAttendance(input: {
+  userId: number;
+  classDateYmd: string;
+  salesRows: readonly ArboxSalesReportRow[];
+  trialMembershipTypeIds: readonly number[];
+}): PostTrialOutcome {
+  return conversionSaleForTrialAttendance(input) ? "registered" : "not_registered";
+}
+
+/**
+ * SalesReport `date` is a calendar day. A date-only purchase is the end of
+ * that day in Asia/Jerusalem, so a same-day sale is not treated as midnight
+ * (which sits before a mid-day re-enable). A previous day stays before.
+ * A sale that already carries a clock uses that clock.
+ */
+export function saleDateActivationInstant(raw: unknown): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  if (/[T ]\d{2}:\d{2}/.test(s)) return parseReportEventInstant(s);
+  const ymd = parseClassDateYmd(s);
+  if (!ymd) return null;
+  const end = new Date(`${ymd}T23:59:59+03:00`);
+  return Number.isNaN(end.getTime()) ? null : end;
+}
+
+/** registered_after_trial* follows the purchase. not_registered stays on the class date. */
+export function postTrialActivationInstant(input: {
+  outcome: PostTrialOutcome;
+  classDateYmd: string;
+  saleDate: unknown;
+}): Date | null {
+  if (input.outcome === "registered") return saleDateActivationInstant(input.saleDate);
+  return parseReportEventInstant(input.classDateYmd);
+}
+
+export function postTrialLogStatusBlocksSend(status: string | null | undefined): boolean {
+  const value = String(status ?? "").trim();
+  return value === "seeded" || value === "sent" || value === "abandoned" || value === "no_phone";
 }
 
 export function triggerTypeForOutcome(outcome: PostTrialOutcome): PostTrialTriggerType {
@@ -238,6 +284,8 @@ export function collectTrialAttendances(input: {
   trialTypeIds: number[];
   trialTypeNamesNormalized: Set<string>;
   trialMatchMode: "ids_names" | "name_fallback";
+  /** business+user+class time keys already stamped while the product name was present. */
+  persistedKeys?: ReadonlySet<string>;
 }): PostTrialAttendance[] {
   const byKey = new Map<string, PostTrialAttendance>();
   for (const row of input.pastRows) {
@@ -250,14 +298,17 @@ export function collectTrialAttendances(input: {
     if (!classDateYmd || classDateYmd > input.todayYmd) continue;
     if (!isBookingCheckedIn(row.check_in)) continue;
 
-    const isTrial =
+    const liveTrial =
       input.trialMatchMode === "name_fallback"
         ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
         : bookingMatchesTrialScope(row, {
             trialTypeIds: input.trialTypeIds,
             trialTypeNamesNormalized: input.trialTypeNamesNormalized,
           });
-    if (!isTrial) continue;
+    const classTime = String(row.time ?? "");
+    const persistedKey = trialBookingIdentityKey(userId, classDateYmd, classTime);
+    const persistedTrial = Boolean(persistedKey && input.persistedKeys?.has(persistedKey));
+    if (!liveTrial && !persistedTrial) continue;
 
     const key = `${userId}|${classDateYmd}`;
     if (byKey.has(key)) continue;
@@ -846,6 +897,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       });
     }
   }
+  const identitySource = pastRows;
   if (conversionBuyerIds) {
     pastRows = pastRows.filter((row) => {
       const userId = Number(row.user_id);
@@ -853,6 +905,31 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     });
   }
   summary.fetched_bookings = pastRows.length;
+
+  const identityScope = { trialTypeIds, trialTypeNamesNormalized };
+  await rememberTrialBookingIdentities(
+    input.admin,
+    businessId,
+    trialIdentityInputsFromRows(identitySource, (row) =>
+      trialMatchMode === "name_fallback"
+        ? membershipTypeNameLooksLikeTrial(row.membership_type_name)
+        : bookingMatchesTrialScope(row, identityScope),
+      (row) => ({
+        userId: Number.isFinite(Number(row.user_id)) ? Math.trunc(Number(row.user_id)) : null,
+        classDate: parseClassDateYmd(row.date),
+        classTime: row.time,
+        className: row.class_name,
+        membershipTypeName: row.membership_type_name,
+      })
+    )
+  );
+  const persistedKeys = await loadTrialBookingIdentityKeys({
+    admin: input.admin,
+    businessId,
+    fromDate: summary.lookback_from,
+    toDate: summary.lookback_to,
+    ...(conversionBuyerIds ? { userIds: [...conversionBuyerIds] } : {}),
+  });
 
   const salesFrom = summary.lookback_from!;
   const salesTo = summary.lookback_to!;
@@ -885,6 +962,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     trialTypeIds,
     trialTypeNamesNormalized,
     trialMatchMode,
+    persistedKeys,
   });
   summary.trial_attended = attendances.length;
 
@@ -937,22 +1015,28 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   }
 
   for (const att of attendances) {
-    const outcome = outcomeForTrialAttendance({
+    const conversionSale = conversionSaleForTrialAttendance({
       userId: att.userId,
       classDateYmd: att.classDateYmd,
       salesRows,
       trialMembershipTypeIds: trialTypeIds,
     });
+    const outcome: PostTrialOutcome = conversionSale ? "registered" : "not_registered";
     if (!enabledOutcomes.includes(outcome)) continue;
 
     const rules = outcome === "registered" ? registeredRules : notRegisteredRules;
+    const activationAt = postTrialActivationInstant({
+      outcome,
+      classDateYmd: att.classDateYmd,
+      saleDate: conversionSale?.date,
+    });
     const dueRules = rules.filter(
       (rule) =>
         isPostTrialDecisionDue({
           classDateYmd: att.classDateYmd,
           delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
           todayYmd,
-        }) && !eventBeforeRuleActivation(parseReportEventInstant(att.classDateYmd), rule)
+        }) && !eventBeforeRuleActivation(activationAt, rule)
     );
     if (!dueRules.length) continue;
     summary.due += 1;
@@ -1081,7 +1165,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           continue;
         }
         const status = String((existing as { status?: unknown } | null)?.status ?? "");
-        if (status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone") {
+        if (postTrialLogStatusBlocksSend(status)) {
           summary.already += 1;
           dispatches.push("immediate");
           continue;

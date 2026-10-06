@@ -37,6 +37,7 @@ import {
   type TrialRegisteredWaReplyResult,
 } from "@/lib/trial-registered-wa-reply";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { rememberTrialBookingIdentities } from "@/lib/leads/arbox-trial-booking-identity";
 import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
@@ -435,6 +436,18 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     return [{ row, userId, classDate, classTime, className }];
   });
   summary.trial_rows = trials.length;
+
+  await rememberTrialBookingIdentities(
+    admin,
+    businessId,
+    trials.map((item) => ({
+      userId: item.userId,
+      classDate: item.classDate,
+      classTime: item.classTime,
+      className: item.className,
+      membershipTypeName: String(item.row.membership_type_name ?? "").trim() || null,
+    }))
+  );
 
   const { data: bizPlanRow } = await admin.from("businesses").select("plan").eq("id", businessId).maybeSingle();
   const businessPlan = (bizPlanRow as { plan?: unknown } | null)?.plan;
