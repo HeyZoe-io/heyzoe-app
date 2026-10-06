@@ -652,17 +652,20 @@ export default function MarketingConversationNotesPanel({
               onClick={() => void sendTemplateNow()}
               disabled={sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())}
               style={{
-                width: "100%",
-                borderRadius: 10,
-                border: "none",
+                alignSelf: "flex-start",
+                borderRadius: 8,
+                border: "1px solid #d1d5db",
                 background:
                   sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())
-                    ? "#c4b5e0"
-                    : PURPLE,
-                color: "#fff",
-                fontSize: 14,
-                fontWeight: 600,
-                padding: "10px 14px",
+                    ? "#f3f4f6"
+                    : "#fff",
+                color:
+                  sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())
+                    ? "#9ca3af"
+                    : "#374151",
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "5px 10px",
                 cursor:
                   sendingTemplate || !templateName || (!phone.trim() && !sessionId.trim())
                     ? "default"
