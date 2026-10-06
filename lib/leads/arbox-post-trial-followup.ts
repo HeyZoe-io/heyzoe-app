@@ -207,7 +207,9 @@ export function collectTrialAttendances(input: {
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) continue;
     const userId = Math.trunc(userIdRaw);
     const classDateYmd = parseClassDateYmd(row.date);
-    if (!classDateYmd || classDateYmd >= input.todayYmd) continue;
+    // Today counts: delay 0 on «נרשם אחרי ניסיון» sends the same day a sale is seen.
+    // Future classes stay out. C6 still waits at least until the next morning (min 1).
+    if (!classDateYmd || classDateYmd > input.todayYmd) continue;
     if (!isBookingCheckedIn(row.check_in)) continue;
 
     const isTrial =
@@ -402,7 +404,7 @@ export function combinePostTrialTemplateDispatches(
   return combineCompanionDispatches(results);
 }
 
-/** Catalog minimum per trigger. C6 may be 1 (morning after); C5 stays at 2. */
+/** Catalog minimum per trigger. C5 may be 0 (same moment a sale is seen); C6 stays at 1. */
 export function effectivePostTrialDelayDays(triggerType: string, delayDays: number): number {
   const min = Math.max(0, minDelayDaysForTrigger(triggerType));
   return Math.max(min, Math.trunc(Number(delayDays) || 0));

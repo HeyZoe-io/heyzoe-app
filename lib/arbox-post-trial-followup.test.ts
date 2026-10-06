@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   addDaysYmd,
+  collectTrialAttendances,
   combinePostTrialTemplateDispatches,
   effectivePostTrialDelayDays,
   isPostTrialConversionSale,
@@ -180,13 +181,54 @@ assert.equal(triggerTypeForOutcome("registered"), "registered_after_trial");
 assert.equal(triggerTypeForOutcome("not_registered"), "not_registered_after_trial");
 assert.equal(isPostTrialFollowupTriggerType("registered_after_trial"), true);
 assert.equal(isPostTrialFollowupTriggerType("trial_attended"), false);
-assert.equal(minDelayDaysForTrigger("registered_after_trial"), 2);
+assert.equal(minDelayDaysForTrigger("registered_after_trial"), 0);
 assert.equal(minDelayDaysForTrigger("not_registered_after_trial"), 1);
 assert.equal(defaultDelayDays("not_registered_after_trial"), 3);
+assert.equal(formatDelayLabel("registered_after_trial", 0, "after"), "באותו הרגע");
 assert.equal(formatDelayLabel("registered_after_trial", 3, "after"), "3 ימים אחרי הניסיון");
 assert.equal(formatDelayLabel("not_registered_after_trial", 1, "after"), "1 ימים אחרי הניסיון");
 assert.equal(effectivePostTrialDelayDays("not_registered_after_trial", 1), 1);
-assert.equal(effectivePostTrialDelayDays("registered_after_trial", 1), 2);
+assert.equal(effectivePostTrialDelayDays("registered_after_trial", 0), 0);
+assert.equal(effectivePostTrialDelayDays("registered_after_trial", 1), 1);
+assert.equal(
+  isPostTrialDecisionDue({
+    classDateYmd: "2026-09-01",
+    delayDays: 0,
+    todayYmd: "2026-09-01",
+  }),
+  true
+);
+
+{
+  const rows = [
+    {
+      user_id: 7,
+      date: "2026-09-01",
+      check_in: "Yes",
+      membership_type_name: "אימון ניסיון",
+      class_name: "יוגה",
+    },
+    {
+      user_id: 8,
+      date: "2026-09-02",
+      check_in: "Yes",
+      membership_type_name: "אימון ניסיון",
+      class_name: "פילאטיס",
+    },
+  ];
+  const attended = collectTrialAttendances({
+    pastRows: rows,
+    todayYmd: "2026-09-01",
+    trialTypeIds: [],
+    trialTypeNamesNormalized: new Set(),
+    trialMatchMode: "name_fallback",
+  });
+  assert.deepEqual(
+    attended.map((row) => row.userId),
+    [7],
+    "same-day check-in is eligible; a future class is not"
+  );
+}
 assert.equal(postTrialDecisionYmd("2026-09-01", 1), "2026-09-02");
 assert.equal(
   isPostTrialDecisionDue({

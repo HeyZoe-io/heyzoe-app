@@ -214,9 +214,10 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
   trial-like `item_name`). Session punch-cards count as registered (C5).
 - C5 `registered_after_trial` / C6 `not_registered_after_trial` — automatic × leads,
   C5 UTILITY (registration confirmation, no CTA) / C6 MARKETING (`first_name`, `class_name`).
-- **Decision delay:** `delay_days` after `class_date` (default 3). C5 min 2; C6 min 1 so the
-  invite can go out the morning after the trial. Send immediate once due; do not use delay
-  as Meta enqueue offset.
+- **Decision delay:** `delay_days` after `class_date` (default 3). C5 min 0 so a sale can
+  send the same day it is seen («באותו הרגע»); C6 min 1 so the invite waits until the
+  morning after the trial. Send immediate once due; do not use delay as Meta enqueue offset.
+  Today's checked-in trial is in the attendance set so delay 0 is due on that calendar day.
 - Dedup: `arbox_post_trial_followup_sync_log` PK `(business_id, user_id, class_date)` with
   `outcome` registered | not_registered — one message per attendance.
 - Seed: `businesses.arbox_post_trial_followup_seeded` + soft-seed per outcome. A9 retry.
