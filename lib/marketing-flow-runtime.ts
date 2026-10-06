@@ -1742,11 +1742,14 @@ export async function callMarketingAI(
     }
   }
 
-  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, formatUserFacingClaudeError, sleepMs } = await import("@/lib/claude");
+  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isRetryableClaudeError, sleepMs } = await import("@/lib/claude");
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
 
   const apiKey = resolveClaudeApiKey();
-  if (!apiKey) return "אין לי אפשרות לענות כרגע, נחזור אליך בהקדם!";
+  if (!apiKey) {
+    console.error("[marketing-flow] missing ANTHROPIC_API_KEY; not sending an error message");
+    return "";
+  }
 
   const [{ facts: factLines, supportPhone, legalGuidelines }, { nodes, edges }] = await Promise.all([
     loadMarketingAiSettings(),
@@ -1850,8 +1853,8 @@ ${supportWaUrl}
         await sleepMs(1500);
         continue;
       }
-      console.error("[marketing-flow] Claude error:", e);
-      return sanitizeZoeDashes(formatUserFacingClaudeError(e));
+      console.error("[marketing-flow] Claude error; not sending an error message:", e);
+      return "";
     }
   }
 

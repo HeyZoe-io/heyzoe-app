@@ -4,7 +4,6 @@ import {
   resolveMetaVerifyToken,
   verifyMetaSignature256,
   parseMetaWebhook,
-  sendMetaWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { recordMarketingLeadOpenQuestion } from "@/lib/marketing-lead-questions";
 import {
@@ -162,13 +161,7 @@ export async function POST(req: NextRequest) {
     await deliverMarketingPostFlowAiResponse(phone, userText);
     console.info("[marketing-webhook] AI reply + post-flow menu sent to:", phone);
   } catch (e) {
-    console.error("[marketing-webhook] error:", e);
-    try {
-      await sendMetaWhatsAppMessage(MARKETING_WA_PHONE_NUMBER_ID, phone, {
-        type: "text",
-        text: "משהו השתבש אצלנו, ננסה שוב בקרוב 🙏",
-      });
-    } catch { /* best effort */ }
+    console.error("[marketing-webhook] error; not sending an error message:", e);
   }
 
   return NextResponse.json({ ok: true });

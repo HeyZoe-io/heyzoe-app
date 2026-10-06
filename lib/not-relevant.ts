@@ -3,7 +3,6 @@ import { after } from "next/server";
 import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
-  formatUserFacingClaudeError,
   isRetryableClaudeError,
   resolveClaudeApiKey,
   sleepMs,
@@ -206,7 +205,11 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
 
   const apiKey = input.claudeApiKey.trim();
   if (!apiKey) {
-    replyCore = formatUserFacingClaudeError(new Error("Missing ANTHROPIC_API_KEY"));
+    console.error("[not-relevant] missing ANTHROPIC_API_KEY; not sending an error message", {
+      business_slug: businessSlug,
+      session_id: input.sessionId,
+    });
+    replyCore = "";
     isFallbackErrorReply = true;
     replyErrorCode = "missing_api_key";
   } else {
@@ -258,25 +261,40 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
       if (!replyCore) throw new Error("Claude empty response");
     } catch (e) {
       console.error("[not-relevant] open-question Claude failed:", e);
-      replyCore = formatUserFacingClaudeError(e);
+      replyCore = "";
       isFallbackErrorReply = true;
       replyErrorCode = "claude_failed";
     }
   }
 
-  let answerOnly = isFallbackErrorReply
-    ? replyCore
-    : stripTrailingFollowUpQuestion(
-        applyKnownAssistantReplyFixes(replyCore, {
-          knowledge,
-          phase: "opening",
-          multiServiceAwaitingPick: false,
-          businessSlug,
-          conversationId: input.sessionId,
-        })
-      );
+  if (isFallbackErrorReply) {
+    console.error("[not-relevant] AI reply failed; suppressed outbound error text", {
+      business_slug: businessSlug,
+      session_id: input.sessionId,
+      error_code: replyErrorCode,
+    });
+    await logMessage({
+      business_slug: businessSlug,
+      role: "event",
+      content: "[heyzoe:ai_reply_failed]",
+      model_used: replyModelUsed,
+      session_id: input.sessionId,
+      error_code: replyErrorCode,
+    }).catch((e) => console.error("[not-relevant] failure event log failed:", e));
+    return;
+  }
 
-  if (!isFallbackErrorReply && !answerOnly.trim()) {
+  let answerOnly = stripTrailingFollowUpQuestion(
+    applyKnownAssistantReplyFixes(replyCore, {
+      knowledge,
+      phase: "opening",
+      multiServiceAwaitingPick: false,
+      businessSlug,
+      conversationId: input.sessionId,
+    })
+  );
+
+  if (!answerOnly.trim()) {
     const { detectMessageLanguage } = await import("@/lib/language-detect");
     const { pickUnclearIntentReply } = await import("@/lib/wa-unclear-intent");
     answerOnly = pickUnclearIntentReply("clarify", detectMessageLanguage(userText));

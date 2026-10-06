@@ -588,7 +588,6 @@ import {
   CLAUDE_WHATSAPP_MODEL,
   CLAUDE_WHATSAPP_MAX_TOKENS,
   resolveClaudeApiKey,
-  formatUserFacingClaudeError,
   isRetryableClaudeError,
   sleepMs,
 } from "@/lib/claude";
@@ -12897,18 +12896,17 @@ async function processIncoming(
           );
         } catch (geminiError) {
           console.error(`[WA Webhook] Gemini fallback error for ${business_slug}:`, geminiError);
-          replyCore = formatUserFacingClaudeError(geminiError);
-          replyErrorCode = extractErrorCode(geminiError);
+          replyCore = "";
+          replyErrorCode =
+            extractErrorCode(geminiError) ?? extractErrorCode(claudeError) ?? "claude_failed";
           isFallbackErrorReply = true;
-          replyErrorCode = replyErrorCode ?? "claude_failed";
         }
       }
     } catch (e) {
       console.error(`[WA Webhook] Claude/Gemini setup error for ${business_slug}:`, e);
-      replyCore = formatUserFacingClaudeError(e);
-      replyErrorCode = extractErrorCode(e);
+      replyCore = "";
+      replyErrorCode = extractErrorCode(e) ?? "claude_failed";
       isFallbackErrorReply = true;
-      replyErrorCode = replyErrorCode ?? "claude_failed";
     }
     if (didCallClaude && !isFallbackErrorReply) {
       processedUserThroughIso = promptClaimedThroughIso;
@@ -14051,7 +14049,21 @@ async function processIncoming(
 
   try {
     if (isFallbackErrorReply) {
-      await sendWhatsAppMessage(msg.toNumber, msg.from, replyCore, accountSid, authToken);
+      console.error("[WA Webhook] AI reply failed; suppressed outbound error text", {
+        business_slug,
+        sessionId,
+        phone: msg.from,
+        error_code: replyErrorCode,
+      });
+      await logMessage({
+        business_slug,
+        role: "event",
+        content: "[heyzoe:ai_reply_failed]",
+        model_used: replyModelUsed,
+        session_id: sessionId,
+        error_code: replyErrorCode,
+      });
+      assistantReplyLogged = true;
     } else {
       const shouldSplitCtaAnswerAndMenu =
         !shouldReaskServiceSelection &&
