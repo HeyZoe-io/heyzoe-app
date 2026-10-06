@@ -111,7 +111,7 @@ export const TRIGGER_CATALOG = [
     presetKey: "registered_after_trial",
     uiOrder: 6,
     sendHintHe:
-      "השהייה 0 נשלחת תוך כ־15 דקות. השהייה של יום ומעלה נשלחת ב־09:00 (שעון ישראל)",
+      "השהייה 0 נשלחת תוך כ־15 דקות מרגע הרכישה. השהייה של יום ומעלה: אם כבר הגיע המועד — גם ב־15 דקות; אחרת ב־09:00 (שעון ישראל)",
   },
   {
     type: "not_registered_after_trial",
@@ -876,6 +876,7 @@ export function minDelayDaysForTrigger(triggerType: string): number {
 }
 
 export function defaultDelayDays(triggerType: string): number {
+  if (triggerType === "registered_after_trial") return 0;
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   if (isFreezeEndingTriggerType(triggerType)) return 3;
   if (triggerType === "trial_reminder" || triggerType === "trainer_trial_heads_up") return 1;

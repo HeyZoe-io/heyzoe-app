@@ -3,9 +3,12 @@ import {
   addDaysYmd,
   collectTrialAttendances,
   combinePostTrialTemplateDispatches,
+  conversionSaleYmdForAttendance,
   effectivePostTrialDelayDays,
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
+  postTrialLookbackWindow,
+  registeredAfterTrialBlockedByActivation,
   salesBatchMayRegisterAfterTrial,
   orderSameTriggerTemplateRules,
   outcomeForTrialAttendance,
@@ -286,6 +289,85 @@ assert.equal(
       className: "HIIT",
     }),
     ["דנה", "HIIT"]
+  );
+}
+
+assert.equal(defaultDelayDays("registered_after_trial"), 0);
+assert.equal(defaultDelayDays("not_registered_after_trial"), 3);
+
+{
+  const now = new Date("2026-10-06T12:00:00+03:00");
+  const frequent = postTrialLookbackWindow({
+    now,
+    needsSeed: false,
+    maxDelayDays: 0,
+    conversionLookback: true,
+  });
+  assert.equal(frequent.toDate, "2026-10-06");
+  assert.equal(frequent.fromDate, "2026-09-07");
+  const dailyDelay0 = postTrialLookbackWindow({ now, needsSeed: false, maxDelayDays: 0 });
+  assert.equal(dailyDelay0.fromDate, "2026-09-30");
+}
+
+{
+  const sales: ArboxSalesReportRow[] = [
+    {
+      sale_id: 1,
+      user_id: 9,
+      date: "2026-10-06",
+      membership_type_id: 10,
+      item_type: "plan",
+      item_name: "מנוי חודשי",
+    },
+  ];
+  assert.equal(
+    conversionSaleYmdForAttendance({
+      userId: 9,
+      classDateYmd: "2026-09-20",
+      salesRows: sales,
+      trialMembershipTypeIds: [55],
+    }),
+    "2026-10-06"
+  );
+  assert.equal(
+    isPostTrialDecisionDue({
+      classDateYmd: "2026-09-20",
+      delayDays: 3,
+      todayYmd: "2026-10-06",
+    }),
+    true,
+    "delay 3 is already due when they buy 16 days after trial"
+  );
+}
+
+{
+  const activatedToday = {
+    id: "c5",
+    created_at: "2026-10-06T10:00:00.000Z",
+    updated_at: "2026-10-06T10:00:00.000Z",
+  };
+  assert.equal(
+    registeredAfterTrialBlockedByActivation({
+      saleYmd: "2026-10-06",
+      rule: activatedToday,
+    }),
+    false,
+    "same-day conversion after turning the rule on still sends"
+  );
+  assert.equal(
+    registeredAfterTrialBlockedByActivation({
+      saleYmd: "2026-10-05",
+      rule: activatedToday,
+    }),
+    true,
+    "a sale from before the activation day stays historical"
+  );
+  assert.equal(
+    registeredAfterTrialBlockedByActivation({
+      saleYmd: "2026-09-20",
+      rule: activatedToday,
+    }),
+    true
   );
 }
 
