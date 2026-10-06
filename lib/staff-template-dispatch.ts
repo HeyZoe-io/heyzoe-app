@@ -90,6 +90,13 @@ export async function dispatchStaffTemplateImmediate(input: {
       });
       return "gated";
     }
+    if (decided.values.length === 1) {
+      console.info("[staff-template-dispatch] trainer hold", {
+        businessId: input.businessId,
+        reason: "trainer_template_pending",
+      });
+      return "gated";
+    }
   }
   const { sendComponents } = templateSendPayload({
     triggerType: input.triggerType,

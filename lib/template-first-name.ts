@@ -1,7 +1,8 @@
 /**
  * {{1}} for template sends.
- * Arbox first name wins when we have one. Otherwise the stored name's first
- * token, and only if it looks like a person's name. Null means skip the send.
+ * Arbox first name wins when it passes the shared sanitizer. An email, URL,
+ * phone, or any digit is invalid and does not fall through (the caller skips).
+ * trial_reminder uses resolveTrialReminderFirstName instead.
  */
 
 export const NO_VALID_TEMPLATE_NAME = "no_valid_name";
@@ -59,32 +60,64 @@ function isBusinessLikeToken(token: string): boolean {
   });
 }
 
-/** Stored-name token only. Arbox names are not run through this filter. */
+/** Email, URL, phone, "@", or any digit (including a handle like iilan6857). */
+export function isRejectedFirstNameToken(token: string): boolean {
+  const name = String(token ?? "").trim();
+  if (!name) return true;
+  if (/[0-9@]/.test(name)) return true;
+  if (/:\/\//.test(name) || /^www\./i.test(name)) return true;
+  return false;
+}
+
+/** Stored-name token only. Arbox names are not run through the business-word filter. */
 export function isUsableStoredFirstName(token: string): boolean {
   const name = String(token ?? "").trim();
   if (!name) return false;
-  if (/[_\d@]/.test(name)) return false;
+  if (isRejectedFirstNameToken(name)) return false;
+  if (/_/.test(name)) return false;
   const chars = Array.from(name);
   if (chars.length < 2 || chars.length > 20) return false;
   if (isBusinessLikeToken(name)) return false;
   return true;
 }
 
+export const TRIAL_REMINDER_NAME_FALLBACK = "🙂";
+
+function storedContactFirstName(contact: TemplateNameContact | null | undefined): string | null {
+  const tokens = nameTokens(contact?.full_name);
+  if (tokens.some((token) => isBusinessLikeToken(token))) return null;
+  const stored = tokens[0] ?? "";
+  if (!isUsableStoredFirstName(stored)) return null;
+  return capitalizeLowerLatin(stored);
+}
+
 /**
- * 1. First token of `arboxFirstName` when that string is non-empty (unfiltered).
- * 2. Else the first token of `contact.full_name`, unless any token of that
- *    full stored name is a business word.
- * 3. Else null — caller skips the send (`no_valid_name`).
+ * 1. First token of `arboxFirstName` when it passes the shared sanitizer.
+ * 2. An invalid Arbox token does not fall through — the caller skips (`no_valid_name`).
+ * 3. Else the stored contact name, when that token looks like a person's name.
+ * 4. Else null.
  */
 export function resolveTemplateFirstName(
   contact: TemplateNameContact | null | undefined,
   arboxFirstName?: string | null
 ): string | null {
   const fromArbox = firstToken(arboxFirstName);
-  if (fromArbox) return fromArbox;
-  const tokens = nameTokens(contact?.full_name);
-  if (tokens.some((token) => isBusinessLikeToken(token))) return null;
-  const stored = tokens[0] ?? "";
-  if (!isUsableStoredFirstName(stored)) return null;
-  return capitalizeLowerLatin(stored);
+  if (fromArbox) {
+    if (isRejectedFirstNameToken(fromArbox)) return null;
+    return fromArbox;
+  }
+  return storedContactFirstName(contact);
+}
+
+/**
+ * trial_reminder only. Invalid Arbox name falls through to the HeyZoe contact
+ * name, then "🙂". Never returns null.
+ */
+export function resolveTrialReminderFirstName(
+  contact: TemplateNameContact | null | undefined,
+  arboxFirstName?: string | null
+): string {
+  const fromArbox = firstToken(arboxFirstName);
+  if (fromArbox && !isRejectedFirstNameToken(fromArbox)) return fromArbox;
+  return storedContactFirstName(contact) ?? TRIAL_REMINDER_NAME_FALLBACK;
 }

@@ -20,7 +20,7 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
-import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { resolveTrialReminderFirstName } from "@/lib/template-first-name";
 import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
 import {
   ATTENDANCE_GAP_FUTURE_SPAN_DAYS,
@@ -48,7 +48,7 @@ import {
   computeDueAt,
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
-import { templateBodyUsesFirstNameSlot, trialReminderTemplateParamValues } from "@/lib/template-send-params";
+import { trialReminderTemplateParamValues } from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
@@ -499,14 +499,10 @@ async function dispatchTrialReminderTemplate(input: {
     .replace(/\s+/g, "");
   if (!wabaId || !approvedTpl?.id) return { dispatch: "gated", ok: false };
 
-  const firstName = resolveTemplateFirstName(
+  const firstName = resolveTrialReminderFirstName(
     { full_name: input.contactFullName ?? null },
     input.fullName
   );
-  if (!firstName && templateBodyUsesFirstNameSlot("trial_reminder", (approvedTpl as { components?: unknown }).components)) {
-    console.info("[leads/arbox-trial-reminder] skip", { reason: "no_valid_name" });
-    return { dispatch: "skipped", ok: false };
-  }
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;

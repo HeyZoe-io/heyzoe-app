@@ -19,10 +19,12 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
+  isCancellationSyncLogTerminal,
   nextCancellationSyncLogAfterDispatch,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
@@ -786,7 +788,7 @@ export async function syncArboxMissedClassForBusiness(input: {
         (existingRows ?? [])
           .filter((row) => {
             const status = String((row as { status?: unknown }).status ?? "");
-            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            return isCancellationSyncLogTerminal(status);
           })
           .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );
@@ -876,6 +878,50 @@ export async function syncArboxMissedClassForBusiness(input: {
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
       if (!sendPhone || !sendContact) continue;
+      if (await retentionAlreadySentToday(input.admin, businessId, sendPhone, now)) {
+        console.info("[leads/arbox-missed-class] dispatch", {
+          businessId,
+          kind,
+          user_id: userId,
+          class_date: classDateYmd,
+          class_name: className,
+          dispatch: "skipped",
+          reason: "retention_daily_cap",
+        });
+        for (const rule of pendingRules) {
+          await closeRetentionEvent({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            phone: sendPhone,
+            templateName: String(rule.template_name ?? ""),
+            dedupKey: buildMissedClassScheduledDedupKey(
+              missedKind,
+              businessId,
+              rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className
+            ),
+            now,
+          });
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact?.id ?? null,
+            attempts: attemptsSoFar,
+            status: "skipped",
+            nowIso,
+          });
+        }
+        continue;
+      }
 
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
@@ -987,6 +1033,9 @@ export async function syncArboxMissedClassForBusiness(input: {
       }
 
       summary.processed += 1;
+      if (sendDispatch === "immediate" || sendDispatch === "deferred") {
+        markRetentionSent(businessId, sendPhone, now);
+      }
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
@@ -1000,6 +1049,9 @@ export async function syncArboxMissedClassForBusiness(input: {
         kind,
         user_id: userId,
         class_date: classDateYmd,
+        class_time: classTime,
+        class_name: className,
+        full_name: resolveReportFullName(row),
         contact: maskPhoneForLog(resolved.phone),
         templates: batch.length,
         dispatch: sendDispatch,

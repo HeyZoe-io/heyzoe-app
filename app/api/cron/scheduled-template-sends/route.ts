@@ -39,6 +39,11 @@ import {
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
 import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
+import {
+  TRAINER_CLASS_STARTED,
+  TRAINER_TEMPLATE_PENDING,
+  decideTrainerHeadsUpDelivery,
+} from "@/lib/leads/arbox-trainer-trial-heads-up";
 import { flushDueManualBulkSends } from "@/lib/manual-bulk/dispatch";
 import { materializeDueManualBulkSchedules } from "@/lib/manual-bulk/schedules";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
@@ -85,6 +90,7 @@ function authorizeCron(req: NextRequest): boolean {
 
 type DispatchMark =
   | { status: "sent" }
+  | { status: "pending"; last_error: string }
   | { status: "failed"; last_error: string }
   | { status: "canceled"; last_error: string };
 
@@ -360,6 +366,40 @@ async function dispatchOneScheduledSend(
     classDateYmd: classDateYmdFromTrainerHeadsUpDedupKey(row.dedup_key),
   });
   if (triggerType === "trainer_trial_heads_up") {
+    const delivery = decideTrainerHeadsUpDelivery({
+      storedComponents,
+      classDateYmd: classDateYmdFromTrainerHeadsUpDedupKey(row.dedup_key),
+      classTime: classTimeFromScheduledDedupKey(row.dedup_key),
+      now,
+    });
+    if (delivery === "hold") {
+      if (row.last_error !== TRAINER_TEMPLATE_PENDING) {
+        console.info("[cron/scheduled-template-sends] skip", {
+          reason: TRAINER_TEMPLATE_PENDING,
+          id: row.id,
+          businessId,
+          triggerType,
+        });
+        await markScheduledSend(admin, row.id, {
+          status: "pending",
+          last_error: TRAINER_TEMPLATE_PENDING,
+        });
+      }
+      return "skipped";
+    }
+    if (delivery === "class_started") {
+      console.info("[cron/scheduled-template-sends] skip", {
+        reason: TRAINER_CLASS_STARTED,
+        id: row.id,
+        businessId,
+        triggerType,
+      });
+      await markScheduledSend(admin, row.id, {
+        status: "canceled",
+        last_error: TRAINER_CLASS_STARTED,
+      });
+      return "canceled";
+    }
     const filled = trainerHeadsUpTemplateParamValues({
       storedComponents,
       className: classNameFromScheduledDedupKey(row.dedup_key),

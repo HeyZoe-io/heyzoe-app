@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { trainerHeadsUpMatchesSlot } from "@/lib/leads/arbox-trainer-trial-heads-up";
+import {
+  decideTrainerHeadsUpDelivery,
+  trainerHeadsUpMatchesSlot,
+} from "@/lib/leads/arbox-trainer-trial-heads-up";
 import { trainerHeadsUpTemplateParamValues } from "@/lib/template-send-params";
 
 const today = "2026-10-06";
@@ -73,3 +76,43 @@ const bad = trainerHeadsUpTemplateParamValues({
   className: "יוגה",
 });
 assert.equal(bad.ok, false);
+
+const morning = new Date("2026-10-07T06:00:00.000Z");
+const legacy = body("היום מגיע אליך {{1}}");
+const approved = body("{{1}} {{2}} {{3}} {{4}} {{5}}");
+assert.equal(
+  decideTrainerHeadsUpDelivery({
+    storedComponents: legacy,
+    classDateYmd: "2026-10-07",
+    classTime: "20:00",
+    now: morning,
+  }),
+  "hold"
+);
+assert.equal(
+  decideTrainerHeadsUpDelivery({
+    storedComponents: legacy,
+    classDateYmd: "2026-10-07",
+    classTime: "08:00",
+    now: morning,
+  }),
+  "class_started"
+);
+assert.equal(
+  decideTrainerHeadsUpDelivery({
+    storedComponents: approved,
+    classDateYmd: "2026-10-07",
+    classTime: "16:00",
+    now: morning,
+  }),
+  "send"
+);
+assert.equal(
+  decideTrainerHeadsUpDelivery({
+    storedComponents: approved,
+    classDateYmd: "2026-10-07",
+    classTime: "08:30",
+    now: morning,
+  }),
+  "class_started"
+);

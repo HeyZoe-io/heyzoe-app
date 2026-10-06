@@ -12,10 +12,12 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
+  isCancellationSyncLogTerminal,
   nextCancellationSyncLogAfterDispatch,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import {
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
@@ -707,7 +709,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           (existingRows ?? [])
             .filter((row) => {
               const status = String((row as { status?: unknown }).status ?? "");
-              return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+              return isCancellationSyncLogTerminal(status);
             })
             .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
         );
@@ -746,6 +748,45 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         const sendPhone = resolved.phone;
         const sendContact = resolved.contact;
         if (!sendPhone || !sendContact) continue;
+        if (await retentionAlreadySentToday(input.admin, businessId, sendPhone, now)) {
+          console.info("[leads/arbox-attendance-gap] dispatch", {
+            businessId,
+            user_id: state.userId,
+            tier,
+            dispatch: "skipped",
+            reason: "retention_daily_cap",
+          });
+          for (const rule of pendingRules) {
+            await closeRetentionEvent({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              phone: sendPhone,
+              templateName: String(rule.template_name ?? ""),
+              dedupKey: buildAttendanceGapScheduledDedupKey(
+                businessId,
+                rule.id,
+                state.userId,
+                state.lastYesYmd,
+                tier
+              ),
+              now,
+            });
+            await upsertGapSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId: state.userId,
+              gapStartDate: state.lastYesYmd,
+              tier,
+              contactId: sendContact.id,
+              attempts: attemptsSoFar,
+              status: "skipped",
+              nowIso,
+            });
+          }
+          continue;
+        }
 
         const sendDispatch = await runCompanionTemplateSends({
           rules: pendingRules,
@@ -841,6 +882,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         }
 
         summary.processed += 1;
+        if (sendDispatch === "immediate" || sendDispatch === "deferred") {
+          markRetentionSent(businessId, sendPhone, now);
+        }
         if (sendDispatch === "immediate") summary.notified += 1;
         else if (sendDispatch === "deferred") summary.deferred += 1;
         else if (sendDispatch === "gated") summary.gated += 1;

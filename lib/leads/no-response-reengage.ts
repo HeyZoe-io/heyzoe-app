@@ -26,6 +26,7 @@ import {
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
@@ -779,6 +780,21 @@ export async function syncNoResponseReengageForBusiness(input: {
       const phoneNorm =
         normalizePhone(contact.phone) ?? String(contact.phone ?? "").replace(/\D/g, "");
       const episodeKey = silenceEpisodeKeyFromLastUserAt(lastUserAtIso);
+      if (await retentionAlreadySentToday(input.admin, input.businessId, phoneNorm, now)) {
+        for (const item of dueRules) {
+          await closeRetentionEvent({
+            admin: input.admin,
+            businessId: input.businessId,
+            triggerId: item.id,
+            phone: phoneNorm,
+            templateName: String(item.template_name ?? ""),
+            dedupKey: buildNoResponseScheduledDedupKey(input.businessId, item.id, phoneNorm, episodeKey),
+            now,
+          });
+        }
+        bump(summary, "dispatch_skipped");
+        continue;
+      }
       const dispatch = await runCompanionTemplateSends({
         rules: dueRules,
         dryRun: isArboxDailyDryRun(),
@@ -831,6 +847,9 @@ export async function syncNoResponseReengageForBusiness(input: {
         await markReengagedAt(input.admin, contactId, now.toISOString());
       }
 
+      if (dispatch === "immediate" || dispatch === "deferred") {
+        markRetentionSent(input.businessId, phoneNorm, now);
+      }
       if (dispatch === "immediate") summary.sent += 1;
       else if (dispatch === "deferred") summary.deferred += 1;
       else if (dispatch === "gated") summary.gated += 1;

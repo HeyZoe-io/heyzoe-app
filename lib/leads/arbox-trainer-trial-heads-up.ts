@@ -24,6 +24,8 @@ import {
   type TrialReminderSlot,
 } from "@/lib/leads/arbox-trial-reminder";
 import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { classStartHasPassed } from "@/lib/leads/arbox-class-cancelled-customer";
 import { trialReminderBodyPlaceholderIndexes } from "@/lib/template-send-params";
 import {
   bookingMatchesTrialScope,
@@ -54,7 +56,12 @@ export type TrainerTrialHeadsUpDispatch =
   | "no_rule"
   | "no_phone"
   | "gated"
-  | "send_failed";
+  | "send_failed"
+  | "held"
+  | "skipped";
+
+export const TRAINER_TEMPLATE_PENDING = "trainer_template_pending";
+export const TRAINER_CLASS_STARTED = "class_started";
 
 export type TrainerTrialHeadsUpSyncSummary = {
   skipped?: boolean;
@@ -166,6 +173,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
   classDateYmd: string;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
+  bodyVarCount: number;
 }): Promise<{ dispatch: TrainerTrialHeadsUpDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
@@ -182,6 +190,65 @@ async function dispatchTrainerTrialHeadsUp(input: {
     className: input.className,
   });
 
+  const started = classStartHasPassed(input.classDateYmd, input.classTime, input.now);
+  if (input.bodyVarCount === 1 && started) {
+    console.info("[leads/arbox-trainer-trial-heads-up] skip", {
+      businessId: input.businessId,
+      user_id: input.userId,
+      class_date: input.classDateYmd,
+      reason: TRAINER_CLASS_STARTED,
+    });
+    return { dispatch: "skipped", ok: false };
+  }
+  if (input.bodyVarCount === 1) {
+    const held = await enqueueScheduledTemplateSend({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: input.rule.id,
+      contactPhone: input.phone,
+      templateName,
+      dueAt,
+      dedupKey,
+      recipientKind: "staff",
+    });
+    if (!held.ok) return { dispatch: "send_failed", ok: false };
+    if (!isArboxDailyDryRun()) {
+      await input.admin
+        .from("scheduled_template_sends")
+        .update({ last_error: TRAINER_TEMPLATE_PENDING, updated_at: input.now.toISOString() })
+        .eq("dedup_key", dedupKey)
+        .eq("status", "pending");
+    }
+    console.info("[leads/arbox-trainer-trial-heads-up] hold", {
+      businessId: input.businessId,
+      user_id: input.userId,
+      class_date: input.classDateYmd,
+      class_time: input.classTime,
+      reason: TRAINER_TEMPLATE_PENDING,
+    });
+    return { dispatch: "held", ok: true };
+  }
+  if ((input.bodyVarCount === 4 || input.bodyVarCount === 5) && started) {
+    if (!isArboxDailyDryRun()) {
+      await input.admin
+        .from("scheduled_template_sends")
+        .update({
+          status: "canceled",
+          last_error: TRAINER_CLASS_STARTED,
+          updated_at: input.now.toISOString(),
+        })
+        .eq("dedup_key", dedupKey)
+        .eq("status", "pending");
+    }
+    console.info("[leads/arbox-trainer-trial-heads-up] skip", {
+      businessId: input.businessId,
+      user_id: input.userId,
+      class_date: input.classDateYmd,
+      reason: TRAINER_CLASS_STARTED,
+    });
+    return { dispatch: "skipped", ok: false };
+  }
+
   const enqueueResult = await enqueueScheduledTemplateSend({
     admin: input.admin,
     businessId: input.businessId,
@@ -196,7 +263,18 @@ async function dispatchTrainerTrialHeadsUp(input: {
     console.error("[leads/arbox-trainer-trial-heads-up] enqueue failed:", enqueueResult.error);
     return { dispatch: "send_failed", ok: false };
   }
-  if (!enqueueResult.inserted) return { dispatch: "already", ok: true };
+  if (!enqueueResult.inserted) {
+    if (input.bodyVarCount !== 5) return { dispatch: "already", ok: true };
+    const { data: pendingHold } = await input.admin
+      .from("scheduled_template_sends")
+      .select("status, last_error")
+      .eq("dedup_key", dedupKey)
+      .maybeSingle();
+    const row = pendingHold as { status?: string; last_error?: string } | null;
+    if (row?.status !== "pending" || row.last_error !== TRAINER_TEMPLATE_PENDING) {
+      return { dispatch: "already", ok: true };
+    }
+  }
 
   const send = await dispatchStaffTemplateImmediate({
     admin: input.admin,
@@ -255,6 +333,27 @@ function trainerBodyVarCount(components: unknown): number {
   const indexes = trialReminderBodyPlaceholderIndexes(components);
   const contiguous = indexes.every((n, i) => n === i + 1);
   return contiguous ? indexes.length : -1;
+}
+
+/**
+ * A 1-placeholder body still says "היום" and puts the class name in {{1}}.
+ * Hold it pending until the approved body has 5 placeholders. Then send only
+ * if the class has not started.
+ */
+export function decideTrainerHeadsUpDelivery(input: {
+  storedComponents: unknown;
+  classDateYmd: string | null;
+  classTime: string | null;
+  now: Date;
+}): "hold" | "send" | "class_started" | "unsupported" {
+  const count = trainerBodyVarCount(input.storedComponents);
+  const started =
+    Boolean(input.classDateYmd && input.classTime) &&
+    classStartHasPassed(String(input.classDateYmd), String(input.classTime), input.now);
+  if (count === 1) return started ? "class_started" : "hold";
+  if (count !== 4 && count !== 5) return "unsupported";
+  if (started) return "class_started";
+  return "send";
 }
 
 export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
@@ -584,6 +683,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
           apiKey,
           rule,
           now,
+          bodyVarCount: varCountFor(String(rule.template_name ?? "")),
         });
       }
 

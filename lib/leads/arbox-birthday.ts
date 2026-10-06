@@ -806,6 +806,15 @@ export async function syncArboxBirthdaysForBusiness(input: {
       });
 
       summary.processed += 1;
+      console.info("[leads/arbox-birthday] dispatch", {
+        businessId,
+        user_id: userId,
+        audience: kind,
+        full_name: resolveReportFullName(row),
+        contact_name: sendContact.full_name ?? null,
+        contact: sendPhone.slice(-4),
+        dispatch: sendDispatch,
+      });
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;

@@ -8,6 +8,8 @@
  */
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
@@ -858,6 +860,37 @@ export async function syncArboxLostLeadForBusiness(input: {
         }
 
         const templateName = String(rule.template_name ?? "").trim();
+        if (await retentionAlreadySentToday(input.admin, businessId, phone, now)) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "skipped",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
+          await closeRetentionEvent({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            phone,
+            templateName,
+            dedupKey: buildLostLeadScheduledDedupKey(businessId, rule.id, leadId, lostDate),
+            now,
+          });
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            phone: maskPhoneForLog(phone),
+            full_name: resolveReportFullName(row),
+            dispatch: "skipped",
+            reason: "retention_daily_cap",
+          });
+          continue;
+        }
         if ((await companionGate.before(templateName)) === "skip") continue;
 
         if (!isArboxDailyDryRun()) {
@@ -912,6 +945,9 @@ export async function syncArboxLostLeadForBusiness(input: {
         });
         companionGate.after(templateName, send.dispatch);
 
+        if (send.dispatch === "immediate" || send.dispatch === "deferred") {
+          markRetentionSent(businessId, phone, now);
+        }
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;
         else if (send.dispatch === "gated") summary.gated += 1;
@@ -920,6 +956,7 @@ export async function syncArboxLostLeadForBusiness(input: {
           ...logBase,
           contact: resolved.contact?.id ?? null,
           phone: maskPhoneForLog(phone),
+          full_name: resolveReportFullName(row),
           dispatch: send.dispatch,
         });
 

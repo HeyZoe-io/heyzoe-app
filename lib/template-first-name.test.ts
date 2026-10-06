@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import {
+  resolveTemplateFirstName,
+  resolveTrialReminderFirstName,
+} from "@/lib/template-first-name";
 
 assert.equal(resolveTemplateFirstName({ full_name: "Eliav_yosef" }), null);
 assert.equal(resolveTemplateFirstName({ full_name: "Studio Pixel" }), null);
@@ -20,3 +23,20 @@ assert.equal(resolveTemplateFirstName({ full_name: "אייזן רחל" }, "רח�
 assert.equal(resolveTemplateFirstName({ full_name: "Studio Pixel" }, "דנה כהן"), "דנה");
 assert.equal(resolveTemplateFirstName({ full_name: null }), null);
 assert.equal(resolveTemplateFirstName({ full_name: "א" }), null);
+assert.equal(
+  resolveTemplateFirstName({ full_name: "שולמית" }, "shulamit.henn@gmail.con"),
+  null
+);
+assert.equal(resolveTemplateFirstName({ full_name: "דרור" }, "iilan6857"), null);
+assert.equal(resolveTemplateFirstName(null, "0501234567"), null);
+assert.equal(resolveTemplateFirstName(null, "https://example.com"), null);
+assert.equal(resolveTemplateFirstName({ full_name: "רחל" }), "רחל");
+
+assert.equal(
+  resolveTrialReminderFirstName({ full_name: "שולמית" }, "shulamit.henn@gmail.con"),
+  "שולמית"
+);
+assert.equal(resolveTrialReminderFirstName({ full_name: "iilan6857" }, "iilan6857"), "🙂");
+assert.equal(resolveTrialReminderFirstName(null, null), "🙂");
+assert.equal(resolveTrialReminderFirstName(null, "rachel"), "Rachel");
+assert.equal(resolveTrialReminderFirstName({ full_name: "משה כהן" }, ""), "משה");

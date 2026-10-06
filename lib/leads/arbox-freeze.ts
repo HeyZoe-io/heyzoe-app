@@ -1076,6 +1076,16 @@ export async function syncArboxFreezeForBusiness(input: {
               });
             }
             summary.created_processed += 1;
+            console.info("[leads/arbox-freeze] dispatch", {
+              businessId,
+              step: "created",
+              user_id: userId,
+              full_name: resolveHoldFullName(row),
+              contact_name: sendContact.full_name ?? null,
+              start: startYmd,
+              end: endYmd,
+              dispatch: sendDispatch,
+            });
             if (sendDispatch === "immediate") summary.notified += 1;
             else if (sendDispatch === "deferred") summary.deferred += 1;
             else if (sendDispatch === "gated") summary.gated += 1;
@@ -1318,6 +1328,15 @@ export async function syncArboxFreezeForBusiness(input: {
         });
       }
       summary.ending_processed += 1;
+      console.info("[leads/arbox-freeze] dispatch", {
+        businessId,
+        step: "ending",
+        user_id: userId,
+        full_name: resolveHoldFullName(row),
+        contact_name: sendContact.full_name ?? null,
+        end: endYmd,
+        dispatch: sendDispatch,
+      });
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
