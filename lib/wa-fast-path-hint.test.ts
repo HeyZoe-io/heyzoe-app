@@ -27,6 +27,8 @@ assert.equal(decide("[[route:member_or_trial_unclear]]\nלא ברור", "registr
 assert.equal(decide("[[route:policy_question]]\nאין לי את המידע", "class_cancel"), "ignore_hint");
 assert.equal(decide("[[route:interest]]\nהכתובת ברחוב הרצל", "class_cancel"), "ignore_hint");
 assert.equal(decide("[[route:interest]]", "signup"), "ignore_hint");
+assert.equal(decide("[[route:personal]]", "class_cancel"), "ignore_hint");
+assert.equal(decide("[[route:personal]]\nלא עניתי", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nתבטלי", "class_cancel"), "use_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", null), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", "schedule"), "ignore_hint");

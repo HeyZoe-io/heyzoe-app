@@ -10,6 +10,10 @@ import type { WaSmbMessageEcho } from "@/lib/whatsapp";
 /** Logged on messages.model_used — outbound from the WhatsApp Business app. */
 export const WA_BUSINESS_APP_ECHO_MODEL = "wa_business_app";
 
+/** Dashboard label for a personal message. Same 5h pause as an app reply. Not sent to the lead. */
+export const WA_PERSONAL_PAUSE_MODEL = "wa_personal_pause";
+export const WA_PERSONAL_PAUSE_LABEL = "השהיה אוטומטית - הודעה אישית";
+
 /**
  * Per-lead silence after a human send from the phone app. No cron — paused_until expires.
  * 5h from the last WhatsApp Business app send (dashboard «עצור בוט» is unrelated).
@@ -292,6 +296,39 @@ async function pauseBusinessSessionForAppEcho(input: {
   }
 
   return { pausedUntil, keptManualPause };
+}
+
+/** Same 5h window as a WhatsApp-app reply. The label is stored on the session, not sent to the lead. */
+export async function pauseBusinessSessionForPersonalMessage(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessSlug: string;
+  sessionId: string;
+  now?: Date;
+}): Promise<{ pausedUntil: string }> {
+  const now = input.now ?? new Date();
+  const { pausedUntil } = await pauseBusinessSessionForAppEcho({
+    admin: input.admin,
+    businessSlug: input.businessSlug,
+    sessionId: input.sessionId,
+    now,
+  });
+  try {
+    await logMessage({
+      business_slug: input.businessSlug.trim().toLowerCase(),
+      role: "event",
+      content: `[heyzoe:personal_message] ${WA_PERSONAL_PAUSE_LABEL}`,
+      model_used: WA_PERSONAL_PAUSE_MODEL,
+      session_id: input.sessionId.trim(),
+    });
+  } catch (e) {
+    console.error("[wa-app-echo-pause] personal pause log failed:", e);
+  }
+  console.info("[wa-app-echo-pause] paused session for a personal message", {
+    business_slug: input.businessSlug,
+    sessionId: input.sessionId,
+    pausedUntil,
+  });
+  return { pausedUntil };
 }
 
 /**

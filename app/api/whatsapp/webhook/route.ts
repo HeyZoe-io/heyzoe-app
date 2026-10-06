@@ -178,6 +178,8 @@ import {
 } from "@/lib/wa-cta-service-repick";
 import {
   OPENING_SERVICE_LIST_PICK_BRIDGE,
+  PENDING_SERVICE_MENU_NUDGE,
+  pendingServiceMenuReply,
   CATALOG_FAMILY_PICK_MODEL,
   CATALOG_FAMILY_PICK_QUESTION_HE,
   buildAmbiguousCatalogTrialPickMessage,
@@ -12815,7 +12817,12 @@ async function processIncoming(
     }
   );
 
-  if (!isFallbackErrorReply && didCallClaude && !String(replyCoreClean ?? "").trim()) {
+  if (
+    !isFallbackErrorReply &&
+    didCallClaude &&
+    !String(replyCoreClean ?? "").trim() &&
+    waReplyRoute.route !== "personal"
+  ) {
     const lang = detectMessageLanguage(incomingRaw);
     const unclearKind = sessionHasUnclearClarifyAsk(aiSessionHistory) ? "handoff" : "clarify";
     replyCoreClean = pickUnclearIntentReply(unclearKind, lang);
@@ -13198,6 +13205,36 @@ async function processIncoming(
         return;
       }
     }
+    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "personal") {
+      try {
+        const { pauseBusinessSessionForPersonalMessage } = await import("@/lib/wa-app-echo-pause");
+        await pauseBusinessSessionForPersonalMessage({
+          admin: supabase,
+          businessSlug: business_slug,
+          sessionId,
+          now: new Date(nowIso),
+        });
+      } catch (e) {
+        console.error("[WA Webhook] personal pause failed:", e);
+      }
+      if (businessId) {
+        try {
+          const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
+          await triggerHumanRequestedNotification({
+            businessId: Number(businessId),
+            leadPhone: msg.from,
+            requestedAtIso: nowIso,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] personal owner notification failed:", e);
+        }
+      }
+      console.info("[WA Webhook] personal message - paused, no reply", {
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
     if (
       waReplyRoute.tagStatus === "ok" &&
       (waReplyRoute.route === "signup" || waReplyRoute.route === "interest")
@@ -13250,6 +13287,41 @@ async function processIncoming(
             session_id: sessionId,
           });
         }
+        return;
+      }
+      const lastModelForMenu = await fetchLastAssistantModelUsed({
+        business_slug,
+        session_id: sessionId,
+      });
+      if (
+        pendingServiceMenuReply({
+          inbound: msg.text,
+          body: waReplyRoute.body,
+          menuPending: isOpeningServicePickMenuModel(lastModelForMenu),
+        }) === "nudge"
+      ) {
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            PENDING_SERVICE_MENU_NUDGE,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] pending menu nudge failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: PENDING_SERVICE_MENU_NUDGE,
+          model_used: appendRouteToModelUsed(
+            "pending_service_menu_nudge",
+            waReplyRoute,
+            fastPathHint?.category
+          ),
+          session_id: sessionId,
+        });
         return;
       }
     }

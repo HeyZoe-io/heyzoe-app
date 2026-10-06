@@ -9,6 +9,28 @@ import { matchesTrialTopicAdvanceIntent } from "@/lib/wa-trial-topic-intent";
 /** גשר קבוע אחרי אישור מילולי של אימון — חובה לבחור מהרשימה כדי להמשיך בפלואו. */
 export const OPENING_SERVICE_LIST_PICK_BRIDGE = "יש לבחור את השיעור מהרשימה";
 
+/** תפריט האימונים עדיין ממתין, והלידה חזרה על בקשת מידע בלי שאלה עובדתית. */
+export const PENDING_SERVICE_MENU_NUDGE =
+  "בחרי את האימון שמעניין אותך מהרשימה למעלה ואספר לך הכל 💜";
+
+const CONCRETE_MENU_QUESTION_RE =
+  /(?:כמה|מחיר|עלות|איפה|היכן|מיקום|כתובת|מתי|שעה|לוח|משך|ביטול|להקפיא|הקפאה|החזר)/u;
+
+/**
+ * While the training menu is waiting: a concrete question keeps Claude's answer.
+ * A repeated info ask, or an empty body, gets one nudge. Never a second menu.
+ */
+export function pendingServiceMenuReply(input: {
+  inbound: string;
+  body: string;
+  menuPending: boolean;
+}): "nudge" | "body" {
+  if (!input.menuPending) return "body";
+  const concrete = CONCRETE_MENU_QUESTION_RE.test(String(input.inbound ?? ""));
+  if (concrete && String(input.body ?? "").trim()) return "body";
+  return "nudge";
+}
+
 export function replyContainsOpeningServiceListPickBridge(text: string): boolean {
   return String(text ?? "").includes(OPENING_SERVICE_LIST_PICK_BRIDGE);
 }

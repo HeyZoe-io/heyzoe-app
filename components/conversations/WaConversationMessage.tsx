@@ -16,12 +16,14 @@ const i18n = {
     errorCode: "קוד שגיאה",
     unsupportedInbound: "תשובת מערכת — סוג הודעה נכנסת לא נתמך",
     sentFromWhatsAppApp: "נשלח מאפליקציית WhatsApp",
+    personalPause: "השהיה אוטומטית - הודעה אישית",
     sentFromZoeAdmin: "נשלח ממספר זואי",
   },
   en: {
     errorCode: "Error code",
     unsupportedInbound: "System reply — unsupported inbound message type",
     sentFromWhatsAppApp: "Sent from the WhatsApp app",
+    personalPause: "Auto-paused - personal message",
     sentFromZoeAdmin: "Sent from the Zoe admin number",
   },
 } as const;
@@ -262,9 +264,13 @@ export function WaConversationMessage({
   lang?: DashboardLang;
   reactionEmoji?: string;
 }) {
-  if (role === "event") return null;
-
   const t = i18n[lang];
+  const modelEarly = parseModelUsed(modelUsed).model;
+  if (role === "event") {
+    if (modelEarly !== "wa_personal_pause") return null;
+    return <p className="mb-2 text-center text-[11px] leading-tight text-amber-700">{t.personalPause}</p>;
+  }
+
   const from = role === "user" ? "user" : "assistant";
   const parsed = parseConversationMessageForDashboard({
     role,

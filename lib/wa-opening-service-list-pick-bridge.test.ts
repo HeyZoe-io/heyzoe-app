@@ -9,6 +9,8 @@ import {
   ensureOpeningServiceListPickBridge,
   inboundLooksLikeTrialClassRegistrationPick,
   isAffirmativeCatalogFamilyConfirm,
+  pendingServiceMenuReply,
+  PENDING_SERVICE_MENU_NUDGE,
   resolveAmbiguousCatalogFamilyNames,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
@@ -271,5 +273,39 @@ assert.ok(
 assert.equal(isAffirmativeCatalogFamilyConfirm("כן"), true);
 assert.equal(isAffirmativeCatalogFamilyConfirm("כן!"), true);
 assert.equal(isAffirmativeCatalogFamilyConfirm("שיעור יוגה נשים"), false);
+
+assert.equal(
+  pendingServiceMenuReply({
+    inbound: "היי אשמח לשמוע מידע",
+    body: "",
+    menuPending: true,
+  }),
+  "nudge"
+);
+assert.equal(
+  pendingServiceMenuReply({
+    inbound: "כמה עולה?",
+    body: "השיעור עולה 80 שקלים.",
+    menuPending: true,
+  }),
+  "body"
+);
+assert.equal(
+  pendingServiceMenuReply({
+    inbound: "היי אשמח לשמוע מידע",
+    body: "היי! שמחה לעזור",
+    menuPending: true,
+  }),
+  "nudge"
+);
+assert.equal(
+  pendingServiceMenuReply({
+    inbound: "היי אשמח לשמוע מידע",
+    body: "",
+    menuPending: false,
+  }),
+  "body"
+);
+assert.match(PENDING_SERVICE_MENU_NUDGE, /מהרשימה למעלה/);
 
 console.log("wa-opening-service-list-pick-bridge.test.ts: ok");
