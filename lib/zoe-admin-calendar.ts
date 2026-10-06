@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
-import { resolveMarketingAdminColumn, type MarketingAdminColumn } from "@/lib/marketing-admin-status";
+import { resolveMarketingAdminColumn } from "@/lib/marketing-admin-status";
 import { toPipelineDateOnly, toPipelineTime } from "@/lib/marketing-next-call";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -8,8 +8,6 @@ import type { LeadRow } from "@/lib/leads-types";
 
 /** אורך פגישת שיחה ביומן. אין שדה משך בפייפליין. */
 export const ZOE_ADMIN_CALL_DURATION_MS = 30 * 60 * 1000;
-
-const CALENDAR_COLUMNS = new Set<MarketingAdminColumn>(["setup_call", "requires_call"]);
 
 export type ZoeAdminCalendarEvent = {
   uid: string;
@@ -53,7 +51,7 @@ export function zoeAdminCalendarTitle(column: "setup_call" | "requires_call", fu
 
 export function zoeAdminCalendarEventFromLead(row: LeadRow): ZoeAdminCalendarEvent | null {
   const column = resolveMarketingAdminColumn(row);
-  if (!CALENDAR_COLUMNS.has(column)) return null;
+  if (column !== "setup_call" && column !== "requires_call") return null;
   const dateYmd = toPipelineDateOnly(row.next_call_at);
   const timeHm = toPipelineTime(row.next_call_time);
   const location = zoeAdminCalendarLocation(row.phone);
