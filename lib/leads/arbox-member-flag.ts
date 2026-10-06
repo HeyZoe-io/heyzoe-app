@@ -2,6 +2,7 @@
  * Daily flag: contacts.arbox_is_member from the activeMembershipsReport rows
  * the arbox-daily-triggers cron already loaded. Does not call Arbox.
  * Updates existing contacts only. Never inserts.
+ * Writes only after a successful, complete report, and only rows whose boolean changes.
  */
 import { isArboxActiveCustomerMembershipStatus } from "@/lib/leads/arbox-customer-set";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -47,12 +48,24 @@ function missingColumn(message: string): boolean {
   return /arbox_is_member|arbox_member_synced_at|schema cache|does not exist/i.test(message);
 }
 
+/** Failed or page-capped memberships report must not flip flags in either direction. */
+export function memberFlagReportIsComplete<T extends { ok: boolean; hitPageCap: boolean }>(
+  input: T | null
+): input is T & { ok: true } {
+  return input != null && input.ok === true && input.hitPageCap !== true;
+}
+
 export async function syncArboxMemberFlags(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   membershipRows: Record<string, unknown>[];
+  /** False on a failed or page-capped activeMembershipsReport. No reads, no writes. */
+  reportComplete: boolean;
   now?: Date;
 }): Promise<ArboxMemberFlagSummary> {
+  if (!input.reportComplete) {
+    return { member_phones: 0, marked_true: 0, marked_false: 0, skipped: "report_incomplete" };
+  }
   const nowIso = (input.now ?? new Date()).toISOString();
   const members = memberPhoneSet(input.membershipRows);
   const variants = [
@@ -66,6 +79,7 @@ export async function syncArboxMemberFlags(input: {
       .from("contacts")
       .update({ arbox_is_member: true, arbox_member_synced_at: nowIso })
       .eq("business_id", input.businessId)
+      .eq("arbox_is_member", false)
       .in("phone", phones)
       .select("id");
     if (error) {
@@ -123,6 +137,7 @@ export async function syncArboxMemberFlags(input: {
       .from("contacts")
       .update({ arbox_is_member: false, arbox_member_synced_at: nowIso })
       .eq("business_id", input.businessId)
+      .eq("arbox_is_member", true)
       .in("id", ids)
       .select("id");
     if (error) {

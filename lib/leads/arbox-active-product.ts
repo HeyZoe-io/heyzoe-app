@@ -147,13 +147,20 @@ export async function fetchArboxActiveProductKeys(input: {
   fetchPage?: typeof arboxPublicFetch;
   /** Skip the memberships GET when the cron already loaded this report. */
   prefetchedMembershipRows?: Record<string, unknown>[];
+  /** True when that prefetch stopped on the page cap. */
+  prefetchedMembershipsHitPageCap?: boolean;
   /**
    * Skip the future bookings GET when the cron already loaded today…+14.
    * Pass the array even when it is empty. Omit to fetch.
    */
   prefetchedFutureRows?: ArboxBookingReportRow[];
 }): Promise<
-  | { ok: true; keys: ActiveProductKeys; membershipRows: Record<string, unknown>[] }
+  | {
+      ok: true;
+      keys: ActiveProductKeys;
+      membershipRows: Record<string, unknown>[];
+      membershipsHitPageCap: boolean;
+    }
   | { ok: false; error: string }
 > {
   const now = input.now ?? new Date();
@@ -161,8 +168,10 @@ export async function fetchArboxActiveProductKeys(input: {
   const trialTypeIds = parseIdList(input.trialMembershipTypeIds);
 
   let membershipRows: Record<string, unknown>[];
+  let membershipsHitPageCap = false;
   if (input.prefetchedMembershipRows) {
     membershipRows = input.prefetchedMembershipRows;
+    membershipsHitPageCap = input.prefetchedMembershipsHitPageCap === true;
   } else {
     const memberships = await fetchArboxActiveMembershipsReport({
       apiKey: input.apiKey,
@@ -172,6 +181,7 @@ export async function fetchArboxActiveProductKeys(input: {
     });
     if (!memberships.ok) return { ok: false, error: memberships.error };
     membershipRows = memberships.rows;
+    membershipsHitPageCap = memberships.hitPageCap;
   }
 
   const { fromDate, toDate } = customerReportsDateRange(now);
@@ -223,6 +233,7 @@ export async function fetchArboxActiveProductKeys(input: {
   return {
     ok: true,
     membershipRows,
+    membershipsHitPageCap,
     keys: collectActiveProductKeys({
       membershipRows,
       sessionRows: sessions.rows,

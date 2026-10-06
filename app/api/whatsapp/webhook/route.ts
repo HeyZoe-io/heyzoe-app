@@ -353,6 +353,7 @@ import {
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
   resolveArboxClassMoveOutcome,
+  resolveRescheduleWithMemberFlag,
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
   EXISTING_MEMBERSHIP_HELP_MODEL,
@@ -6672,6 +6673,8 @@ async function processIncoming(
   let contactScheduleRequestedTime = "";
   let contactWaUiLang = "";
   let contactId: string | number | null = null;
+  /** Daily Arbox flag. true skips the reschedule member-or-trial question. false and null still ask. */
+  let contactArboxIsMember: boolean | null = null;
   /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
   let contactInstagramFollowPromptSent = false;
   /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
@@ -6771,7 +6774,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang",
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang, arbox_is_member",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
@@ -6836,6 +6839,8 @@ async function processIncoming(
 
       const cid = (contactRow as any)?.id;
       contactId = cid !== undefined && cid !== null ? cid : null;
+      const memberFlag = (contactRow as { arbox_is_member?: unknown } | null)?.arbox_is_member;
+      contactArboxIsMember = memberFlag === true ? true : memberFlag === false ? false : null;
 
       const rawKinds = (contactRow as any)?.sf_clicked_cta_kinds;
       if (Array.isArray(rawKinds)) {
@@ -13671,7 +13676,11 @@ async function processIncoming(
             ? "trial"
             : null;
       await deliverArboxClassMoveOutcome({
-        outcome: resolveArboxClassMoveOutcome(msg.text, { knowledge, stated }),
+        outcome: resolveRescheduleWithMemberFlag(msg.text, {
+          knowledge,
+          stated,
+          arboxIsMember: contactArboxIsMember,
+        }),
         msg,
         accountSid,
         authToken,

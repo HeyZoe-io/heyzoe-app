@@ -76,8 +76,8 @@ export async function fetchArboxActiveMembershipsReport(input: {
   now?: Date;
   fetchPage?: typeof arboxPublicFetch;
 }): Promise<
-  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number }
-  | { ok: false; error: string; pagesFetched: number }
+  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number; hitPageCap: boolean }
+  | { ok: false; error: string; pagesFetched: number; hitPageCap: boolean }
 > {
   const { fromDate, toDate } = customerReportsDateRange(input.now);
   const memberships = await fetchArboxPagedReportRows({
@@ -98,9 +98,15 @@ export async function fetchArboxActiveMembershipsReport(input: {
       ok: false,
       error: "arbox_active_memberships_fetch_failed",
       pagesFetched: memberships.pagesFetched,
+      hitPageCap: false,
     };
   }
-  return { ok: true, rows: memberships.rows, pagesFetched: memberships.pagesFetched };
+  return {
+    ok: true,
+    rows: memberships.rows,
+    pagesFetched: memberships.pagesFetched,
+    hitPageCap: memberships.hitPageCap,
+  };
 }
 
 /** In-memory customer set: active memberships ∪ active sessions/punch-cards/one-offs. */

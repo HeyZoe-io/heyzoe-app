@@ -13,7 +13,7 @@ import {
   syncArboxNthWorkoutForBusiness,
 } from "@/lib/leads/arbox-nth-workout";
 import { fetchArboxActiveProductKeys, type ActiveProductKeys } from "@/lib/leads/arbox-active-product";
-import { syncArboxMemberFlags } from "@/lib/leads/arbox-member-flag";
+import { memberFlagReportIsComplete, syncArboxMemberFlags } from "@/lib/leads/arbox-member-flag";
 import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
   businessNeedsFreezeSync,
@@ -339,6 +339,12 @@ export async function runArboxDailyTriggersForBusiness(input: {
   // --- Shared activeMembershipsReport (birthday customer set + C8 days-in-club + C7 nth_workout) ---
   let prefetchedMembershipRows: Record<string, unknown>[] | undefined;
   let prefetchedMembershipPages = 0;
+  let prefetchedMembershipsHitPageCap = false;
+  let membershipFlagReport: {
+    ok: boolean;
+    hitPageCap: boolean;
+    rows: Record<string, unknown>[];
+  } | null = null;
   try {
     const [needsBirthday, needsDaysInClub, needsNthWorkout] = await Promise.all([
       businessNeedsBirthdayCustomerSet(admin, business.id),
@@ -354,7 +360,14 @@ export async function runArboxDailyTriggersForBusiness(input: {
       prefetchedMembershipPages = memberships.pagesFetched;
       if (memberships.ok) {
         prefetchedMembershipRows = memberships.rows;
+        prefetchedMembershipsHitPageCap = memberships.hitPageCap;
+        membershipFlagReport = {
+          ok: true,
+          hitPageCap: memberships.hitPageCap,
+          rows: memberships.rows,
+        };
       } else {
+        membershipFlagReport = { ok: false, hitPageCap: false, rows: [] };
         console.error("[cron/arbox-daily-triggers] shared activeMembershipsReport failed", {
           slug: business.slug,
           error: memberships.error,
@@ -369,7 +382,6 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   let sharedActiveKeys: ActiveProductKeys | undefined;
-  let membershipRowsForFlags = prefetchedMembershipRows;
   let prefetchedFutureRows: ArboxBookingReportRow[] | undefined;
   let prefetchedFuturePages = 0;
   let freezePlan = { needsFreeze: false, needsEndingFuture: false };
@@ -500,13 +512,22 @@ export async function runArboxDailyTriggersForBusiness(input: {
         boxId: business.crm_box_id,
         now,
         trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
-        ...(prefetchedMembershipRows ? { prefetchedMembershipRows } : {}),
+        ...(prefetchedMembershipRows
+          ? { prefetchedMembershipRows, prefetchedMembershipsHitPageCap }
+          : {}),
         ...(prefetchedFutureRows ? { prefetchedFutureRows } : {}),
       });
       if (products.ok) {
         sharedActiveKeys = products.keys;
-        membershipRowsForFlags = products.membershipRows;
+        membershipFlagReport = {
+          ok: true,
+          hitPageCap: products.membershipsHitPageCap,
+          rows: products.membershipRows,
+        };
       } else {
+        if (!membershipFlagReport?.ok) {
+          membershipFlagReport = { ok: false, hitPageCap: false, rows: [] };
+        }
         console.error("[cron/arbox-daily-triggers] active product fetch failed", {
           slug: business.slug,
           error: products.error,
@@ -527,13 +548,15 @@ export async function runArboxDailyTriggersForBusiness(input: {
   } else {
     noteStep(timings, business.id, "prefetch_active_product", 0, { skipped: true });
   }
-  // Same activeMembershipsReport payload. No second Arbox pull when that fetch succeeded.
-  if (membershipRowsForFlags) {
+  // Member flags only after a complete activeMembershipsReport. A failed or
+  // page-capped report leaves existing true/false values untouched.
+  if (membershipFlagReport && memberFlagReportIsComplete(membershipFlagReport)) {
     try {
       const flags = await syncArboxMemberFlags({
         admin,
         businessId: business.id,
-        membershipRows: membershipRowsForFlags,
+        membershipRows: membershipFlagReport.rows,
+        reportComplete: true,
         now,
       });
       console.info("[cron/arbox-daily-triggers] member flags", {

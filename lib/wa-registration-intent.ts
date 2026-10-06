@@ -120,6 +120,7 @@ export function buildBookedClassMoveAppReply(raw: string): string {
 /** שאלה לפני הזזת אימון בארבוקס — אותה נוסח כמו הבהרת הרשמה, מודל נפרד כדי שהתשובה לא תפתח פלואו. */
 export const CLASS_MOVE_CLARIFY_MODEL = "class_move_clarify";
 export const CLASS_MOVE_TRIAL_HANDOFF_MODEL = "class_move_trial_team_handoff";
+export const RESCHEDULE_MEMBER_BY_FLAG_MODEL = "reschedule_member_by_flag";
 
 export type ArboxClassMoveOutcome = {
   kind: "ask" | "member" | "trial_team";
@@ -168,6 +169,31 @@ export function resolveArboxClassMoveOutcome(
     model: CLASS_MOVE_CLARIFY_MODEL,
     notifyTeam: false,
   };
+}
+
+/**
+ * Known member (contacts.arbox_is_member === true) skips the member-or-trial question
+ * and uses the existing member reply. false and null still ask. An explicit trial or
+ * member tag from the route is left as-is.
+ */
+export function resolveRescheduleWithMemberFlag(
+  raw: string,
+  opts?: {
+    knowledge?: ClosedPlaybookKnowledge | null;
+    stated?: "member" | "trial" | null;
+    arboxIsMember?: boolean | null;
+  }
+): ArboxClassMoveOutcome {
+  const stated = opts?.stated ?? null;
+  const skipQuestion = stated == null && opts?.arboxIsMember === true;
+  const outcome = resolveArboxClassMoveOutcome(raw, {
+    knowledge: opts?.knowledge,
+    stated: skipQuestion ? "member" : stated,
+  });
+  if (skipQuestion && outcome.kind === "member") {
+    return { ...outcome, model: RESCHEDULE_MEMBER_BY_FLAG_MODEL };
+  }
+  return outcome;
 }
 
 function inboundMentionsExistingPurchase(raw: string): boolean {
