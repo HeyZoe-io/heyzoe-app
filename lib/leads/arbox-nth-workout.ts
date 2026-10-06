@@ -1,11 +1,14 @@
 /**
- * C7 nth_workout: new members (member_since within lookback ≤30d) who have
- * attended N workouts (check_in="Yes" since join) get a MARKETING check-in.
- * Fire when yesCount >= N, once per (business_id, trigger_id, user_id).
+ * C7 nth_workout: new members (member_since within lookback ≤30d).
+ * After: fire when yesCount >= N (check_in="Yes" since join, date < today).
+ * Before: fire once the day before workout N, or the morning of if it is still later today.
+ * Once per (business_id, trigger_id, user_id).
  *
  * IO (10 businesses): 0 extra GETs when birthday/C8 already prefetched
  * activeMemberships and missed/gap already prefetched past bookingsReport.
- * C7-only: +1 memberships +1 bookings (30d). No per-user Arbox calls.
+ * C7-only: +1 memberships +1 bookings (30d). A live "before" rule adds one
+ * future bookings GET per business per day (skipped when the shared future
+ * window already includes today). No per-user Arbox calls.
  */
 import { logMessage } from "@/lib/analytics";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
@@ -15,7 +18,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { parseLeadIdFromUserId } from "@/lib/leads/arbox-all-leads-report";
-import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
+import { sharedFutureBookingsWindow, ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
 import {
   fetchArboxActiveMembershipsReport,
 } from "@/lib/leads/arbox-customer-set";
@@ -148,6 +151,98 @@ export function countAttendedWorkoutsSinceJoin(input: {
     count += 1;
   }
   return count;
+}
+
+export type NthWorkoutDirection = "before" | "after";
+
+/** Stored direction. Anything other than before stays the completed-attendance path. */
+export function nthWorkoutDirection(raw: unknown): NthWorkoutDirection {
+  return String(raw ?? "").trim().toLowerCase() === "before" ? "before" : "after";
+}
+
+export function parseClassMinutes(raw: unknown): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(raw ?? "").trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+export function israelNowMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jerusalem",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return 0;
+  return hour * 60 + minute;
+}
+
+export function addDaysYmd(ymd: string, days: number): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days, 12, 0, 0));
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+export type BeforeNthWorkoutTarget = {
+  classDateYmd: string;
+  classTime: string;
+};
+
+/**
+ * Before workout N: completed attendance is N−1, and the next booking is due.
+ * Due = tomorrow (so a morning class is still ahead) or later today if its time
+ * has not passed. A class further out waits. Already-attended N does not fire.
+ */
+export function beforeNthWorkoutTarget(input: {
+  bookings: readonly ArboxBookingReportRow[];
+  userId: number;
+  memberSinceYmd: string;
+  todayYmd: string;
+  nowMinutes: number;
+  n: number;
+}): BeforeNthWorkoutTarget | null {
+  const n = nthWorkoutN(input.n);
+  const attendedSlots = new Set<string>();
+  const upcoming = new Map<string, { date: string; time: string; minutes: number }>();
+  for (const row of input.bookings) {
+    const userId = parseLeadIdFromUserId(row.user_id);
+    if (userId !== input.userId) continue;
+    const date = parseClassDateYmd(row.date);
+    if (!date || date < input.memberSinceYmd) continue;
+    const time = String(row.time ?? "").trim();
+    const slot = `${date}|${time}`;
+    if (isBookingCheckedIn(row.check_in) && date <= input.todayYmd) {
+      attendedSlots.add(slot);
+      continue;
+    }
+    if (date < input.todayYmd) continue;
+    const minutes = parseClassMinutes(time);
+    if (minutes == null) continue;
+    if (date === input.todayYmd && minutes <= input.nowMinutes) continue;
+    if (!upcoming.has(slot)) upcoming.set(slot, { date, time, minutes });
+  }
+  for (const slot of attendedSlots) upcoming.delete(slot);
+  const completed = attendedSlots.size;
+  if (completed !== n - 1) return null;
+  const ordered = [...upcoming.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.minutes - b.minutes
+  );
+  const next = ordered[0];
+  if (!next) return null;
+  const tomorrow = addDaysYmd(input.todayYmd, 1);
+  if (next.date === input.todayYmd || (tomorrow != null && next.date === tomorrow)) {
+    return { classDateYmd: next.date, classTime: next.time };
+  }
+  return null;
 }
 
 export function shouldSeedNthWorkout(input: { yesCount: number; n: number }): boolean {
@@ -400,6 +495,18 @@ export async function businessNeedsNthWorkoutSync(
   return rules.some((r) => Boolean(r.template_name?.trim()));
 }
 
+/** Before-direction needs the shared future bookings window (today…+14). */
+export async function nthWorkoutNeedsFutureBookings(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number
+): Promise<boolean> {
+  const rules = await loadEnabledNthWorkoutTemplateTriggers(admin, businessId);
+  return rules.some(
+    (rule) =>
+      Boolean(rule.template_name?.trim()) && nthWorkoutDirection(rule.delay_direction) === "before"
+  );
+}
+
 export async function syncArboxNthWorkoutForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -414,6 +521,8 @@ export async function syncArboxNthWorkoutForBusiness(input: {
   prefetchedBookingPages?: number;
   bookingsFromYmd?: string;
   bookingsToYmd?: string;
+  /** Shared future window (today…+14). Undefined = handler may fetch when a before rule is live. */
+  prefetchedFutureRows?: ArboxBookingReportRow[];
 }): Promise<NthWorkoutSyncSummary> {
   const summary: NthWorkoutSyncSummary = {
     fetched_memberships: 0,
@@ -584,9 +693,11 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     return wrote;
   }
 
+  const blockSend = new Set<string>();
   if (!input.nthWorkoutSeeded) {
     for (const rule of rulesWithTemplate) {
       await seedRuleRows(rule, "seeded");
+      if (nthWorkoutDirection(rule.delay_direction) !== "before") blockSend.add(rule.id);
     }
     const { error: flagErr } = await input.admin
       .from("businesses")
@@ -602,7 +713,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
       businessSlug,
       seeded: summary.seeded,
     });
-    return summary;
+    if (blockSend.size === rulesWithTemplate.length) return summary;
   }
 
   const seededThisRun = new Set<string>();
@@ -625,8 +736,38 @@ export async function syncArboxNthWorkoutForBusiness(input: {
       continue;
     }
     await seedRuleRows(rule, "soft_seeded");
-    seededThisRun.add(rule.id);
+    if (nthWorkoutDirection(rule.delay_direction) !== "before") seededThisRun.add(rule.id);
   }
+
+  const needsBefore = rulesWithTemplate.some(
+    (rule) =>
+      nthWorkoutDirection(rule.delay_direction) === "before" &&
+      !blockSend.has(rule.id) &&
+      !seededThisRun.has(rule.id)
+  );
+  let futureRows: ArboxBookingReportRow[] = input.prefetchedFutureRows ?? [];
+  if (needsBefore && input.prefetchedFutureRows == null) {
+    const window = sharedFutureBookingsWindow(now, { includeToday: true });
+    const futureReport = await fetchArboxBookingsReport({
+      apiKey,
+      fromDate: window.fromDate,
+      toDate: window.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += futureReport.pagesFetched;
+    if (!futureReport.ok) {
+      summary.errors += 1;
+      summary.fetch_error = futureReport.error;
+      console.error("[leads/arbox-nth-workout] future bookings failed", {
+        businessId,
+        error: futureReport.error,
+      });
+      futureRows = [];
+    } else {
+      futureRows = futureReport.rows;
+    }
+  }
+  const nowMinutes = israelNowMinutes(now);
 
   for (const member of allMembers) {
     if (member.userId === NTH_WORKOUT_SOFT_SEED_SENTINEL_USER_ID) continue;
@@ -636,7 +777,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
-      if (seededThisRun.has(rule.id)) continue;
+      if (seededThisRun.has(rule.id) || blockSend.has(rule.id)) continue;
       if (eventBeforeRuleActivation(parseReportEventInstant(member.memberSinceYmd), rule)) continue;
       const n = nthWorkoutN(rule.delay_days);
       const lookbackDays = nthWorkoutLookbackDays(rule.lookback_days);
@@ -661,6 +802,18 @@ export async function syncArboxNthWorkoutForBusiness(input: {
         memberSinceYmd: member.memberSinceYmd,
         todayYmd,
       });
+      const direction = nthWorkoutDirection(rule.delay_direction);
+      const beforeTarget =
+        direction === "before"
+          ? beforeNthWorkoutTarget({
+              bookings: [...bookingRows, ...futureRows],
+              userId: member.userId,
+              memberSinceYmd: member.memberSinceYmd,
+              todayYmd,
+              nowMinutes,
+              n,
+            })
+          : null;
 
       const logBase = {
         businessId,
@@ -668,6 +821,8 @@ export async function syncArboxNthWorkoutForBusiness(input: {
         user_id: member.userId,
         n,
         yes_count: yesCount,
+        direction,
+        ...(beforeTarget ? { class_date: beforeTarget.classDateYmd } : {}),
       };
 
       try {
@@ -685,14 +840,16 @@ export async function syncArboxNthWorkoutForBusiness(input: {
         );
         const hasTerminalLog = Boolean(existingStatus && existingStatus !== "pending");
 
-        if (
-          !shouldSendNthWorkout({
-            yesCount,
-            n,
-            hasTerminalLog,
-          })
-        ) {
-          if (hasTerminalLog && yesCount >= n) {
+        const due =
+          direction === "before"
+            ? beforeTarget != null && !hasTerminalLog
+            : shouldSendNthWorkout({
+                yesCount,
+                n,
+                hasTerminalLog,
+              });
+        if (!due) {
+          if (hasTerminalLog && (direction === "before" ? beforeTarget != null : yesCount >= n)) {
             summary.already += 1;
             console.info("[leads/arbox-nth-workout] dispatch", {
               ...logBase,

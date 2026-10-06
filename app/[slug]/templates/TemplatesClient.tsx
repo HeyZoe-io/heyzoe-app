@@ -118,6 +118,12 @@ export type TriggerRow = {
   created_at: string;
 };
 
+function nthWorkoutTimingHint(direction: string): string {
+  return direction === "before"
+    ? "נשלחת פעם אחת לפני האימון הזה: ביום שלפניו, או בבוקר אם האימון עוד היום והשעה לא עברה."
+    : "אחרי כמה אימונים עם נוכחות נשלחת ההודעה, פעם אחת.";
+}
+
 function delayDaysFieldLabel(type: string, variant: "create" | "edit"): string {
   if (isNthWorkoutTriggerType(type)) return "אימון מספר";
   if (isAttendanceGapTriggerType(type)) return "ימי היעדרות";
@@ -1803,7 +1809,7 @@ export default function TemplatesClient({
                                 />
                                 {isNthWorkoutTriggerType(trigger.trigger_type) ? (
                                   <p className="text-xs text-zinc-500">
-                                    אחרי כמה אימונים עם נוכחות נשלחת ההודעה, פעם אחת.
+                                    {nthWorkoutTimingHint(editDelayDirection)}
                                   </p>
                                 ) : null}
                               </div>
@@ -2215,7 +2221,7 @@ export default function TemplatesClient({
                                 </p>
                               ) : isNthWorkoutTriggerType(newTriggerType) ? (
                                 <p className="text-xs text-zinc-500">
-                                  אחרי כמה אימונים עם נוכחות נשלחת ההודעה, פעם אחת.
+                                  {nthWorkoutTimingHint(newDelayDirection)}
                                 </p>
                               ) : isBirthdayFamilyTriggerType(newTriggerType) ? (
                                 <p className="text-xs text-zinc-500">

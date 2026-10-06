@@ -7,6 +7,7 @@ import {
   nthWorkoutLookbackDays,
   nthWorkoutN,
   nthWorkoutNeedsSoftSeed,
+  beforeNthWorkoutTarget,
   shouldSeedNthWorkout,
   shouldSendNthWorkout,
   uniqueNthWorkoutMembers,
@@ -165,7 +166,7 @@ import {
   assert.equal(isUniquePerBusinessTriggerType("nth_workout"), false);
   assert.equal(minDelayDaysForTrigger("nth_workout"), 1);
   assert.equal(defaultDelayDays("nth_workout"), 3);
-  assert.equal(formatDelayLabel("nth_workout", 3, "after"), "אימון מספר 3");
+  assert.equal(formatDelayLabel("nth_workout", 3, "after"), "אחרי אימון מספר 3");
   assert.equal(formatLookbackLabel(30), "30 ימים כלקוח חדש");
 }
 
@@ -195,6 +196,99 @@ import {
       workoutN: 10,
     }),
     ["דנה", "10"]
+  );
+}
+
+{
+  const memberSince = "2026-09-01";
+  const today = "2026-10-06";
+  const base = {
+    userId: 11,
+    memberSinceYmd: memberSince,
+    todayYmd: today,
+    nowMinutes: 9 * 60,
+  };
+  assert.deepEqual(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: "2026-10-07", time: "07:00" }],
+    }),
+    { classDateYmd: "2026-10-07", classTime: "07:00" },
+    "N=1 class tomorrow is due"
+  );
+  assert.equal(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: "2026-10-11", time: "18:00" }],
+    }),
+    null,
+    "class in five days waits"
+  );
+  assert.deepEqual(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: today, time: "18:00" }],
+    }),
+    { classDateYmd: today, classTime: "18:00" },
+    "today 18:00 at 09:00 is due"
+  );
+  assert.equal(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: today, time: "07:00" }],
+    }),
+    null,
+    "today 07:00 at 09:00 already passed"
+  );
+  assert.equal(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [
+        { user_id: 11, check_in: "Yes", date: "2026-10-05", time: "18:00" },
+        { user_id: 11, check_in: "", date: "2026-10-07", time: "18:00" },
+      ],
+    }),
+    null,
+    "one yes yesterday means the tomorrow class is workout 2"
+  );
+  assert.equal(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [
+        { user_id: 11, check_in: "Yes", date: today, time: "07:00" },
+        { user_id: 11, check_in: "", date: today, time: "18:00" },
+      ],
+    }),
+    null,
+    "yes already today is not still before workout 1"
+  );
+  assert.deepEqual(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 3,
+      bookings: [
+        { user_id: 11, check_in: "Yes", date: "2026-10-01", time: "18:00" },
+        { user_id: 11, check_in: "Yes", date: "2026-10-03", time: "18:00" },
+        { user_id: 11, check_in: "", date: "2026-10-07", time: "09:00" },
+      ],
+    }),
+    { classDateYmd: "2026-10-07", classTime: "09:00" },
+    "N=3 with two yes and a class tomorrow is due"
+  );
+  assert.equal(
+    beforeNthWorkoutTarget({
+      ...base,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: "2026-08-01", time: "18:00" }],
+    }),
+    null,
+    "booking before member_since is ignored"
   );
 }
 

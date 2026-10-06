@@ -575,8 +575,14 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("milestones", 30, "after"), "30 ימים מההצטרפות");
   assert.equal(minDelayDaysForTrigger("milestones"), 1);
   assert.equal(defaultDelayDays("milestones"), 90);
-  assert.equal(formatDelayLabel("nth_workout", 3, "after"), "אימון מספר 3");
-  assert.equal(formatDelayLabel("nth_workout", 10, "after"), "אימון מספר 10");
+  assert.equal(formatDelayLabel("nth_workout", 3, "after"), "אחרי אימון מספר 3");
+  assert.equal(formatDelayLabel("nth_workout", 10, "after"), "אחרי אימון מספר 10");
+  assert.equal(formatDelayLabel("nth_workout", 1, "before"), "לפני אימון מספר 1");
+  assert.equal(defaultDelayDirection("nth_workout"), "after");
+  assert.deepEqual(delayDirectionOptions("nth_workout"), [
+    { value: "after", labelHe: "אחרי האימון" },
+    { value: "before", labelHe: "לפני האימון" },
+  ]);
   assert.equal(minDelayDaysForTrigger("nth_workout"), 1);
   assert.equal(defaultDelayDays("nth_workout"), 3);
   assert.equal(formatDelayLabel("freeze_ending_unbooked", 3, "before"), "3 ימים לפני סיום ההקפאה");

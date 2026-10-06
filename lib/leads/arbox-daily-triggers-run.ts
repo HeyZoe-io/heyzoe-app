@@ -9,6 +9,7 @@ import {
 } from "@/lib/leads/arbox-days-in-club";
 import {
   businessNeedsNthWorkoutSync,
+  nthWorkoutNeedsFutureBookings,
   syncArboxNthWorkoutForBusiness,
 } from "@/lib/leads/arbox-nth-workout";
 import { fetchArboxActiveProductKeys, type ActiveProductKeys } from "@/lib/leads/arbox-active-product";
@@ -311,8 +312,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   let trialReminderPlan = { needsTrialReminder: false, hasTrialProductIds: false };
   let trainerHeadsUpPlan = { needsTrainerTrialHeadsUp: false, hasTrialProductIds: false };
   let needsActiveProduct = false;
+  let nthBefore = false;
   try {
-    const [suppressRes, freeze, trial, trainer] = await Promise.all([
+    const [suppressRes, freeze, trial, trainer, nthBeforePlan] = await Promise.all([
       admin
         .from("template_triggers")
         .select("trigger_type, template_name")
@@ -330,10 +332,12 @@ export async function runArboxDailyTriggersForBusiness(input: {
         business.id,
         business.arbox_trial_membership_type_ids
       ),
+      nthWorkoutNeedsFutureBookings(admin, business.id),
     ]);
     freezePlan = freeze;
     trialReminderPlan = trial;
     trainerHeadsUpPlan = trainer;
+    nthBefore = nthBeforePlan;
     if (suppressRes.error) {
       console.error("[cron/arbox-daily-triggers/business] active-product rule lookup failed", {
         business_id: business.id,
@@ -354,11 +358,13 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // Widest future bookings window needed by any consumer this run.
-  // includeToday → today…+14 (active product, trial reminder, trainer heads-up).
+  // includeToday → today…+14 (active product, trial reminder, trainer heads-up, nth before).
   // freeze-only → today+1…+14. Freeze ignores class dates <= today, so a wider
   // payload does not change booked vs unbooked.
+  // nth before adds one Arbox bookings GET per business per day only while a before rule is live.
   const futureIncludeToday =
     needsActiveProduct ||
+    nthBefore ||
     (trialReminderPlan.needsTrialReminder && trialReminderPlan.hasTrialProductIds) ||
     (trainerHeadsUpPlan.needsTrainerTrialHeadsUp && trainerHeadsUpPlan.hasTrialProductIds);
   const needsFuture = futureIncludeToday || freezePlan.needsEndingFuture;
@@ -831,6 +837,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
             bookingsToYmd: lookbackTo,
           }
         : {}),
+      ...(nthBefore && prefetchedFutureRows ? { prefetchedFutureRows } : {}),
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

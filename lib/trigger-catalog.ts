@@ -361,7 +361,7 @@ export const TRIGGER_CATALOG = [
     audience: "members",
     implemented: true,
     arboxOnly: true,
-    delay: "after",
+    delay: "either",
     showProductFilter: false,
     uniquePerBusiness: false,
     minDelayDays: 1,
@@ -803,6 +803,12 @@ export type DelayDirectionOption = { value: DelayDirection; labelHe: string };
  */
 export function delayDirectionOptions(triggerType: string): DelayDirectionOption[] {
   if (!allowsDelayBefore(triggerType) || isImmediateDelayTrigger(triggerType)) return [];
+  if (isNthWorkoutTriggerType(triggerType)) {
+    return [
+      { value: "after", labelHe: "אחרי האימון" },
+      { value: "before", labelHe: "לפני האימון" },
+    ];
+  }
   if (isBirthdayFamilyTriggerType(triggerType)) {
     return [
       { value: "before", labelHe: "לפני יום ההולדת" },
@@ -880,8 +886,10 @@ export function defaultDelayDays(triggerType: string): number {
 
 export function defaultDelayDirection(triggerType: string): DelayDirection {
   // Birthday defaults to on-day (after + 0); expiry defaults to before.
+  // Nth workout stays after completed attendance unless the owner picks before.
   if (isBirthdayFamilyTriggerType(triggerType)) return "after";
   if (isImmediateDelayTrigger(triggerType)) return "after";
+  if (isNthWorkoutTriggerType(triggerType)) return "after";
   return allowsDelayBefore(triggerType) ? "before" : "after";
 }
 
@@ -985,7 +993,8 @@ export function formatDelayLabel(
     return `${Math.max(1, days)} ימים מההצטרפות`;
   }
   if (isNthWorkoutTriggerType(type)) {
-    return `אימון מספר ${Math.max(1, days)}`;
+    const n = Math.max(1, days);
+    return direction === "before" ? `לפני אימון מספר ${n}` : `אחרי אימון מספר ${n}`;
   }
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;

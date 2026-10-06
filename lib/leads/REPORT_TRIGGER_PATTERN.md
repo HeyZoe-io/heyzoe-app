@@ -364,10 +364,15 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Audience: new members — join within `lookback_days` (1–30, NULL = 30).
   Eligible only if `member_since >= bookings fetch fromDate` (avoid undercount).
 - **N** lives in `delay_days` (default 3, min 1). **Window** lives in
-  `template_triggers.lookback_days`. Fire when **`yesCount >= N`**, then log
-  once (not strict `=== N` — catches a missed cron or two workouts in one day).
+  `template_triggers.lookback_days`. Direction is `delay_direction` (default
+  **after**). After fires when **`yesCount >= N`**, then logs once (not strict
+  `=== N` — catches a missed cron or two workouts in one day). Before fires
+  once when completed attendance is **N−1** and the next booking is tomorrow
+  or still later today; a class whose time already passed does not send.
+  First enable still seeds people already at/past N, and a before rule still
+  evaluates upcoming classes the same morning.
 - Catalog: automatic × members, **`uniquePerBusiness: false`** (N=3 and N=10
-  coexist). Label **«אימון מספר N (לקוח חדש)»**. Delay label **«אימון מספר N»**.
+  coexist). Label **«אימון מספר N (לקוח חדש)»**. Delay label **«אחרי/לפני אימון מספר N»**.
   Preset **MARKETING**, no button. Slots `first_name`, `workout_n` (`{{2}}` is
   dynamic N at send time — same Meta template for N=3 and N=10). Body uses
   **«לאחרונה»** (not «אתמול») because the trigger is count-based, not day-after.
@@ -379,6 +384,8 @@ Replaces legacy `trial_attended` (clean cut — no active rules in production at
 - Cron: isolated try/catch on `arbox-daily-triggers` **after** bookings
   prefetch. Reuses `activeMembershipsReport` (birthday/C8) + past
   `bookingsReport` (missed/gap/C5–C6). C7-only: +1 memberships +1 bookings (30d).
+  A live before rule reuses the shared future window (`includeToday`) or adds
+  one future bookings GET that day. A failed future fetch does not send before.
 - Migration: `supabase/arbox_nth_workout_sync_log.sql` (run before deploy).
 
 ## Trial-class reminder (`trial_reminder`)
