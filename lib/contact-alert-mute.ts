@@ -128,7 +128,7 @@ export async function recordTemplateSendRef(input: {
   if (error && !/duplicate|unique|23505/i.test(error.message)) {
     if (muteTableMissing(error.message)) {
       console.error(
-        "[contact-alert-mute] send ref table missing — run supabase/contact_alert_mutes.sql",
+        "[contact-alert-mute] send ref table missing — run supabase/wa_template_send_refs.sql",
         error.message
       );
       return;
@@ -158,7 +158,7 @@ export async function loadTemplateSendRef(
   if (error) {
     if (muteTableMissing(error.message)) {
       console.error(
-        "[contact-alert-mute] send ref table missing — run supabase/contact_alert_mutes.sql",
+        "[contact-alert-mute] send ref table missing — run supabase/wa_template_send_refs.sql",
         error.message
       );
       return null;

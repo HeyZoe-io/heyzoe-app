@@ -1,5 +1,7 @@
 -- Manual: run in the Supabase SQL editor.
--- Lets a trigger claim status 'sending' before the WhatsApp call.
+-- Lets a trigger claim status 'sending' before the WhatsApp call,
+-- and store a Meta failure as 'failed' (retried). Until this runs, a claim
+-- is 'sent' with reason 'sending', and a Meta failure stays 'pending'.
 -- Until this runs, the app stores the same claim as status 'sent' with reason 'sending'.
 -- Either form is not retried. The daily admin summary lists both as «נשאר באמצע שליחה».
 
@@ -35,7 +37,7 @@ begin
         execute format('alter table public.%I drop constraint %I', tbl, r.conname);
       end loop;
       execute format(
-        'alter table public.%I add constraint %I check (status in (%L, %L, %L, %L, %L, %L, %L))',
+        'alter table public.%I add constraint %I check (status in (%L, %L, %L, %L, %L, %L, %L, %L))',
         tbl,
         tbl || '_status_check',
         'pending',
@@ -44,7 +46,8 @@ begin
         'abandoned',
         'no_phone',
         'skipped',
-        'sending'
+        'sending',
+        'failed'
       );
     exception
       when others then

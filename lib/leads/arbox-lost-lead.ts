@@ -439,6 +439,13 @@ async function upsertLostLeadSyncLog(input: {
       onConflict: "business_id,trigger_id,lead_id,lost_date",
     }));
   }
+  if (error && row.status === "failed" && /23514|check constraint/i.test(error.message)) {
+    row.status = "pending";
+    row.reason = "failed";
+    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
+      onConflict: "business_id,trigger_id,lead_id,lost_date",
+    }));
+  }
   if (error) {
     console.error("[leads/arbox-lost-lead] sync_log upsert failed:", error.message);
     return { ok: false };

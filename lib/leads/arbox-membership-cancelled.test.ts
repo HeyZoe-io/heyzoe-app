@@ -265,7 +265,7 @@ function rule(
     dispatch: "send_failed",
     attemptsSoFar: 0,
   });
-  assert.deepEqual(recovered, { attempts: 1, status: "pending", hitCap: false });
+  assert.deepEqual(recovered, { attempts: 1, status: "failed", hitCap: false });
   recovered = nextCancellationSyncLogAfterDispatch({
     dispatch: "immediate",
     attemptsSoFar: recovered.attempts,

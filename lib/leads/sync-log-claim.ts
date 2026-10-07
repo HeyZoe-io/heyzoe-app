@@ -109,7 +109,7 @@ async function filteredUpdate(
   for (const [column, value] of input.filters) {
     query = query.eq(column, value);
   }
-  const { data, error } = await query.in("status", ["pending", "skipped"]).select("status");
+  const { data, error } = await query.in("status", ["pending", "skipped", "failed"]).select("status");
   if (!error) return { kind: "ok", won: Array.isArray(data) && data.length > 0 };
   if (isMissingSyncLogReasonColumn(error.message)) return { kind: "missing_reason" };
   if (classify(error) === "check") return { kind: "check" };

@@ -196,7 +196,7 @@ import {
     dispatch: "send_failed",
     attemptsSoFar: 0,
   });
-  assert.equal(fail1.status, "pending");
+  assert.equal(fail1.status, "failed");
   assert.equal(fail1.attempts, 1);
 
   const fail3 = nextCancellationSyncLogAfterDispatch({

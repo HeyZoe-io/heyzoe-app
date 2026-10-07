@@ -20,6 +20,7 @@ import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification"
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
@@ -758,11 +759,39 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
         });
         continue;
       }
+      const heldByOther = new Set<string>();
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
-        send: (rule) =>
-          dispatchSessionsExpiringTemplate({
+        send: async (rule) => {
+          if (!isArboxDailyDryRun()) {
+            const claimed = await claimSyncLogBeforeSend({
+              admin: input.admin,
+              table: "arbox_sessions_expiring_sync_log",
+              row: {
+                business_id: businessId,
+                trigger_id: rule.id,
+                user_id: userId,
+                start_date: startDateYmd,
+                end_date: endDateYmd,
+                contact_id: sendContact.id,
+                processed_at: now.toISOString(),
+                attempts: 0,
+              },
+              filters: [
+                ["business_id", businessId],
+                ["trigger_id", rule.id],
+                ["user_id", userId],
+                ["start_date", startDateYmd],
+                ["end_date", endDateYmd],
+              ],
+            });
+            if (claimed !== "won") {
+              heldByOther.add(rule.id);
+              return "skipped" as const;
+            }
+          }
+          return dispatchSessionsExpiringTemplate({
             admin: input.admin,
             businessId,
             businessSlug,
@@ -784,7 +813,8 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
                   send.dispatch === "send_failed"
                 ? send.dispatch
                 : "skipped"
-          ),
+          );
+        },
       });
 
       summary.processed += 1;
@@ -795,6 +825,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
 
       if (sendDispatch === "skipped" || sendDispatch === "immediate" || sendDispatch === "deferred") {
         for (const rule of pendingRules) {
+          if (heldByOther.has(rule.id)) continue;
           const { error: logErr } = await input.admin.from("arbox_sessions_expiring_sync_log").upsert(
             {
               business_id: businessId,
@@ -804,6 +835,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
               end_date: endDateYmd,
               contact_id: sendContact.id,
               processed_at: now.toISOString(),
+              status: "sent",
             },
             { onConflict: "business_id,trigger_id,user_id,start_date,end_date" }
           );

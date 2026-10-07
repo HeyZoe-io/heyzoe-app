@@ -30,6 +30,7 @@ import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/templa
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import {
   loadEnabledBirthdayFormerTemplateTriggers,
   loadEnabledBirthdayTemplateTriggers,
@@ -811,11 +812,37 @@ export async function syncArboxBirthdaysForBusiness(input: {
         });
         continue;
       }
+      const heldByOther = new Set<string>();
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
-        send: (rule) =>
-          sendBirthdayTemplate({
+        send: async (rule) => {
+          if (!isArboxDailyDryRun()) {
+            const claimed = await claimSyncLogBeforeSend({
+              admin: input.admin,
+              table: "arbox_birthday_sync_log",
+              row: {
+                business_id: businessId,
+                trigger_id: rule.id,
+                user_id: userId,
+                birthday_year: syncYear,
+                contact_id: sendContact.id,
+                processed_at: now.toISOString(),
+                attempts: 0,
+              },
+              filters: [
+                ["business_id", businessId],
+                ["trigger_id", rule.id],
+                ["user_id", userId],
+                ["birthday_year", syncYear],
+              ],
+            });
+            if (claimed !== "won") {
+              heldByOther.add(rule.id);
+              return "skipped" as const;
+            }
+          }
+          return sendBirthdayTemplate({
             admin: input.admin,
             businessId,
             businessSlug,
@@ -836,7 +863,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
             send.dispatch === "send_failed"
               ? send.dispatch
               : "skipped"
-          ),
+          );
+        },
       });
 
       summary.processed += 1;
@@ -852,12 +880,33 @@ export async function syncArboxBirthdaysForBusiness(input: {
       else if (sendDispatch === "gated") summary.gated += 1;
       else if (sendDispatch === "send_failed") summary.errors += 1;
 
-      if (
+      if (sendDispatch === "send_failed") {
+        for (const rule of pendingRules) {
+          if (heldByOther.has(rule.id)) continue;
+          const marked = await upsertOptionalReason(
+            input.admin,
+            "arbox_birthday_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              birthday_year: syncYear,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+              status: "failed",
+              attempts: 1,
+            },
+            "business_id,trigger_id,user_id,birthday_year"
+          );
+          if (!marked.ok) summary.errors += 1;
+        }
+      } else if (
         sendDispatch === "skipped" ||
         sendDispatch === "immediate" ||
         sendDispatch === "deferred"
       ) {
         for (const rule of pendingRules) {
+          if (heldByOther.has(rule.id)) continue;
           const { error: logErr } = await input.admin.from("arbox_birthday_sync_log").upsert(
             {
               business_id: businessId,
@@ -866,6 +915,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
               birthday_year: syncYear,
               contact_id: sendContact.id,
               processed_at: now.toISOString(),
+              status: "sent",
             },
             { onConflict: "business_id,trigger_id,user_id,birthday_year" }
           );

@@ -18,6 +18,7 @@
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import {
   decideActivationEventAction,
   eventBeforeRuleActivation,
@@ -1011,6 +1012,30 @@ export async function syncArboxNthWorkoutForBusiness(input: {
 
         const templateName = String(rule.template_name ?? "").trim();
         if ((await companionGate.before(templateName)) === "skip") continue;
+
+        if (!isArboxDailyDryRun()) {
+          const claimed = await claimSyncLogBeforeSend({
+            admin: input.admin,
+            table: "arbox_nth_workout_sync_log",
+            row: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: member.userId,
+              contact_id: resolved.contact?.id ?? null,
+              processed_at: nowIso,
+              attempts: existingAttempts,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["user_id", member.userId],
+            ],
+          });
+          if (claimed !== "won") {
+            if (claimed === "error") summary.errors += 1;
+            continue;
+          }
+        }
 
         const send = await dispatchNthWorkoutTemplate({
           admin: input.admin,

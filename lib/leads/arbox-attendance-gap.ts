@@ -25,6 +25,7 @@ import {
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import {
   missedClassOccurrenceKey,
   missedOccurrenceYesCount,
@@ -1647,10 +1648,40 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           continue;
         }
 
+        const heldByOther = new Set<string>();
         const sendDispatch = await runCompanionTemplateSends({
           rules: pendingRules,
           dryRun: isArboxDailyDryRun(),
           send: async (rule, ctx) => {
+            if (!isArboxDailyDryRun()) {
+              const claimed = await claimSyncLogBeforeSend({
+                admin: input.admin,
+                table: "arbox_attendance_gap_sync_log",
+                row: {
+                  business_id: businessId,
+                  trigger_id: rule.id,
+                  user_id: state.userId,
+                  variant: ATTENDANCE_GAP_SYNC_VARIANT,
+                  gap_start_date: state.lastYesYmd,
+                  tier,
+                  contact_id: sendContact.id,
+                  processed_at: nowIso,
+                  attempts: attemptsSoFar,
+                },
+                filters: [
+                  ["business_id", businessId],
+                  ["trigger_id", rule.id],
+                  ["user_id", state.userId],
+                  ["variant", ATTENDANCE_GAP_SYNC_VARIANT],
+                  ["gap_start_date", state.lastYesYmd],
+                  ["tier", tier],
+                ],
+              });
+              if (claimed !== "won") {
+                heldByOther.add(rule.id);
+                return "skipped";
+              }
+            }
             const send = await dispatchGapTemplate({
               admin: input.admin,
               businessId,
@@ -1726,6 +1757,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           attemptsSoFar,
         });
         for (const rule of pendingRules) {
+        if (heldByOther.has(rule.id)) continue;
         await upsertGapSyncLog({
           admin: input.admin,
           businessId,

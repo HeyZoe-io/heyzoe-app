@@ -1,4 +1,5 @@
 import { noteDuplicateBlockAlarm } from "@/lib/leads/duplicate-block-alarm";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 
 /** A dedup read or claim failed. Callers must not send. */
 export function logDedupBlockedSend(input: {
@@ -53,21 +54,14 @@ export async function claimPendingSyncLog(input: {
   existingAttempts: number | null;
   nowIso: string;
 }): Promise<"won" | "lost" | "error"> {
-  if (input.existingAttempts == null) {
-    const { error } = await input.admin.from(input.table).insert(input.insertRow);
-    return claimInsertOutcome(error);
-  }
-  let query = input.admin.from(input.table).update({
-    attempts: input.existingAttempts + 1,
-    processed_at: input.nowIso,
+  const row = { ...input.insertRow };
+  delete row.status;
+  delete row.reason;
+  if (input.existingAttempts != null) row.attempts = input.existingAttempts;
+  return claimSyncLogBeforeSend({
+    admin: input.admin as never,
+    table: input.table,
+    row,
+    filters: input.filters,
   });
-  for (const [column, value] of input.filters) {
-    query = query.eq(column, value);
-  }
-  const { data, error } = await query
-    .eq("status", "pending")
-    .eq("attempts", input.existingAttempts)
-    .select("status");
-  if (error) return "error";
-  return Array.isArray(data) && data.length > 0 ? "won" : "lost";
 }

@@ -112,7 +112,7 @@ async function markScheduledSend(
     .from("scheduled_template_sends")
     .update(patch)
     .eq("id", id)
-    .eq("status", "pending");
+    .in("status", ["pending", "sending"]);
   if (error) {
     console.error("[cron/scheduled-template-sends] status update failed:", error.message, {
       id,
@@ -633,6 +633,17 @@ async function drainScheduledTemplateSends() {
 
     for (const row of rows) {
       try {
+        const claimed = await admin
+          .from("scheduled_template_sends")
+          .update({ status: "sending", updated_at: new Date().toISOString() })
+          .eq("id", row.id)
+          .eq("status", "pending")
+          .select("id");
+        if (claimed.error && /check constraint|23514/i.test(claimed.error.message)) {
+          console.error("[cron/scheduled-template-sends] sending status not allowed yet", claimed.error.message);
+        } else if (claimed.error || !claimed.data?.length) {
+          continue;
+        }
         const outcome = await dispatchOneScheduledSend(admin, row, now);
         if (outcome === "sent") sent += 1;
         else if (outcome === "failed") failed += 1;

@@ -101,7 +101,8 @@ export type CancellationSyncLogStatus =
   | "abandoned"
   | "no_phone"
   | "skipped"
-  | "sending";
+  | "sending"
+  | "failed";
 
 const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] = [
   "seeded",
@@ -120,8 +121,9 @@ export function isCancellationSyncLogTerminal(status: string | null | undefined)
 
 /** No row or `pending` → try send. Terminal statuses are done. */
 export function shouldRetryCancellationSyncLog(status: string | null | undefined): boolean {
-  if (status == null || String(status).trim() === "") return true;
-  return String(status).trim() === "pending";
+  const value = String(status ?? "").trim();
+  if (!value) return true;
+  return value === "pending" || value === "failed";
 }
 
 export function parseCancellationSyncAttempts(raw: unknown): number {
@@ -154,7 +156,7 @@ export function nextCancellationSyncLogAfterDispatch(input: {
   const cap = input.cap ?? ARBOX_SYNC_SEND_ATTEMPT_CAP;
   const attempts = soFar + 1;
   if (attempts >= cap) return { attempts, status: "abandoned", hitCap: true };
-  return { attempts, status: "pending", hitCap: false };
+  return { attempts, status: "failed", hitCap: false };
 }
 
 /** One warn per business run — not per row — when send_failed hits the cap. */

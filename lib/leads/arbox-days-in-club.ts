@@ -14,6 +14,7 @@
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import {
   addCalendarDaysYmd,
   decideActivationEventAction,
@@ -708,6 +709,32 @@ export async function syncArboxDaysInClubForBusiness(input: {
 
         const templateName = String(rule.template_name ?? "").trim();
         if ((await companionGate.before(templateName)) === "skip") continue;
+
+        if (!isArboxDailyDryRun()) {
+          const claimed = await claimSyncLogBeforeSend({
+            admin: input.admin,
+            table: "arbox_days_in_club_sync_log",
+            row: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: member.userId,
+              member_since: member.memberSinceYmd,
+              contact_id: resolved.contact?.id ?? null,
+              processed_at: nowIso,
+              attempts: existingAttempts,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["user_id", member.userId],
+              ["member_since", member.memberSinceYmd],
+            ],
+          });
+          if (claimed !== "won") {
+            if (claimed === "error") summary.errors += 1;
+            continue;
+          }
+        }
 
         const send = await dispatchDaysInClubTemplate({
           admin: input.admin,

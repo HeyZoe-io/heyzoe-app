@@ -23,6 +23,23 @@ export async function upsertOptionalReason(
     console.error(`[${table}] sync_log upsert failed:`, second.error.message);
     return { ok: false };
   }
+  if (payload.status === "failed" && isSyncLogStatusCheck(first.error)) {
+    const fallback = await admin.from(table).upsert(
+      { ...payload, status: "pending", reason: payload.reason ?? "failed" },
+      { onConflict }
+    );
+    if (!fallback.error) return { ok: true };
+    if (isMissingSyncLogReasonColumn(fallback.error.message)) {
+      const rest = { ...payload };
+      delete rest.reason;
+      const bare = await admin.from(table).upsert({ ...rest, status: "pending" }, { onConflict });
+      if (!bare.error) return { ok: true };
+    }
+  }
   console.error(`[${table}] sync_log upsert failed:`, first.error.message);
   return { ok: false };
+}
+
+function isSyncLogStatusCheck(error: { code?: string; message?: string }): boolean {
+  return String(error.code ?? "") === "23514" || /check constraint/i.test(String(error.message ?? ""));
 }
