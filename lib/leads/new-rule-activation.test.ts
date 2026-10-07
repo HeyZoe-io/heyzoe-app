@@ -6,6 +6,7 @@ import {
   membershipCancelledActivationAction,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { nthWorkoutAfterDueAction } from "@/lib/leads/arbox-nth-workout";
+import { postTrialSeedAction } from "@/lib/leads/arbox-post-trial-followup";
 import {
   isTrialReminderDue,
   trialReminderNormalSendAt,
@@ -154,6 +155,34 @@ function clockAction(sendAt: Date | null): "seed" | "send" {
   assert.equal(
     isTrialReminderDue({ classDateYmd: "2026-10-11", todayYmd: today, delayDays: 1 }),
     false
+  );
+}
+
+{
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: "2026-10-06",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "seed"
+  );
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: "2026-10-07",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "send",
+    "C6 due today still sends on first soft-seed after 09:00"
+  );
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: today,
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "later"
   );
 }
 
