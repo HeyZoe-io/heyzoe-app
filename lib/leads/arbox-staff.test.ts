@@ -6,8 +6,11 @@ import {
   RETENTION_STAFF_TRIGGERS,
   fetchArboxStaffMembers,
   isRetentionStaff,
+  isTaughtInWindow,
   parseStaffMembers,
+  qualifyingStaffPeople,
   staffIndexFromPeople,
+  type StaffPerson,
   syncArboxStaffFlags,
   triggerSkipsStaff,
 } from "@/lib/leads/arbox-staff";
@@ -34,6 +37,35 @@ assert.equal(isRetentionStaff(index, { phone: "972501234567" }), true);
 assert.equal(isRetentionStaff(index, { userId: 1, phone: "972509999999" }), false);
 assert.equal(isRetentionStaff(staffIndexFromPeople(inactiveCoach, false), { userId: 7928151 }), false);
 assert.equal(isRetentionStaff(null, { userId: 7928151 }), false);
+
+const today = "2026-10-08";
+const from = "2026-09-08";
+const windowBase = { todayYmd: today, nowMinutes: 9 * 60, fromYmd: from };
+assert.equal(isTaughtInWindow({ ...windowBase, classDate: "2026-09-28" }), true);
+assert.equal(isTaughtInWindow({ ...windowBase, classDate: "2026-08-09" }), false);
+assert.equal(isTaughtInWindow({ ...windowBase, classDate: today, classTime: "18:00" }), false);
+assert.equal(isTaughtInWindow({ ...windowBase, classDate: today, classTime: "08:00" }), true);
+
+const roster: StaffPerson[] = [
+  { userId: 1, phone: "972501111111", name: "פעיל", active: true },
+  { userId: 2, phone: "972502222222", name: "לימד לאחרונה", active: false },
+  { userId: 3, phone: "972503333333", name: "לימד מזמן", active: false },
+  { userId: 4, phone: "972504444444", name: "לא לימד", active: false },
+  { userId: 5, phone: "972505555555", name: "לפי טלפון", active: false },
+];
+const qualifying = qualifyingStaffPeople(roster, [
+  { userId: 2, phone: null },
+  { userId: null, phone: "0505555555" },
+]);
+assert.deepEqual(
+  qualifying.map((person) => person.userId),
+  [1, 2, 5]
+);
+const narrow = staffIndexFromPeople(qualifying, true);
+assert.equal(isRetentionStaff(narrow, { userId: 1 }), true);
+assert.equal(isRetentionStaff(narrow, { userId: 2 }), true);
+assert.equal(isRetentionStaff(narrow, { userId: 3 }), false);
+assert.equal(isRetentionStaff(narrow, { userId: 4 }), false);
 
 for (const trigger of RETENTION_STAFF_TRIGGERS) {
   assert.equal(triggerSkipsStaff(trigger), true, trigger);

@@ -1,11 +1,13 @@
 /**
  * Staff roster: one GET /v3/users/allStaffMembers per business on the morning run.
- * user_id + phone. Active and inactive are both staff: some current coaches are active=0.
- * A failed or page-capped fetch does not clear contacts.arbox_is_staff.
- * Until that column exists, the in-run roster still excludes staff and the flag write is skipped.
+ * A person counts as staff when active=1, or when active=0 and they taught a class
+ * in the last 30 days. Teaching comes from arbox_class_trainer_snapshot (already
+ * stored by the class-cancel cron). No extra Arbox call. A short snapshot is used
+ * as-is; inactive people who are not in it stay regular members.
+ * A failed staff fetch or a failed snapshot read does not clear contacts.arbox_is_staff.
  *
- * IO: 1 GET per business per morning (a second page only if the first returns 500).
- * At 10x studios that is about 10 calls a day. No Claude, no WhatsApp.
+ * IO: 1 Arbox GET per business per morning, plus one indexed snapshot read.
+ * At 10x studios that is about 10 Arbox calls a day. No Claude, no WhatsApp.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -15,6 +17,14 @@ const PAGE_LIMIT = 500;
 const MAX_PAGES = 3;
 const PHONE_CHUNK = 80;
 const ID_CHUNK = 200;
+const TAUGHT_LOOKBACK_DAYS = 30;
+const TRAINER_SNAPSHOT_TABLE = "arbox_class_trainer_snapshot";
+const ISRAEL_TZ = "Asia/Jerusalem";
+
+export type TaughtSighting = {
+  userId: number | null;
+  phone: string | null;
+};
 
 export const RETENTION_STAFF_TRIGGERS = [
   "attendance_gap",
@@ -93,6 +103,174 @@ export function parseStaffMembers(rows: readonly Record<string, unknown>[]): Sta
     });
   }
   return people;
+}
+
+function israelYmd(now: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: ISRAEL_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function israelMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ISRAEL_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "0";
+  const hour = Number(get("hour"));
+  return (hour === 24 ? 0 : hour) * 60 + Number(get("minute"));
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const [year, month, day] = ymd.split("-").map((part) => Number(part));
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+
+function classTimeMinutes(classTime: string | null): number | null {
+  const match = /^(\d{1,2}):(\d{2})/.exec(String(classTime ?? "").trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+/** A class counts as taught only after it has started, inside the lookback. */
+export function isTaughtInWindow(input: {
+  classDate: string;
+  classTime?: string | null;
+  todayYmd: string;
+  nowMinutes: number;
+  fromYmd: string;
+}): boolean {
+  const classDate = String(input.classDate ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(classDate)) return false;
+  if (classDate < input.fromYmd || classDate > input.todayYmd) return false;
+  if (classDate < input.todayYmd) return true;
+  const minutes = classTimeMinutes(input.classTime ?? null);
+  return minutes != null && minutes <= input.nowMinutes;
+}
+
+/**
+ * active=1, or inactive and present in the taught set (user id, else phone).
+ * Callers pass only classes already inside the 30-day window.
+ */
+export function qualifyingStaffPeople(
+  roster: readonly StaffPerson[],
+  teachers: readonly TaughtSighting[]
+): StaffPerson[] {
+  const ids = new Set<number>();
+  const phones = new Set<string>();
+  for (const teacher of teachers) {
+    if (teacher.userId != null && teacher.userId > 0) ids.add(teacher.userId);
+    const phone = normalizePhone(teacher.phone);
+    if (phone) phones.add(phone);
+  }
+  return roster.filter((person) => {
+    if (person.active) return true;
+    if (ids.has(person.userId)) return true;
+    return Boolean(person.phone && phoneMatches(person.phone, phones));
+  });
+}
+
+export type TaughtWindow = {
+  ok: true;
+  teachers: TaughtSighting[];
+  fromYmd: string;
+  toYmd: string;
+  earliestPast: string | null;
+  latestPast: string | null;
+  covers30Days: boolean;
+};
+
+export async function loadTaughtStaffWindow(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  now: Date
+): Promise<TaughtWindow | { ok: false; error: string }> {
+  const toYmd = israelYmd(now);
+  const fromYmd = addDaysYmd(toYmd, -TAUGHT_LOOKBACK_DAYS);
+  const nowMinutes = israelMinutes(now);
+  const oldest = await admin
+    .from(TRAINER_SNAPSHOT_TABLE)
+    .select("class_date")
+    .eq("business_id", businessId)
+    .lte("class_date", toYmd)
+    .order("class_date", { ascending: true })
+    .limit(1);
+  if (oldest.error) {
+    return { ok: false, error: oldest.error.message };
+  }
+  const newest = await admin
+    .from(TRAINER_SNAPSHOT_TABLE)
+    .select("class_date")
+    .eq("business_id", businessId)
+    .lte("class_date", toYmd)
+    .order("class_date", { ascending: false })
+    .limit(1);
+  if (newest.error) return { ok: false, error: newest.error.message };
+  const earliestPast = oldest.data?.[0]
+    ? String((oldest.data[0] as { class_date: unknown }).class_date).slice(0, 10)
+    : null;
+  const latestPast = newest.data?.[0]
+    ? String((newest.data[0] as { class_date: unknown }).class_date).slice(0, 10)
+    : null;
+
+  const seen = new Set<string>();
+  const teachers: TaughtSighting[] = [];
+  for (let from = 0; ; from += 500) {
+    const { data, error } = await admin
+      .from(TRAINER_SNAPSHOT_TABLE)
+      .select("staff_user_id, phone, class_date, class_time")
+      .eq("business_id", businessId)
+      .gte("class_date", fromYmd)
+      .lte("class_date", toYmd)
+      .range(from, from + 499);
+    if (error) return { ok: false, error: error.message };
+    for (const row of data ?? []) {
+      const record = row as {
+        staff_user_id?: unknown;
+        phone?: unknown;
+        class_date?: unknown;
+        class_time?: unknown;
+      };
+      if (
+        !isTaughtInWindow({
+          classDate: String(record.class_date ?? ""),
+          classTime: record.class_time == null ? null : String(record.class_time),
+          todayYmd: toYmd,
+          nowMinutes,
+          fromYmd,
+        })
+      ) {
+        continue;
+      }
+      const userIdRaw = Number(record.staff_user_id);
+      const userId = Number.isFinite(userIdRaw) && userIdRaw > 0 ? Math.trunc(userIdRaw) : null;
+      const phone = normalizePhone(record.phone);
+      const key = `${userId ?? ""}|${phone ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      teachers.push({ userId, phone });
+    }
+    if (!data || data.length < 500) break;
+  }
+  return {
+    ok: true,
+    teachers,
+    fromYmd,
+    toYmd,
+    earliestPast,
+    latestPast,
+    covers30Days: earliestPast != null && earliestPast <= fromYmd,
+  };
 }
 
 export function staffIndexFromPeople(people: readonly StaffPerson[], ready: boolean): StaffIndex {

@@ -17,6 +17,8 @@ import { memberFlagReportIsComplete, syncArboxMemberFlags } from "@/lib/leads/ar
 import {
   fetchArboxStaffMembers,
   loadStoredStaffIndex,
+  loadTaughtStaffWindow,
+  qualifyingStaffPeople,
   staffIndexFromPeople,
   syncArboxStaffFlags,
 } from "@/lib/leads/arbox-staff";
@@ -340,23 +342,40 @@ export async function runArboxDailyTriggersForBusiness(input: {
       boxId: business.crm_box_id,
     });
     if (roster.ok) {
-      const index = staffIndexFromPeople(roster.people, true);
-      if (staffCtx && staffCtx.businessId === business.id) staffCtx.staffIndex = index;
-      const flags = await syncArboxStaffFlags({
-        admin,
-        businessId: business.id,
-        people: roster.people,
-        reportComplete: true,
-        now,
-      });
-      console.info("[arbox-staff] roster", {
-        slug: business.slug,
-        pages: roster.pages,
-        count: roster.people.length,
-        active: roster.people.filter((person) => person.active).length,
-        names: roster.people.map((person) => `${person.userId} ${person.name}`.trim()),
-        ...flags,
-      });
+      const taught = await loadTaughtStaffWindow(admin, business.id, now);
+      if (!taught.ok) {
+        console.error("[arbox-staff] trainer window failed — keep previous flags", {
+          slug: business.slug,
+          error: taught.error,
+        });
+      } else {
+        const qualifying = qualifyingStaffPeople(roster.people, taught.teachers);
+        const qualifyingIds = new Set(qualifying.map((person) => person.userId));
+        const released = roster.people.filter((person) => !qualifyingIds.has(person.userId));
+        const index = staffIndexFromPeople(qualifying, true);
+        if (staffCtx && staffCtx.businessId === business.id) staffCtx.staffIndex = index;
+        const flags = await syncArboxStaffFlags({
+          admin,
+          businessId: business.id,
+          people: qualifying,
+          reportComplete: true,
+          now,
+        });
+        console.info("[arbox-staff] roster", {
+          slug: business.slug,
+          pages: roster.pages,
+          roster_count: roster.people.length,
+          qualifying: qualifying.length,
+          active: roster.people.filter((person) => person.active).length,
+          taught: taught.teachers.length,
+          coverage_from: taught.earliestPast,
+          coverage_to: taught.latestPast,
+          covers_30_days: taught.covers30Days,
+          released: released.map((person) => `${person.userId} ${person.name}`.trim()),
+          names: qualifying.map((person) => `${person.userId} ${person.name}`.trim()),
+          ...flags,
+        });
+      }
     } else {
       console.error("[arbox-staff] fetch failed — keep previous flags", {
         slug: business.slug,
