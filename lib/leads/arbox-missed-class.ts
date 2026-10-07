@@ -36,7 +36,11 @@ import {
   trialAttendedLookbackDays,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
-import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
+import {
+  postClassNormalSendAt,
+  prepareTrialBookingClasses,
+  reclassifiedPostClassPastDue,
+} from "@/lib/leads/trial-booking-class";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -802,6 +806,56 @@ export async function syncArboxMissedClassForBusiness(input: {
         summary.already += 1;
         continue;
       }
+      let rulesToSend = pendingRules;
+      if (kind === "missed_trial" && classRun?.ready) {
+        const memberships = await classRun.membershipsFor(userId);
+        const keep: typeof pendingRules = [];
+        const todayYmd = formatDateYmdIsrael(now);
+        for (const rule of pendingRules) {
+          const sendAt = postClassNormalSendAt({
+            triggerType: rule.trigger_type,
+            delayDays: Number(rule.delay_days) || 0,
+            delayDirection: rule.delay_direction,
+            classDateYmd,
+            classTime,
+            now,
+          });
+          if (
+            reclassifiedPostClassPastDue({
+              memberships,
+              trialTypeIds,
+              todayYmd,
+              sendAt,
+              now,
+            })
+          ) {
+            const up = await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: null,
+              attempts: 0,
+              status: "seeded",
+              nowIso,
+            });
+            if (!up.ok) summary.errors += 1;
+            console.info("[trial-class] reclassified past due, seeded not sent", {
+              businessId,
+              trigger_type: rule.trigger_type,
+              user_id: userId,
+              class_date: classDateYmd,
+            });
+            continue;
+          }
+          keep.push(rule);
+        }
+        rulesToSend = keep;
+      }
+      if (!rulesToSend.length) continue;
       const attemptsSoFar = 0;
 
       const resolved = await resolveOrCreateContact({
@@ -812,7 +866,7 @@ export async function syncArboxMissedClassForBusiness(input: {
       });
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        for (const rule of pendingRules) {
+        for (const rule of rulesToSend) {
           await upsertMissedSyncLog({
             admin: input.admin,
             businessId,
@@ -848,7 +902,7 @@ export async function syncArboxMissedClassForBusiness(input: {
             keys: activeKeys,
           })
         ) {
-          for (const rule of pendingRules) {
+          for (const rule of rulesToSend) {
             await upsertMissedSyncLog({
               admin: input.admin,
               businessId,
@@ -888,7 +942,7 @@ export async function syncArboxMissedClassForBusiness(input: {
           dispatch: "skipped",
           reason: "retention_daily_cap",
         });
-        for (const rule of pendingRules) {
+        for (const rule of rulesToSend) {
           await closeRetentionEvent({
             admin: input.admin,
             businessId,
@@ -924,7 +978,7 @@ export async function syncArboxMissedClassForBusiness(input: {
       }
 
       const sendDispatch = await runCompanionTemplateSends({
-        rules: pendingRules,
+        rules: rulesToSend,
         dryRun: isArboxDailyDryRun(),
         send: async (rule, ctx) => {
           const send = await dispatchMissedTemplate({
@@ -1016,7 +1070,7 @@ export async function syncArboxMissedClassForBusiness(input: {
         dispatch: mapped,
         attemptsSoFar,
       });
-      for (const rule of pendingRules) {
+      for (const rule of rulesToSend) {
         await upsertMissedSyncLog({
           admin: input.admin,
           businessId,

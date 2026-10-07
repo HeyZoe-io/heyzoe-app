@@ -9,6 +9,8 @@
  * is not fetched again until a pre-class send.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
+import { decideFilterScopeAction } from "@/lib/rule-activation";
+import { computeDueAt } from "@/lib/scheduled-template-sends";
 import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
 import {
   normalizeTrialClassTime,
@@ -70,9 +72,69 @@ export function trialProductEndedRecently(endedOn: string | null | undefined, to
 }
 
 /**
- * a. Active product id in the trial filter -> trial.
- * b. Any other active product that is not Arbox type "trial" -> not_trial.
- * c. No active product, but a filter id or type "trial" has no end date, a future end date, or ended within 30 days -> trial.
+ * Intro packages Lior kept out of the filters. They count as trial only if Arbox
+ * types them "trial"; that check fills this set before send. Empty means none of
+ * them are type "trial", so rule (a) does not pick them up.
+ */
+export const EXCLUDED_TRIAL_PACKAGE_IDS = new Set<number>();
+
+/**
+ * Business-level ids added with this policy. The legacy pass ignores them so a
+ * booking that becomes trial only because of the new filter is treated as newly
+ * in scope for the no-late-send gate.
+ */
+const FILTER_IDS_ADDED_WITH_THIS_POLICY = new Set([627989, 552510, 347416, 481215, 516023]);
+
+function trialIdSet(ids: readonly number[], dropAdded: boolean): Set<number> {
+  return new Set(
+    ids
+      .map((id) => Math.trunc(id))
+      .filter((id) => id > 0 && !(dropAdded && FILTER_IDS_ADDED_WITH_THIS_POLICY.has(id)))
+  );
+}
+
+function classifyWithOrder(
+  input: {
+    memberships: MembershipSnap[] | null;
+    trialTypeIds: readonly number[];
+    todayYmd: string;
+  },
+  order: "trial_type_wins" | "paid_wins"
+): { classification: TrialBookingClass; reason: string } {
+  if (input.memberships == null) return { classification: "unknown", reason: "memberships_api_error" };
+  const ids = trialIdSet(input.trialTypeIds, order === "paid_wins");
+  const inForce = input.memberships.filter((row) => row.inForce);
+  const excluded = (row: MembershipSnap) => row.id != null && EXCLUDED_TRIAL_PACKAGE_IDS.has(row.id);
+  const inFilter = (row: MembershipSnap) => row.id != null && ids.has(row.id) && !excluded(row);
+  const trialProduct = (row: MembershipSnap) => !excluded(row) && (inFilter(row) || isTrialType(row.type));
+  if (order === "trial_type_wins") {
+    if (inForce.some(trialProduct)) return { classification: "trial", reason: "active_trial_product" };
+    if (inForce.length > 0) return { classification: "not_trial", reason: "active_paid_or_service" };
+  } else {
+    if (inForce.some(inFilter)) return { classification: "trial", reason: "active_trial_product" };
+    if (inForce.some((row) => !inFilter(row) && !isTrialType(row.type))) {
+      return { classification: "not_trial", reason: "active_paid_or_service" };
+    }
+    if (inForce.some((row) => isTrialType(row.type) && !excluded(row))) {
+      return { classification: "trial", reason: "active_trial_product" };
+    }
+  }
+  const recentTrial = input.memberships.some((row) => {
+    if (!trialProduct(row)) return false;
+    if (!row.endedOn) return true;
+    return trialProductEndedRecently(row.endedOn, input.todayYmd);
+  });
+  if (recentTrial) return { classification: "trial", reason: "recent_trial_product" };
+  if (input.memberships.length === 0) return { classification: "trial", reason: "lead_no_membership" };
+  return { classification: "not_trial", reason: "former_member" };
+}
+
+/**
+ * a. Any active product in the trial filter, or Arbox type "trial", is trial
+ *    even when another active product is also on the account.
+ * b. Any other active product -> not_trial.
+ * c. No active product, but a filter id or type "trial" has no end date, a future
+ *    end date, or ended within 30 days -> trial.
  * d. No memberships at all -> trial.
  * e. Only older or regular expired products -> not_trial.
  */
@@ -83,25 +145,95 @@ export function classifyTrialBooking(input: {
   firstWorkout: boolean;
   todayYmd: string;
 }): { classification: TrialBookingClass; reason: string } {
-  if (input.memberships == null) return { classification: "unknown", reason: "memberships_api_error" };
-  const ids = new Set(input.trialTypeIds.map((id) => Math.trunc(id)).filter((id) => id > 0));
-  const inForce = input.memberships.filter((row) => row.inForce);
-  const inFilter = (row: MembershipSnap) => row.id != null && ids.has(row.id);
-  if (inForce.some(inFilter)) return { classification: "trial", reason: "active_trial_product" };
-  if (inForce.some((row) => !inFilter(row) && !isTrialType(row.type))) {
-    return { classification: "not_trial", reason: "active_paid_or_service" };
+  return classifyWithOrder(input, "trial_type_wins");
+}
+
+/** Production order before an active Arbox type "trial" could beat an active paid product. */
+export function classifyTrialBookingLegacy(input: {
+  memberships: MembershipSnap[] | null;
+  trialTypeIds: readonly number[];
+  role: string | null;
+  firstWorkout: boolean;
+  todayYmd: string;
+}): { classification: TrialBookingClass; reason: string } {
+  return classifyWithOrder(input, "paid_wins");
+}
+
+function israelYmd(now: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jerusalem",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function morningIsrael(ymd: string | null): Date | null {
+  if (!ymd) return null;
+  const dt = new Date(`${ymd}T09:00:00+03:00`);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+/** Same post-class slot the filter-change seeder uses. A passed slot is seeded, not caught up. */
+export function postClassNormalSendAt(input: {
+  triggerType: string;
+  delayDays: number;
+  delayDirection?: string | null;
+  classDateYmd: string;
+  classTime: string;
+  now: Date;
+}): Date | null {
+  const delay = Math.max(0, Math.trunc(input.delayDays) || 0);
+  if (input.triggerType === "missed_trial" || input.triggerType === "trial_attended") {
+    if (!(input.classDateYmd < israelYmd(input.now))) return new Date(input.now.getTime() + 60_000);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.classDateYmd);
+    const event = match
+      ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0))
+      : new Date();
+    return computeDueAt(
+      { delay_days: delay, delay_direction: input.delayDirection === "before" ? "before" : "after" },
+      event
+    );
   }
-  if (inForce.some((row) => isTrialType(row.type))) {
-    return { classification: "trial", reason: "active_trial_product" };
+  if (
+    input.triggerType === "registered_after_trial" ||
+    input.triggerType === "not_registered_after_trial"
+  ) {
+    return morningIsrael(addCalendarDays(input.classDateYmd, delay));
   }
-  const recentTrial = input.memberships.some((row) => {
-    if (!(inFilter(row) || isTrialType(row.type))) return false;
-    if (!row.endedOn) return true;
-    return trialProductEndedRecently(row.endedOn, input.todayYmd);
-  });
-  if (recentTrial) return { classification: "trial", reason: "recent_trial_product" };
-  if (input.memberships.length === 0) return { classification: "trial", reason: "lead_no_membership" };
-  return { classification: "not_trial", reason: "former_member" };
+  return null;
+}
+
+/**
+ * Post-class catch-up after this policy. Seed only when the booking was not_trial
+ * under the previous order and is trial now, and the normal send time has passed.
+ * A booking that was already trial keeps its schedule.
+ */
+export function reclassifiedPostClassPastDue(input: {
+  memberships: MembershipSnap[] | null;
+  trialTypeIds: readonly number[];
+  todayYmd: string;
+  sendAt: Date | null;
+  now: Date;
+}): boolean {
+  if (input.memberships == null) return false;
+  const shared = {
+    memberships: input.memberships,
+    trialTypeIds: input.trialTypeIds,
+    role: null,
+    firstWorkout: false,
+    todayYmd: input.todayYmd,
+  };
+  const previous = classifyTrialBookingLegacy(shared).classification === "trial";
+  const next = classifyTrialBooking(shared).classification === "trial";
+  return (
+    decideFilterScopeAction({
+      previouslyInScope: previous,
+      nowInScope: next,
+      sendAt: input.sendAt,
+      now: input.now,
+    }) === "seed"
+  );
 }
 
 /**
@@ -283,6 +415,7 @@ export type TrialClassRun = {
   ready: boolean;
   membershipCalls: number;
   forKeys(userId: number, classDate: string, classTime: string): TrialBookingClass | undefined;
+  membershipsFor(userId: number): Promise<MembershipSnap[] | null>;
   recheckBeforeSend(input: {
     userId: number;
     classDate: string;
@@ -296,6 +429,7 @@ const fallbackRun: TrialClassRun = {
   ready: false,
   membershipCalls: 0,
   forKeys: () => undefined,
+  membershipsFor: async () => null,
   recheckBeforeSend: async () => null,
 };
 
@@ -391,6 +525,9 @@ export async function prepareTrialBookingClasses(input: {
       const key = trialBookingIdentityKey(userId, classDate, classTime);
       if (!key) return undefined;
       return decisions.get(key);
+    },
+    membershipsFor(userId) {
+      return cache.get(userId);
     },
     async recheckBeforeSend(row) {
       if (input.phase !== "pre_class") return null;

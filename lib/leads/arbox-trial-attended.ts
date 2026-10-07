@@ -8,7 +8,11 @@ import {
   trialBookingIdentityKey,
   trialIdentityInputsFromRows,
 } from "@/lib/leads/arbox-trial-booking-identity";
-import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
+import {
+  postClassNormalSendAt,
+  prepareTrialBookingClasses,
+  reclassifiedPostClassPastDue,
+} from "@/lib/leads/trial-booking-class";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
@@ -787,6 +791,47 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       }
 
       logBase.contact = maskPhoneForLog(resolved.phone);
+
+      if (classRun?.ready) {
+        const memberships = await classRun.membershipsFor(userId);
+        const sendAt = postClassNormalSendAt({
+          triggerType: "trial_attended",
+          delayDays: Number(rule.delay_days) || 0,
+          delayDirection: rule.delay_direction,
+          classDateYmd,
+          classTime: String(row.time ?? ""),
+          now,
+        });
+        if (
+          reclassifiedPostClassPastDue({
+            memberships,
+            trialTypeIds,
+            todayYmd: formatDateYmdIsrael(now),
+            sendAt,
+            now,
+          })
+        ) {
+          const { error: seedErr } = await input.admin.from("arbox_trial_attended_sync_log").upsert(
+            {
+              business_id: businessId,
+              user_id: userId,
+              class_date: classDateYmd,
+              contact_id: resolved.contact.id,
+              processed_at: now.toISOString(),
+            },
+            { onConflict: "business_id,user_id,class_date", ignoreDuplicates: true }
+          );
+          if (seedErr) summary.errors += 1;
+          summary.dedup += 1;
+          console.info("[trial-class] reclassified past due, seeded not sent", {
+            businessId,
+            trigger_type: "trial_attended",
+            user_id: userId,
+            class_date: classDateYmd,
+          });
+          continue;
+        }
+      }
 
       const send = await dispatchTrialAttendedTemplate({
         admin: input.admin,

@@ -3,6 +3,9 @@ import { bookingMatchesTrialScope } from "@/lib/leads/arbox-trial-attended";
 import {
   classificationForPhase,
   classifyTrialBooking,
+  classifyTrialBookingLegacy,
+  postClassNormalSendAt,
+  reclassifiedPostClassPastDue,
   UserMembershipCache,
 } from "@/lib/leads/trial-booking-class";
 
@@ -151,6 +154,129 @@ assert.equal(
     todayYmd: "2026-10-07",
   }).classification,
   "unknown"
+);
+
+const peak = [
+  { id: 900001, type: "trial", name: "PEAK 360", inForce: true },
+  { id: 501480, type: "plan", name: "מנוי", inForce: true },
+];
+assert.equal(
+  classifyTrialBooking({
+    memberships: peak,
+    trialTypeIds: [622016],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).classification,
+  "trial"
+);
+assert.equal(
+  classifyTrialBookingLegacy({
+    memberships: peak,
+    trialTypeIds: [622016],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).classification,
+  "not_trial"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 501966, type: "service", name: "Chair Pilates", inForce: true }],
+    trialTypeIds: [297742, 586475],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).classification,
+  "not_trial"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 501753, type: "trial", name: "Chair Pilates", inForce: true }],
+    trialTypeIds: [297742],
+    role: "lead",
+    firstWorkout: true,
+    todayYmd: today,
+  }).classification,
+  "trial"
+);
+assert.equal(
+  reclassifiedPostClassPastDue({
+    memberships: peak,
+    trialTypeIds: [622016],
+    todayYmd: today,
+    sendAt: new Date("2026-10-06T06:00:00.000Z"),
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  }),
+  true
+);
+assert.equal(
+  reclassifiedPostClassPastDue({
+    memberships: peak,
+    trialTypeIds: [622016],
+    todayYmd: today,
+    sendAt: new Date("2026-10-08T06:00:00.000Z"),
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  }),
+  false
+);
+assert.equal(
+  reclassifiedPostClassPastDue({
+    memberships: [{ id: 622016, type: "trial", name: "היכרות", inForce: true }],
+    trialTypeIds: [622016],
+    todayYmd: today,
+    sendAt: new Date("2026-10-06T06:00:00.000Z"),
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  }),
+  false
+);
+const omerIntro = [{ id: 627989, type: "session", name: "4 אימוני ניסיון", inForce: false, endedOn: null }];
+assert.equal(
+  classifyTrialBooking({
+    memberships: omerIntro,
+    trialTypeIds: [639778, 627989],
+    role: "lead",
+    firstWorkout: true,
+    todayYmd: today,
+  }).classification,
+  "trial"
+);
+assert.equal(
+  reclassifiedPostClassPastDue({
+    memberships: omerIntro,
+    trialTypeIds: [639778, 627989],
+    todayYmd: today,
+    sendAt: new Date("2026-10-01T06:00:00.000Z"),
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  }),
+  true
+);
+
+assert.equal(
+  postClassNormalSendAt({
+    triggerType: "registered_after_trial",
+    delayDays: 0,
+    classDateYmd: "2026-10-06",
+    classTime: "18:30",
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  })?.toISOString(),
+  "2026-10-06T06:00:00.000Z"
+);
+assert.equal(
+  reclassifiedPostClassPastDue({
+    memberships: peak,
+    trialTypeIds: [622016],
+    todayYmd: today,
+    sendAt: postClassNormalSendAt({
+      triggerType: "not_registered_after_trial",
+      delayDays: 1,
+      classDateYmd: "2026-10-05",
+      classTime: "10:00",
+      now: new Date("2026-10-07T06:00:00.000Z"),
+    }),
+    now: new Date("2026-10-07T06:00:00.000Z"),
+  }),
+  true
 );
 
 async function oneCallPerUser() {

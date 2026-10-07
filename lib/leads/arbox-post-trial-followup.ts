@@ -22,7 +22,12 @@ import {
   trialBookingIdentityKey,
   trialIdentityInputsFromRows,
 } from "@/lib/leads/arbox-trial-booking-identity";
-import { prepareTrialBookingClasses, type TrialBookingClass } from "@/lib/leads/trial-booking-class";
+import {
+  postClassNormalSendAt,
+  prepareTrialBookingClasses,
+  reclassifiedPostClassPastDue,
+  type TrialBookingClass,
+} from "@/lib/leads/trial-booking-class";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
@@ -1106,6 +1111,55 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     // Soft-seeded outcomes this run: no forward send.
     if (softSeedOutcomes.includes(outcome)) continue;
 
+    let rulesToSend = dueRules;
+    if (classRun?.ready) {
+      const memberships = await classRun.membershipsFor(att.userId);
+      const keep: typeof dueRules = [];
+      for (const rule of dueRules) {
+        const sendAt = postClassNormalSendAt({
+          triggerType: rule.trigger_type,
+          delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
+          delayDirection: rule.delay_direction,
+          classDateYmd: att.classDateYmd,
+          classTime: String(att.sampleRow.time ?? ""),
+          now,
+        });
+        if (
+          reclassifiedPostClassPastDue({
+            memberships,
+            trialTypeIds,
+            todayYmd,
+            sendAt,
+            now,
+          })
+        ) {
+          const up = await upsertFollowupSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            outcome,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) summary.errors += 1;
+          console.info("[trial-class] reclassified past due, seeded not sent", {
+            businessId,
+            trigger_type: rule.trigger_type,
+            user_id: att.userId,
+            class_date: att.classDateYmd,
+          });
+          continue;
+        }
+        keep.push(rule);
+      }
+      rulesToSend = keep;
+    }
+    if (!rulesToSend.length) continue;
+
     try {
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
@@ -1115,7 +1169,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       });
       if (!resolved.phone || !resolved.contact?.id) {
         summary.no_phone += 1;
-        for (const rule of dueRules) {
+        for (const rule of rulesToSend) {
           await upsertFollowupSyncLog({
             admin: input.admin,
             businessId,
@@ -1150,7 +1204,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
             keys: activeKeys,
           })
         ) {
-          for (const rule of dueRules) {
+          for (const rule of rulesToSend) {
             await upsertFollowupSyncLog({
               admin: input.admin,
               businessId,
@@ -1176,8 +1230,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
 
       const dispatches: PostTrialTemplateDispatch[] = [];
       let sentImmediateThisRun = false;
-      const trackEachTemplate = dueRules.length > 1;
-      for (const rule of dueRules) {
+      const trackEachTemplate = rulesToSend.length > 1;
+      for (const rule of rulesToSend) {
         const { data: existing, error: existingErr } = await input.admin
           .from("arbox_post_trial_followup_sync_log")
           .select("status, attempts")
