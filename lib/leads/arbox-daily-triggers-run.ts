@@ -463,7 +463,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          apiKey: business.crm_api_key,
+          apiKey: business.apiKey,
           boxId: business.crm_box_id,
           postTrialFollowupSeeded: business.arbox_post_trial_followup_seeded,
           now,
