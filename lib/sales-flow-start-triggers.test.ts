@@ -67,6 +67,11 @@ assert.equal(
 );
 assert.equal(isSalesFlowStartTrigger("שלום אפשר לקבל מידע נוסף על זה"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים על האימונים"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים בנוגע לאימונים"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח להבין לגבי האימונים"), true);
+assert.equal(isSalesFlowStartTrigger("היי אשמח להבין לגבי האימונים"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח להבין"), false);
 assert.equal(isSalesFlowStartTrigger("הצטרפות למנוי"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע!"), true);
@@ -82,7 +87,15 @@ assert.equal(
   ),
   true
 );
+assert.equal(
+  isSalesFlowStartTrigger(
+    "היי, מתעניינת בסטודיו.\nאשמח לפרטים בנוגע לאימונים"
+  ),
+  true
+);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים על השיעורים אצלכם"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח לפרטים בנוגע לשיעורים שלכם"), true);
+assert.equal(isSalesFlowStartTrigger("אשמח להבין לגבי השיעורים אצלכם"), true);
 assert.equal(isSalesFlowStartTrigger("כמה עולים האימונים"), false);
 assert.equal(isSalesFlowStartTrigger("אין לי פרטים"), false);
 assert.equal(isSalesFlowStartTrigger("אפשר פרטים?"), true);
