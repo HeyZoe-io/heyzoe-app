@@ -1162,7 +1162,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
           attemptsSoFar: existingAttempts,
         });
         if (next.hitCap) summary.abandoned += 1;
-        for (const rule of pendingRules) {
+        if (!isArboxDailyDryRun()) for (const rule of pendingRules) {
           const marked = await upsertTrialReminderSyncLog({
             admin: input.admin,
             businessId,
