@@ -8,6 +8,12 @@ import { logMessage } from "@/lib/analytics";
 import { ARBOX_NEW_LEAD_CONTACT_SOURCE, fetchArboxUserPhone } from "@/lib/leads/arbox-new-lead";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { fetchArboxPagedReportRows } from "@/lib/leads/arbox-paged-report";
+import {
+  countLeadStatusReportLeads,
+  distinctNonEmptyLeadStatuses,
+  leadStatusRefreshThrottleHit,
+  type LeadStatusCatalogRow,
+} from "@/lib/leads/lead-status-picker";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   nextCancellationSyncLogAfterDispatch,
@@ -277,6 +283,109 @@ export async function fetchLeadsInProcessReportRows(input: {
     return { ok: false, error: report.error, pagesFetched: report.pagesFetched, hitPageCap: report.hitPageCap };
   }
   return { ok: true, rows: report.rows, pagesFetched: report.pagesFetched, hitPageCap: report.hitPageCap };
+}
+
+/**
+ * Dashboard picker pull. Writes distinct non-empty statuses only.
+ * Does not touch the snapshot, last_scanned_at, sync log, or any send.
+ * One Arbox pull per business per 60s; a newer known-status row is the clock.
+ */
+export async function refreshArboxLeadStatusCatalog(input: {
+  admin: Admin;
+  businessId: number;
+  apiKey: string;
+  boxId: string;
+  now?: Date;
+  fetchLeads?: typeof fetchLeadsInProcessReportRows;
+}): Promise<
+  | { ok: true; throttled: boolean; statuses: LeadStatusCatalogRow[] }
+  | { ok: false; error: string; statuses: LeadStatusCatalogRow[] }
+> {
+  const now = input.now ?? new Date();
+  const nowIso = now.toISOString();
+  const businessId = Number(input.businessId);
+  const known = await input.admin
+    .from(KNOWN_TABLE)
+    .select("status, last_seen_at")
+    .eq("business_id", businessId)
+    .limit(500);
+  if (known.error) {
+    console.error("[leads/arbox-lead-status] catalog read failed", known.error.message);
+    return { ok: false, error: "catalog_read_failed", statuses: [] };
+  }
+  const cached: LeadStatusCatalogRow[] = (known.data ?? [])
+    .map((row) => ({
+      status: String((row as { status?: unknown }).status ?? "").trim(),
+      last_seen_at: String((row as { last_seen_at?: unknown }).last_seen_at ?? ""),
+    }))
+    .filter((row) => row.status);
+  if (leadStatusRefreshThrottleHit({ rows: cached, now })) {
+    return { ok: true, throttled: true, statuses: cached };
+  }
+
+  const snapshot = await input.admin
+    .from(SNAPSHOT_TABLE)
+    .select("lead_id", { count: "exact", head: true })
+    .eq("business_id", businessId);
+  if (snapshot.error && !isMissingLeadStatusSchema(snapshot.error.message)) {
+    console.error("[leads/arbox-lead-status] catalog snapshot count failed", snapshot.error.message);
+    return { ok: false, error: "catalog_read_failed", statuses: cached };
+  }
+  const previousOpenLeads = snapshot.error ? 0 : Number(snapshot.count ?? 0);
+
+  const fetchLeads = input.fetchLeads ?? fetchLeadsInProcessReportRows;
+  const report = await fetchLeads({
+    apiKey: input.apiKey,
+    locationId: input.boxId,
+    now,
+  });
+  const currentOpenLeads = report.ok ? countLeadStatusReportLeads(report.rows) : 0;
+  if (
+    leadStatusPullIntegrityBlocked({
+      fetchOk: report.ok,
+      hitPageCap: Boolean(report.hitPageCap),
+      previousOpenLeads,
+      currentOpenLeads,
+    })
+  ) {
+    console.error("[leads/arbox-lead-status] catalog refresh blocked", {
+      businessId,
+      fetchOk: report.ok,
+      hitPageCap: Boolean(report.hitPageCap),
+      previousOpenLeads,
+      currentOpenLeads,
+      error: report.ok ? "pull_integrity" : report.error,
+    });
+    return { ok: false, error: report.ok ? "pull_integrity" : report.error, statuses: cached };
+  }
+  if (!report.ok) {
+    return { ok: false, error: report.error, statuses: cached };
+  }
+
+  const statuses = distinctNonEmptyLeadStatuses(report.rows);
+  const knownBefore = new Set(cached.map((row) => row.status));
+  const writes = statuses.map((status) => ({
+    business_id: businessId,
+    status,
+    ...(knownBefore.has(status) ? {} : { first_seen_at: nowIso }),
+    last_seen_at: nowIso,
+  }));
+  if (writes.length) {
+    const { error } = await input.admin.from(KNOWN_TABLE).upsert(writes, {
+      onConflict: "business_id,status",
+    });
+    if (error) {
+      console.error("[leads/arbox-lead-status] catalog upsert failed", error.message);
+      return { ok: false, error: "catalog_write_failed", statuses: cached };
+    }
+  }
+  const merged = new Map(cached.map((row) => [row.status, row.last_seen_at]));
+  for (const status of statuses) merged.set(status, nowIso);
+  return {
+    ok: true,
+    throttled: false,
+    statuses: [...merged].map(([status, last_seen_at]) => ({ status, last_seen_at })),
+  };
 }
 
 /** Blank lead_status never becomes a transition and never replaces the stored status. */

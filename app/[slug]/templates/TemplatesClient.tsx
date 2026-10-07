@@ -37,6 +37,7 @@ import {
   type TemplateButtonDraft,
   type TemplateDraftValue,
 } from "@/app/[slug]/templates/TemplateDraftFields";
+import { leadStatusPickerAfterRefresh } from "@/lib/leads/lead-status-picker";
 import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import type { UtilityRecategoryNotice as CategoryNotice } from "@/lib/template-category-notice";
 import UtilityRecategoryNotice from "@/app/[slug]/templates/UtilityRecategoryNotice";
@@ -365,33 +366,86 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
   );
 }
 
-function LeadStatusPicker(props: {
+function LeadStatusPicker({
+  slug,
+  hasArbox,
+  value,
+  statuses,
+  onChange,
+  onStatuses,
+}: {
+  slug: string;
+  hasArbox: boolean;
   value: string;
   statuses: readonly KnownLeadStatus[];
-  scannedAt: string | null;
   onChange: (value: string) => void;
+  onStatuses: (rows: KnownLeadStatus[]) => void;
 }) {
+  const [loading, setLoading] = useState(hasArbox);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const cachedRef = useRef(statuses);
+  useEffect(() => {
+    cachedRef.current = statuses;
+  }, [statuses]);
+
+  useEffect(() => {
+    if (!hasArbox) return;
+    let cancelled = false;
+    void fetch(`/api/${encodeURIComponent(slug)}/arbox-lead-statuses/refresh`, {
+      method: "POST",
+    })
+      .then(async (res) => {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          statuses?: KnownLeadStatus[];
+        };
+        if (cancelled) return;
+        if (body.error === "arbox_not_connected") {
+          setLoadError("יש לחבר Arbox בהגדרות לפני יצירת טריגרים");
+          return;
+        }
+        const listed = Array.isArray(body.statuses) ? body.statuses : cachedRef.current;
+        const next = leadStatusPickerAfterRefresh({ ok: res.ok, statuses: listed });
+        onStatuses(next.statuses);
+        setLoadError(next.error);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const next = leadStatusPickerAfterRefresh({ ok: false, statuses: cachedRef.current });
+        onStatuses(next.statuses);
+        setLoadError(next.error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasArbox, onStatuses, slug]);
+
   return (
     <div className="space-y-1.5">
       <label className="text-sm font-medium text-zinc-800">סטטוס בארבוקס</label>
       <p className="text-xs text-zinc-500">בחרו את הסטטוס שמסמן אצלכם ליד שלא ענה</p>
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-      >
-        <option value="">בחרו סטטוס</option>
-        {props.statuses.map((row) => (
-          <option key={row.status} value={row.status}>
-            {row.status}
-          </option>
-        ))}
-      </select>
-      {!props.scannedAt ? (
-        <p className="text-xs text-zinc-500">
-          הרשימה תתמלא אחרי הסריקה הראשונה, בריצה הבאה (09:00 או 20:30) אחרי שהכלל פעיל.
-        </p>
-      ) : null}
+      {!hasArbox ? (
+        <p className="text-xs text-zinc-500">יש לחבר Arbox בהגדרות לפני יצירת טריגרים</p>
+      ) : (
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={loading}
+          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm disabled:opacity-60"
+        >
+          <option value="">{loading ? "טוען סטטוסים מארבוקס" : "בחרו סטטוס"}</option>
+          {statuses.map((row) => (
+            <option key={row.status} value={row.status}>
+              {row.status}
+            </option>
+          ))}
+        </select>
+      )}
+      <p className="text-xs text-zinc-500">הרשימה נטענת מארבוקס</p>
+      {loadError ? <p className="text-xs text-amber-800">{loadError}</p> : null}
     </div>
   );
 }
@@ -1933,10 +1987,12 @@ export default function TemplatesClient({
                           {trigger.trigger_type === "lead_status_changed" ? (
                             <>
                               <LeadStatusPicker
+                                slug={slug}
+                                hasArbox={hasArbox}
                                 value={editTargetStatus}
                                 statuses={knownLeadStatuses}
-                                scannedAt={leadStatusScannedAt}
                                 onChange={setEditTargetStatus}
+                                onStatuses={setKnownLeadStatuses}
                               />
                               <SendSlotPicker
                                 type={trigger.trigger_type}
@@ -2341,10 +2397,12 @@ export default function TemplatesClient({
                         {newTriggerType === "lead_status_changed" ? (
                           <>
                             <LeadStatusPicker
+                              slug={slug}
+                              hasArbox={hasArbox}
                               value={newTargetStatus}
                               statuses={knownLeadStatuses}
-                              scannedAt={leadStatusScannedAt}
                               onChange={setNewTargetStatus}
+                              onStatuses={setKnownLeadStatuses}
                             />
                             <SendSlotPicker
                               type={newTriggerType}
