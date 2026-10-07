@@ -460,6 +460,22 @@ export default function ConversationsClient({
 
   const messagesSlug = selectedId ? slugForSession(selectedId) : slug.trim().toLowerCase();
 
+  const applyArboxProfileId = useCallback((sessionId: string, profileId: string) => {
+    const id = String(profileId ?? "").trim();
+    const sid = String(sessionId ?? "").trim();
+    if (!id || !sid) return;
+    setSessions((prev) =>
+      prev.map((s) => (s.session_id === sid && s.arboxProfileId !== id ? { ...s, arboxProfileId: id } : s))
+    );
+    queryClient.setQueryData(
+      [queryScope, "conversations", slug],
+      (prev: SessionSummary[] | undefined) =>
+        Array.isArray(prev)
+          ? prev.map((s) => (s.session_id === sid && s.arboxProfileId !== id ? { ...s, arboxProfileId: id } : s))
+          : prev
+    );
+  }, [queryClient, queryScope, slug]);
+
   const fetchConversationMessages = useCallback(
     async (sessionSlug: string, sessionId: string, signal?: AbortSignal): Promise<SessionMessage[]> => {
       const res = await fetch(
@@ -467,10 +483,12 @@ export default function ConversationsClient({
         { signal }
       );
       if (!res.ok) throw new Error(`failed_to_load_conversation_messages:${res.status}`);
-      const j = (await res.json()) as { messages?: SessionMessage[] };
+      const j = (await res.json()) as { messages?: SessionMessage[]; arboxProfileId?: string | null };
+      const profileId = String(j.arboxProfileId ?? "").trim();
+      if (profileId) applyArboxProfileId(sessionId, profileId);
       return (j.messages ?? []) as SessionMessage[];
     },
-    [apiPrefix]
+    [apiPrefix, applyArboxProfileId]
   );
 
   const prefetchMessages = useCallback(
@@ -1095,35 +1113,39 @@ export default function ConversationsClient({
                           autoPausedLabel={t.autoPausedApp}
                         />
                       ) : null}
-                      {arboxProfileUrl ? (
-                        <a
-                          href={arboxProfileUrl}
-                          target="_blank"
-                          rel="noopener"
-                          className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-medium text-[#00a884] hover:underline"
-                        >
-                          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                          {t.openArboxProfile}
-                        </a>
-                      ) : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void toggleBot(selected.session_id, !selected.isPaused)}
-                    disabled={pausing === selected.session_id}
-                    className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 ${
-                      selected.isPaused
-                        ? "bg-[#25D366] text-white hover:bg-[#20bd5a]"
-                        : "border border-[#ea0038] bg-white text-[#ea0038] hover:bg-[#fff5f5]"
-                    }`}
-                  >
-                    {pausing === selected.session_id
-                      ? t.processing
-                      : selected.isPaused
-                        ? t.resumeBot
-                        : t.pauseBot}
-                  </button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {arboxProfileUrl ? (
+                      <a
+                        href={arboxProfileUrl}
+                        target="_blank"
+                        rel="noopener"
+                        title={t.openArboxProfile}
+                        aria-label={t.openArboxProfile}
+                        className="inline-flex items-center gap-1 rounded-full border border-[#00a884]/30 bg-white px-2.5 py-1.5 text-[12px] font-medium text-[#00a884] hover:bg-[#f0faf7]"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <span className="max-w-[9.5rem] truncate sm:max-w-none">{t.openArboxProfile}</span>
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void toggleBot(selected.session_id, !selected.isPaused)}
+                      disabled={pausing === selected.session_id}
+                      className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50 ${
+                        selected.isPaused
+                          ? "bg-[#25D366] text-white hover:bg-[#20bd5a]"
+                          : "border border-[#ea0038] bg-white text-[#ea0038] hover:bg-[#fff5f5]"
+                      }`}
+                    >
+                      {pausing === selected.session_id
+                        ? t.processing
+                        : selected.isPaused
+                          ? t.resumeBot
+                          : t.pauseBot}
+                    </button>
+                  </div>
                 </header>
 
                 {manualSendBlocked ? (
