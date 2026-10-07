@@ -216,17 +216,32 @@ export async function listArboxDailyBusinessIds(
   const evening = opts?.slot === "evening";
   const ruleQuery = admin
     .from("template_triggers")
-    .select("business_id, template_name")
+    .select(
+      evening
+        ? "business_id, template_name, trigger_type, delay_direction"
+        : "business_id, template_name"
+    )
     .in("business_id", eligible)
     .eq("enabled", true);
   const { data: rules, error: ruleErr } = evening
-    ? await ruleQuery.in("trigger_type", ["trial_reminder", "trainer_trial_heads_up"])
+    ? await ruleQuery.in("trigger_type", [
+        "trial_reminder",
+        "trainer_trial_heads_up",
+        "nth_workout",
+      ])
     : await ruleQuery.in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
 
   const withRule = new Set<number>();
   for (const row of rules ?? []) {
     if (!String((row as { template_name?: unknown }).template_name ?? "").trim()) continue;
+    if (evening) {
+      const type = String((row as { trigger_type?: unknown }).trigger_type ?? "");
+      const direction = String((row as { delay_direction?: unknown }).delay_direction ?? "")
+        .trim()
+        .toLowerCase();
+      if (type === "nth_workout" && direction !== "before") continue;
+    }
     const id = Number((row as { business_id?: unknown }).business_id);
     if (Number.isFinite(id)) withRule.add(id);
   }
@@ -265,7 +280,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now?: Date;
-  /** 20:30 Asia/Jerusalem via ?slot=evening. Clock hour is not checked here. */
+  /** 20:30 Asia/Jerusalem via ?slot=evening. Trial reminder, trainer heads-up, and nth_workout before-rules. Clock hour is not checked here. */
   slot?: "morning" | "evening";
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
@@ -323,6 +338,43 @@ export async function runArboxDailyTriggersForBusiness(input: {
         error: message,
       });
       entry.trainer_trial_heads_up = { errors: 1, fetch_error: message };
+    }
+    try {
+      entry.nth_workout = await timeStep(timings, business.id, "nth_workout", () =>
+        syncArboxNthWorkoutForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          nthWorkoutSeeded: business.arbox_nth_workout_seeded,
+          now,
+          slot: "evening",
+        })
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] evening nth_workout threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.nth_workout = {
+        fetched_memberships: 0,
+        fetched_bookings: 0,
+        pages_fetched: 0,
+        new_members: 0,
+        due: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
+        fetch_error: message,
+      };
     }
     const ctx = arboxDailyContext();
     return {

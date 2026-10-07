@@ -2,13 +2,18 @@
  * C7 nth_workout: new members (member_since within lookback ≤30d).
  * After: fire when yesCount >= N (check_in="Yes" since join, date < today).
  * Before: fire once the day before workout N, or the morning of if it is still later today.
+ * Evening slot (20:30) runs before-rules only. A booking that appeared after the
+ * 09:00 run is still the day before the class, so the evening run sends it.
+ * The sync log is shared, so the morning send is not repeated.
  * Once per (business_id, trigger_id, user_id).
  *
  * IO (10 businesses): 0 extra GETs when birthday/C8 already prefetched
  * activeMemberships and missed/gap already prefetched past bookingsReport.
  * C7-only: +1 memberships +1 bookings (30d). A live "before" rule adds one
  * future bookings GET per business per day (skipped when the shared future
- * window already includes today). No per-user Arbox calls.
+ * window already includes today). Evening adds those same GETs again only for
+ * a business with a live before rule (~3 GETs; ~30/evening if 10 studios have one).
+ * No per-user Arbox calls.
  */
 import { logMessage } from "@/lib/analytics";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
@@ -158,6 +163,19 @@ export type NthWorkoutDirection = "before" | "after";
 /** Stored direction. Anything other than before stays the completed-attendance path. */
 export function nthWorkoutDirection(raw: unknown): NthWorkoutDirection {
   return String(raw ?? "").trim().toLowerCase() === "before" ? "before" : "after";
+}
+
+/**
+ * Morning runs every nth_workout rule. Evening runs only before-rules, so a
+ * registration after 09:00 still gets the day-before message at 20:30.
+ * After-rules stay on the morning run.
+ */
+export function nthWorkoutRulesForSlot<T extends { delay_direction?: unknown }>(
+  rules: readonly T[],
+  slot: "morning" | "evening"
+): T[] {
+  if (slot !== "evening") return [...rules];
+  return rules.filter((rule) => nthWorkoutDirection(rule.delay_direction) === "before");
 }
 
 export function parseClassMinutes(raw: unknown): number | null {
@@ -523,6 +541,8 @@ export async function syncArboxNthWorkoutForBusiness(input: {
   bookingsToYmd?: string;
   /** Shared future window (today…+14). Undefined = handler may fetch when a before rule is live. */
   prefetchedFutureRows?: ArboxBookingReportRow[];
+  /** Evening runs before-rules only and does not flip the first-enable seed flag. */
+  slot?: "morning" | "evening";
 }): Promise<NthWorkoutSyncSummary> {
   const summary: NthWorkoutSyncSummary = {
     fetched_memberships: 0,
@@ -555,8 +575,9 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     return summary;
   }
 
+  const slot = input.slot === "evening" ? "evening" : "morning";
   const rules = await loadEnabledNthWorkoutTemplateTriggers(input.admin, businessId);
-  const rulesWithTemplate = orderAllRulesWithCompanion(rules);
+  const rulesWithTemplate = nthWorkoutRulesForSlot(orderAllRulesWithCompanion(rules), slot);
   if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -694,7 +715,9 @@ export async function syncArboxNthWorkoutForBusiness(input: {
   }
 
   const blockSend = new Set<string>();
-  if (!input.nthWorkoutSeeded) {
+  // Evening must not mark the business seeded: that flag also gates after-rules,
+  // which stay on the morning run.
+  if (slot !== "evening" && !input.nthWorkoutSeeded) {
     for (const rule of rulesWithTemplate) {
       await seedRuleRows(rule, "seeded");
       if (nthWorkoutDirection(rule.delay_direction) !== "before") blockSend.add(rule.id);

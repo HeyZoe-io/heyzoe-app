@@ -8,6 +8,7 @@ import {
   nthWorkoutN,
   nthWorkoutNeedsSoftSeed,
   beforeNthWorkoutTarget,
+  nthWorkoutRulesForSlot,
   shouldSeedNthWorkout,
   shouldSendNthWorkout,
   uniqueNthWorkoutMembers,
@@ -197,6 +198,21 @@ import {
     }),
     ["דנה", "10"]
   );
+  assert.deepEqual(
+    resolveTemplateBodyParamValues({
+      triggerType: "nth_workout",
+      storedComponents: [
+        {
+          type: "BODY",
+          text: "היי {{1}}❤️\n\nעוד רגע נפגשות לאימון הראשון שלך במנוי 😊",
+        },
+      ],
+      firstName: "דנה כהן",
+      workoutN: 1,
+    }),
+    ["דנה"],
+    "a body with only {{1}} does not send a workout number"
+  );
 }
 
 {
@@ -289,6 +305,29 @@ import {
     }),
     null,
     "booking before member_since is ignored"
+  );
+  assert.deepEqual(
+    beforeNthWorkoutTarget({
+      ...base,
+      nowMinutes: 20 * 60 + 30,
+      n: 1,
+      bookings: [{ user_id: 11, check_in: "", date: "2026-10-07", time: "07:00" }],
+    }),
+    { classDateYmd: "2026-10-07", classTime: "07:00" },
+    "evening run still sends a class that is tomorrow"
+  );
+}
+
+{
+  const before = { id: "before", delay_direction: "before" };
+  const after = { id: "after", delay_direction: "after" };
+  assert.deepEqual(
+    nthWorkoutRulesForSlot([before, after], "morning").map((rule) => rule.id),
+    ["before", "after"]
+  );
+  assert.deepEqual(
+    nthWorkoutRulesForSlot([before, after], "evening").map((rule) => rule.id),
+    ["before"]
   );
 }
 

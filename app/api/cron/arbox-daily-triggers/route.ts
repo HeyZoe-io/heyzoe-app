@@ -15,7 +15,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * via after() → GET /api/cron/arbox-daily-triggers/business.
  * ?dry_run=1 awaits the workers in this request and does not send or write.
  * ?slot=evening is the 20:30 Asia/Jerusalem job (cron-job.org). The slot is the
- * query param, not the clock hour. It must finish before the 21:00 night hold.
+ * query param, not the clock hour. It runs trial reminders, trainer heads-up,
+ * and nth_workout rules whose direction is before. It must finish before the 21:00 night hold.
  * No param (or slot=morning) is the existing 09:00 job. Scheduling: cron-job.org.
  */
 export const runtime = "nodejs";
