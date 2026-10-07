@@ -143,7 +143,7 @@ async function readLog(
       .select(columns)
       .gte("processed_at", sinceIso)
       .limit(2000);
-    if (!error) return (data ?? []) as Array<Record<string, unknown>>;
+    if (!error) return (data ?? []) as unknown as Array<Record<string, unknown>>;
     if (/column|schema cache/i.test(error.message)) continue;
     if (/does not exist|42P01/i.test(error.message)) return [];
     console.error("[admin-daily-unsent] log read failed", { table, error: error.message });
