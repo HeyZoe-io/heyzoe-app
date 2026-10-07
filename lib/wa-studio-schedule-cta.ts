@@ -1,3 +1,5 @@
+import { modelUsedBase } from "@/lib/wa-reply-route";
+
 /**
  * מדיניות ספציפית לסטודיו: בסשן «מערכת שעות» לשלוח גם תמונה וגם לינק,
  * במקום אחד מהם. כרגע רק Apex ביקשו זאת.
@@ -53,9 +55,11 @@ export function assistantReplyListsClassTimes(text: string): boolean {
  * שורת [media] של מערכת השעות לא נכנסת ל-Claude כמו שהיא.
  * בלי הערה, הבקשה נשארת «פתוחה» וזואי מבטיחה לשלוח שוב.
  */
-export function scheduleBoardHistoryNote(content: string): string | null {
+export function scheduleBoardHistoryNote(content: string, modelUsed?: string | null): string | null {
   const raw = String(content ?? "").trim();
   if (!raw.startsWith("[media]")) return null;
+  const model = modelUsedBase(modelUsed);
+  if (model.startsWith("sales_flow_schedule_board")) return "שלחתי את תמונת מערכת השעות.";
   if (!/מערכת\s+ה?שעות|לוח\s+השיעורים/u.test(raw)) return null;
   return "שלחתי את תמונת מערכת השעות.";
 }

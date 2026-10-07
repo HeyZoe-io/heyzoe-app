@@ -337,7 +337,7 @@ export async function fetchRecentSessionMessages(input: {
     const supabase = createSupabaseAdminClient();
     const { data, error } = await supabase
       .from("messages")
-      .select("role, content, created_at")
+      .select("role, content, created_at, model_used")
       .eq("business_slug", input.business_slug)
       .eq("session_id", input.session_id)
       .order("created_at", { ascending: false })
@@ -350,7 +350,7 @@ export async function fetchRecentSessionMessages(input: {
       if (!c || c.startsWith("[unsupported]") || isWaReactionLogContent(c)) continue;
       if (c.startsWith("[media]")) {
         if (!input.includeScheduleBoardNote) continue;
-        const note = scheduleBoardHistoryNote(c);
+        const note = scheduleBoardHistoryNote(c, (row as { model_used?: string | null }).model_used);
         if (!note) continue;
         const created_at = String((row as { created_at?: string }).created_at ?? "").trim();
         out.push({ role: "assistant", content: note, created_at });

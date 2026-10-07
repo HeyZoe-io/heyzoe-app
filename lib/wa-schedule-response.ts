@@ -36,12 +36,14 @@ export function resolveScheduleResponse(input: {
   arboxLink?: string | null;
   hasScheduleData?: boolean;
   claudeBody: string;
+  caption?: string | null;
 }): ScheduleResponse {
   const source = resolveScheduleSource(input);
   if (source === "image") return { source, kind: "image" };
   if (source === "link") {
     const link = configuredTimetableLink(input);
-    return { source, kind: "link", text: `${SCHEDULE_BOARD_CAPTION}: ${link}` };
+    const caption = String(input.caption ?? "").trim() || SCHEDULE_BOARD_CAPTION;
+    return { source, kind: "link", text: `${caption}: ${link}` };
   }
   if (source === "data") return { source, kind: "body", text: String(input.claudeBody ?? "").trim() };
   return { source, kind: "handoff", text: UNKNOWN_CLASS_SLOT_HANDOFF_REPLY };

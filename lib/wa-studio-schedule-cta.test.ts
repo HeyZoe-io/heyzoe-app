@@ -59,5 +59,16 @@ assert.equal(
 );
 assert.equal(scheduleBoardHistoryNote("[media] https://example.com/logo.png"), null);
 assert.equal(scheduleBoardHistoryNote("כאן ניתן לראות את מערכת השעות שלנו"), null);
+assert.equal(
+  scheduleBoardHistoryNote(
+    "[media] https://example.com/board.jpeg\n\nהלוח השבועי שלנו",
+    "sales_flow_schedule_board_on_ask"
+  ),
+  "שלחתי את תמונת מערכת השעות."
+);
+assert.equal(
+  scheduleBoardHistoryNote("[media] https://example.com/logo.png", "greeting"),
+  null
+);
 
 console.log("wa-studio-schedule-cta: assertions passed");

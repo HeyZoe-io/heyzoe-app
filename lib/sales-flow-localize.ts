@@ -210,6 +210,9 @@ function mapConfigStrings(cfg: SalesFlowConfig, translate: (s: string) => string
     after_workshop_registration_body_after_schedule: t(cfg.after_workshop_registration_body_after_schedule),
     after_course_registration_body: t(cfg.after_course_registration_body),
     after_course_registration_body_after_schedule: t(cfg.after_course_registration_body_after_schedule),
+    schedule_board_caption: cfg.schedule_board_caption
+      ? t(cfg.schedule_board_caption)
+      : cfg.schedule_board_caption,
   };
 }
 

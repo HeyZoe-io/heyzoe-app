@@ -342,6 +342,11 @@ export type SalesFlowConfig = {
    * ברירת מחדל: לפני בחירת מוצר (אחרי חימום) — התנהגות היסטורית.
    */
   schedule_board_placement?: ScheduleBoardPlacement;
+  /**
+   * כיתוב שנשלח עם תמונת/קישור מערכת השעות.
+   * חסר או זהה לברירת המחדל — נשלח SCHEDULE_BOARD_CAPTION.
+   */
+  schedule_board_caption?: string;
   /** ברירת מחדל: ידני — הליד כותב «נרשמתי» */
   registration_confirmation_mode?: RegistrationConfirmationMode;
 };
@@ -443,6 +448,26 @@ export function resolveWarmupExperienceReply(
 }
 
 export const SCHEDULE_BOARD_CAPTION = "כאן ניתן לראות את מערכת השעות שלנו";
+const SCHEDULE_BOARD_CAPTION_MAX = 1024;
+
+/** כיתוב מערכת השעות בפלואו: נוסח שהעסק שמר, אחרת ברירת המחדל (או fallback מפורש). */
+export function resolveScheduleBoardCaption(
+  cfg: Pick<SalesFlowConfig, "schedule_board_caption"> | null | undefined,
+  fallback: string = SCHEDULE_BOARD_CAPTION
+): string {
+  const custom = String(cfg?.schedule_board_caption ?? "").trim().slice(0, SCHEDULE_BOARD_CAPTION_MAX);
+  if (custom) return custom;
+  const fb = String(fallback ?? "").trim();
+  return fb || SCHEDULE_BOARD_CAPTION;
+}
+
+/** שומר רק נוסח שעסק ערך. ברירת המחדל לא נשמרת, כדי שלא תדרוס את הדיפולט. */
+export function normalizeScheduleBoardCaption(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim().slice(0, SCHEDULE_BOARD_CAPTION_MAX);
+  if (!text || text === SCHEDULE_BOARD_CAPTION) return undefined;
+  return text;
+}
 export const SCHEDULE_BOARD_PREVIEW_IMAGE = "(תמונה)";
 export const DEFAULT_MULTI_SERVICE_QUESTION_TAIL =
   "כדי שאוכל להתאים עבורך בול את מה שמעניין אותך, איזה אימון הכי קורץ לך?\nאני אתן לך עליו עוד פרטים! (תהיה אפשרות לבחור אימון אחר ולקבל גם עליו מידע מיד אחרי)";
@@ -2047,6 +2072,7 @@ export function parseSalesFlowFromSocial(raw: unknown): SalesFlowConfig | null {
           ? o.schedule_board_placement
           : undefined,
     }),
+    schedule_board_caption: normalizeScheduleBoardCaption(o.schedule_board_caption),
     registration_confirmation_mode:
       o.registration_confirmation_mode === "automatic" ? "automatic" : "manual",
   };
@@ -2244,6 +2270,10 @@ export function serializeSalesFlowConfig(c: SalesFlowConfig): Record<string, unk
     warmup_style: c.warmup_style === "quiz" ? "quiz" : undefined,
     schedule_board_placement: resolveScheduleBoardPlacement(c),
     registration_confirmation_mode: resolveRegistrationConfirmationMode(c),
+    ...(() => {
+      const caption = normalizeScheduleBoardCaption(c.schedule_board_caption);
+      return caption ? { schedule_board_caption: caption } : {};
+    })(),
   };
 }
 
@@ -3529,6 +3559,11 @@ export function formatSalesFlowForPrompt(
   );
 
   const schedulePlacement = resolveScheduleBoardPlacement(c);
+  const scheduleCaption = resolveScheduleBoardCaption(c);
+  const scheduleCaptionNote =
+    scheduleCaption !== SCHEDULE_BOARD_CAPTION
+      ? `\n- הכיתוב שנשלח עם מערכת השעות: «${scheduleCaption}». אל תשכפלי אותו ואל תבטיחי לשלוח את הלוח שוב.`
+      : "";
   const scheduleBoardOrderNote =
     schedulePlacement === "after_opening"
       ? "מערכת השעות נשלחת **אוטומטית** אחרי סיום סשן הפתיחה (לפני סשן החימום)."
@@ -3604,7 +3639,7 @@ ${workshopPromptBlock}${coursePromptBlock}
 ${formatExtraSteps("שאלות נוספות מיד אחרי טקסט הפתיחה (לפני סשן החימום)", c.greeting_extra_steps)}
 
 סשן חימום (מיד אחרי סיום הפתיחה; מומלץ לא יותר מ־1–3 שאלות בסך הכול):
-- ${scheduleBoardOrderNote}
+- ${scheduleBoardOrderNote}${scheduleCaptionNote}
 - שירות יחיד: השתמשי בבלוק החימום של **סוג** אותו שירות (שיעור ניסיון / סדנה / קורס).
 - כמה מוצרים: לפני בחירת מוצר — שאלת החימום הכללית (ברירת מחדל: שיעור ניסיון); אחרי בחירת מוצר — רק מענה קצר לפי after_service_pick (בלי חימום שני).
 

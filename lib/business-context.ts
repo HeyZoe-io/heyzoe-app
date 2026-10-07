@@ -17,6 +17,8 @@ import {
   formatMembershipsPriceRangeLine,
   offerKindFromServiceMeta,
   parseSalesFlowFromSocial,
+  resolveScheduleBoardCaption,
+  SCHEDULE_BOARD_CAPTION,
 } from "@/lib/sales-flow";
 import {
   formatCourseCyclesForKnowledge,
@@ -1028,7 +1030,7 @@ ${formatSalesFlowBlocksForPrompt(knowledge?.salesFlowBlocks ?? [])}
 - נסחי בהתאם לסגנון הדיבור שנבחר למעלה.`;
 
   const classTimesImageRule = scheduleTimesReplyUsesImage(slug)
-    ? `\n- רק כשהתג הוא schedule: אל תכתבי שעות או רשימת אימונים בגוף. המערכת שולחת תמונת מערכת שעות עם המשפט «${scheduleTimesReplyCaption(slug)}». תג answer או booking_change לא שולח את התמונה, גם אם בגוף יש שעה.`
+    ? `\n- רק כשהתג הוא schedule: אל תכתבי שעות או רשימת אימונים בגוף. המערכת שולחת תמונת מערכת שעות עם המשפט «${resolveScheduleBoardCaption(knowledge?.salesFlowConfig, scheduleTimesReplyCaption(slug) ?? SCHEDULE_BOARD_CAPTION)}». תג answer או booking_change לא שולח את התמונה, גם אם בגוף יש שעה.`
     : "";
   const scheduleDataInPrompt =
     /מועדי לוח/u.test(knowledge?.servicesText ?? "") &&

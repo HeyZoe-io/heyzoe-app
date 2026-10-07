@@ -27,6 +27,16 @@ if (omers.kind === "link") {
   assert.equal(omers.text.includes("הנה השעות"), false);
 }
 
+const custom = resolveScheduleResponse({
+  slug: "omers-place",
+  arboxLink: link,
+  hasScheduleData: false,
+  claudeBody: "",
+  caption: "הלוח המעודכן שלנו",
+});
+assert.equal(custom.kind, "link");
+if (custom.kind === "link") assert.equal(custom.text, `הלוח המעודכן שלנו: ${link}`);
+
 const data = resolveScheduleResponse({
   slug: "master-yigal-arbiv-ikma-israel",
   hasScheduleData: true,

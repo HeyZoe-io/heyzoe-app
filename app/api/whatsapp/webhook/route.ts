@@ -90,6 +90,7 @@ import {
   DEFAULT_MULTI_SERVICE_QUESTION_TAIL,
   resolveScheduleBoardAssets,
   resolveScheduleBoardPlacement,
+  resolveScheduleBoardCaption,
   formatMembershipsPriceRangeLine,
   membershipsPriceRangeWhatsAppText,
   SCHEDULE_BOARD_CAPTION,
@@ -2218,10 +2219,12 @@ async function sendScheduleBoardAfterOpening(input: {
   sessionId: string;
   modelUsed?: string;
   caption?: string;
+  salesFlowConfig?: Parameters<typeof resolveScheduleBoardCaption>[0];
 }): Promise<ScheduleBoardDelivery> {
   const { assets, msg, accountSid, authToken, business_slug, sessionId } = input;
   const modelUsed = input.modelUsed ?? "sales_flow_schedule_board_after_opening";
-  const caption = String(input.caption ?? "").trim() || SCHEDULE_BOARD_CAPTION;
+  const caption =
+    String(input.caption ?? "").trim() || resolveScheduleBoardCaption(input.salesFlowConfig);
   if (assets.canSendScheduleImage && assets.scheduleImgUrl) {
     try {
       await sendWhatsAppMediaMessage(
@@ -2296,7 +2299,10 @@ async function sendClassTimesAsScheduleImage(input: {
   blockMedia: boolean;
   modelUsed?: string;
 }): Promise<ScheduleBoardDelivery> {
-  const caption = scheduleTimesReplyCaption(input.business_slug) ?? SCHEDULE_BOARD_CAPTION;
+  const caption = resolveScheduleBoardCaption(
+    input.knowledge.salesFlowConfig,
+    scheduleTimesReplyCaption(input.business_slug) ?? SCHEDULE_BOARD_CAPTION
+  );
   const forceImage = scheduleTimesReplyUsesImage(input.business_slug);
   const assets = scheduleBoardAssetsFromKnowledge(
     input.knowledge,
@@ -2358,6 +2364,7 @@ async function ensureScheduleBoardSentOnce(input: {
   business_slug: string;
   sessionId: string;
   modelUsed?: string;
+  salesFlowConfig?: Parameters<typeof resolveScheduleBoardCaption>[0];
 }): Promise<ScheduleBoardDelivery> {
   const { supabase, business_slug, sessionId } = input;
   try {
@@ -2398,6 +2405,7 @@ async function ensureScheduleBoardSentOnce(input: {
     business_slug: input.business_slug,
     sessionId: input.sessionId,
     modelUsed: input.modelUsed,
+    salesFlowConfig: input.salesFlowConfig,
   });
 }
 
@@ -2476,6 +2484,7 @@ async function maybeSendScheduleBoardForPlacement(input: {
       input.when === "after_service_pick"
         ? "sales_flow_schedule_board_after_service_pick"
         : "sales_flow_schedule_board_after_opening",
+    salesFlowConfig: input.knowledge.salesFlowConfig,
   });
 }
 
@@ -2593,6 +2602,7 @@ async function advanceAfterWarmupSessionComplete(input: {
             : salesFlowServices.length === 1
               ? "sales_flow_schedule_board_after_opening_single"
               : "sales_flow_schedule_board_after_opening_multi",
+        salesFlowConfig: knowledge.salesFlowConfig,
       });
     }
 
@@ -3204,6 +3214,7 @@ async function sendOpeningServicePickMenu(input: {
       business_slug: input.business_slug,
       sessionId: input.sessionId,
       modelUsed: "sales_flow_schedule_board_before_service_pick",
+      salesFlowConfig: input.knowledge.salesFlowConfig,
     });
     if (scheduleBoardDelivery === "image") {
       await sleepMs(SCHEDULE_BOARD_IMAGE_BEFORE_MENU_DELAY_MS);
@@ -8760,6 +8771,7 @@ async function processIncoming(
             business_slug,
             sessionId,
             modelUsed: "sales_flow_schedule_board_on_ask",
+            salesFlowConfig: knowledge.salesFlowConfig,
           });
           if (board !== "none") return;
         }
@@ -9636,6 +9648,7 @@ async function processIncoming(
             business_slug,
             sessionId,
             modelUsed: "sales_flow_schedule_board_on_ask",
+            salesFlowConfig: knowledge.salesFlowConfig,
           });
       if (delivery !== "none") {
         if (knowledge.salesFlowConfig && salesFlowStarted) {
@@ -11666,7 +11679,13 @@ async function processIncoming(
         if (wantsSchedule) {
           // תמונה מ־CTA או מטאב לינקים — תמיד מועדפת על לינק כשקיימת
           const tightsTimesImage = scheduleTimesReplyUsesImage(business_slug);
-          const scheduleCaption = scheduleTimesReplyCaption(business_slug) ?? SCHEDULE_BOARD_CAPTION;
+          const scheduleCaption = resolveScheduleBoardCaption(
+            knowledge?.salesFlowConfig,
+            scheduleTimesReplyCaption(business_slug) ?? SCHEDULE_BOARD_CAPTION
+          );
+          const customScheduleCaption = Boolean(
+            String(knowledge?.salesFlowConfig?.schedule_board_caption ?? "").trim()
+          );
           const scheduleImgUrl = String(scheduleBoardAssets.scheduleImgUrl ?? "").trim();
           if (tightsTimesImage && !scheduleImgUrl) {
             console.error("[WA Webhook] tights schedule answer missing image", {
@@ -11718,9 +11737,11 @@ async function processIncoming(
 
           const linkToSend = (scheduleBoardAssets.link || scheduleUrlFull).trim();
           if (linkToSend.length > 0) {
-            const txt = tightsTimesImage
-              ? `${scheduleCaption}\n${linkToSend}`
-              : `צפייה במערכת השעות:\n${linkToSend}`;
+            const txt = customScheduleCaption
+              ? `${scheduleCaption}: ${linkToSend}`
+              : tightsTimesImage
+                ? `${scheduleCaption}\n${linkToSend}`
+                : `צפייה במערכת השעות:\n${linkToSend}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
               console.error("[WA Webhook] Send schedule link failed:", e)
             );
@@ -13732,6 +13753,7 @@ async function processIncoming(
         arboxLink: knowledge.arboxLink,
         hasScheduleData: salesFlowServices.some((service) => (service.scheduleSlots ?? []).length > 0),
         claudeBody: replyCoreClean,
+        caption: resolveScheduleBoardCaption(knowledge?.salesFlowConfig),
       });
       if (scheduleReply.kind === "image") {
         console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });

@@ -1116,9 +1116,28 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <p className="text-[11px] leading-relaxed text-zinc-500 text-center">
             {t.salesFlow.scheduleBoardPlacementHint}
           </p>
-          <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/50 px-3 py-2.5 text-center">
-            <p className="text-sm text-zinc-800">{t.salesFlow.scheduleBoardCaption}</p>
-          </div>
+          <Field
+            label={t.salesFlow.scheduleBoardCaptionLabel}
+            description={t.salesFlow.scheduleBoardCaptionHint}
+            lang={lang}
+          >
+            <Textarea
+              lang={lang}
+              rows={2}
+              value={
+                salesFlowConfig.schedule_board_caption !== undefined
+                  ? salesFlowConfig.schedule_board_caption
+                  : SCHEDULE_BOARD_CAPTION
+              }
+              onChange={(v) =>
+                setSalesFlowConfig((c) => ({
+                  ...c,
+                  schedule_board_caption: v.trim() === SCHEDULE_BOARD_CAPTION ? undefined : v,
+                }))
+              }
+              placeholder={SCHEDULE_BOARD_CAPTION}
+            />
+          </Field>
           {String(scheduleScanImageUrl ?? "").trim() ? (
             <div className="rounded-xl border border-zinc-100 bg-white p-3">
               <p className="text-xs font-semibold text-zinc-700 text-center mb-2">{t.salesFlow.imageToSend}</p>
