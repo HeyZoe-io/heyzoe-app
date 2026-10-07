@@ -37,6 +37,24 @@ function hasTriedToRegister(t: string): boolean {
 /**
  * הליד אומר שהרשמה/שיבוץ נכשלו — לא «רוצה להירשם», לא מערכת שעות, לא «מתי קבענו».
  */
+export const REGISTRATION_FAILED_NON_ARBOX_REPLY =
+  "אני מבינה, אבקש מהצוות לחזור אליך בהקדם.";
+export const REGISTRATION_FAILED_NON_ARBOX_MODEL = "registration_failed_non_arbox_handoff";
+
+/** Claude already tagged member_or_trial_unclear. Non-Arbox sends the team handoff instead of the question. */
+export function registrationFailedNonArboxHandoff(hasArboxConnection: boolean): {
+  reply: string;
+  model: string;
+  notifyTeam: true;
+} | null {
+  if (hasArboxConnection) return null;
+  return {
+    reply: REGISTRATION_FAILED_NON_ARBOX_REPLY,
+    model: REGISTRATION_FAILED_NON_ARBOX_MODEL,
+    notifyTeam: true,
+  };
+}
+
 export function isRegistrationFailedInquiry(raw: string): boolean {
   const t = normalizeRegistrationFailedText(raw);
   if (!t || t.length > 500) return false;

@@ -296,11 +296,11 @@ const TODAY = "2026-08-23";
   const active = mapMembershipLookupReply("active");
   assert.equal(active.kind, "active");
   assert.equal(active.modelUsed, MEMBERSHIP_LOOKUP_ACTIVE_MODEL);
-  assert.equal(active.notifyHumanRequested, false);
+  assert.equal(active.notifyHumanRequested, true);
   assert.equal(active.text, MEMBERSHIP_LOOKUP_ACTIVE_REPLY);
   assert.equal(
     active.text,
-    "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אפשר לנסות שוב מהאפליקציה או שאבקש מהצוות שיחזרו אליך! בינתיים אפשר לכתוב לי לאיזה אימון ניסית להירשם?"
+    "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אני מעבירה לצוות שיבדקו למה ההרשמה לא עוברת ויחזרו אליך 💜"
   );
   assert.equal(active.text.includes("—"), false);
   assert.equal(active.text.includes("כלול"), false);

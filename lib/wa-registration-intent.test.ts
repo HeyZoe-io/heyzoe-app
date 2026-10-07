@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { buildNonArboxClassChangeTeamHandoffReply } from "@/lib/wa-closed-playbook-copy";
 import {
-  BOOKED_CLASS_MOVE_APP_MODEL,
   BOOKED_CLASS_MOVE_APP_REPLY,
   buildBookedClassMoveAppReply,
   CLASS_MOVE_CLARIFY_MODEL,
@@ -11,10 +10,16 @@ import {
   matchesExistingMembershipClaim,
   matchesRegistrationIntentPhrase,
   REGISTRATION_INTENT_CLARIFY_QUESTION,
+  REGISTRATION_INTENT_HAS_MEMBER_MODEL,
   REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
   REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL,
+  REGISTRATION_INTENT_NO_MEMBER_MODEL,
+  REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+  membershipQuestionAnswerContext,
   registrationIntentMemberFlagReply,
+  registrationIntentMembershipAnswer,
   registrationMemberFlagFollowupNeedsHandoff,
+  rescheduleTagApplies,
   resolveArboxClassMoveOutcome,
   resolveRescheduleWithMemberFlag,
   RESCHEDULE_MEMBER_BY_FLAG_MODEL,
@@ -23,7 +28,8 @@ import {
   resolveBookedClassMoveBranch,
   shouldAskMembershipVsTrialFirst,
 } from "@/lib/wa-registration-intent";
-import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
+import { isRegistrationFailedInquiry, registrationFailedNonArboxHandoff } from "@/lib/wa-registration-failed-intent";
+import { buildReplyRoutePromptBlock } from "@/lib/wa-reply-route";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 assert.equal(matchesRegistrationIntentPhrase("רוצה להצטרף בשבת לפוואר אנד הייט"), true);
@@ -260,5 +266,60 @@ assert.equal(registrationMemberFlagFollowupNeedsHandoff("צריך עזרה"), tr
 assert.equal(registrationMemberFlagFollowupNeedsHandoff("לא הצליח"), true);
 assert.equal(registrationMemberFlagFollowupNeedsHandoff("כן"), true);
 assert.equal(isRegistrationFailedInquiry("לא הצליח"), false);
+
+const clarifySuffix =
+  "registration_intent_clarify#route=answer;tag=ok;hint=registration_clarify";
+assert.equal(membershipQuestionAnswerContext(clarifySuffix), "registration_intent");
+assert.equal(
+  membershipQuestionAnswerContext(
+    "registration_intent_clarify#route=member_or_trial_unclear;tag=ok;hint=membership_lookup"
+  ),
+  "other"
+);
+assert.equal(registrationIntentMembershipAnswer("קיים"), "yes");
+assert.equal(classifyRegistrationIntentMembershipReply("קיים"), "unclear");
+assert.equal(registrationIntentMembershipAnswer("ניסיון"), "no");
+assert.equal(REGISTRATION_INTENT_HAS_MEMBER_MODEL.startsWith("reschedule_"), false);
+assert.equal(REGISTRATION_INTENT_NO_MEMBER_MODEL.startsWith("reschedule_"), false);
+assert.equal(rescheduleTagApplies(clarifySuffix, "קיים"), false);
+assert.equal(rescheduleTagApplies(clarifySuffix, "אפשר להזיז את האימון שלי?"), true);
+assert.equal(
+  rescheduleTagApplies("registration_intent_member_by_flag", "אפשר להזיז את האימון שלי?"),
+  true
+);
+
+const nonArboxFailed = registrationFailedNonArboxHandoff(false);
+assert.equal(nonArboxFailed?.reply, "אני מבינה, אבקש מהצוות לחזור אליך בהקדם.");
+assert.equal(nonArboxFailed?.model, "registration_failed_non_arbox_handoff");
+assert.equal(nonArboxFailed?.notifyTeam, true);
+assert.equal(registrationFailedNonArboxHandoff(true), null);
+
+const memberAnswer = registrationIntentMembershipAnswer("קיים");
+assert.equal(memberAnswer, "yes");
+assert.equal(
+  memberAnswer === "yes" ? REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY : "",
+  REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY
+);
+const trialAnswer = registrationIntentMembershipAnswer("ניסיון");
+assert.equal(trialAnswer, "no");
+assert.equal(
+  trialAnswer === "no" ? REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY : "",
+  "אין בעיה, אז בוא נבחר עבורך אימון מהרשימה"
+);
+
+const stillMember = resolveRescheduleWithMemberFlag("אפשר להזיז את האימון שלי?", {
+  arboxIsMember: true,
+  hasArboxConnection: true,
+});
+assert.equal(stillMember.model, RESCHEDULE_MEMBER_BY_FLAG_MODEL);
+const stillUnknown = resolveRescheduleWithMemberFlag("אפשר להזיז את האימון שלי?", {
+  arboxIsMember: null,
+  hasArboxConnection: true,
+});
+assert.equal(stillUnknown.model, RESCHEDULE_UNKNOWN_TEAM_MODEL);
+
+const prompt = buildReplyRoutePromptBlock();
+assert.equal(prompt.includes("גם תשובה לשאלה"), false);
+assert.equal(prompt.includes("אינה class_move"), true);
 
 console.log("wa-registration-intent.test.ts: ok");

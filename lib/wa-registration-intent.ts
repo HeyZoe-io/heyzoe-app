@@ -1,5 +1,6 @@
 import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
 import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
+import { parseModelUsed } from "@/lib/wa-reply-route";
 import { lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
 import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
 import {
@@ -319,4 +320,50 @@ export function classifyRegistrationIntentMembershipReply(raw: string): Registra
   if (/^(כן|יש לי|יש לנו|בטח|yes|yep|yeah)(?:\b|[.!,?\s]|$)/iu.test(t)) return "yes";
 
   return "unclear";
+}
+
+export type MembershipQuestionAnswerContext = "registration_intent" | "other";
+
+/**
+ * The clarify question is stored as registration_intent_clarify with a route suffix.
+ * registration_clarify is the registration-intent question. Any other suffix keeps
+ * that path's own answer handling.
+ */
+export function membershipQuestionAnswerContext(
+  modelUsed: string | null | undefined
+): MembershipQuestionAnswerContext | null {
+  const parsed = parseModelUsed(modelUsed);
+  if (parsed.model !== REGISTRATION_INTENT_CLARIFY_MODEL) return null;
+  if (parsed.hint === "registration_clarify" || !parsed.route) return "registration_intent";
+  if (parsed.route === "member_or_trial_unclear") return "other";
+  if (parsed.hint && parsed.hint !== "registration_clarify") return "other";
+  return "registration_intent";
+}
+
+/** Registration-intent answers. Bare «קיים» is the short yes to «מנוי קיים». */
+export function registrationIntentMembershipAnswer(raw: string): RegistrationIntentMembershipReply {
+  const classified = classifyRegistrationIntentMembershipReply(raw);
+  if (classified !== "unclear") return classified;
+  const t = normalizeRegistrationIntentText(raw);
+  if (/^קיים(?:\s|$|[.,!?])/u.test(t)) return "yes";
+  return "unclear";
+}
+
+export function registrationMemberCopyAwaitingHelp(modelUsed: string | null | undefined): boolean {
+  const base = parseModelUsed(modelUsed).model;
+  return (
+    base === REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL ||
+    base === REGISTRATION_INTENT_HAS_MEMBER_MODEL
+  );
+}
+
+/** Reschedule tags only when this inbound is a real move, not an answer to the membership question. */
+export function rescheduleTagApplies(lastModel: string | null | undefined, inbound: string): boolean {
+  const base = parseModelUsed(lastModel).model;
+  const answeringQuestion =
+    base === REGISTRATION_INTENT_CLARIFY_MODEL ||
+    base === "booking_lookup_clarify" ||
+    base === CLASS_MOVE_CLARIFY_MODEL;
+  if (answeringQuestion && !matchesBookedClassMoveIntent(inbound)) return false;
+  return true;
 }

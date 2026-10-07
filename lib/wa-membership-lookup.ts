@@ -26,7 +26,7 @@ import { arboxFlagYes, formatDateYmdIsrael, parseEndDateYmd } from "@/lib/leads/
 import { normalizeIsraeliPhoneTail } from "@/lib/phone-normalize";
 
 export const MEMBERSHIP_LOOKUP_ACTIVE_REPLY =
-  "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אפשר לנסות שוב מהאפליקציה או שאבקש מהצוות שיחזרו אליך! בינתיים אפשר לכתוב לי לאיזה אימון ניסית להירשם?";
+  "היי! אני רואה שיש לך מנוי/כרטיסיה בתוקף. אני מעבירה לצוות שיבדקו למה ההרשמה לא עוברת ויחזרו אליך 💜";
 export const MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY =
   "אני רואה שיש חוב במערכת, אבל אני לא מעודכנת בכל הפרטים אז אני מעבירה לצוות שיסתכלו 💜";
 export const MEMBERSHIP_LOOKUP_EXPIRED_REPLY =
@@ -136,7 +136,7 @@ export function mapMembershipLookupReply(kind: MembershipLookupReplyKind): Membe
         kind,
         text: MEMBERSHIP_LOOKUP_ACTIVE_REPLY,
         modelUsed: MEMBERSHIP_LOOKUP_ACTIVE_MODEL,
-        notifyHumanRequested: false,
+        notifyHumanRequested: true,
       };
     case "active_debt":
       return {

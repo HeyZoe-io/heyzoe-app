@@ -364,12 +364,15 @@ import {
   REGISTRATION_INTENT_CLARIFY_QUESTION,
   REGISTRATION_INTENT_HAS_MEMBER_MODEL,
   REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
-  REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL,
   REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL,
   REGISTRATION_INTENT_NO_MEMBER_MODEL,
   REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+  membershipQuestionAnswerContext,
   registrationIntentMemberFlagReply,
+  registrationIntentMembershipAnswer,
+  registrationMemberCopyAwaitingHelp,
   registrationMemberFlagFollowupNeedsHandoff,
+  rescheduleTagApplies,
 } from "@/lib/wa-registration-intent";
 import {
   assistantAskedMembershipOrTrialClarify,
@@ -385,7 +388,10 @@ import {
   lookupArboxScheduleByPhone,
   type ScheduleLookupReply,
 } from "@/lib/wa-schedule-lookup";
-import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
+import {
+  isRegistrationFailedInquiry,
+  registrationFailedNonArboxHandoff,
+} from "@/lib/wa-registration-failed-intent";
 import {
   lookupArboxMembershipByPhone,
   mapMembershipLookupReply,
@@ -8220,6 +8226,7 @@ async function processIncoming(
       });
       if (
         lastForMove !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+        modelUsedBase(lastForMove) !== REGISTRATION_INTENT_CLARIFY_MODEL &&
         lastForMove !== BOOKING_LOOKUP_CLARIFY_MODEL
       ) {
         const salesFlowStartedForMove = await sessionHasSalesFlowGreeting(business_slug, sessionId);
@@ -8434,7 +8441,7 @@ async function processIncoming(
     const lastForMemberRegistration = modelUsedBase(
       await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
     );
-    if (lastForMemberRegistration === REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL) {
+    if (registrationMemberCopyAwaitingHelp(lastForMemberRegistration)) {
       if (businessId) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -9492,7 +9499,7 @@ async function processIncoming(
   // 0.18) Booking-lookup yes/no — after short clarify (or Claude's long version of it).
   if (
     isSalesFlowFreeTextInbound(msg) &&
-    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    modelUsedBase(lastAssistForWarmupPriority) !== REGISTRATION_INTENT_CLARIFY_MODEL &&
     modelUsedBase(lastAssistForWarmupPriority) !== CLASS_MOVE_CLARIFY_MODEL
   ) {
     let awaitingBookingLookupClarify = lastAssistForWarmupPriority === BOOKING_LOOKUP_CLARIFY_MODEL;
@@ -9531,15 +9538,74 @@ async function processIncoming(
   if (
     !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
-    lastAssistForWarmupPriority === REGISTRATION_INTENT_CLARIFY_MODEL
+    membershipQuestionAnswerContext(lastAssistForWarmupPriority) === "registration_intent"
   ) {
-    const yn = classifyRegistrationIntentMembershipReply(msg.text);
+    const yn = registrationIntentMembershipAnswer(msg.text);
     if (yn === "yes") {
-      fastPathHint = { matcher: "registration_clarify", category: "registration_has_member" };
-    } else if (yn === "no") {
-      fastPathHint = { matcher: "registration_clarify", category: "registration_no_member" };
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send registration-intent member answer failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY,
+        model_used: REGISTRATION_INTENT_HAS_MEMBER_MODEL,
+        session_id: sessionId,
+      });
+      return;
     }
-    // unclear — fall through to current behavior, no loop
+    if (yn === "no" && !(contactArboxIsMember === true && !salesFlowStarted)) {
+      try {
+        await sendWhatsAppMessage(
+          msg.toNumber,
+          msg.from,
+          REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+          accountSid,
+          authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] Send registration-intent trial answer failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY,
+        model_used: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+        session_id: sessionId,
+      });
+      if (businessId && knowledge?.salesFlowConfig) {
+        try {
+          const started = await beginSalesFlowAtProductPick({
+            entryModel: REGISTRATION_INTENT_NO_MEMBER_MODEL,
+            entryContent: "[heyzoe:registration_intent_no_member]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+          });
+          contactSessionPhase = started.contactSessionPhase;
+          contactFlowStep = started.contactFlowStep;
+        } catch (e) {
+          console.error("[WA Webhook] registration-intent trial answer flow failed:", e);
+        }
+      }
+      return;
+    }
   }
 
   // 0.25) Existing membership in an active sales flow — exit funnel, ask how to help.
@@ -9590,7 +9656,7 @@ async function processIncoming(
   if (
     !fastPathHint &&
     isSalesFlowFreeTextInbound(msg) &&
-    lastAssistForWarmupPriority !== REGISTRATION_INTENT_CLARIFY_MODEL &&
+    modelUsedBase(lastAssistForWarmupPriority) !== REGISTRATION_INTENT_CLARIFY_MODEL &&
     modelUsedBase(lastAssistForWarmupPriority) !== CLASS_MOVE_CLARIFY_MODEL &&
     lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
     isScheduleInquiryIntent(msg.text)
@@ -13822,6 +13888,43 @@ async function processIncoming(
       }
     }
     if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "member_or_trial_unclear") {
+      const nonArboxFailed = registrationFailedNonArboxHandoff(knowledge.hasArboxConnection === true);
+      if (nonArboxFailed) {
+        if (businessId) {
+          try {
+            const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+            await handleLeadHumanRequested({
+              supabase,
+              businessId: Number(businessId),
+              businessSlug: business_slug,
+              phone: msg.from,
+              nowIso,
+              sessionId,
+            });
+          } catch (e) {
+            console.error("[WA Webhook] registration-failed non-Arbox handoff failed:", e);
+          }
+        }
+        try {
+          await sendWhatsAppMessage(
+            msg.toNumber,
+            msg.from,
+            nonArboxFailed.reply,
+            accountSid,
+            authToken
+          );
+        } catch (e) {
+          console.error("[WA Webhook] Send registration-failed non-Arbox handoff failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: nonArboxFailed.reply,
+          model_used: nonArboxFailed.model,
+          session_id: sessionId,
+        });
+        return;
+      }
       try {
         await sendWhatsAppMessage(
           msg.toNumber,
@@ -13948,7 +14051,8 @@ async function processIncoming(
       waReplyRoute.tagStatus === "ok" &&
       (waReplyRoute.route === "class_move" ||
         waReplyRoute.route === "class_move_member" ||
-        waReplyRoute.route === "class_move_trial")
+        waReplyRoute.route === "class_move_trial") &&
+      rescheduleTagApplies(lastAssistForWarmupPriority, msg.text)
     ) {
       await deliverArboxClassMoveOutcome({
         outcome: resolveRescheduleWithMemberFlag(msg.text, {
