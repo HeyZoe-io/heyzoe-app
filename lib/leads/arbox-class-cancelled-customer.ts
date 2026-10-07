@@ -49,7 +49,7 @@ export const CLASS_CANCEL_SNAPSHOT_HORIZON_DAYS = 7;
 export const CLASS_CANCEL_NOTIFY_ATTEMPT_CAP = 3;
 export const CLASS_CANCEL_RETENTION_DAYS = 7;
 const PAGE_TIMEOUT_MS = 25_000;
-const NAME_FALLBACK = "שלום";
+const NAME_FALLBACK = "🙂";
 const CLASS_NAME_FALLBACK = "השיעור";
 const TIME_FALLBACK = "בקרוב";
 
@@ -315,7 +315,7 @@ function sanitizedFirstName(raw: string | null): string {
 /**
  * Body params for class_cancelled_customer, in placeholder order.
  * The count is the template BODY's highest {{n}}, not a fixed slot list.
- * {{1}} first name (sanitized; empty/unusable → "שלום")
+ * {{1}} first name (sanitized; empty/unusable → "🙂")
  * {{2}} class_name (empty → "השיעור")
  * {{3}} class date DD/MM
  * {{4}} class time HH:MM (empty → "בקרוב")

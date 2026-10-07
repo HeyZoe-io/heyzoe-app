@@ -250,7 +250,7 @@ const row = (
       classDateYmd: "2026-09-28",
       classTime: "09:30",
     }),
-    ["שלום", "יוגה"]
+    ["🙂", "יוגה"]
   );
   assert.equal(formatClassDateDdMm("2026-09-28"), "28/09");
 }

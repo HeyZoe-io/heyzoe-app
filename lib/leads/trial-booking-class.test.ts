@@ -30,6 +30,15 @@ assert.equal(
     role: "client",
     firstWorkout: false,
   }).classification,
+  "trial"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 800, type: "plan", name: "מנוי 8", inForce: true }],
+    trialTypeIds: chairScope.trialTypeIds,
+    role: "client",
+    firstWorkout: false,
+  }).classification,
   "not_trial"
 );
 

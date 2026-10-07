@@ -53,11 +53,9 @@ export function classifyTrialBooking(input: {
   if (input.memberships == null) return { classification: "unknown", reason: "memberships_api_error" };
   const ids = new Set(input.trialTypeIds.map((id) => Math.trunc(id)).filter((id) => id > 0));
   const inForce = input.memberships.filter((row) => row.inForce);
-  const trialProduct = inForce.some((row) => {
-    const type = row.type.toLowerCase();
-    if (type === "service" || type === "plan") return false;
-    return row.id != null && ids.has(row.id);
-  });
+  // An in-force id from the trial filter is a trial even when the type is service or plan,
+  // and even when another active product sits beside it.
+  const trialProduct = inForce.some((row) => row.id != null && ids.has(row.id));
   if (trialProduct) return { classification: "trial", reason: "active_trial_product" };
   if (inForce.length > 0) return { classification: "not_trial", reason: "active_paid_or_service" };
   const role = String(input.role ?? "").trim().toLowerCase();

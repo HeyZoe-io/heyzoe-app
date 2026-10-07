@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { maybeSendAdminDailyUnsentSummary } from "@/lib/admin-daily-unsent-summary";
 import { syncArboxClassCancelledCustomerForBusiness } from "@/lib/leads/arbox-class-cancelled-customer";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -7,6 +8,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Hourly: snapshot future Arbox registrations and notify them when that
  * occurrence is cancelled.
  * Scheduling: cron-job.org every hour (NOT vercel.json — Hobby).
+ * Same run, at or after 09:30 Asia/Jerusalem, also sends the admin unsent
+ * summary once per day when there is something to report.
  * GET + Authorization: Bearer CRON_SECRET
  * Optional: ?dry_run=1 or CLASS_CANCEL_NOTIFY_DRY_RUN=1 — real reads, no writes, no sends.
  *
@@ -120,10 +123,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  let adminUnsent: { sent: boolean; reason: string; count: number } = {
+    sent: false,
+    reason: "not_run",
+    count: 0,
+  };
+  try {
+    const summary = await maybeSendAdminDailyUnsentSummary({ admin, now, dryRun });
+    adminUnsent = { sent: summary.sent, reason: summary.reason, count: summary.count };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[cron/arbox-class-cancel-notify] admin unsent summary failed", message);
+    adminUnsent = { sent: false, reason: "threw", count: 0 };
+  }
+
   console.info("[cron/arbox-class-cancel-notify] done", {
     ran_at: ranAt,
     dry_run: dryRun,
     businesses: businesses.length,
+    admin_unsent: adminUnsent.reason,
   });
 
   return NextResponse.json({
@@ -131,5 +149,6 @@ export async function GET(req: NextRequest) {
     ran_at: ranAt,
     dry_run: dryRun,
     businesses,
+    admin_unsent: adminUnsent,
   });
 }
