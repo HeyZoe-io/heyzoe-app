@@ -30,6 +30,8 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
@@ -352,8 +354,11 @@ async function upsertMissedSyncLog(input: {
   attempts: number;
   status: CancellationSyncLogStatus;
   nowIso: string;
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_missed_class_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_missed_class_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -366,13 +371,9 @@ async function upsertMissedSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
+    "business_id,trigger_id,user_id,class_date,class_time,class_name",
+    input.reason
   );
-  if (error) {
-    console.error("[leads/arbox-missed-class] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 async function dispatchMissedTemplate(input: {
@@ -822,6 +823,7 @@ export async function syncArboxMissedClassForBusiness(input: {
     });
   }
 
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
   for (const row of rows) {
     if (!isBookingCheckInNo(row.check_in)) continue;
     if (isBookingCheckedIn(row.check_in)) continue;
@@ -939,6 +941,7 @@ export async function syncArboxMissedClassForBusiness(input: {
             attempts: 0,
             status: "seeded",
             nowIso,
+            reason: "class_unmarked",
           });
           if (!up.ok) seededOk = false;
         }
@@ -1083,6 +1086,30 @@ export async function syncArboxMissedClassForBusiness(input: {
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
       if (!sendPhone || !sendContact) continue;
+      if (isRetentionStaff(staffIndex, { userId, phone: sendPhone })) {
+        for (const rule of rulesToSend) {
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: sendContact.id,
+            attempts: attemptsSoFar,
+            status: "seeded",
+            nowIso,
+            reason: "staff",
+          });
+        }
+        console.info("[retention-staff] skip", {
+          trigger: missedKind,
+          businessId,
+          user_id: userId,
+        });
+        continue;
+      }
       if (await retentionAlreadySentToday(input.admin, businessId, sendPhone, now)) {
         console.info("[leads/arbox-missed-class] dispatch", {
           businessId,
@@ -1123,6 +1150,7 @@ export async function syncArboxMissedClassForBusiness(input: {
             attempts: attemptsSoFar,
             status: "skipped",
             nowIso,
+            reason: "retention_daily_cap",
           });
         }
         continue;

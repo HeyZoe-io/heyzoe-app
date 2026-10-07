@@ -16,6 +16,8 @@
  * No per-user Arbox calls.
  */
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   decideActivationEventAction,
   eventBeforeRuleActivation,
@@ -446,8 +448,11 @@ async function upsertNthWorkoutSyncLog(input: {
   nowIso: string;
   status: CancellationSyncLogStatus;
   attempts: number;
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_nth_workout_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_nth_workout_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -457,13 +462,9 @@ async function upsertNthWorkoutSyncLog(input: {
       status: input.status,
       attempts: input.attempts,
     },
-    { onConflict: "business_id,trigger_id,user_id" }
+    "business_id,trigger_id,user_id",
+    input.reason,
   );
-  if (error) {
-    console.error("[leads/arbox-nth-workout] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 async function dispatchNthWorkoutTemplate(input: {
@@ -864,6 +865,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     }
   }
   const nowMinutes = israelNowMinutes(now);
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
 
   for (const member of allMembers) {
     if (member.userId === NTH_WORKOUT_SOFT_SEED_SENTINEL_USER_ID) continue;
@@ -966,6 +968,26 @@ export async function syncArboxNthWorkoutForBusiness(input: {
           });
         }
         const phone = resolved.phone;
+        if (isRetentionStaff(staffIndex, { userId: member.userId, phone })) {
+          const marked = await upsertNthWorkoutSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: member.userId,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "seeded",
+            attempts: existingAttempts,
+            reason: "staff",
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[retention-staff] skip", {
+            trigger: "nth_workout",
+            businessId,
+            user_id: member.userId,
+          });
+          continue;
+        }
         if (!phone) {
           summary.no_phone += 1;
           const marked = await upsertNthWorkoutSyncLog({

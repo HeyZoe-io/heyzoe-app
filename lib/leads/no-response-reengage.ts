@@ -10,6 +10,7 @@ import {
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
@@ -644,6 +645,7 @@ export async function syncNoResponseReengageForBusiness(input: {
     for (const owner of phoneToCandidateIds.get(contactId) ?? []) memberLogCandidateIds.add(owner);
   }
 
+  const staffIndex = await retentionStaffIndex(input.admin, input.businessId);
   for (const row of candidateRows) {
     summary.examined += 1;
     const contact = row as ContactCandidate;
@@ -651,6 +653,23 @@ export async function syncNoResponseReengageForBusiness(input: {
     const phone = String(contact.phone ?? "").trim();
     if (!contactId || !phone) {
       bump(summary, "invalid_contact");
+      continue;
+    }
+
+    const staffUserId = Number(String(contact.arbox_user_id ?? "").trim());
+    if (
+      isRetentionStaff(staffIndex, {
+        userId: Number.isFinite(staffUserId) && staffUserId > 0 ? Math.trunc(staffUserId) : null,
+        phone,
+      })
+    ) {
+      await markReengagedAt(input.admin, contactId, now.toISOString());
+      bump(summary, "staff");
+      console.info("[retention-staff] skip", {
+        trigger: "no_response",
+        businessId: input.businessId,
+        user_id: Number.isFinite(staffUserId) ? Math.trunc(staffUserId) : null,
+      });
       continue;
     }
 

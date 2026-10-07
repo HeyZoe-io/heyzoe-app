@@ -1,5 +1,7 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -519,6 +521,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     return summary;
   }
   summary.fetched = report.rows.length;
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
 
   const activeIndex = await loadActiveMembershipIndex({
     apiKey,
@@ -723,6 +726,31 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
 
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
+      if (isRetentionStaff(staffIndex, { userId, phone: sendPhone })) {
+        for (const rule of pendingRules) {
+          const marked = await upsertOptionalReason(
+            input.admin,
+            "arbox_expiring_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              membership_user_id: membershipUserId,
+              end_date: endDateYmd,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+            },
+            "business_id,trigger_id,membership_user_id,end_date",
+            "staff",
+          );
+          if (!marked.ok) summary.errors += 1;
+        }
+        console.info("[retention-staff] skip", {
+          trigger: "membership_expiring",
+          businessId,
+          user_id: userId,
+        });
+        continue;
+      }
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),

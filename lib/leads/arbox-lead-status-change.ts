@@ -26,6 +26,7 @@ import {
   markRetentionSent,
   retentionAlreadySentToday,
 } from "@/lib/leads/retention-daily-cap";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import {
   buildTemplateIncomingContactPatch,
   formatLeadTemplateMessageContent,
@@ -1390,6 +1391,33 @@ async function sendOne(input: {
     if (!fullName && profile.fullName) fullName = profile.fullName;
   }
   phone = normalizePhone(contact?.phone) ?? phone;
+  const staffUserId = Number(person.leadId);
+  if (
+    isRetentionStaff(await retentionStaffIndex(input.admin, input.businessId), {
+      userId: Number.isFinite(staffUserId) && staffUserId > 0 ? Math.trunc(staffUserId) : null,
+      phone,
+    })
+  ) {
+    await upsertSync({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: rule.id,
+      leadId: person.leadId,
+      leadStatus: person.status,
+      enteredAt: input.enteredAt,
+      contactId: contact?.id ?? null,
+      nowIso: input.nowIso,
+      status: "seeded",
+      attempts,
+      reason: "staff",
+    });
+    console.info("[retention-staff] skip", {
+      trigger: "lead_status_changed",
+      businessId: input.businessId,
+      user_id: Number.isFinite(staffUserId) ? Math.trunc(staffUserId) : null,
+    });
+    return;
+  }
   if (!phone) {
     summary.no_phone += 1;
     await upsertSync({

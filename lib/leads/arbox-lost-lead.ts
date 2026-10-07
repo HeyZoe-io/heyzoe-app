@@ -11,6 +11,7 @@
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
   addCalendarDaysYmd,
@@ -887,6 +888,7 @@ export async function syncArboxLostLeadForBusiness(input: {
     });
   }
 
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
   for (const raw of reportRows) {
     const row = raw as ArboxLostLeadRow;
     const leadId = parseLostLeadId(row);
@@ -1008,6 +1010,23 @@ export async function syncArboxLostLeadForBusiness(input: {
         }
 
         const phone = resolved.phone;
+        if (isRetentionStaff(staffIndex, { userId: leadId, phone })) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "seeded",
+            attempts: existingAttempts,
+            reason: "staff",
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[retention-staff] skip", { trigger: "lost_lead", businessId, user_id: leadId });
+          continue;
+        }
         if (!phone) {
           summary.no_phone += 1;
           const marked = await upsertLostLeadSyncLog({
@@ -1080,6 +1099,7 @@ export async function syncArboxLostLeadForBusiness(input: {
             nowIso,
             status: "skipped",
             attempts: existingAttempts,
+            reason: "retention_daily_cap",
           });
           if (!marked.ok) summary.errors += 1;
           await closeRetentionEvent({

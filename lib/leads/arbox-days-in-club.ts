@@ -12,6 +12,8 @@
  * Soft-seed: flag true + empty log for that trigger_id → same past mark, then the send path.
  */
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   addCalendarDaysYmd,
   decideActivationEventAction,
@@ -299,8 +301,11 @@ async function upsertDaysInClubSyncLog(input: {
   nowIso: string;
   status: CancellationSyncLogStatus;
   attempts: number;
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_days_in_club_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_days_in_club_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -311,13 +316,9 @@ async function upsertDaysInClubSyncLog(input: {
       status: input.status,
       attempts: input.attempts,
     },
-    { onConflict: "business_id,trigger_id,user_id,member_since" }
+    "business_id,trigger_id,user_id,member_since",
+    input.reason,
   );
-  if (error) {
-    console.error("[leads/arbox-days-in-club] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 async function dispatchDaysInClubTemplate(input: {
@@ -598,6 +599,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
     }
   }
 
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
   for (const member of members) {
     if (member.userId === DAYS_IN_CLUB_SOFT_SEED_SENTINEL_USER_ID) continue;
 
@@ -661,6 +663,27 @@ export async function syncArboxDaysInClubForBusiness(input: {
           });
         }
         const phone = resolved.phone;
+        if (isRetentionStaff(staffIndex, { userId: member.userId, phone })) {
+          const marked = await upsertDaysInClubSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: member.userId,
+            memberSinceYmd: member.memberSinceYmd,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "seeded",
+            attempts: existingAttempts,
+            reason: "staff",
+          });
+          if (!marked.ok) summary.errors += 1;
+          console.info("[retention-staff] skip", {
+            trigger: "milestones",
+            businessId,
+            user_id: member.userId,
+          });
+          continue;
+        }
         if (!phone) {
           summary.no_phone += 1;
           const marked = await upsertDaysInClubSyncLog({

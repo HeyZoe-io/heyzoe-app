@@ -6,6 +6,8 @@
  * 31-day cap, quiet 21:00–08:00). freeze_ending_* stays on the daily cron.
  */
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
   addCalendarDaysYmd,
@@ -671,6 +673,7 @@ export async function syncArboxFreezeForBusiness(input: {
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
   const todayYmd = formatDateYmdIsrael(now);
 
   if (!apiKey || !boxId) {
@@ -991,6 +994,33 @@ export async function syncArboxFreezeForBusiness(input: {
           } else {
             const sendPhone = resolved.phone;
             const sendContact = resolved.contact;
+            if (isRetentionStaff(staffIndex, { userId, phone: sendPhone })) {
+              for (const rule of pendingRules) {
+                const marked = await upsertOptionalReason(
+                  input.admin,
+                  "arbox_freeze_created_sync_log",
+                  {
+                    business_id: businessId,
+                    trigger_id: rule.id,
+                    membership_hold_id: holdId,
+                    user_id: userId,
+                    contact_id: sendContact.id,
+                    processed_at: nowIso,
+                    attempts: attemptsSoFar,
+                    status: "seeded",
+                  },
+                  "business_id,trigger_id,membership_hold_id",
+                  "staff",
+                );
+                if (!marked.ok) summary.errors += 1;
+              }
+              console.info("[retention-staff] skip", {
+                trigger: "freeze_created",
+                businessId,
+                user_id: userId,
+              });
+              continue;
+            }
             const claimedRules: typeof pendingRules = [];
             for (const rule of pendingRules) {
               if (isArboxDailyDryRun()) {
@@ -1249,6 +1279,35 @@ export async function syncArboxFreezeForBusiness(input: {
         variant === "booked" ? "freeze_ending_booked" : "freeze_ending_unbooked";
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
+      if (isRetentionStaff(staffIndex, { userId, phone: sendPhone })) {
+        for (const rule of pendingRules) {
+          const marked = await upsertOptionalReason(
+            input.admin,
+            "arbox_freeze_ending_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              membership_hold_id: holdId,
+              end_suspend_ymd: endYmd,
+              variant,
+              user_id: userId,
+              contact_id: sendContact.id,
+              processed_at: nowIso,
+              attempts: 0,
+              status: "seeded",
+            },
+            "business_id,trigger_id,membership_hold_id,end_suspend_ymd",
+            "staff",
+          );
+          if (!marked.ok) summary.errors += 1;
+        }
+        console.info("[retention-staff] skip", {
+          trigger: triggerType,
+          businessId,
+          user_id: userId,
+        });
+        continue;
+      }
       const claimedRules: typeof pendingRules = [];
       for (const rule of pendingRules) {
         if (isArboxDailyDryRun()) {

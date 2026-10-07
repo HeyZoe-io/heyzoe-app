@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { StaffIndex } from "@/lib/leads/arbox-staff";
 
 /**
  * Opt-in context for one /api/cron/arbox-daily-triggers/business invocation.
@@ -13,6 +14,8 @@ export type ArboxDailyRunContext = {
   arboxReports: string[];
   /** In-flight /v3/membershipTypes result, keyed by API key. One fetch per run. */
   membershipTypesByKey: Map<string, Promise<unknown>>;
+  /** Morning roster from GET /v3/users/allStaffMembers. Unset on a failed fetch. */
+  staffIndex?: StaffIndex;
 };
 
 const storage = new AsyncLocalStorage<ArboxDailyRunContext>();

@@ -73,11 +73,25 @@ const detail = unsentDetailParam(rows);
 assert.equal(detail.includes("\n"), false);
 assert.equal(
   detail,
-  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 0 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
+  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 0 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו, 0 הקפאות, 0 לא מנוי פעיל, 0 עם אימון עתידי, 0 צוות"
 );
 assert.equal(
   unsentReason({ status: "seeded", lastError: "class_unmarked", overdue: false }),
   "אימון בלי סימון"
+);
+assert.equal(unsentReason({ status: "seeded", lastError: "staff", overdue: false }), "צוות");
+assert.equal(unsentReason({ status: "seeded", lastError: "frozen", overdue: false }), "הקפאה");
+assert.equal(
+  unsentReason({ status: "seeded", lastError: "not_active_member", overdue: false }),
+  "לא מנוי פעיל"
+);
+assert.equal(
+  unsentReason({ status: "seeded", lastError: "has_future_booking", overdue: false }),
+  "אימון עתידי"
+);
+assert.equal(
+  unsentReason({ status: "seeded", lastError: "retention_daily_cap", overdue: false }),
+  "תקרת שימור יומית"
 );
 assert.equal(
   unsentDetailParam([
@@ -91,7 +105,7 @@ assert.equal(
       at: "08.10, 09:00",
     },
   ]),
-  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 1 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
+  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 1 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו, 0 הקפאות, 0 לא מנוי פעיל, 0 עם אימון עתידי, 0 צוות"
 );
 const attention = unsentDetailParam([
   ...rows,

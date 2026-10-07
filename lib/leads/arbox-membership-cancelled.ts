@@ -6,6 +6,8 @@ import {
   parseReportEventInstant,
 } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -432,8 +434,11 @@ async function upsertCancellationSyncLog(input: {
   nowIso: string;
   status: CancellationSyncLogStatus;
   attempts: number;
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_cancellation_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_cancellation_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -444,13 +449,9 @@ async function upsertCancellationSyncLog(input: {
       status: input.status,
       attempts: input.attempts,
     },
-    { onConflict: "business_id,trigger_id,user_id,cancelled_time" }
+    "business_id,trigger_id,user_id,cancelled_time",
+    input.reason,
   );
-  if (error) {
-    console.error("[leads/arbox-membership-cancelled] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 async function dispatchMembershipCancelledTemplate(input: {
@@ -729,6 +730,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     }
   }
 
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
   for (const raw of reportRows) {
     const row = raw as ArboxCanceledMembershipRow;
     const userId = parseCancellationUserId(row.user_id);
@@ -817,6 +819,26 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
             businessId,
             row,
           });
+        }
+        if (isRetentionStaff(staffIndex, { userId, phone: resolved.phone })) {
+          await upsertCancellationSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            cancelledTime,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "seeded",
+            attempts: existingAttempts,
+            reason: "staff",
+          });
+          console.info("[retention-staff] skip", {
+            trigger: "membership_cancelled",
+            businessId,
+            user_id: userId,
+          });
+          continue;
         }
         if (!resolved.phone || !resolved.contact?.id) {
           summary.no_phone += 1;

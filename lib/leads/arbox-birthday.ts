@@ -1,5 +1,7 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
+import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -660,6 +662,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
     rowsByUser.set(Math.trunc(userIdRaw), row);
   }
   summary.fetched = rowsByUser.size;
+  const staffIndex = await retentionStaffIndex(input.admin, businessId);
 
   const activeRuleIds = await ruleIdsActiveSinceActivation(
     input.admin,
@@ -783,6 +786,31 @@ export async function syncArboxBirthdaysForBusiness(input: {
 
       const sendPhone = resolved.phone;
       const sendContact = resolved.contact;
+      if (isRetentionStaff(staffIndex, { userId, phone: sendPhone })) {
+        for (const rule of pendingRules) {
+          const marked = await upsertOptionalReason(
+            input.admin,
+            "arbox_birthday_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              birthday_year: syncYear,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+            },
+            "business_id,trigger_id,user_id,birthday_year",
+            "staff",
+          );
+          if (!marked.ok) summary.errors += 1;
+        }
+        console.info("[retention-staff] skip", {
+          trigger: kind === "former" ? "birthday_former" : "birthday",
+          businessId,
+          user_id: userId,
+        });
+        continue;
+      }
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),

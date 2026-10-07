@@ -14,6 +14,12 @@ import {
 } from "@/lib/leads/arbox-nth-workout";
 import { fetchArboxActiveProductKeys, type ActiveProductKeys } from "@/lib/leads/arbox-active-product";
 import { memberFlagReportIsComplete, syncArboxMemberFlags } from "@/lib/leads/arbox-member-flag";
+import {
+  fetchArboxStaffMembers,
+  loadStoredStaffIndex,
+  staffIndexFromPeople,
+  syncArboxStaffFlags,
+} from "@/lib/leads/arbox-staff";
 import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
   businessNeedsFreezeSync,
@@ -326,6 +332,42 @@ export async function runArboxDailyTriggersForBusiness(input: {
     slug: business.slug,
     slot,
   };
+
+  const staffCtx = arboxDailyContext();
+  if (slot === "morning") {
+    const roster = await fetchArboxStaffMembers({
+      apiKey: business.crm_api_key,
+      boxId: business.crm_box_id,
+    });
+    if (roster.ok) {
+      const index = staffIndexFromPeople(roster.people, true);
+      if (staffCtx && staffCtx.businessId === business.id) staffCtx.staffIndex = index;
+      const flags = await syncArboxStaffFlags({
+        admin,
+        businessId: business.id,
+        people: roster.people,
+        reportComplete: true,
+        now,
+      });
+      console.info("[arbox-staff] roster", {
+        slug: business.slug,
+        pages: roster.pages,
+        count: roster.people.length,
+        active: roster.people.filter((person) => person.active).length,
+        names: roster.people.map((person) => `${person.userId} ${person.name}`.trim()),
+        ...flags,
+      });
+    } else {
+      console.error("[arbox-staff] fetch failed — keep previous flags", {
+        slug: business.slug,
+        error: roster.error,
+        pages: roster.pages,
+      });
+    }
+  } else if (staffCtx && staffCtx.businessId === business.id) {
+    const stored = await loadStoredStaffIndex(admin, business.id);
+    if (stored.ready) staffCtx.staffIndex = stored;
+  }
 
   if (slot === "evening") {
     try {
