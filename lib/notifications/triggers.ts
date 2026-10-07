@@ -237,6 +237,7 @@ export async function triggerDailySummaryNotification(input: {
     }),
     fetchHumanRequestedYesterdayLeads({
       businessId,
+      businessSlug: slug,
       periodStartIso: input.periodStartIso,
       periodEndIso: input.periodEndIso,
     }),

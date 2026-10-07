@@ -15,6 +15,10 @@ import {
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
+import {
+  clearHumanRequestedAfterStaffReply,
+  manualDashboardSendClearsHumanRequested,
+} from "@/lib/human-requested";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 
 export const runtime = "nodejs";
@@ -118,6 +122,14 @@ export async function POST(req: NextRequest) {
       session_id: sessionId,
       error_code: null,
     });
+
+    if (manualDashboardSendClearsHumanRequested()) {
+      await clearHumanRequestedAfterStaffReply({
+        supabase: admin,
+        businessId: access.business.id,
+        phone: parsed.leadPhone,
+      });
+    }
     });
 
     return NextResponse.json({ ok: true, content: mediaUrl ? formatManualMediaMessageContent(mediaUrl, text) : text });

@@ -95,4 +95,39 @@ assert.equal(
   "no_response"
 );
 
+const recentLead = new Date().toISOString();
+const silentLead = new Date(Date.now() - 27 * 60 * 60 * 1000).toISOString();
+
+assert.equal(
+  computeContactStatus({
+    wa_followup_stage: 4,
+    last_contact_at: recentLead,
+    session_phase: "cta",
+  }),
+  "active"
+);
+assert.equal(
+  computeContactStatus({
+    wa_followup_stage: 3,
+    last_contact_at: recentLead,
+    session_phase: "cta",
+  }),
+  "no_response"
+);
+assert.equal(
+  computeContactStatus({
+    wa_followup_stage: 4,
+    last_contact_at: silentLead,
+  }),
+  "no_response"
+);
+assert.equal(
+  computeContactStatus({
+    human_requested_at: recentLead,
+    wa_followup_stage: 4,
+    last_contact_at: recentLead,
+  }),
+  "human_requested"
+);
+
 console.log("contact-status.test.ts: ok");

@@ -101,6 +101,7 @@ import {
   type ScheduleBoardAssets,
   type EffectiveSalesFlowCtaInput,
 } from "@/lib/sales-flow";
+import { isHumanReplyFollowupHold } from "@/lib/human-requested";
 import {
   shouldResetWaFollowupCycleOnInbound,
   WA_FOLLOWUP_CYCLE_RESET_PATCH,
@@ -7284,6 +7285,14 @@ async function processIncoming(
           phone: contactPhone,
           prior_stage: priorContact?.wa_followup_stage ?? 0,
           prior_last_contact_at: priorContact?.last_contact_at ?? null,
+        });
+      }
+
+      if (isHumanReplyFollowupHold(priorContact?.wa_followup_stage)) {
+        Object.assign(upsertPayload, WA_FOLLOWUP_CYCLE_RESET_PATCH);
+        console.info("[WA Webhook] follow-ups resumed after staff reply", {
+          business_slug,
+          phone: contactPhone,
         });
       }
 

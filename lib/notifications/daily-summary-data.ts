@@ -1,6 +1,11 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { formatLeadPhoneDisplay, type IdleLeadRow } from "@/lib/notifications/owner-email-context";
 import { sanitizeMetaOwnerTemplateParam } from "@/lib/notifications/owner-template-params";
+import {
+  canonicalContactPhone,
+  contactPhoneLookupVariants,
+  waSessionIdParts,
+} from "@/lib/phone-normalize";
 
 /** מקסימום לידים ברשימה אחת בפרמטר WA (חיתוך ~900 תווים) */
 const DAILY_SUMMARY_WA_LIST_LIMIT = 16;
@@ -95,21 +100,93 @@ export function formatDailySummaryNotRelevantLeadListForWa(leads: NotRelevantLea
   return sanitized || "אין";
 }
 
-/** לידים שביקשו נציג אתמול (human_requested_at בחלון). */
+/** One messages row per request (handleLeadHumanRequested / manual mark). Survives a later clear. */
+export const HUMAN_REQUESTED_EVENT_MODELS = ["human_requested", "human_requested_manual"] as const;
+
+export function phoneFromHumanRequestedEventSession(sessionId: string | null | undefined): string | null {
+  const parts = waSessionIdParts(String(sessionId ?? "").trim());
+  if (!parts?.phone) return null;
+  return canonicalContactPhone(parts.phone);
+}
+
+/** Unique leads, newest event first. A cleared human_requested_at does not drop the request. */
+export function humanRequestedLeadsFromEvents(input: {
+  events: { session_id?: string | null }[];
+  nameByPhone?: ReadonlyMap<string, string | null>;
+}): IdleLeadRow[] {
+  const seen = new Set<string>();
+  const out: IdleLeadRow[] = [];
+  for (const event of input.events) {
+    const phone = phoneFromHumanRequestedEventSession(event.session_id);
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    const name = input.nameByPhone?.get(phone);
+    out.push({
+      phone,
+      full_name: name ? String(name).trim() || null : null,
+    });
+  }
+  return out;
+}
+
+const NAME_LOOKUP_CHUNK = 80;
+
+async function fetchContactNamesByCanonicalPhone(input: {
+  businessId: number;
+  phones: string[];
+}): Promise<Map<string, string | null>> {
+  const names = new Map<string, string | null>();
+  if (!input.phones.length) return names;
+  const admin = createSupabaseAdminClient();
+  const variants = [...new Set(input.phones.flatMap((phone) => contactPhoneLookupVariants(phone)))];
+  for (let i = 0; i < variants.length; i += NAME_LOOKUP_CHUNK) {
+    const chunk = variants.slice(i, i + NAME_LOOKUP_CHUNK);
+    const { data, error } = await admin
+      .from("contacts")
+      .select("full_name, phone")
+      .eq("business_id", input.businessId)
+      .in("phone", chunk);
+    if (error) {
+      console.warn("[daily-summary] human requested name lookup failed:", error.message);
+      continue;
+    }
+    for (const row of data ?? []) {
+      const phone = canonicalContactPhone((row as { phone?: string }).phone);
+      if (!phone || names.has(phone)) continue;
+      names.set(phone, String((row as { full_name?: string }).full_name ?? "").trim() || null);
+    }
+  }
+  return names;
+}
+
+/**
+ * לידים שביקשו נציג אתמול.
+ * נשען על שורות messages שכבר נרשמות בכל בקשה (model_used human_requested / human_requested_manual),
+ * לא על contacts.human_requested_at — כדי שבקשה שנענתה ונוקתה עדיין תיספר.
+ * שאילתה אחת ליום לעסק על אינדקס (business_slug, created_at), לא סריקה לכל הודעה נכנסת.
+ */
 export async function fetchHumanRequestedYesterdayLeads(input: {
   businessId: number;
+  businessSlug: string;
   periodStartIso: string;
   periodEndIso: string;
 }): Promise<IdleLeadRow[]> {
+  const slug = String(input.businessSlug ?? "").trim().toLowerCase();
+  if (!slug) {
+    console.warn("[daily-summary] human requested query missing business slug");
+    return [];
+  }
+
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
-    .from("contacts")
-    .select("full_name, phone")
-    .eq("business_id", input.businessId)
-    .not("human_requested_at", "is", null)
-    .gte("human_requested_at", input.periodStartIso)
-    .lt("human_requested_at", input.periodEndIso)
-    .order("human_requested_at", { ascending: false })
+    .from("messages")
+    .select("session_id, created_at")
+    .eq("business_slug", slug)
+    .eq("role", "event")
+    .in("model_used", [...HUMAN_REQUESTED_EVENT_MODELS])
+    .gte("created_at", input.periodStartIso)
+    .lt("created_at", input.periodEndIso)
+    .order("created_at", { ascending: false })
     .limit(500);
 
   if (error) {
@@ -117,12 +194,13 @@ export async function fetchHumanRequestedYesterdayLeads(input: {
     return [];
   }
 
-  return (data ?? [])
-    .map((row) => ({
-      full_name: String((row as { full_name?: string }).full_name ?? "").trim() || null,
-      phone: String((row as { phone?: string }).phone ?? "").trim(),
-    }))
-    .filter((r) => r.phone);
+  const events = (data ?? []) as { session_id?: string | null }[];
+  const phones = humanRequestedLeadsFromEvents({ events }).map((lead) => lead.phone);
+  const nameByPhone = await fetchContactNamesByCanonicalPhone({
+    businessId: input.businessId,
+    phones,
+  });
+  return humanRequestedLeadsFromEvents({ events, nameByPhone });
 }
 
 const HUMAN_REQUESTED_DAILY_SUMMARY_TAG = "ביקש נציג";

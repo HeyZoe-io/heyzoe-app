@@ -1,6 +1,45 @@
 import { isContactTrialRegistered } from "@/lib/contact-status";
-import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import {
+  buildWaSessionId,
+  contactPhoneLookupVariants,
+  waSessionIdVariantsFromSessionId,
+} from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+
+/**
+ * Stage 3 is «ללא מענה» in the list and also «no more follow-ups».
+ * The DB trigger recomputes wa_next_followup_at from stages 0–2, and the
+ * follow-up cron still sends when the stage is under 3 even if the timestamp
+ * was nulled. Stage 4 keeps follow-ups off without painting «ללא מענה».
+ * The next inbound from the lead resets the stage to 0.
+ */
+export const HUMAN_REPLY_FOLLOWUP_HOLD_STAGE = 4;
+
+/** WhatsApp Business app text only. Reactions are dropped before this. Media does not clear. */
+export function appEchoTextClearsHumanRequested(metaType: string | null | undefined): boolean {
+  return String(metaType ?? "").trim() === "text";
+}
+
+/** Dashboard manual send (text or media) is a human reply. */
+export function manualDashboardSendClearsHumanRequested(): boolean {
+  return true;
+}
+
+export function buildHumanReplyClearsRequestPatch(): Record<string, unknown> {
+  return {
+    human_requested_at: null,
+    wa_followup_stage: HUMAN_REPLY_FOLLOWUP_HOLD_STAGE,
+  };
+}
+
+export function isHumanReplyFollowupHold(stage: unknown): boolean {
+  return Number(stage) === HUMAN_REPLY_FOLLOWUP_HOLD_STAGE;
+}
+
+/** During the app-echo pause a new lead message must not set the tag again. */
+export function leadMessageMaySetHumanRequested(sessionPaused: boolean): boolean {
+  return sessionPaused !== true;
+}
 
 export function skipHumanRequestedOwnerWhatsAppWhenTaskCreated(
   createdHumanRequestTask: boolean
@@ -71,6 +110,31 @@ export async function reactivateHumanRequestedLead(input: {
   return Boolean(updated?.length);
 }
 
+/** One contacts update. No-op when the tag is already clear (WHERE human_requested_at IS NOT NULL). */
+export async function clearHumanRequestedAfterStaffReply(input: {
+  supabase: import("@supabase/supabase-js").SupabaseClient;
+  businessId: number;
+  phone: string;
+}): Promise<{ cleared: boolean }> {
+  const businessId = Number(input.businessId);
+  const phoneVariants = contactPhoneLookupVariants(input.phone);
+  if (!businessId || !phoneVariants.length) return { cleared: false };
+
+  const { data, error } = await input.supabase
+    .from("contacts")
+    .update(buildHumanReplyClearsRequestPatch())
+    .eq("business_id", businessId)
+    .in("phone", phoneVariants)
+    .not("human_requested_at", "is", null)
+    .select("id");
+
+  if (error) {
+    console.error("[human-requested] clear after staff reply failed:", error.message);
+    return { cleared: false };
+  }
+  return { cleared: Boolean(data?.length) };
+}
+
 /** עדכון DB + אירוע + התראות בעלים + CRM (idempotent — לא חוזר אם כבר סומן). גם אחרי הרשמה — נשמר «ביקש נציג + נרשם». */
 export async function handleLeadHumanRequested(input: {
   supabase: import("@supabase/supabase-js").SupabaseClient;
@@ -86,6 +150,20 @@ export async function handleLeadHumanRequested(input: {
   const businessId = Number(input.businessId);
   const phoneVariants = contactPhoneLookupVariants(input.phone);
   if (!businessId || !phoneVariants.length) return { already: false };
+
+  const sessionId = String(input.sessionId ?? "").trim();
+  if (sessionId) {
+    const { isBusinessWaSessionPaused } = await import("@/lib/wa-app-echo-pause");
+    const sessionIds = waSessionIdVariantsFromSessionId(sessionId);
+    const paused = await isBusinessWaSessionPaused({
+      admin: input.supabase as never,
+      businessSlug: input.businessSlug,
+      sessionIds: sessionIds.length ? sessionIds : [sessionId],
+    });
+    if (!leadMessageMaySetHumanRequested(paused)) {
+      return { already: true };
+    }
+  }
 
   const { data: existing } = await input.supabase
     .from("contacts")

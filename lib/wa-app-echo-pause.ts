@@ -1,5 +1,9 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage } from "@/lib/analytics";
+import {
+  appEchoTextClearsHumanRequested,
+  clearHumanRequestedAfterStaffReply,
+} from "@/lib/human-requested";
 import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import {
   isMarketingConversationsSlug,
@@ -387,6 +391,17 @@ export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promis
       sessionId,
       now,
     });
+
+    if (appEchoTextClearsHumanRequested(echo.metaType)) {
+      const businessId = Number((channel as { business_id?: unknown } | null)?.business_id);
+      if (Number.isFinite(businessId) && businessId > 0) {
+        await clearHumanRequestedAfterStaffReply({
+          supabase: admin,
+          businessId,
+          phone: echo.leadPhone,
+        }).catch((e) => console.error("[wa-app-echo-pause] clear human_requested failed:", e));
+      }
+    }
 
     try {
       await logMessage({
