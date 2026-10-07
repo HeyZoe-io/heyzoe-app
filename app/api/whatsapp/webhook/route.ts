@@ -463,6 +463,19 @@ import {
   type WarmupSkipPhase,
 } from "@/lib/wa-warmup-skip-intent";
 import {
+  FIND_CLASS_ASK_MODEL,
+  FIND_CLASS_DECLINE_MODEL,
+  composeFindClassOffer,
+  isAffirmativeFindClassReply,
+  isFindClassBridgeModel,
+  isFindClassBridgeYesNo,
+  isNegativeFindClassReply,
+  resolveFindClassLang,
+  findClassDeclineReply,
+  resolveInterestQuestionAnswer,
+  shouldOfferFindClassBeforeFlow,
+} from "@/lib/wa-interest-find-class";
+import {
   trialSignupAckForInbound,
   TRIAL_SIGNUP_INTENT_ACK_MODEL,
 } from "@/lib/wa-trial-signup-intent";
@@ -7847,6 +7860,69 @@ async function processIncoming(
     }
   }
 
+  // «כן» / «לא» אחרי «רוצה שנמצא את השיעור…» — בלי קריאת מודל.
+  if (
+    msg.type === "text" &&
+    businessId &&
+    knowledge?.salesFlowConfig &&
+    isFindClassBridgeYesNo(msg.text)
+  ) {
+    const lastForFindClass = await fetchLastAssistantModelUsed({
+      business_slug,
+      session_id: sessionId,
+    });
+    if (isFindClassBridgeModel(lastForFindClass)) {
+      const findClassLang = resolveFindClassLang(
+        msg.text,
+        resolveBusinessContentLanguageFromKnowledge(knowledge)
+      );
+      if (
+        isAffirmativeFindClassReply(msg.text) &&
+        contactTrialRegistered !== true &&
+        contactSessionPhase !== "registered" &&
+        !((await ensureSalesFlowStarted()) && !inboundReopenedAfterDormancy) &&
+        !(await memberBlocksNewSalesFlow())
+      ) {
+        try {
+          await beginSalesFlowAtProductPick({
+            entryModel: SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+            entryContent: "[heyzoe:signup_intent_flow_entry]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] find-class yes → product pick failed:", e);
+        }
+        return;
+      }
+      if (isNegativeFindClassReply(msg.text)) {
+        const decline = findClassDeclineReply(findClassLang);
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, decline, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] find-class decline send failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: decline,
+          model_used: FIND_CLASS_DECLINE_MODEL,
+          session_id: sessionId,
+        });
+        return;
+      }
+    }
+  }
+
   // לינק הרשמה של השיעור שזוהה (מחר ב-8:00 → Power&HIIT) — לא לינק מערכת שעות.
   if (
     msg.type === "text" &&
@@ -13581,6 +13657,69 @@ async function processIncoming(
       });
       return;
     }
+    let heldSalesFlowForQuestion = false;
+    const alreadyInFlowForFindClass = salesFlowStarted && !inboundReopenedAfterDormancy;
+    if (
+      msg.type === "text" &&
+      businessId &&
+      knowledge?.salesFlowConfig &&
+      waReplyRoute.tagStatus === "ok" &&
+      !alreadyInFlowForFindClass &&
+      contactArboxIsMember !== true &&
+      contactTrialRegistered !== true &&
+      contactSessionPhase !== "registered"
+    ) {
+      const explicitSignupForOffer =
+        waReplyRoute.route !== "signup" || claudeSignupTagMayOpenSalesFlow(msg.text);
+      const offerNow = shouldOfferFindClassBeforeFlow({
+        route: waReplyRoute.route,
+        inbound: msg.text,
+        explicitSignup: explicitSignupForOffer,
+      });
+      let reaskPending = false;
+      if (!offerNow && waReplyRoute.route === "answer" && looksLikeLeadQuestion(msg.text)) {
+        const lastForReask = await fetchLastAssistantModelUsed({
+          business_slug,
+          session_id: sessionId,
+        });
+        reaskPending = isFindClassBridgeModel(lastForReask);
+      }
+      if (offerNow || reaskPending) {
+        heldSalesFlowForQuestion = offerNow;
+        const answer = resolveInterestQuestionAnswer({
+          inbound: msg.text,
+          claudeBody: waReplyRoute.body,
+          services: salesFlowServices.map((service) => ({
+            name: service.name,
+            priceText: service.priceText,
+          })),
+          address: String(knowledge?.addressText ?? ""),
+        });
+        if (answer) {
+          const outbound = composeFindClassOffer(
+            answer,
+            resolveFindClassLang(msg.text, resolveBusinessContentLanguageFromKnowledge(knowledge))
+          );
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] find-class answer send failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: outbound,
+            model_used: appendRouteToModelUsed(FIND_CLASS_ASK_MODEL, waReplyRoute, fastPathHint?.category),
+            session_id: sessionId,
+          });
+          return;
+        }
+        console.warn("[WA Webhook] separate question held sales flow; no answer text", {
+          business_slug,
+          sessionId,
+        });
+      }
+    }
     if (
       waReplyRoute.tagStatus === "ok" &&
       (waReplyRoute.route === "signup" || waReplyRoute.route === "interest")
@@ -13597,6 +13736,7 @@ async function processIncoming(
       const startFlow =
         explicitSignup &&
         !alreadyInFlow &&
+        !heldSalesFlowForQuestion &&
         contactArboxIsMember !== true &&
         contactTrialRegistered !== true &&
         contactSessionPhase !== "registered";
