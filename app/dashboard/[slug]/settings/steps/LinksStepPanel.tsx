@@ -19,7 +19,7 @@ import {
   filterArboxMembershipTypesByWords,
   type ArboxMembershipTypeRow,
 } from "@/lib/arbox-membership-types";
-import { isDualBranchBusiness } from "@/lib/dual-branch";
+import { isDualBranchBusiness, type DualBranchId } from "@/lib/dual-branch";
 
 type SectionId = "website" | "booking" | "crm" | "social";
 
@@ -37,12 +37,20 @@ export type LinksStepPanelProps = {
   setBranchScheduleAmiad?: (v: string) => void;
   branchScheduleKiryat?: string;
   setBranchScheduleKiryat?: (v: string) => void;
+  branchScheduleImageAmiad?: string;
+  setBranchScheduleImageAmiad?: (v: string) => void;
+  branchScheduleImageKiryat?: string;
+  setBranchScheduleImageKiryat?: (v: string) => void;
   scheduleScanImageUrl: string;
   setScheduleScanImageUrl: (v: string) => void;
   scheduleScanMediaInputRef: React.RefObject<HTMLInputElement | null>;
   uploadingScheduleScanMedia: boolean;
   scheduleScanMediaUploadError: string;
-  uploadMedia: (file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") => Promise<void>;
+  uploadMedia: (
+    file: File,
+    target: "opening" | "directions" | "schedule_cta" | "schedule_scan",
+    branch?: DualBranchId
+  ) => Promise<void>;
   scheduleDirectRegistration: boolean;
   setScheduleDirectRegistration: (v: boolean) => void;
   membershipsUrl: string;
@@ -120,6 +128,77 @@ function CrmFieldHint({ text, lang, explainAria }: { text: string; lang: Dashboa
   );
 }
 
+function BranchScheduleImageField({
+  lang,
+  label,
+  url,
+  tip,
+  uploadLabel,
+  uploadingLabel,
+  removeLabel,
+  uploadTitle,
+  uploading,
+  onUpload,
+  onRemove,
+}: {
+  lang: DashboardLang;
+  label: string;
+  url: string;
+  tip: string;
+  uploadLabel: string;
+  uploadingLabel: string;
+  removeLabel: string;
+  uploadTitle: string;
+  uploading: boolean;
+  onUpload: () => void;
+  onRemove: () => void;
+}) {
+  const hasImage = Boolean(url.trim());
+  return (
+    <div className="rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
+        <p className="text-xs font-semibold text-zinc-800">{label}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={[
+              "text-xs font-semibold underline underline-offset-4",
+              "text-[#2f6feb] hover:text-[#1f5bd6]",
+              "disabled:opacity-60 disabled:no-underline",
+            ].join(" ")}
+            onClick={onUpload}
+            disabled={uploading}
+            title={uploadTitle}
+          >
+            {uploading ? uploadingLabel : uploadLabel}
+          </button>
+          {hasImage ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs border-zinc-200 bg-white hover:bg-red-50/70 text-red-600"
+              onClick={onRemove}
+            >
+              {removeLabel}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {hasImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url.trim()}
+          alt=""
+          className="mt-2 w-full max-h-52 rounded-lg object-contain bg-white"
+        />
+      ) : null}
+      <p className="mt-2 text-[11px] text-zinc-500 leading-snug" dir={dashboardDir(lang)}>
+        {tip}
+      </p>
+    </div>
+  );
+}
+
 export function LinksStepPanel(props: LinksStepPanelProps) {
   const {
     lang = "he",
@@ -135,6 +214,10 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setBranchScheduleAmiad,
     branchScheduleKiryat = "",
     setBranchScheduleKiryat,
+    branchScheduleImageAmiad = "",
+    setBranchScheduleImageAmiad,
+    branchScheduleImageKiryat = "",
+    setBranchScheduleImageKiryat,
     scheduleScanImageUrl,
     setScheduleScanImageUrl,
     scheduleScanMediaInputRef,
@@ -171,6 +254,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   } = props;
   const t = dashboardSettingsT(lang);
   const dualBranch = isDualBranchBusiness(slug);
+  const scheduleScanBranchRef = useRef<DualBranchId | null>(null);
 
   const canLoadArboxMembershipTypes =
     crmType === "arbox" &&
@@ -408,11 +492,14 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
+                const branch = scheduleScanBranchRef.current ?? undefined;
+                scheduleScanBranchRef.current = null;
                 if (!f) return;
-                void uploadMedia(f, "schedule_scan");
+                void uploadMedia(f, "schedule_scan", branch);
                 e.currentTarget.value = "";
               }}
             />
+            {dualBranch ? null : (
             <button
               type="button"
               className={[
@@ -420,12 +507,16 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 "text-[#2f6feb] hover:text-[#1f5bd6]",
                 "disabled:opacity-60 disabled:no-underline",
               ].join(" ")}
-              onClick={() => scheduleScanMediaInputRef.current?.click()}
+              onClick={() => {
+                scheduleScanBranchRef.current = null;
+                scheduleScanMediaInputRef.current?.click();
+              }}
               disabled={uploadingScheduleScanMedia}
               title={t.links.uploadScheduleImageTitle}
             >
               {uploadingScheduleScanMedia ? t.uploading : t.links.uploadScheduleImage}
             </button>
+            )}
           </>
         }
       >
@@ -433,28 +524,67 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           {dualBranch ? (
             <div className="space-y-3">
               <p className="text-[11px] leading-snug text-zinc-500">{t.links.branchSystemsHint}</p>
-              <div>
-                <SalesPathFieldLabel>{t.links.scheduleLinkAmiad}</SalesPathFieldLabel>
-                <Input
-                  dir="ltr"
-                  value={branchScheduleAmiad}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setBranchScheduleAmiad?.(next);
-                    setArboxLink(next);
+              <div className="space-y-2">
+                <div>
+                  <SalesPathFieldLabel>{t.links.scheduleLinkAmiad}</SalesPathFieldLabel>
+                  <Input
+                    dir="ltr"
+                    value={branchScheduleAmiad}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setBranchScheduleAmiad?.(next);
+                      setArboxLink(next);
+                    }}
+                    placeholder="https://..."
+                    className={SALES_PATH_INPUT}
+                  />
+                </div>
+                <BranchScheduleImageField
+                  lang={lang}
+                  label={t.links.scheduleImageAmiad}
+                  url={branchScheduleImageAmiad}
+                  tip={t.links.scheduleImageTip}
+                  uploadLabel={branchScheduleImageAmiad.trim() ? t.replace : t.links.uploadScheduleImage}
+                  uploadingLabel={t.uploading}
+                  removeLabel={t.remove}
+                  uploadTitle={t.links.uploadScheduleImageTitle}
+                  uploading={uploadingScheduleScanMedia}
+                  onUpload={() => {
+                    scheduleScanBranchRef.current = "amiad";
+                    scheduleScanMediaInputRef.current?.click();
                   }}
-                  placeholder="https://..."
-                  className={SALES_PATH_INPUT}
+                  onRemove={() => {
+                    setBranchScheduleImageAmiad?.("");
+                    setScheduleScanImageUrl("");
+                  }}
                 />
               </div>
-              <div>
-                <SalesPathFieldLabel>{t.links.scheduleLinkKiryatShmona}</SalesPathFieldLabel>
-                <Input
-                  dir="ltr"
-                  value={branchScheduleKiryat}
-                  onChange={(e) => setBranchScheduleKiryat?.(e.target.value)}
-                  placeholder="https://..."
-                  className={SALES_PATH_INPUT}
+              <div className="space-y-2">
+                <div>
+                  <SalesPathFieldLabel>{t.links.scheduleLinkKiryatShmona}</SalesPathFieldLabel>
+                  <Input
+                    dir="ltr"
+                    value={branchScheduleKiryat}
+                    onChange={(e) => setBranchScheduleKiryat?.(e.target.value)}
+                    placeholder="https://..."
+                    className={SALES_PATH_INPUT}
+                  />
+                </div>
+                <BranchScheduleImageField
+                  lang={lang}
+                  label={t.links.scheduleImageKiryatShmona}
+                  url={branchScheduleImageKiryat}
+                  tip={t.links.scheduleImageTip}
+                  uploadLabel={branchScheduleImageKiryat.trim() ? t.replace : t.links.uploadScheduleImage}
+                  uploadingLabel={t.uploading}
+                  removeLabel={t.remove}
+                  uploadTitle={t.links.uploadScheduleImageTitle}
+                  uploading={uploadingScheduleScanMedia}
+                  onUpload={() => {
+                    scheduleScanBranchRef.current = "kiryat_shmona";
+                    scheduleScanMediaInputRef.current?.click();
+                  }}
+                  onRemove={() => setBranchScheduleImageKiryat?.("")}
                 />
               </div>
             </div>
@@ -470,7 +600,7 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           />
             </>
           )}
-          {scheduleScanImageUrl.trim() ? (
+          {!dualBranch && scheduleScanImageUrl.trim() ? (
             <div className="mt-3 rounded-xl border border-[#7133da]/15 bg-[#f9f6ff]/60 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2" dir={dashboardDir(lang)}>
                 <p className="text-xs font-semibold text-zinc-800">{t.links.scheduleImagePreferred}</p>

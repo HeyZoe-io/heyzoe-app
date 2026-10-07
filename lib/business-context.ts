@@ -52,6 +52,7 @@ import {
   formatBranchLocationsForPrompt,
   isDualBranchBusiness,
   parseBranchLocations,
+  parseBranchScheduleImageUrls,
   parseBranchScheduleUrls,
 } from "@/lib/dual-branch";
 import { parseSfServiceRows, type SfServiceRow } from "@/lib/sf-service-rows";
@@ -130,6 +131,10 @@ export type BusinessKnowledgePack = {
   instagramUrl: string;
   /** מערכות שעות לפי סניף — רק tshelgine-8774 */
   branchScheduleUrls?: import("@/lib/dual-branch").BranchScheduleUrls;
+  /** תמונת מערכת שעות לפי סניף — רק tshelgine-8774 */
+  branchScheduleImageUrls?: import("@/lib/dual-branch").BranchScheduleImageUrls;
+  /** אחרי בחירת סניף — התמונה של הסניף שנבחר. ריק לפני בחירה. */
+  activeBranchScheduleImage?: string;
   /** אחרי חימום יש בחירת סניף — רק tshelgine-8774 */
   dualBranch?: boolean;
   /** כתובת והגעה לפי סניף — רק tshelgine-8774 */
@@ -460,6 +465,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
         )
       : "";
 
+    const parsedBranchScheduleImages = parseBranchScheduleImageUrls(social.branch_schedule_image_urls);
+
     const packed: BusinessKnowledgePack = {
       businessName: String(business.name ?? slug),
       botName: String(business.bot_name ?? "זואי").trim() || "זואי",
@@ -510,6 +517,12 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       knowledgeCatalogServices,
       instagramUrl,
       branchScheduleUrls: parseBranchScheduleUrls(social.branch_schedule_urls),
+      branchScheduleImageUrls: isDualBranchBusiness(slug)
+        ? {
+            amiad: parsedBranchScheduleImages.amiad || scheduleScanImageUrl,
+            kiryat_shmona: parsedBranchScheduleImages.kiryat_shmona,
+          }
+        : undefined,
       dualBranch: isDualBranchBusiness(slug) || undefined,
       branchLocations: splitBranchLocations ? branchLocations : undefined,
       promotionsText,

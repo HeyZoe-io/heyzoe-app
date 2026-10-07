@@ -7,6 +7,7 @@ import {
   matchDualBranchChoice,
   parseBranchOffers,
   parseBranchScheduleUrls,
+  scheduleImageForBranch,
 } from "@/lib/dual-branch";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
 
@@ -130,5 +131,85 @@ assert.equal(placed.addressText, "שדרות תל חי 12");
 assert.equal(placed.directionsText, "קומה 2, דלת ימין");
 assert.match(placed.servicesText, /קריית שמונה/);
 assert.doesNotMatch(placed.addressText, /עמיעד/);
+
+const legacyAmiad = "https://img.example/legacy-amiad.jpg";
+assert.equal(
+  scheduleImageForBranch({
+    branch: "amiad",
+    branchScheduleImageUrls: { amiad: "", kiryat_shmona: "" },
+    legacyScanImageUrl: legacyAmiad,
+  }),
+  legacyAmiad
+);
+assert.equal(
+  scheduleImageForBranch({
+    branch: "kiryat_shmona",
+    branchScheduleImageUrls: { amiad: "", kiryat_shmona: "" },
+    legacyScanImageUrl: legacyAmiad,
+  }),
+  ""
+);
+
+const amiadImage = applyDualBranchToKnowledge(
+  {
+    arboxLink: "https://sched.example/shared",
+    schedulePublicUrl: "",
+    addressText: "",
+    directionsText: "",
+    servicesText: "",
+    salesFlowServices: [],
+    scheduleScanImageUrl: legacyAmiad,
+    activeBranchScheduleImage: "",
+    branchScheduleImageUrls: { amiad: "", kiryat_shmona: "https://img.example/ks.jpg" },
+    salesFlowConfig: {
+      cta_buttons: [{ kind: "schedule", schedule_cta_image_url: legacyAmiad, schedule_cta_image_type: "image" as const }],
+    },
+  },
+  "amiad"
+);
+assert.equal(amiadImage.activeBranchScheduleImage, legacyAmiad);
+assert.equal(amiadImage.salesFlowConfig?.cta_buttons?.[0]?.schedule_cta_image_url, legacyAmiad);
+
+const kiryatImage = applyDualBranchToKnowledge(
+  {
+    arboxLink: "https://sched.example/shared",
+    schedulePublicUrl: "",
+    addressText: "",
+    directionsText: "",
+    servicesText: "",
+    salesFlowServices: [],
+    scheduleScanImageUrl: legacyAmiad,
+    activeBranchScheduleImage: "",
+    branchScheduleImageUrls: { amiad: legacyAmiad, kiryat_shmona: "https://img.example/ks.jpg" },
+    salesFlowConfig: {
+      cta_buttons: [{ kind: "schedule", schedule_cta_image_url: legacyAmiad, schedule_cta_image_type: "image" as const }],
+    },
+  },
+  "kiryat_shmona"
+);
+assert.equal(kiryatImage.scheduleScanImageUrl, "https://img.example/ks.jpg");
+assert.equal(kiryatImage.activeBranchScheduleImage, "https://img.example/ks.jpg");
+assert.equal(kiryatImage.salesFlowConfig?.cta_buttons?.[0]?.schedule_cta_image_url, "https://img.example/ks.jpg");
+
+const kiryatWithoutImage = applyDualBranchToKnowledge(
+  {
+    arboxLink: "",
+    schedulePublicUrl: "",
+    addressText: "",
+    directionsText: "",
+    servicesText: "",
+    salesFlowServices: [],
+    scheduleScanImageUrl: legacyAmiad,
+    activeBranchScheduleImage: "",
+    branchScheduleImageUrls: { amiad: legacyAmiad, kiryat_shmona: "" },
+    salesFlowConfig: {
+      cta_buttons: [{ kind: "schedule", schedule_cta_image_url: legacyAmiad }],
+    },
+  },
+  "kiryat_shmona"
+);
+assert.equal(kiryatWithoutImage.activeBranchScheduleImage, "");
+assert.equal(kiryatWithoutImage.scheduleScanImageUrl, "");
+assert.equal(kiryatWithoutImage.salesFlowConfig?.cta_buttons?.[0]?.schedule_cta_image_url, "");
 
 console.log("dual-branch: ok");

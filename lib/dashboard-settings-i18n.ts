@@ -74,7 +74,9 @@ export const dashboardSettingsI18n = {
       scheduleLink: "לינק מערכת שעות",
       scheduleLinkAmiad: "מערכת שעות — עמיעד",
       scheduleLinkKiryatShmona: "מערכת שעות — קריית שמונה",
-      branchSystemsHint: "לכל סניף מערכת נפרדת. אחרי החימום זואי שואלת סניף, ומשם המועדים והלינקים של הסניף שנבחר.",
+      scheduleImageAmiad: "תמונת מערכת שעות — עמיעד",
+      scheduleImageKiryatShmona: "תמונת מערכת שעות — קריית שמונה",
+      branchSystemsHint: "לכל סניף מערכת ותמונה נפרדות. אחרי החימום זואי שואלת סניף, ומשם המועדים, התמונה והלינק של הסניף שנבחר.",
       scheduleImagePreferred: "תמונת לוח לסריקה (מועדפת)",
       scheduleImageTip:
         "מומלץ להעלות צילום מסך חתוך רק של הטבלה (בלי תפריטים/באנרים) כדי לשפר דיוק.",
@@ -615,7 +617,9 @@ export const dashboardSettingsI18n = {
       scheduleLink: "Schedule system link",
       scheduleLinkAmiad: "Schedule — Amiad",
       scheduleLinkKiryatShmona: "Schedule — Kiryat Shmona",
-      branchSystemsHint: "Each branch has its own schedule system. After warmup, Zoe asks which branch, then uses that branch's times and links.",
+      scheduleImageAmiad: "Schedule image — Amiad",
+      scheduleImageKiryatShmona: "Schedule image — Kiryat Shmona",
+      branchSystemsHint: "Each branch has its own schedule link and image. After warmup, Zoe asks which branch, then uses that branch's times, image, and link.",
       scheduleImagePreferred: "Schedule image for scanning (preferred)",
       scheduleImageTip:
         "Upload a cropped screenshot of the table only (no menus/banners) for better accuracy.",

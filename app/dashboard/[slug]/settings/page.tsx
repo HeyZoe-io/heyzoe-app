@@ -94,6 +94,7 @@ import {
   isDualBranchBusiness,
   parseBranchLocations,
   parseBranchOffers,
+  parseBranchScheduleImageUrls,
   parseBranchScheduleUrls,
   type BranchOffers,
 } from "@/lib/dual-branch";
@@ -1385,6 +1386,8 @@ export default function SlugSettingsPage({
   const [arboxLink, setArboxLink] = useState("");
   const [branchScheduleAmiad, setBranchScheduleAmiad] = useState("");
   const [branchScheduleKiryat, setBranchScheduleKiryat] = useState("");
+  const [branchScheduleImageAmiad, setBranchScheduleImageAmiad] = useState("");
+  const [branchScheduleImageKiryat, setBranchScheduleImageKiryat] = useState("");
   const [branchAddressAmiad, setBranchAddressAmiad] = useState("");
   const [branchDirectionsAmiad, setBranchDirectionsAmiad] = useState("");
   const [branchAddressKiryat, setBranchAddressKiryat] = useState("");
@@ -1882,7 +1885,13 @@ export default function SlugSettingsPage({
         );
         const loadedScheduleScanImageUrl =
           typeof sl.schedule_scan_image_url === "string" ? sl.schedule_scan_image_url.trim() : "";
-        setScheduleScanImageUrl(loadedScheduleScanImageUrl);
+        const loadedBranchImages = parseBranchScheduleImageUrls(sl.branch_schedule_image_urls);
+        const amiadScheduleImage = loadedBranchImages.amiad || loadedScheduleScanImageUrl;
+        setBranchScheduleImageAmiad(amiadScheduleImage);
+        setBranchScheduleImageKiryat(loadedBranchImages.kiryat_shmona);
+        setScheduleScanImageUrl(
+          isDualBranchBusiness(slug) ? amiadScheduleImage : loadedScheduleScanImageUrl
+        );
         setScheduleDirectRegistration((business as { schedule_direct_registration?: boolean }).schedule_direct_registration !== false);
         setWarmupSessionEnabled((business as { warmup_session_enabled?: boolean }).warmup_session_enabled !== false);
         setSalesFlowCallSchedulingEnabled(
@@ -2175,6 +2184,10 @@ export default function SlugSettingsPage({
                   amiad: branchScheduleAmiad.trim(),
                   kiryat_shmona: branchScheduleKiryat.trim(),
                 },
+                branch_schedule_image_urls: {
+                  amiad: branchScheduleImageAmiad.trim(),
+                  kiryat_shmona: branchScheduleImageKiryat.trim(),
+                },
                 branch_locations: branchLocationsToMeta({
                   amiad: { address: branchAddressAmiad, directions: branchDirectionsAmiad },
                   kiryat_shmona: { address: branchAddressKiryat, directions: branchDirectionsKiryat },
@@ -2199,7 +2212,9 @@ export default function SlugSettingsPage({
             return Number.isFinite(n) && n > 0 ? String(n) : "";
           })(),
           schedule_public_url: schedulePublicUrl.trim(),
-          schedule_scan_image_url: scheduleScanImageUrl.trim(),
+          schedule_scan_image_url: isDualBranchBusiness(slug)
+            ? branchScheduleImageAmiad.trim()
+            : scheduleScanImageUrl.trim(),
           ...(useKnowledgeQaUi ? { knowledge_qa: serializeKnowledgeQa(knowledgeQa) } : {}),
         },
       },
@@ -2253,6 +2268,8 @@ export default function SlugSettingsPage({
       arboxLink,
       branchScheduleAmiad,
       branchScheduleKiryat,
+      branchScheduleImageAmiad,
+      branchScheduleImageKiryat,
       branchAddressAmiad,
       branchDirectionsAmiad,
       branchAddressKiryat,
@@ -2703,7 +2720,11 @@ export default function SlugSettingsPage({
 
   // ─── Media upload ──────────────────────────────────────────────────────────
 
-  async function uploadMedia(file: File, target: "opening" | "directions" | "schedule_cta" | "schedule_scan") {
+  async function uploadMedia(
+    file: File,
+    target: "opening" | "directions" | "schedule_cta" | "schedule_scan",
+    branch?: "amiad" | "kiryat_shmona"
+  ) {
     if (target === "schedule_cta") {
       setScheduleCtaMediaUploadError("");
       if (file.type === "image/webp" || /\.webp$/i.test(file.name)) {
@@ -2836,7 +2857,14 @@ export default function SlugSettingsPage({
           setScheduleScanMediaUploadError(tp.storageUploadFailed(putRes.status));
           return;
         }
-        setScheduleScanImageUrl(publicUrl);
+        if (branch === "kiryat_shmona") {
+          setBranchScheduleImageKiryat(publicUrl);
+        } else if (branch === "amiad" || isDualBranchBusiness(slug)) {
+          setBranchScheduleImageAmiad(publicUrl);
+          setScheduleScanImageUrl(publicUrl);
+        } else {
+          setScheduleScanImageUrl(publicUrl);
+        }
       } catch {
         setScheduleScanMediaUploadError(tp.uploadNetwork);
       } finally {
@@ -3368,6 +3396,10 @@ export default function SlugSettingsPage({
               setBranchScheduleAmiad={setBranchScheduleAmiad}
               branchScheduleKiryat={branchScheduleKiryat}
               setBranchScheduleKiryat={setBranchScheduleKiryat}
+              branchScheduleImageAmiad={branchScheduleImageAmiad}
+              setBranchScheduleImageAmiad={setBranchScheduleImageAmiad}
+              branchScheduleImageKiryat={branchScheduleImageKiryat}
+              setBranchScheduleImageKiryat={setBranchScheduleImageKiryat}
               scheduleScanImageUrl={scheduleScanImageUrl}
               setScheduleScanImageUrl={setScheduleScanImageUrl}
               scheduleScanMediaInputRef={scheduleScanMediaInputRef}

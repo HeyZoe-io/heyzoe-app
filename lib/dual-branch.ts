@@ -30,6 +30,9 @@ export type BranchOffers = Record<DualBranchId, BranchOffer>;
 
 export type BranchScheduleUrls = Record<DualBranchId, string>;
 
+/** תמונת מערכת שעות לפי סניף — אותו מבנה כמו הלינקים. */
+export type BranchScheduleImageUrls = BranchScheduleUrls;
+
 export type BranchLocation = { address: string; directions: string };
 
 export type BranchLocations = Record<DualBranchId, BranchLocation>;
@@ -200,6 +203,20 @@ export function parseBranchScheduleUrls(raw: unknown): BranchScheduleUrls {
   };
 }
 
+export const parseBranchScheduleImageUrls = parseBranchScheduleUrls;
+
+/** תמונה שמורה בלי מפת סניפים נחשבת לתמונת עמיעד. לקריית שמונה אין נפילה לתמונה המשותפת. */
+export function scheduleImageForBranch(input: {
+  branch: DualBranchId;
+  branchScheduleImageUrls?: BranchScheduleImageUrls | null;
+  legacyScanImageUrl?: string | null;
+}): string {
+  const fromBranch = input.branchScheduleImageUrls?.[input.branch]?.trim() ?? "";
+  if (fromBranch) return fromBranch;
+  if (input.branch === "amiad") return String(input.legacyScanImageUrl ?? "").trim();
+  return "";
+}
+
 export function parseDualBranchId(raw: string | null | undefined): DualBranchId | null {
   const id = String(raw ?? "").trim();
   if (id === "amiad" || id === "kiryat_shmona") return id;
@@ -261,6 +278,16 @@ export function applyDualBranchToService<T extends BranchServiceSlice>(row: T, b
   } as T;
 }
 
+type BranchScheduleCtaButton = {
+  kind?: string;
+  schedule_cta_image_url?: string;
+  schedule_cta_image_type?: "image" | "";
+};
+
+type BranchSalesFlowConfig = {
+  cta_buttons?: BranchScheduleCtaButton[];
+};
+
 type BranchKnowledgeSlice = {
   arboxLink: string;
   schedulePublicUrl: string;
@@ -271,6 +298,11 @@ type BranchKnowledgeSlice = {
   knowledgeCatalogServices?: BranchServiceSlice[];
   branchScheduleUrls?: BranchScheduleUrls;
   branchLocations?: BranchLocations;
+  scheduleScanImageUrl?: string;
+  branchScheduleImageUrls?: BranchScheduleImageUrls;
+  /** אחרי בחירת סניף — התמונה של הסניף הזה בלבד. ריק כשאין תמונה לסניף. */
+  activeBranchScheduleImage?: string;
+  salesFlowConfig?: BranchSalesFlowConfig | null;
 };
 
 function branchKnowledgeNote(services: BranchServiceSlice[], branch: DualBranchId): string {
@@ -305,6 +337,12 @@ export function applyDualBranchToKnowledge<T extends BranchKnowledgeSlice>(
     "אסור לתת כתובת או הוראות הגעה של הסניף השני.",
   ].join("\n");
   const note = [branchKnowledgeNote(salesFlowServices, branch), placeNote].join("\n");
+  const scheduleImage = scheduleImageForBranch({
+    branch,
+    branchScheduleImageUrls: knowledge.branchScheduleImageUrls,
+    legacyScanImageUrl: knowledge.scheduleScanImageUrl,
+  });
+  const salesFlowConfig = patchBranchScheduleCtaImage(knowledge.salesFlowConfig, scheduleImage);
   return {
     ...knowledge,
     arboxLink: url || knowledge.arboxLink,
@@ -314,7 +352,31 @@ export function applyDualBranchToKnowledge<T extends BranchKnowledgeSlice>(
     salesFlowServices,
     knowledgeCatalogServices,
     servicesText: [knowledge.servicesText.trim(), note].filter(Boolean).join("\n\n"),
+    scheduleScanImageUrl: scheduleImage,
+    activeBranchScheduleImage: scheduleImage,
+    ...(salesFlowConfig !== undefined ? { salesFlowConfig } : {}),
   } as T;
+}
+
+function patchBranchScheduleCtaImage<T extends BranchSalesFlowConfig | null | undefined>(
+  config: T,
+  scheduleImage: string
+): T {
+  if (!config?.cta_buttons) return config;
+  return {
+    ...config,
+    cta_buttons: config.cta_buttons.map((button) => {
+      if (button.kind !== "schedule") return button;
+      if (!scheduleImage) {
+        return { ...button, schedule_cta_image_url: "", schedule_cta_image_type: "" as const };
+      }
+      return {
+        ...button,
+        schedule_cta_image_url: scheduleImage,
+        schedule_cta_image_type: "image" as const,
+      };
+    }),
+  };
 }
 
 /** כתובת שנשלחת בתיאור המוצר — רק כתובת הסניף שנבחר, בלי כתובת משותפת. */

@@ -2233,9 +2233,11 @@ function scheduleBoardAssetsFromKnowledge(
     scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
     blockMedia,
   });
-  // שני סניפים: אחרי הבחירה נשלח את לינק המערכת של הסניף, לא תמונת לוח משותפת.
-  if (business_slug && isDualBranchBusiness(business_slug) && assets.link) {
-    return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
+  // שני סניפים: תמונה רק של הסניף שנבחר. בלי תמונה לסניף — לינק המערכת שלו.
+  if ((business_slug && isDualBranchBusiness(business_slug)) || knowledge.dualBranch) {
+    const branchImage = String(knowledge.activeBranchScheduleImage ?? "").trim();
+    if (branchImage && assets.scheduleImgUrl === branchImage) return assets;
+    if (assets.link) return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
   }
   return assets;
 }
