@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  decideFilterScopeAction,
   eventBeforeRuleActivation,
   parseReportEventInstant,
+  productFilterChanged,
   ruleActivationMs,
   ruleActivationResets,
   rulesOpenForEvent,
@@ -72,8 +74,11 @@ assert.equal(ruleActivationResets({ ...active, enabled: false }, { enabled: true
 assert.equal(ruleActivationResets(active, { delay_days: 0 }), true);
 assert.equal(ruleActivationResets(active, { delay_direction: "after" }), true);
 assert.equal(ruleActivationResets(active, { trigger_type: "trial_booked" }), true);
-assert.equal(ruleActivationResets(active, { product_filter: [442268] }), true);
+assert.equal(ruleActivationResets(active, { product_filter: [442268] }), false);
+assert.equal(productFilterChanged(active, { product_filter: [442268] }), true);
 assert.equal(ruleActivationResets(active, { product_filter: [622016, 442268] }), false);
+assert.equal(productFilterChanged(active, { product_filter: [622016, 442268] }), false);
+assert.equal(ruleActivationResets(active, { product_filter: [442268], delay_days: 0 }), true);
 assert.equal(ruleActivationResets(active, { lookback_days: 14 }), true);
 assert.equal(ruleActivationResets(active, { item_type_filter: ["session"] }), true);
 assert.equal(ruleActivationResets(active, { delay_days: 1, template_name: "other" }), false);
@@ -83,5 +88,70 @@ assert.equal(shouldSendAfterSilentSeed(stillActiveAfterTemplateEdit, false), tru
 const resetByReenable = ruleActivationResets({ ...active, enabled: false }, { enabled: true });
 assert.equal(resetByReenable, true);
 assert.equal(shouldSendAfterSilentSeed(!resetByReenable, false), false);
+
+const scopeNow = new Date("2026-10-07T06:00:00.000Z");
+const scopeFuture = new Date("2026-10-08T06:00:00.000Z");
+const scopePast = new Date("2026-10-06T17:30:00.000Z");
+
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: true,
+    nowInScope: true,
+    sendAt: scopeFuture,
+    now: scopeNow,
+  }),
+  "keep",
+  "already in scope keeps its schedule"
+);
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: false,
+    nowInScope: true,
+    sendAt: scopeFuture,
+    now: scopeNow,
+  }),
+  "send",
+  "new scope is sent while the normal time is still ahead"
+);
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: false,
+    nowInScope: true,
+    sendAt: scopeNow,
+    now: scopeNow,
+  }),
+  "send",
+  "the exact send instant has not passed"
+);
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: false,
+    nowInScope: true,
+    sendAt: scopePast,
+    now: scopeNow,
+  }),
+  "seed",
+  "new scope whose send time passed is seeded"
+);
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: false,
+    nowInScope: true,
+    sendAt: null,
+    now: scopeNow,
+  }),
+  "seed",
+  "a missing send time is not a late send"
+);
+assert.equal(
+  decideFilterScopeAction({
+    previouslyInScope: true,
+    nowInScope: false,
+    sendAt: scopeFuture,
+    now: scopeNow,
+  }),
+  "stop",
+  "leaving the filter stops the send"
+);
 
 console.log("rule-activation.test.ts: ok");

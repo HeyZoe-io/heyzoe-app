@@ -20,7 +20,8 @@ import {
   type PurchaseItemType,
   type TriggerType,
 } from "@/lib/template-trigger-types";
-import { ruleActivationResets, type RuleActivationSnapshot } from "@/lib/rule-activation";
+import { applyProductFilterScopeChange, normalizeProductIdList } from "@/lib/filter-scope-change";
+import { productFilterChanged, ruleActivationResets, type RuleActivationSnapshot } from "@/lib/rule-activation";
 
 /** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
 function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -545,10 +546,29 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     .eq("id", id)
     .eq("business_id", business.id)
     .maybeSingle();
-  if (
-    existingClock &&
-    ruleActivationResets(existingClock as RuleActivationSnapshot, patch)
-  ) {
+  const clock = existingClock as RuleActivationSnapshot | null;
+  const filterOnly = Boolean(clock && productFilterChanged(clock, patch) && !ruleActivationResets(clock, patch));
+  if (filterOnly && clock) {
+    const applied = await applyProductFilterScopeChange({
+      admin,
+      businessId: business.id,
+      mode: {
+        kind: "rule",
+        ruleId: id,
+        previousIds: normalizeProductIdList(clock.product_filter),
+        nextIds: normalizeProductIdList(patch.product_filter),
+      },
+    });
+    if (!applied.ok) {
+      console.error("[api/triggers] product filter scope failed", {
+        businessId: business.id,
+        triggerId: id,
+        reason: applied.error,
+      });
+      return NextResponse.json({ error: "filter_scope_seed_failed" }, { status: 500 });
+    }
+  }
+  if (clock && ruleActivationResets(clock, patch)) {
     patch.updated_at = new Date().toISOString();
   }
 

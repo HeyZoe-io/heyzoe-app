@@ -17,6 +17,11 @@ import {
   preserveSalesFlowExtraStepsInSocial,
   settingsUpdatedAtConflicts,
 } from "@/lib/dashboard-settings-save-guard";
+import {
+  applyProductFilterScopeChange,
+  normalizeProductIdList,
+  sameProductIdList,
+} from "@/lib/filter-scope-change";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -336,6 +341,33 @@ export async function POST(req: NextRequest) {
     // businesses.updated_at — reject rather than overwrite. Acceptable, safe side.
     if (settingsUpdatedAtConflicts(body.expected_updated_at, currentUpdatedAt)) {
       return NextResponse.json({ error: "settings_conflict" }, { status: 409 });
+    }
+  }
+
+  if (
+    existingForUser &&
+    !sameProductIdList(
+      (existingForUser as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids,
+      upsertBusiness.arbox_trial_membership_type_ids
+    )
+  ) {
+    const applied = await applyProductFilterScopeChange({
+      admin,
+      businessId: Number(existingForUser.id),
+      mode: {
+        kind: "business_trial_ids",
+        previousIds: normalizeProductIdList(
+          (existingForUser as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids
+        ),
+        nextIds: normalizeProductIdList(upsertBusiness.arbox_trial_membership_type_ids),
+      },
+    });
+    if (!applied.ok) {
+      console.error("[api/dashboard/settings] trial filter scope failed", {
+        businessId: existingForUser.id,
+        reason: applied.error,
+      });
+      return NextResponse.json({ error: "filter_scope_seed_failed" }, { status: 500 });
     }
   }
 

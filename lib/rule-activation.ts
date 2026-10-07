@@ -2,8 +2,12 @@
  * A rule may only act on events at or after it became active.
  * Activation is max(created_at, updated_at). There is no separate column:
  * updated_at is that clock.
- * Callers move updated_at only when the rule is (re)enabled or its targeting
- * changes (trigger type, product / item filter, delay, direction, lookback).
+ * Callers move updated_at when the rule is (re)enabled or its targeting
+ * changes (trigger type, item filter, delay, direction, lookback).
+ * A product-filter edit does not move the clock. Per booking, use
+ * decideFilterScopeAction: stay on the normal schedule, send a new entrant
+ * only while its send time is still ahead, seed it once that time has passed,
+ * and stop bookings that left the filter.
  * Template binding, template body, and a label-only edit must not move it.
  */
 
@@ -127,10 +131,35 @@ function lookbackKey(raw: unknown): string {
   return Number.isFinite(n) ? String(n) : String(raw).trim();
 }
 
+export type FilterScopeAction = "keep" | "send" | "seed" | "stop";
+
+/**
+ * One booking when the product filter changes. Shared by every trigger type.
+ * Already in scope stays on its normal schedule (no seed).
+ * A new entrant is sent only while its normal send time is still ahead
+ * (sendAt >= now, including the exact send instant). A missing or earlier
+ * send time is seeded so nothing goes out late.
+ * A booking that left the filter stops.
+ */
+export function decideFilterScopeAction(input: {
+  previouslyInScope: boolean;
+  nowInScope: boolean;
+  sendAt: Date | null;
+  now: Date;
+}): FilterScopeAction {
+  if (input.previouslyInScope && input.nowInScope) return "keep";
+  if (!input.nowInScope) return "stop";
+  const sendMs = input.sendAt?.getTime();
+  if (sendMs != null && Number.isFinite(sendMs) && sendMs >= input.now.getTime()) return "send";
+  return "seed";
+}
+
 /**
  * True only when this patch should start the activation clock over.
  * Template name is ignored on purpose: rebinding or rewording a template
  * must keep the existing schedule.
+ * product_filter is ignored here too: it uses decideFilterScopeAction per event
+ * instead of seeding every existing booking.
  */
 export function ruleActivationResets(
   previous: RuleActivationSnapshot,
@@ -155,9 +184,6 @@ export function ruleActivationResets(
   if (patch.lookback_days !== undefined && lookbackKey(patch.lookback_days) !== lookbackKey(previous.lookback_days)) {
     return true;
   }
-  if (patch.product_filter !== undefined && idListKey(patch.product_filter) !== idListKey(previous.product_filter)) {
-    return true;
-  }
   if (
     patch.item_type_filter !== undefined &&
     idListKey(patch.item_type_filter) !== idListKey(previous.item_type_filter)
@@ -165,6 +191,15 @@ export function ruleActivationResets(
     return true;
   }
   return false;
+}
+
+/** True when the patch replaces the product id list. Order does not count. */
+export function productFilterChanged(
+  previous: RuleActivationSnapshot,
+  patch: RuleActivationSnapshot
+): boolean {
+  if (patch.product_filter === undefined) return false;
+  return idListKey(patch.product_filter) !== idListKey(previous.product_filter);
 }
 
 /** Move updated_at to now. That is the rule's new activation instant. Do not call this for a template edit. */
