@@ -20,6 +20,12 @@
  * explicitly says registration/booking failed (never per inbound message).
  */
 
+import {
+  ARBOX_MEMBERSHIP_BADGE_ACTIVE,
+  ARBOX_MEMBERSHIP_BADGE_EXPIRED,
+  ARBOX_MEMBERSHIP_BADGE_LEAD,
+  type ArboxMembershipBadge,
+} from "@/lib/arbox-membership-badge";
 import { arboxPublicFetch, searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
 import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { arboxFlagYes, formatDateYmdIsrael, parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
@@ -101,6 +107,22 @@ export function hasPositiveMembershipDebt(raw: unknown): boolean {
   if (raw == null || raw === "") return false;
   const n = typeof raw === "number" ? raw : Number(String(raw).trim());
   return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Badge for the conversations list. Uses {@link isInForceMembership}.
+ * No rows (phone missing in Arbox, or a user with zero memberships) is «ליד».
+ * Rows that are not in force are «מנוי לא בתוקף».
+ */
+export function membershipBadgeFromRecords(input: {
+  records: ArboxUserMembershipRecord[];
+  todayYmd: string;
+}): ArboxMembershipBadge {
+  if (input.records.some((row) => isInForceMembership(row, input.todayYmd))) {
+    return ARBOX_MEMBERSHIP_BADGE_ACTIVE;
+  }
+  if (input.records.length > 0) return ARBOX_MEMBERSHIP_BADGE_EXPIRED;
+  return ARBOX_MEMBERSHIP_BADGE_LEAD;
 }
 
 /**
@@ -247,4 +269,42 @@ export async function lookupArboxMembershipByPhone(input: {
       todayYmd,
     })
   );
+}
+
+/**
+ * Same search + unfiltered memberships read as the failed-registration lookup.
+ * Null means the Arbox call failed — do not write a badge.
+ */
+export async function resolveArboxMembershipBadgeByPhone(input: {
+  apiKey: string;
+  boxId: string;
+  lookupPhone: string;
+  now?: Date;
+}): Promise<ArboxMembershipBadge | null> {
+  const apiKey = String(input.apiKey ?? "").trim();
+  const boxId = String(input.boxId ?? "").trim();
+  const lookupPhone = String(input.lookupPhone ?? "").trim();
+  const todayYmd = formatDateYmdIsrael(input.now ?? new Date());
+  if (!apiKey || !boxId) return null;
+
+  const phoneTail = normalizeIsraeliPhoneTail(lookupPhone);
+  if (!phoneTail) return ARBOX_MEMBERSHIP_BADGE_LEAD;
+
+  const locationId = parsePositiveIntId(boxId) ?? undefined;
+  let foundUserId: string | null = null;
+  try {
+    foundUserId = await searchArboxUserByPhone({
+      apiKey,
+      locationId,
+      phone: lookupPhone,
+    });
+  } catch {
+    console.error("[membership-badge] searchUser failed");
+    return null;
+  }
+  if (!foundUserId) return ARBOX_MEMBERSHIP_BADGE_LEAD;
+
+  const memberships = await fetchArboxUserMemberships({ apiKey, userId: foundUserId });
+  if (!memberships.ok) return null;
+  return membershipBadgeFromRecords({ records: memberships.records, todayYmd });
 }

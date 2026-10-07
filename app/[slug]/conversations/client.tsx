@@ -5,6 +5,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, ExternalLink, ImagePlus, Search, Send, X } from "lucide-react";
 import { buildArboxUserProfileUrl } from "@/lib/arbox-profile-url";
+import {
+  ARBOX_MEMBERSHIP_BADGE_ACTIVE,
+  ARBOX_MEMBERSHIP_BADGE_EXPIRED,
+  arboxMembershipBadgeLabel,
+  isArboxMembershipBadge,
+  type ArboxMembershipBadge,
+} from "@/lib/arbox-membership-badge";
 import { getContactStatusMeta, type ContactStatusKey } from "@/lib/contact-status";
 import { formatManualMediaMessageContent } from "@/lib/conversation-manual-media";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
@@ -137,6 +144,7 @@ type SessionSummary = {
   phone: string;
   fullName?: string | null;
   contactStatus?: ContactStatusKey | null;
+  arboxMembershipStatus?: ArboxMembershipBadge | null;
   arboxUserId?: string | null;
   arboxProfileId?: string | null;
   crmType?: string | null;
@@ -243,6 +251,29 @@ function SessionAvatar({ session }: { session: { fullName?: string | null; phone
     >
       {avatarInitials(session)}
     </div>
+  );
+}
+
+function SessionMembershipBadge({
+  status,
+  lang,
+}: {
+  status: ArboxMembershipBadge | null | undefined;
+  lang: DashboardLang;
+}) {
+  if (!isArboxMembershipBadge(status)) return null;
+  const tone =
+    status === ARBOX_MEMBERSHIP_BADGE_ACTIVE
+      ? "bg-[#e7f8ef] text-[#0b7a43]"
+      : status === ARBOX_MEMBERSHIP_BADGE_EXPIRED
+        ? "bg-[#fff4e5] text-[#9a5b00]"
+        : "bg-[#f0f2f5] text-[#667781]";
+  return (
+    <span
+      className={`inline-flex max-w-full truncate rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${tone}`}
+    >
+      {arboxMembershipBadgeLabel(status, lang)}
+    </span>
   );
 }
 
@@ -1022,7 +1053,10 @@ export default function ConversationsClient({
                           {formatListTime(s.lastAt)}
                         </span>
                       )}
-                      <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
+                      <span className="flex max-w-[10.5rem] flex-wrap justify-end gap-1">
+                        <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
+                        <SessionMembershipBadge status={s.arboxMembershipStatus} lang={lang} />
+                      </span>
                       {s.isPaused ? (
                         <SessionPauseBadge
                           isPaused={s.isPaused}
