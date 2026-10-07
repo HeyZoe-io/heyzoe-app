@@ -53,11 +53,65 @@ export function assistantReplyIndicatesTeamHandoff(text: string): boolean {
   if (!t) return false;
   // «הבקשה» וגם סמיכות «בקשת הביטול» / «אעביר את הבקשה».
   if (/(?:מ|א)עביר(?:ה|ים)?\s+את\s+(?:ה)?(?:פני|בקש|זה)/.test(t)) return true;
+  if (/(?:מ|א)עביר(?:ה|ים)?(?:\s+\S+){0,6}\s+לצוות/.test(t)) return true;
   if (/אעביר\s+את\s+ההודעה\s+לצוות/.test(t)) return true;
+  if (/pass(?:ing)?\s+(?:it|this|that|the message|your message)\s+to\s+the\s+team/.test(t)) return true;
   if (/יצרו\s+איתך\s+קשר/.test(t)) return true;
   if (/הצוות\s+יצרו/.test(t)) return true;
   if (/the\s+team\s+will\s+(?:get\s+in\s+touch|contact|reach\s+out)/.test(t)) return true;
   return false;
+}
+
+const THANKS_ONLY_WORDS = new Set([
+  "תודה",
+  "רבה",
+  "לך",
+  "לכם",
+  "לי",
+  "מראש",
+  "היי",
+  "הי",
+  "שלום",
+  "אהלן",
+  "אוקיי",
+  "אוקי",
+  "סבבה",
+  "מעולה",
+  "נהדר",
+  "יופי",
+  "אחלה",
+  "בסדר",
+  "כן",
+  "על",
+  "העזרה",
+  "הכל",
+  "הכול",
+  "הטיפול",
+  "המענה",
+  "זה",
+  "thanks",
+  "thank",
+  "you",
+  "so",
+  "much",
+  "a",
+  "lot",
+  "ok",
+  "okay",
+  "спасибо",
+]);
+
+/** «תודה» / «תודה רבה» בלי שאלה ובלי בקשה חדשה. «לא תודה» אינו זה. */
+export function isThanksOnlyMessage(text: string): boolean {
+  const t = normalizeSalesFlowPauseText(text).replace(/[\p{Extended_Pictographic}\uFE0F\u200D]+/gu, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 80) return false;
+  if (t.startsWith("לא ") || t.includes("לא תודה")) return false;
+  const words = t.split(" ").filter(Boolean);
+  if (!words.length || words.length > 8) return false;
+  if (!words.some((w) => w === "תודה" || w === "thanks" || w === "thank" || w === "спасибо")) {
+    return false;
+  }
+  return words.every((w) => THANKS_ONLY_WORDS.has(w));
 }
 
 /** תשובת זואי שכבר סגרה בנימוס («נחזור כשתהיו מוכנים») — בלי לדחוף לשלב הבא. */

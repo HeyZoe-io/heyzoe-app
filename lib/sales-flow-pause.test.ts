@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   assistantReplyIndicatesSalesFlowPause,
   assistantReplyIndicatesTeamHandoff,
+  isThanksOnlyMessage,
   leadPausesSalesFlowNow,
   shouldPauseSalesFlowPromptResend,
 } from "@/lib/sales-flow-pause";
@@ -91,6 +92,26 @@ assert.equal(
   assistantReplyIndicatesTeamHandoff("אני אעביר את הבקשה לביטול לצוות שלנו והם יחזרו אלייך בהקדם"),
   true
 );
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("מתנצלת אין לי מידע על כך, אני מעבירה לצוות לטיפול!"),
+  true
+);
+assert.equal(
+  assistantReplyIndicatesTeamHandoff("Sorry, I don't have information about that - I'm passing it to the team to handle!"),
+  true
+);
+
+assert.equal(isThanksOnlyMessage("תודה"), true);
+assert.equal(isThanksOnlyMessage("תודה רבה 💜"), true);
+assert.equal(isThanksOnlyMessage("תודה לך"), true);
+assert.equal(isThanksOnlyMessage("אוקיי תודה"), true);
+assert.equal(isThanksOnlyMessage("תודה על העזרה"), true);
+assert.equal(isThanksOnlyMessage("thanks!"), true);
+assert.equal(isThanksOnlyMessage("thank you so much"), true);
+assert.equal(isThanksOnlyMessage("לא תודה"), false);
+assert.equal(isThanksOnlyMessage("תודה, מתי השיעור?"), false);
+assert.equal(isThanksOnlyMessage("תודה על השיעור מחר"), false);
+assert.equal(isThanksOnlyMessage("מה השעות"), false);
 
 assert.equal(
   shouldPauseSalesFlowPromptResend({

@@ -219,6 +219,7 @@ import {
 } from "@/lib/wa-cs-redirect-service-pick";
 import {
   assistantReplyIndicatesTeamHandoff,
+  isThanksOnlyMessage,
   shouldPauseSalesFlowPromptResend,
 } from "@/lib/sales-flow-pause";
 import {
@@ -2232,9 +2233,11 @@ function scheduleBoardAssetsFromKnowledge(
     scheduleCtaImageUrl: schedBtn?.schedule_cta_image_url,
     blockMedia,
   });
-  // שני סניפים: אחרי הבחירה נשלח את לינק המערכת של הסניף, לא תמונת לוח משותפת.
-  if (business_slug && isDualBranchBusiness(business_slug) && assets.link) {
-    return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
+  // שני סניפים: תמונה רק של הסניף שנבחר. בלי תמונה לסניף — לינק המערכת שלו.
+  if ((business_slug && isDualBranchBusiness(business_slug)) || knowledge.dualBranch) {
+    const branchImage = String(knowledge.activeBranchScheduleImage ?? "").trim();
+    if (branchImage && assets.scheduleImgUrl === branchImage) return assets;
+    if (assets.link) return { ...assets, canSendScheduleImage: false, scheduleImgUrl: "" };
   }
   return assets;
 }
@@ -7906,6 +7909,22 @@ async function processIncoming(
       }
     } catch (e) {
       console.error("[WA Webhook] monthly quota handler failed:", e);
+    }
+  }
+
+  // אחרי «אני מעבירה לצוות» — «תודה» לא מקבלת תשובה. שאלה או בקשה חדשה כן.
+  if (msg.type === "text" && isThanksOnlyMessage(msg.text)) {
+    const lastAssistant = await fetchLastAssistantMessageContent({
+      business_slug,
+      session_id: sessionId,
+      skipInternal: true,
+    });
+    if (assistantReplyIndicatesTeamHandoff(lastAssistant)) {
+      console.info("[WA Webhook] thanks after team handoff — no reply", {
+        business_slug,
+        sessionId,
+      });
+      return;
     }
   }
 
