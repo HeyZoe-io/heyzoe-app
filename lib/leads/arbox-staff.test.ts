@@ -10,6 +10,7 @@ import {
   parseStaffMembers,
   qualifyingStaffPeople,
   staffIndexFromPeople,
+  staffTaughtFromBookings,
   type StaffPerson,
   syncArboxStaffFlags,
   triggerSkipsStaff,
@@ -66,6 +67,66 @@ assert.equal(isRetentionStaff(narrow, { userId: 1 }), true);
 assert.equal(isRetentionStaff(narrow, { userId: 2 }), true);
 assert.equal(isRetentionStaff(narrow, { userId: 3 }), false);
 assert.equal(isRetentionStaff(narrow, { userId: 4 }), false);
+
+const taughtWindow = { todayYmd: "2026-10-08", nowMinutes: 9 * 60, fromYmd: "2026-09-08" };
+const ofir: StaffPerson = { userId: 10, phone: null, name: "אופיר רבינוביץ", active: false };
+const noa: StaffPerson = { userId: 11, phone: null, name: "נועה כהן", active: false };
+const recentBooking = staffTaughtFromBookings({
+  roster: [ofir, noa],
+  rows: [
+    {
+      date: "2026-09-28",
+      time: "18:00",
+      staff_member: "אופיר  רבינוביץ",
+      user_id: 999,
+      full_name: "נועה כהן",
+    },
+    {
+      date: "2026-08-24",
+      time: "18:00",
+      staff_member_id: "11",
+      staff_member: "נועה כהן",
+    },
+  ],
+  ...taughtWindow,
+});
+assert.deepEqual(recentBooking.match.fields, ["staff_member"]);
+assert.equal(recentBooking.match.hasId, false);
+assert.equal(recentBooking.match.byName, 1);
+assert.deepEqual(
+  qualifyingStaffPeople([ofir, noa], recentBooking.teachers).map((person) => person.userId),
+  [10]
+);
+const byId = staffTaughtFromBookings({
+  roster: [noa],
+  rows: [{ date: "2026-09-28", time: "18:00", staff_member_id: "11", staff_member: "NOA  COHEN" }],
+  ...taughtWindow,
+});
+assert.equal(byId.match.hasId, true);
+assert.equal(byId.match.byId, 1);
+assert.deepEqual(qualifyingStaffPeople([noa], byId.teachers).map((person) => person.userId), [11]);
+const spaced = staffTaughtFromBookings({
+  roster: [{ userId: 12, phone: null, name: "Noa Cohen", active: false }],
+  rows: [{ date: "2026-09-28", time: "18:00", staff_member: "  noa   cohen " }],
+  ...taughtWindow,
+});
+assert.equal(spaced.match.byName, 1);
+const customerOnly = staffTaughtFromBookings({
+  roster: [ofir],
+  rows: [
+    {
+      date: "2026-09-28",
+      time: "18:00",
+      user_id: 10,
+      full_name: "אופיר רבינוביץ",
+      staff_member: "לקוח אחר",
+    },
+  ],
+  ...taughtWindow,
+});
+assert.equal(customerOnly.teachers.length, 0);
+assert.deepEqual(customerOnly.match.unmatched, ["לקוח אחר"]);
+assert.equal(qualifyingStaffPeople([ofir], customerOnly.teachers).length, 0);
 
 for (const trigger of RETENTION_STAFF_TRIGGERS) {
   assert.equal(triggerSkipsStaff(trigger), true, trigger);

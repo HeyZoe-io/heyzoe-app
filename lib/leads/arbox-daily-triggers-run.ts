@@ -20,7 +20,10 @@ import {
   loadTaughtStaffWindow,
   qualifyingStaffPeople,
   staffIndexFromPeople,
+  staffTaughtBounds,
+  staffTaughtFromBookings,
   syncArboxStaffFlags,
+  type StaffPerson,
 } from "@/lib/leads/arbox-staff";
 import { fetchArboxActiveMembershipsReport } from "@/lib/leads/arbox-customer-set";
 import {
@@ -336,46 +339,16 @@ export async function runArboxDailyTriggersForBusiness(input: {
   };
 
   const staffCtx = arboxDailyContext();
+  let morningRoster: StaffPerson[] | null = null;
+  let morningRosterPages = 0;
   if (slot === "morning") {
     const roster = await fetchArboxStaffMembers({
       apiKey: business.crm_api_key,
       boxId: business.crm_box_id,
     });
     if (roster.ok) {
-      const taught = await loadTaughtStaffWindow(admin, business.id, now);
-      if (!taught.ok) {
-        console.error("[arbox-staff] trainer window failed — keep previous flags", {
-          slug: business.slug,
-          error: taught.error,
-        });
-      } else {
-        const qualifying = qualifyingStaffPeople(roster.people, taught.teachers);
-        const qualifyingIds = new Set(qualifying.map((person) => person.userId));
-        const released = roster.people.filter((person) => !qualifyingIds.has(person.userId));
-        const index = staffIndexFromPeople(qualifying, true);
-        if (staffCtx && staffCtx.businessId === business.id) staffCtx.staffIndex = index;
-        const flags = await syncArboxStaffFlags({
-          admin,
-          businessId: business.id,
-          people: qualifying,
-          reportComplete: true,
-          now,
-        });
-        console.info("[arbox-staff] roster", {
-          slug: business.slug,
-          pages: roster.pages,
-          roster_count: roster.people.length,
-          qualifying: qualifying.length,
-          active: roster.people.filter((person) => person.active).length,
-          taught: taught.teachers.length,
-          coverage_from: taught.earliestPast,
-          coverage_to: taught.latestPast,
-          covers_30_days: taught.covers30Days,
-          released: released.map((person) => `${person.userId} ${person.name}`.trim()),
-          names: qualifying.map((person) => `${person.userId} ${person.name}`.trim()),
-          ...flags,
-        });
-      }
+      morningRoster = roster.people;
+      morningRosterPages = roster.pages;
     } else {
       console.error("[arbox-staff] fetch failed — keep previous flags", {
         slug: business.slug,
@@ -723,6 +696,106 @@ export async function runArboxDailyTriggersForBusiness(input: {
     }
   }
 
+  // --- Shared bookingsReport fetch (trial + missed_* + attendance_gap past) ---
+  let prefetchedRows: ArboxBookingReportRow[] | undefined;
+  let prefetchedPages = 0;
+  let lookbackFrom: string | undefined;
+  let lookbackTo: string | undefined;
+  let hasAttendanceGapRule = false;
+  let pastBookingsFailed = false;
+  try {
+    const plan = await businessNeedsBookingsReportFetch(admin, business.id);
+    hasAttendanceGapRule = plan.hasAttendanceGapRule;
+    if (plan.needsFetch) {
+      const window = bookingsReportSharedLookbackWindow({
+        now,
+        missedNeedsSeed: plan.hasMissedRule && !business.arbox_missed_class_seeded,
+        forceWidePast:
+          plan.hasAttendanceGapRule || plan.hasPostTrialFollowupRule || plan.hasNthWorkoutRule,
+      });
+      lookbackFrom = window.fromDate;
+      lookbackTo = window.toDate;
+      const report = await fetchArboxBookingsReport({
+        apiKey: business.crm_api_key,
+        fromDate: window.fromDate,
+        toDate: window.toDate,
+        locationId: business.crm_box_id,
+      });
+      prefetchedPages = report.pagesFetched;
+      if (report.ok) {
+        prefetchedRows = report.rows;
+      } else {
+        pastBookingsFailed = true;
+        console.error("[cron/arbox-daily-triggers] shared bookingsReport failed", {
+          slug: business.slug,
+          error: report.error,
+        });
+      }
+    }
+  } catch (e) {
+    pastBookingsFailed = true;
+    console.error("[cron/arbox-daily-triggers] shared bookings prefetch threw", {
+      slug: business.slug,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+
+  if (slot === "morning" && morningRoster) {
+    if (pastBookingsFailed) {
+      console.error("[arbox-staff] bookings trainer read failed — keep previous flags", {
+        slug: business.slug,
+      });
+    } else {
+      const taught = await loadTaughtStaffWindow(admin, business.id, now);
+      if (!taught.ok) {
+        console.error("[arbox-staff] snapshot read failed — bookings still count", {
+          slug: business.slug,
+          error: taught.error,
+        });
+      }
+      const bounds = staffTaughtBounds(now);
+      const booking = staffTaughtFromBookings({
+        roster: morningRoster,
+        rows: (prefetchedRows ?? []) as unknown as Record<string, unknown>[],
+        todayYmd: bounds.todayYmd,
+        nowMinutes: bounds.nowMinutes,
+        fromYmd: bounds.fromYmd,
+      });
+      const qualifying = qualifyingStaffPeople(morningRoster, [
+        ...(taught.ok ? taught.teachers : []),
+        ...booking.teachers,
+      ]);
+      const returned = qualifying.filter((person) => !person.active);
+      const index = staffIndexFromPeople(qualifying, true);
+      if (staffCtx && staffCtx.businessId === business.id) staffCtx.staffIndex = index;
+      const flags = await syncArboxStaffFlags({
+        admin,
+        businessId: business.id,
+        people: qualifying,
+        reportComplete: true,
+        now,
+      });
+      console.info("[arbox-staff] roster", {
+        slug: business.slug,
+        pages: morningRosterPages,
+        roster_count: morningRoster.length,
+        qualifying: qualifying.length,
+        active: morningRoster.filter((person) => person.active).length,
+        trainer_fields: booking.match.fields,
+        trainer_has_id: booking.match.hasId,
+        matched_by_id: booking.match.byId,
+        matched_by_name: booking.match.byName,
+        unmatched: booking.match.unmatched,
+        bookings_from: lookbackFrom ?? null,
+        bookings_to: lookbackTo ?? null,
+        returned: returned.map((person) => `${person.userId} ${person.name}`.trim()),
+        names: qualifying.map((person) => `${person.userId} ${person.name}`.trim()),
+        ...flags,
+      });
+    }
+  }
+
   // --- Step: birthday ---
   try {
     entry.birthday = await timeStep(timings, business.id, "birthday", () => syncArboxBirthdaysForBusiness({
@@ -879,47 +952,6 @@ export async function runArboxDailyTriggersForBusiness(input: {
       errors: 1,
       fetch_error: message,
     };
-  }
-
-  // --- Shared bookingsReport fetch (trial + missed_* + attendance_gap past) ---
-  let prefetchedRows: ArboxBookingReportRow[] | undefined;
-  let prefetchedPages = 0;
-  let lookbackFrom: string | undefined;
-  let lookbackTo: string | undefined;
-  let hasAttendanceGapRule = false;
-  try {
-    const plan = await businessNeedsBookingsReportFetch(admin, business.id);
-    hasAttendanceGapRule = plan.hasAttendanceGapRule;
-    if (plan.needsFetch) {
-      const window = bookingsReportSharedLookbackWindow({
-        now,
-        missedNeedsSeed: plan.hasMissedRule && !business.arbox_missed_class_seeded,
-        forceWidePast:
-          plan.hasAttendanceGapRule || plan.hasPostTrialFollowupRule || plan.hasNthWorkoutRule,
-      });
-      lookbackFrom = window.fromDate;
-      lookbackTo = window.toDate;
-      const report = await fetchArboxBookingsReport({
-        apiKey: business.crm_api_key,
-        fromDate: window.fromDate,
-        toDate: window.toDate,
-        locationId: business.crm_box_id,
-      });
-      prefetchedPages = report.pagesFetched;
-      if (report.ok) {
-        prefetchedRows = report.rows;
-      } else {
-        console.error("[cron/arbox-daily-triggers] shared bookingsReport failed", {
-          slug: business.slug,
-          error: report.error,
-        });
-      }
-    }
-  } catch (e) {
-    console.error("[cron/arbox-daily-triggers] shared bookings prefetch threw", {
-      slug: business.slug,
-      error: e instanceof Error ? e.message : String(e),
-    });
   }
 
   // --- Step: post-trial C5/C6 (bookings × sales) ---

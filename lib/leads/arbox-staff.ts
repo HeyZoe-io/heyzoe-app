@@ -1,13 +1,14 @@
 /**
  * Staff roster: one GET /v3/users/allStaffMembers per business on the morning run.
  * A person counts as staff when active=1, or when active=0 and they taught a class
- * in the last 30 days. Teaching comes from arbox_class_trainer_snapshot (already
- * stored by the class-cancel cron). No extra Arbox call. A short snapshot is used
- * as-is; inactive people who are not in it stay regular members.
- * A failed staff fetch or a failed snapshot read does not clear contacts.arbox_is_staff.
+ * in the last 30 days. Teaching comes from the bookingsReport rows the morning
+ * run already fetches, plus arbox_class_trainer_snapshot when it has rows.
+ * Trainer id wins; otherwise the trainer name is matched only inside this
+ * business's staff list. No extra Arbox call.
+ * A failed staff fetch, or a failed bookings read, does not clear contacts.arbox_is_staff.
  *
- * IO: 1 Arbox GET per business per morning, plus one indexed snapshot read.
- * At 10x studios that is about 10 Arbox calls a day. No Claude, no WhatsApp.
+ * IO: the staff GET the morning already makes, plus the bookings GET it already
+ * makes, plus one indexed snapshot read. No Claude, no WhatsApp.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -24,6 +25,7 @@ const ISRAEL_TZ = "Asia/Jerusalem";
 export type TaughtSighting = {
   userId: number | null;
   phone: string | null;
+  name?: string | null;
 };
 
 export const RETENTION_STAFF_TRIGGERS = [
@@ -105,6 +107,11 @@ export function parseStaffMembers(rows: readonly Record<string, unknown>[]): Sta
   return people;
 }
 
+export function staffTaughtBounds(now: Date): { todayYmd: string; nowMinutes: number; fromYmd: string } {
+  const todayYmd = israelYmd(now);
+  return { todayYmd, nowMinutes: israelMinutes(now), fromYmd: addDaysYmd(todayYmd, -TAUGHT_LOOKBACK_DAYS) };
+}
+
 function israelYmd(now: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: ISRAEL_TZ,
@@ -158,8 +165,19 @@ export function isTaughtInWindow(input: {
   return minutes != null && minutes <= input.nowMinutes;
 }
 
+/** Trim, collapse spaces, ignore case and diacritics. */
+export function normalizeStaffName(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 /**
- * active=1, or inactive and present in the taught set (user id, else phone).
+ * active=1, or inactive and present in the taught set.
+ * An id matches that staff user. A name matches only people on this roster.
  * Callers pass only classes already inside the 30-day window.
  */
 export function qualifyingStaffPeople(
@@ -168,16 +186,175 @@ export function qualifyingStaffPeople(
 ): StaffPerson[] {
   const ids = new Set<number>();
   const phones = new Set<string>();
+  const names = new Set<string>();
   for (const teacher of teachers) {
     if (teacher.userId != null && teacher.userId > 0) ids.add(teacher.userId);
     const phone = normalizePhone(teacher.phone);
     if (phone) phones.add(phone);
+    const name = normalizeStaffName(teacher.name);
+    if (name) names.add(name);
   }
   return roster.filter((person) => {
     if (person.active) return true;
     if (ids.has(person.userId)) return true;
+    const name = normalizeStaffName(person.name);
+    if (name && names.has(name)) return true;
     return Boolean(person.phone && phoneMatches(person.phone, phones));
   });
+}
+
+export type BookingTrainerMatch = {
+  /** Trainer keys that had a value, e.g. staff_member / staff_member_id. */
+  fields: string[];
+  hasId: boolean;
+  byId: number;
+  byName: number;
+  unmatched: string[];
+};
+
+function positiveId(raw: unknown): number | null {
+  const userId = Number(String(raw ?? "").trim());
+  if (!Number.isFinite(userId) || userId <= 0) return null;
+  return Math.trunc(userId);
+}
+
+function trainerNameFromValue(raw: unknown): string | null {
+  if (typeof raw === "string") {
+    const name = raw.trim().replace(/\s+/g, " ");
+    return name || null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const full = String(row.full_name ?? "").trim();
+  if (full) return full.replace(/\s+/g, " ");
+  const combined = [row.first_name, row.last_name]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return combined || null;
+}
+
+type BookingTrainer = {
+  userId: number | null;
+  name: string | null;
+  phone: string | null;
+  field: string;
+};
+
+function trainerSlot(
+  row: Record<string, unknown>,
+  nameKey: string,
+  idKey: string,
+  phoneKey: string
+): BookingTrainer | null {
+  const nameRaw = row[nameKey];
+  const userId =
+    positiveId(row[idKey]) ??
+    (nameRaw && typeof nameRaw === "object" && !Array.isArray(nameRaw)
+      ? positiveId((nameRaw as Record<string, unknown>).user_id)
+      : null);
+  const name = trainerNameFromValue(nameRaw);
+  const phone =
+    normalizePhone(row[phoneKey]) ??
+    (nameRaw && typeof nameRaw === "object" && !Array.isArray(nameRaw)
+      ? normalizePhone((nameRaw as Record<string, unknown>).phone)
+      : null);
+  if (userId == null && !name && !phone) return null;
+  const field = userId != null && row[idKey] != null && String(row[idKey]).trim() ? idKey : nameKey;
+  return { userId, name, phone, field };
+}
+
+/**
+ * Trainers on bookingsReport rows already fetched this run.
+ * staff_member_id wins. A name is matched only against the staff roster.
+ * The attendee's full_name is never treated as the trainer.
+ */
+export function staffTaughtFromBookings(input: {
+  roster: readonly StaffPerson[];
+  rows: readonly Record<string, unknown>[];
+  todayYmd: string;
+  nowMinutes: number;
+  fromYmd: string;
+}): { teachers: TaughtSighting[]; match: BookingTrainerMatch } {
+  const rosterIds = new Set(input.roster.map((person) => person.userId));
+  const rosterByName = new Map<string, StaffPerson[]>();
+  for (const person of input.roster) {
+    const name = normalizeStaffName(person.name);
+    if (!name) continue;
+    const list = rosterByName.get(name) ?? [];
+    list.push(person);
+    rosterByName.set(name, list);
+  }
+  const fields = new Set<string>();
+  const byId = new Set<number>();
+  const byName = new Set<number>();
+  const unmatched = new Set<string>();
+  const teachers: TaughtSighting[] = [];
+  const seenTeacher = new Set<string>();
+  let hasId = false;
+
+  for (const row of input.rows) {
+    const classDate = String(row.date ?? row.class_date ?? "");
+    const classTime = row.time ?? row.start_time ?? row.class_time;
+    if (
+      !isTaughtInWindow({
+        classDate,
+        classTime: classTime == null ? null : String(classTime),
+        todayYmd: input.todayYmd,
+        nowMinutes: input.nowMinutes,
+        fromYmd: input.fromYmd,
+      })
+    ) {
+      continue;
+    }
+    const slots = [
+      trainerSlot(row, "staff_member", "staff_member_id", "staff_member_phone"),
+      trainerSlot(row, "second_staff_member", "second_staff_member_id", "second_staff_member_phone"),
+    ];
+    for (const slot of slots) {
+      if (!slot) continue;
+      fields.add(slot.field);
+      if (slot.userId != null) hasId = true;
+      if (slot.userId != null) {
+        if (rosterIds.has(slot.userId)) {
+          byId.add(slot.userId);
+          const key = `id:${slot.userId}`;
+          if (!seenTeacher.has(key)) {
+            seenTeacher.add(key);
+            teachers.push({ userId: slot.userId, phone: slot.phone, name: slot.name });
+          }
+        } else {
+          unmatched.add(slot.name || String(slot.userId));
+        }
+        continue;
+      }
+      const nameKey = normalizeStaffName(slot.name);
+      const named = nameKey ? rosterByName.get(nameKey) : undefined;
+      if (!named?.length) {
+        if (slot.name) unmatched.add(slot.name);
+        continue;
+      }
+      for (const person of named) {
+        if (byId.has(person.userId)) continue;
+        byName.add(person.userId);
+        const key = `name:${person.userId}`;
+        if (seenTeacher.has(key)) continue;
+        seenTeacher.add(key);
+        teachers.push({ userId: person.userId, phone: person.phone, name: person.name });
+      }
+    }
+  }
+
+  return {
+    teachers,
+    match: {
+      fields: [...fields].sort(),
+      hasId,
+      byId: byId.size,
+      byName: byName.size,
+      unmatched: [...unmatched].sort((a, b) => a.localeCompare(b, "he")),
+    },
+  };
 }
 
 export type TaughtWindow = {
