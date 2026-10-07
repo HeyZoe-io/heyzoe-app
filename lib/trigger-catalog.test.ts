@@ -35,6 +35,8 @@ import {
   triggerTypeLabel,
   uniqueCreateModeFor,
   triggerSendScheduleHintHe,
+  enabledLeadStatusRuleConflict,
+  LEAD_STATUS_CHANGED_EXISTS_MESSAGE,
 } from "@/lib/trigger-catalog";
 import {
   allowsDelayBefore as allowsDelayBeforeFacade,
@@ -419,6 +421,7 @@ function triggerCatalogAudience(type: string) {
   assert.equal(triggerTypeLabel("birthday"), "יום הולדת (מנויים)");
   assert.equal(triggerTypeLabel("birthday_former"), "יום הולדת (לקוחות לשעבר)");
   assert.equal(triggerTypeLabel("lost_lead"), "win-back לליד אבוד (ארבוקס)");
+  assert.equal(triggerTypeLabel("lead_status_changed"), "ליד ללא מענה (ארבוקס)");
   assert.equal(triggerTypeLabel("trial_reminder"), "תזכורת לשיעור ניסיון");
   assert.equal(triggerTypeLabel("milestones"), "ימים במועדון");
   assert.equal(triggerTypeLabel("nth_workout"), "אימון מספר N (לקוח חדש)");
@@ -684,6 +687,75 @@ function triggerCatalogAudience(type: string) {
     triggerSendScheduleHintHe("membership_expiring")
   );
   assert.equal(triggerSendScheduleHintHe("hold"), "");
+}
+
+{
+  const enabled = { id: "a", trigger_type: "lead_status_changed", enabled: true };
+  const disabled = { id: "b", trigger_type: "lead_status_changed", enabled: false };
+  const other = { id: "c", trigger_type: "lost_lead", enabled: true };
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [enabled],
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    true
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [enabled],
+      id: "b",
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    true
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [disabled, other],
+      id: "b",
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    false
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [enabled],
+      triggerType: "lead_status_changed",
+      enabled: false,
+    }),
+    false
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [enabled],
+      id: "a",
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    false
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [enabled],
+      id: "c",
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    true
+  );
+  assert.equal(
+    enabledLeadStatusRuleConflict({
+      existing: [disabled],
+      id: "c",
+      triggerType: "lead_status_changed",
+      enabled: true,
+    }),
+    false
+  );
+  assert.equal(LEAD_STATUS_CHANGED_EXISTS_MESSAGE, "כבר קיים טריגר ליד ללא מענה פעיל");
+  assert.equal(LEAD_STATUS_CHANGED_EXISTS_MESSAGE.includes("—"), false);
 }
 
 console.log("trigger-catalog.test.ts: ok");

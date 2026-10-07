@@ -417,7 +417,7 @@ export const TRIGGER_CATALOG = [
   },
   {
     type: "lead_status_changed",
-    labelHe: "שינוי סטטוס ליד (ארבוקס)",
+    labelHe: "ליד ללא מענה (ארבוקס)",
     activation: "automatic",
     audience: "leads",
     implemented: true,
@@ -1001,6 +1001,29 @@ export function forcesAfterNoProductFilter(triggerType: string): boolean {
 export function triggerTypeLabel(triggerType: string): string {
   const e = triggerCatalogEntry(triggerType);
   return e?.labelHe ?? triggerType;
+}
+
+export const LEAD_STATUS_CHANGED_EXISTS_ERROR = "lead_status_changed_exists";
+export const LEAD_STATUS_CHANGED_EXISTS_MESSAGE = "כבר קיים טריגר ליד ללא מענה פעיל";
+
+/**
+ * One enabled lead_status_changed rule per business. Disabled rows may remain.
+ * The row being updated is excluded by id, so re-saving it is not a conflict.
+ */
+export function enabledLeadStatusRuleConflict(input: {
+  existing: readonly { id?: string; trigger_type?: string; enabled?: boolean }[];
+  id?: string | null;
+  triggerType: string;
+  enabled: boolean;
+}): boolean {
+  if (input.triggerType !== "lead_status_changed" || !input.enabled) return false;
+  const self = input.id != null ? String(input.id) : "";
+  return input.existing.some(
+    (row) =>
+      row.trigger_type === "lead_status_changed" &&
+      row.enabled === true &&
+      String(row.id ?? "") !== self
+  );
 }
 
 /** Read-only cron send-time hint for the dashboard (not a user setting). */

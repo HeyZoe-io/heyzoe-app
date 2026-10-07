@@ -22,7 +22,12 @@ import {
 } from "@/lib/template-trigger-types";
 import { applyProductFilterScopeChange, normalizeProductIdList } from "@/lib/filter-scope-change";
 import { productFilterChanged, ruleActivationResets, type RuleActivationSnapshot } from "@/lib/rule-activation";
-import { parseSendSlotForTrigger } from "@/lib/trigger-catalog";
+import {
+  enabledLeadStatusRuleConflict,
+  LEAD_STATUS_CHANGED_EXISTS_ERROR,
+  LEAD_STATUS_CHANGED_EXISTS_MESSAGE,
+  parseSendSlotForTrigger,
+} from "@/lib/trigger-catalog";
 
 /** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
 function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -227,6 +232,42 @@ function missingSendSlotColumn(message: string): boolean {
   return /send_slot|schema cache|PGRST204|could not find the/i.test(message);
 }
 
+/** 409 when a second enabled lead_status_changed rule would exist. Disabled rows are allowed. */
+async function leadStatusEnabledConflictResponse(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  exceptId: string | null,
+  triggerType: string,
+  enabled: boolean
+) {
+  if (triggerType !== "lead_status_changed" || !enabled) return null;
+  const { data, error } = await admin
+    .from("template_triggers")
+    .select("id, trigger_type, enabled")
+    .eq("business_id", businessId)
+    .eq("trigger_type", "lead_status_changed")
+    .eq("enabled", true)
+    .limit(5);
+  if (error) {
+    console.error("[api/triggers] lead_status_changed lookup failed:", error.message);
+    return NextResponse.json({ error: "lead_status_changed_lookup_failed" }, { status: 500 });
+  }
+  if (
+    enabledLeadStatusRuleConflict({
+      existing: (data ?? []) as { id?: string; trigger_type?: string; enabled?: boolean }[],
+      id: exceptId,
+      triggerType,
+      enabled,
+    })
+  ) {
+    return NextResponse.json(
+      { error: LEAD_STATUS_CHANGED_EXISTS_ERROR, message: LEAD_STATUS_CHANGED_EXISTS_MESSAGE },
+      { status: 409 }
+    );
+  }
+  return null;
+}
+
 const TRIGGER_SELECT =
   "id, business_id, trigger_type, product_filter, item_type_filter, delay_days, delay_direction, lookback_days, template_name, enabled, created_at";
 
@@ -414,6 +455,15 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     }
     if (parsedSlot.slot) insertRow.send_slot = parsedSlot.slot;
   }
+
+  const createConflict = await leadStatusEnabledConflictResponse(
+    admin,
+    business.id,
+    null,
+    triggerType,
+    enabled
+  );
+  if (createConflict) return createConflict;
 
   const { data: created, error: insertErr } = await admin
     .from("template_triggers")
@@ -720,6 +770,20 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     if (effectiveType === "no_response" && (effectiveDelay ?? 0) < 2) {
       return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
     }
+  }
+
+  if (clock) {
+    const nextType =
+      patch.trigger_type != null ? String(patch.trigger_type) : String(clock.trigger_type ?? "");
+    const nextEnabled = patch.enabled !== undefined ? Boolean(patch.enabled) : Boolean(clock.enabled);
+    const updateConflict = await leadStatusEnabledConflictResponse(
+      admin,
+      business.id,
+      id,
+      nextType,
+      nextEnabled
+    );
+    if (updateConflict) return updateConflict;
   }
 
   const { data: updated, error: updErr } = await admin

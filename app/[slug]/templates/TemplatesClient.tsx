@@ -374,6 +374,7 @@ function LeadStatusPicker(props: {
   return (
     <div className="space-y-1.5">
       <label className="text-sm font-medium text-zinc-800">סטטוס בארבוקס</label>
+      <p className="text-xs text-zinc-500">בחרו את הסטטוס שמסמן אצלכם ליד שלא ענה</p>
       <select
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
@@ -829,6 +830,9 @@ export default function TemplatesClient({
       if (j.error === "incoming_lead_exists") {
         throw new Error("כבר קיים טריגר ליד");
       }
+      if (j.error === "lead_status_changed_exists") {
+        throw new Error("כבר קיים טריגר ליד ללא מענה פעיל");
+      }
       if (j.error === "arbox_new_lead_exists") {
         throw new Error("כבר קיים טריגר ליד חדש מארבוקס — ערכו את הקיים במקום ליצור עוד אחד");
       }
@@ -1001,7 +1005,12 @@ export default function TemplatesClient({
         trigger?: TriggerRow;
         error?: string;
       };
-      if (!res.ok) throw new Error(j.error || `http_${res.status}`);
+      if (!res.ok) {
+        if (j.error === "lead_status_changed_exists") {
+          throw new Error("כבר קיים טריגר ליד ללא מענה פעיל");
+        }
+        throw new Error(j.error || `http_${res.status}`);
+      }
       if (j.trigger) {
         setTriggers((prev) => prev.map((row) => (row.id === j.trigger!.id ? j.trigger! : row)));
       }
@@ -1084,6 +1093,9 @@ export default function TemplatesClient({
       if (!res.ok) {
         if (j.error === "template_not_approved") {
           throw new Error("הטמפלייט לא זמין לטריגר — בחרו טמפלייט אחר");
+        }
+        if (j.error === "lead_status_changed_exists") {
+          throw new Error("כבר קיים טריגר ליד ללא מענה פעיל");
         }
         throw new Error(j.error || `http_${res.status}`);
       }
