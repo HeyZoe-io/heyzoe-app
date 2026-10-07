@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import {
   businessQualifiesForArboxScheduleSync,
   markArboxScheduleSyncedAt,
@@ -35,6 +36,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-schedule-sync] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/arbox-schedule-sync");
+
 
   const admin = createSupabaseAdminClient();
   const nowIso = new Date().toISOString();

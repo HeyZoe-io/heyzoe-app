@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { syncNoResponseReengageForBusiness } from "@/lib/leads/no-response-reengage";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -31,6 +32,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/no-response-reengage] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/no-response-reengage");
+
 
   const admin = createSupabaseAdminClient();
   const now = new Date();

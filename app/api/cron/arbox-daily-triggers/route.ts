@@ -1,6 +1,14 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron-auth";
 import {
+  countNotifiedSends,
+  cronDryRunNow,
+  isInternalCronCall,
+  logCronInvocation,
+  noteUnexpectedCronCaller,
+  rejectCronTimeOverride,
+} from "@/lib/cron-clock";
+import {
   dispatchArboxDailyWorkers,
   resolveArboxDailyWorkerOrigin,
 } from "@/lib/leads/arbox-daily-triggers-dispatch";
@@ -29,12 +37,16 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-daily-triggers] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejected = rejectCronTimeOverride(req, true);
+  if (rejected) return rejected;
 
   const dryRun = req.nextUrl.searchParams.get("dry_run") === "1";
   const slot = parseTrialReminderSlot(req.nextUrl.searchParams.get("slot"));
   if (slot === "invalid") {
     return NextResponse.json({ error: "invalid_slot" }, { status: 400 });
   }
+  const now = cronDryRunNow(req);
+  const userAgent = req.headers.get("user-agent");
   const startedAt = new Date().toISOString();
   const admin = createSupabaseAdminClient();
   const listed = await listArboxDailyBusinessIds(admin, { slot });
@@ -53,10 +65,23 @@ export async function GET(req: NextRequest) {
       dryRun,
       authorization,
       slot,
+      nowIso: now?.toISOString(),
     });
 
   if (dryRun) {
     const dispatched = await fanOut();
+    const sends = dispatched.businesses.reduce((sum, row) => {
+      const body = row.body as { summary?: unknown; would_send?: unknown[] } | null;
+      if (Array.isArray(body?.would_send)) return sum + body.would_send.length;
+      return sum + countNotifiedSends(body?.summary);
+    }, 0);
+    logCronInvocation({
+      route: "/api/cron/arbox-daily-triggers",
+      slot,
+      userAgent,
+      dryRun: true,
+      sends,
+    });
     return NextResponse.json({
       accepted: true,
       dry_run: true,
@@ -64,11 +89,27 @@ export async function GET(req: NextRequest) {
       businesses: ids,
       started_at: startedAt,
       total_ms: dispatched.total_ms,
+      sends,
       results: dispatched.businesses,
     });
   }
 
   if (ids.length) after(() => fanOut());
+
+  logCronInvocation({
+    route: "/api/cron/arbox-daily-triggers",
+    slot,
+    userAgent,
+    dryRun: false,
+    sends: null,
+  });
+  await noteUnexpectedCronCaller({
+    route: "/api/cron/arbox-daily-triggers",
+    slot,
+    userAgent,
+    dryRun: false,
+    internal: isInternalCronCall(req),
+  });
 
   return NextResponse.json({
     accepted: true,

@@ -1,6 +1,11 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron-auth";
 import {
+  acknowledgeCron,
+  cronDryRunNow,
+  rejectCronTimeOverride,
+} from "@/lib/cron-clock";
+import {
   dispatchArboxTrialSyncWorkers,
   resolveArboxTrialSyncWorkerOrigin,
 } from "@/lib/leads/arbox-trial-sync-dispatch";
@@ -25,8 +30,11 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-trial-sync] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejected = rejectCronTimeOverride(req, true);
+  if (rejected) return rejected;
 
   const dryRun = req.nextUrl.searchParams.get("dry_run") === "1";
+  const now = cronDryRunNow(req);
   const startedAt = new Date().toISOString();
   const admin = createSupabaseAdminClient();
   const listed = await listArboxTrialSyncBusinessIds(admin);
@@ -44,10 +52,12 @@ export async function GET(req: NextRequest) {
       businessIds: ids,
       dryRun,
       authorization,
+      nowIso: now?.toISOString(),
     });
 
   if (dryRun) {
     const dispatched = await fanOut();
+    await acknowledgeCron(req, "/api/cron/arbox-trial-sync", null);
     return NextResponse.json({
       accepted: true,
       dry_run: true,
@@ -59,6 +69,8 @@ export async function GET(req: NextRequest) {
   }
 
   if (ids.length) after(() => fanOut());
+
+  await acknowledgeCron(req, "/api/cron/arbox-trial-sync", null);
 
   return NextResponse.json({
     accepted: true,

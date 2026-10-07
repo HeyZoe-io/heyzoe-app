@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import {
@@ -51,6 +52,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/close-expired-subscriptions] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/close-expired-subscriptions");
+
 
   const admin = createSupabaseAdminClient();
   const nowIso = new Date().toISOString();

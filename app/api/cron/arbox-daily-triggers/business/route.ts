@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron-auth";
+import {
+  countNotifiedSends,
+  cronDryRunNow,
+  isInternalCronCall,
+  logCronInvocation,
+  noteUnexpectedCronCaller,
+  rejectCronTimeOverride,
+} from "@/lib/cron-clock";
 import { dryRunSupabase } from "@/lib/leads/arbox-daily-dry-run";
 import { runArboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import {
@@ -26,6 +34,8 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-daily-triggers/business] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejected = rejectCronTimeOverride(req, true);
+  if (rejected) return rejected;
 
   const businessId = Number(req.nextUrl.searchParams.get("business_id"));
   if (!Number.isFinite(businessId) || businessId <= 0) {
@@ -37,6 +47,8 @@ export async function GET(req: NextRequest) {
   if (slot === "invalid") {
     return NextResponse.json({ error: "invalid_slot" }, { status: 400 });
   }
+  const now = cronDryRunNow(req);
+  const userAgent = req.headers.get("user-agent");
   const started = Date.now();
   try {
     const admin = createSupabaseAdminClient();
@@ -56,15 +68,33 @@ export async function GET(req: NextRequest) {
             arboxCalls: 0,
             arboxReports: [],
             membershipTypesByKey: new Map(),
+            wouldSend: [],
           },
           () =>
             runArboxDailyTriggersForBusiness({
               admin: dryRun ? dryRunSupabase(admin) : admin,
               business,
               slot,
+              now,
             })
         )
     );
+
+    const sends = dryRun ? (result.would_send?.length ?? 0) : countNotifiedSends(result.summary);
+    logCronInvocation({
+      route: "/api/cron/arbox-daily-triggers/business",
+      slot,
+      userAgent,
+      dryRun,
+      sends,
+    });
+    await noteUnexpectedCronCaller({
+      route: "/api/cron/arbox-daily-triggers/business",
+      slot,
+      userAgent,
+      dryRun,
+      internal: isInternalCronCall(req),
+    });
 
     return NextResponse.json({ ok: true, dry_run: dryRun, ...result });
   } catch (e) {

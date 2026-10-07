@@ -1,3 +1,4 @@
+import { resolveCronNow } from "@/lib/cron-clock";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
@@ -74,7 +75,7 @@ export type BusinessSummary = {
   business_id: number;
   slug: string;
   skipped?: boolean;
-  skip_reason?: "quiet_hours";
+  skip_reason?: "quiet_hours" | "time_override_requires_dry_run";
   fetched: number;
   processed: number;
   already: number;
@@ -442,10 +443,32 @@ export async function runArboxTrialSyncForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business: BusinessRow;
   now?: Date;
+  dryRun?: boolean;
 }): Promise<BusinessSummary> {
   const admin = input.admin;
   const business = input.business;
-  const now = input.now ?? new Date();
+  const resolvedNow = resolveCronNow(input.now, input.dryRun === true);
+  if (!resolvedNow.ok) {
+    console.error("[cron/arbox-trial-sync] refused time override without dry run", {
+      slug: business.slug,
+    });
+    return {
+      business_id: business.id,
+      slug: business.slug,
+      skipped: true,
+      skip_reason: resolvedNow.error,
+      fetched: 0,
+      processed: 0,
+      already: 0,
+      unpaid: 0,
+      seeded: 0,
+      seed_without_contact: 0,
+      errors: 0,
+      pages_fetched: 0,
+      cursor_advanced: false,
+    };
+  }
+  const now = resolvedNow.now;
   const nowIso = now.toISOString();
   const trialBookedBusinessIds = await loadTrialBookedBusinessIds(admin);
     const summary: BusinessSummary = {

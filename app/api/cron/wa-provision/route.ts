@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail, whatsappReadyEmail } from "@/lib/email";
@@ -426,6 +427,10 @@ async function succeedProvisionAfterRegister(
 export async function GET(req: NextRequest) {
   const build = buildTag();
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/wa-provision");
+
 
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim() ?? "";
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim() ?? "";

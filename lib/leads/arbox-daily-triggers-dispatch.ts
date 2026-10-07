@@ -1,3 +1,4 @@
+import { CRON_INTERNAL_HEADER } from "@/lib/cron-clock";
 import { resolveCronSecret } from "@/lib/server-env";
 
 /**
@@ -78,13 +79,15 @@ export function arboxDailyWorkerUrl(
   origin: string,
   businessId: number,
   dryRun: boolean,
-  slot: "morning" | "evening" = "morning"
+  slot: "morning" | "evening" = "morning",
+  nowIso?: string
 ): string {
   const base = origin.endsWith("/") ? origin : `${origin}/`;
   const url = new URL("/api/cron/arbox-daily-triggers/business", base);
   url.searchParams.set("business_id", String(businessId));
   if (dryRun) url.searchParams.set("dry_run", "1");
   if (slot === "evening") url.searchParams.set("slot", "evening");
+  if (dryRun && nowIso) url.searchParams.set("now", nowIso);
   return url.toString();
 }
 
@@ -94,6 +97,7 @@ export async function dispatchArboxDailyWorkers(input: {
   dryRun: boolean;
   authorization: string | null;
   slot?: "morning" | "evening";
+  nowIso?: string;
 }): Promise<{ total_ms: number; businesses: WorkerDispatchResult[] }> {
   const started = Date.now();
   const settled = await Promise.allSettled(
@@ -133,19 +137,23 @@ async function callWorker(
     origin: string;
     dryRun: boolean;
     authorization: string | null;
+    nowIso?: string;
   },
   businessId: number,
   slot: "morning" | "evening"
 ): Promise<WorkerDispatchResult> {
   const started = Date.now();
-  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot);
+  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot, input.nowIso);
   const secret = resolveCronSecret();
   const authorization =
     input.authorization ?? (secret ? `Bearer ${secret}` : null);
   try {
     const res = await fetch(url, {
       method: "GET",
-      headers: authorization ? { Authorization: authorization } : {},
+      headers: {
+        ...(authorization ? { Authorization: authorization } : {}),
+        [CRON_INTERNAL_HEADER]: "1",
+      },
       signal: AbortSignal.timeout(ARBOX_DAILY_WORKER_ABORT_MS),
     });
     const body = await res.json().catch(() => null);

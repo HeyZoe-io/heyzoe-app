@@ -58,7 +58,8 @@ import {
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { ARBOX_DAILY_ACTIVE_PRODUCT_TRIGGER_TYPES, ARBOX_DAILY_TRIGGER_TYPES } from "@/lib/leads/arbox-daily-triggers-dispatch";
-import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
+import { arboxDailyContext, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
+import { resolveCronNow } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const BUSINESS_SELECT =
@@ -290,6 +291,7 @@ export type ArboxDailyBusinessRun = {
   arbox_reports: string[];
   steps: ArboxDailyStepTiming[];
   summary: { business_id: number; slug: string; [step: string]: unknown };
+  would_send?: { template: string; phone_tail: string; params: string[] }[];
 };
 
 /**
@@ -340,8 +342,30 @@ export async function runArboxDailyTriggersForBusiness(input: {
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
   const business = input.business;
-  const now = input.now ?? new Date();
   const slot = input.slot === "evening" ? "evening" : "morning";
+  const resolvedNow = resolveCronNow(input.now, isArboxDailyDryRun());
+  if (!resolvedNow.ok) {
+    console.error("[cron/arbox-daily-triggers] refused time override without dry run", {
+      slug: business.slug,
+      slot,
+    });
+    return {
+      business_id: business.id,
+      slug: business.slug,
+      elapsed_ms: 0,
+      arbox_calls: 0,
+      arbox_reports: [],
+      steps: [],
+      summary: {
+        business_id: business.id,
+        slug: business.slug,
+        slot,
+        skip_reason: resolvedNow.error,
+      },
+      would_send: [],
+    };
+  }
+  const now = resolvedNow.now;
   const timings: ArboxDailyStepTiming[] = [];
   const started = Date.now();
   const entry: { business_id: number; slug: string; [step: string]: unknown } = {
@@ -1493,5 +1517,6 @@ export async function runArboxDailyTriggersForBusiness(input: {
     arbox_reports: [...(ctx?.arboxReports ?? [])],
     steps: timings,
     summary: entry,
+    would_send: ctx?.wouldSend ?? [],
   };
 }

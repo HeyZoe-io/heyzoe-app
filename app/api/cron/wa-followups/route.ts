@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
 import { parseModelUsed } from "@/lib/wa-reply-route";
@@ -203,6 +204,10 @@ async function fetchLatestUserMessageAt(input: {
 
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/wa-followups");
+
 
   const accountSid = resolveTwilioAccountSid();
   const authToken = resolveTwilioAuthToken();

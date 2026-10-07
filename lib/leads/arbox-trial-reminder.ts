@@ -60,6 +60,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { trialReminderTemplateParamValues } from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { resolveCronNow } from "@/lib/cron-clock";
 import {
   companionTemplateAlreadySent,
   recordCompanionTemplateSent,
@@ -100,7 +101,7 @@ export type TrialReminderSyncSummary = {
     | "missing_credentials"
     | "no_trial_scope"
     | "activation_read_failed"
-    | "clock_skew";
+    | "time_override_requires_dry_run";
   lookback_from?: string;
   lookback_to?: string;
   fetched: number;
@@ -274,20 +275,9 @@ export function trialReminderMatchesSlot(input: {
   return true;
 }
 
-/** A caller-supplied `now` may not be a day ahead of the live clock. */
-export const TRIAL_REMINDER_CLOCK_SKEW_MS = 15 * 60 * 1000;
-
-export function trialReminderClockIsLive(
-  now: Date,
-  realNow: Date = new Date(),
-  skewMs = TRIAL_REMINDER_CLOCK_SKEW_MS
-): boolean {
-  return Math.abs(now.getTime() - realNow.getTime()) <= skewMs;
-}
-
 /**
- * WhatsApp uses the live Israel date, not `input.now`.
- * A preview that passes Thursday's clock on Wednesday must not send Friday's class.
+ * Live WhatsApp uses the real Israel date, not a caller-supplied `now`.
+ * A dry run passes its preview clock so the would-send list matches that day.
  */
 export function trialReminderSendAllowedNow(input: {
   classDateYmd: string;
@@ -537,6 +527,7 @@ async function dispatchTrialReminderTemplate(input: {
       classTime: input.classTime,
       delayDays,
       slot,
+      realNow: isArboxDailyDryRun() ? input.now : new Date(),
     })
   ) {
     console.error("[leads/arbox-trial-reminder] skip send outside configured day", {
@@ -745,22 +736,17 @@ export async function syncArboxTrialReminderForBusiness(input: {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
-  const now = input.now ?? new Date();
-  const realNow = new Date();
-  const nowIso = now.toISOString();
-  const todayYmd = formatDateYmdIsrael(realNow);
-  const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
-
-  if (!trialReminderClockIsLive(now, realNow)) {
+  const resolvedNow = resolveCronNow(input.now, isArboxDailyDryRun());
+  if (!resolvedNow.ok) {
     summary.skipped = true;
-    summary.skip_reason = "clock_skew";
-    console.error("[leads/arbox-trial-reminder] skip — now is not the live clock", {
-      businessId,
-      now: nowIso,
-      realNow: realNow.toISOString(),
-    });
+    summary.skip_reason = resolvedNow.error;
+    console.error("[leads/arbox-trial-reminder] refused time override without dry run", { businessId });
     return summary;
   }
+  const now = resolvedNow.now;
+  const nowIso = now.toISOString();
+  const todayYmd = formatDateYmdIsrael(now);
+  const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
 
   if (!apiKey || !boxId) {
     summary.skipped = true;

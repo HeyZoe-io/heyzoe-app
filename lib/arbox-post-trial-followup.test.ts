@@ -8,7 +8,6 @@ import {
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
   postTrialActivationInstant,
-  postTrialClockIsLive,
   postTrialLogStatusBlocksSend,
   postTrialSeedAction,
   postTrialSeededBlocksSend,
@@ -62,10 +61,6 @@ assert.equal(
     realNow: new Date("2026-10-08T06:00:00Z"),
   }),
   true
-);
-assert.equal(
-  postTrialClockIsLive(new Date("2026-10-08T06:00:00Z"), new Date("2026-10-07T15:19:29Z")),
-  false
 );
 
 /** Trial product never counts as conversion — even if item_type looks like plan. */

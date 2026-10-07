@@ -10,6 +10,7 @@ type ArboxDailyRunContext = {
   arboxCalls: number;
   arboxReports: string[];
   membershipTypesByKey: Map<string, Promise<unknown>>;
+  wouldSend?: { template: string; phone_tail: string; params: string[] }[];
 };
 
 type ArboxDailyBridge = {
@@ -27,4 +28,13 @@ export function arboxDailyContext(): ArboxDailyRunContext | undefined {
 
 export function isArboxDailyDryRun(): boolean {
   return bridge()?.isDryRun() === true;
+}
+
+export function noteArboxDailyWouldSend(line: {
+  template: string;
+  phone_tail: string;
+  params: string[];
+}): void {
+  const list = bridge()?.context()?.wouldSend;
+  if (list) list.push(line);
 }

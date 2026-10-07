@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import {
   firstNameFromFullName,
   formatLeadTemplateMessageContent,
@@ -550,6 +551,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/scheduled-template-sends] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/scheduled-template-sends");
+
   return runWithArboxCallCount(
     { cron: "scheduled-template-sends", slug: "pending", emitIfEmpty: false },
     () => drainScheduledTemplateSends()

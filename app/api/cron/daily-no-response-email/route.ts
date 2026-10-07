@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { sendEmail } from "@/lib/email";
@@ -160,6 +161,10 @@ async function loadOwnerEmailsByUserId(
 
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/daily-no-response-email");
+
 
   const cronWindow = resolveDailyNoResponseCronWindow(new Date());
   if (cronWindow.skip) {

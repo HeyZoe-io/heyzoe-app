@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { introRenewalOpsEmail, sendEmail } from "@/lib/email";
@@ -38,6 +39,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/intro-renewal-reminder] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/intro-renewal-reminder");
+
 
   const admin = createSupabaseAdminClient();
   const now = new Date();

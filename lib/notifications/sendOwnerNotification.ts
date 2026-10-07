@@ -1,6 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { outboundSendsHeld } from "@/lib/business-sends-hold";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { isArboxDailyDryRun, noteArboxDailyWouldSend } from "@/lib/leads/arbox-daily-run-flag";
 import {
   contactAlertMuted,
   graphTemplateMessageId,
@@ -161,11 +161,13 @@ export async function sendBusinessTemplate(input: {
     const params = (input.components ?? []).flatMap((component) =>
       component.type === "body" ? component.parameters.map((parameter) => parameter.text) : []
     );
-    console.info("[dry-run] template", {
-      templateName,
-      phone: to.slice(-4),
+    const line = {
+      template: templateName,
+      phone_tail: to.slice(-4),
       params,
-    });
+    };
+    noteArboxDailyWouldSend(line);
+    console.info("[dry-run] template", line);
     return { ok: true };
   }
 

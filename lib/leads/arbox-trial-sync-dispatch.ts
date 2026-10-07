@@ -1,3 +1,4 @@
+import { CRON_INTERNAL_HEADER } from "@/lib/cron-clock";
 import { resolveCronSecret } from "@/lib/server-env";
 
 /**
@@ -32,11 +33,17 @@ export function resolveArboxTrialSyncWorkerOrigin(req: {
   return "https://heyzoe.io";
 }
 
-export function arboxTrialSyncWorkerUrl(origin: string, businessId: number, dryRun: boolean): string {
+export function arboxTrialSyncWorkerUrl(
+  origin: string,
+  businessId: number,
+  dryRun: boolean,
+  nowIso?: string
+): string {
   const base = origin.endsWith("/") ? origin : `${origin}/`;
   const url = new URL("/api/cron/arbox-trial-sync/business", base);
   url.searchParams.set("business_id", String(businessId));
   if (dryRun) url.searchParams.set("dry_run", "1");
+  if (dryRun && nowIso) url.searchParams.set("now", nowIso);
   return url.toString();
 }
 
@@ -45,6 +52,7 @@ export async function dispatchArboxTrialSyncWorkers(input: {
   businessIds: number[];
   dryRun: boolean;
   authorization: string | null;
+  nowIso?: string;
 }): Promise<{ total_ms: number; businesses: WorkerDispatchResult[] }> {
   const started = Date.now();
   const settled = await Promise.allSettled(input.businessIds.map((id) => callWorker(input, id)));
@@ -81,17 +89,21 @@ async function callWorker(
     origin: string;
     dryRun: boolean;
     authorization: string | null;
+    nowIso?: string;
   },
   businessId: number
 ): Promise<WorkerDispatchResult> {
   const started = Date.now();
-  const url = arboxTrialSyncWorkerUrl(input.origin, businessId, input.dryRun);
+  const url = arboxTrialSyncWorkerUrl(input.origin, businessId, input.dryRun, input.nowIso);
   const secret = resolveCronSecret();
   const authorization = input.authorization ?? (secret ? `Bearer ${secret}` : null);
   try {
     const res = await fetch(url, {
       method: "GET",
-      headers: authorization ? { Authorization: authorization } : {},
+      headers: {
+        ...(authorization ? { Authorization: authorization } : {}),
+        [CRON_INTERNAL_HEADER]: "1",
+      },
       signal: AbortSignal.timeout(ARBOX_TRIAL_SYNC_WORKER_ABORT_MS),
     });
     const body = await res.json().catch(() => null);

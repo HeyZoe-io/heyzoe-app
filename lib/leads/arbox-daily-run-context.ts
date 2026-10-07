@@ -16,6 +16,8 @@ export type ArboxDailyRunContext = {
   membershipTypesByKey: Map<string, Promise<unknown>>;
   /** Morning roster from GET /v3/users/allStaffMembers. Unset on a failed fetch. */
   staffIndex?: StaffIndex;
+  /** Filled only while dryRun is true. Returned to the caller; nothing is sent. */
+  wouldSend?: { template: string; phone_tail: string; params: string[] }[];
 };
 
 const storage = new AsyncLocalStorage<ArboxDailyRunContext>();

@@ -10,6 +10,7 @@
  */
 import { ADMIN_SUPPORT_ALERT_WHATSAPP, sendAdminWhatsAppTemplate } from "@/lib/notifications/sendAdminWhatsAppTemplate";
 import { logMarketingWhatsAppMessage, MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
+import { CRON_UNEXPECTED_CALLER_MODEL } from "@/lib/cron-clock";
 import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -375,6 +376,28 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
   }
 
   out.sort((a, b) => a.business.localeCompare(b.business, "he") || a.trigger.localeCompare(b.trigger));
+  const { data: unexpected, error: unexpectedError } = await admin
+    .from("messages")
+    .select("content, created_at")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .eq("model_used", CRON_UNEXPECTED_CALLER_MODEL)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (unexpectedError) {
+    console.error("[admin-daily-unsent] unexpected cron lookup failed", unexpectedError.message);
+  }
+  for (const row of unexpected ?? []) {
+    out.push({
+      businessId: 0,
+      business: "HeyZoe",
+      trigger: "קרון",
+      contact: "",
+      reason: "קריאה לא מ-cron-job.org",
+      at: String((row as { created_at?: unknown }).created_at ?? ""),
+      metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
+    });
+  }
   return out;
 }
 

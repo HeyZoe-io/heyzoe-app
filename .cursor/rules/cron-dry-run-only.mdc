@@ -1,0 +1,13 @@
+---
+description: Never hit production cron or send endpoints with side effects
+alwaysApply: true
+---
+
+# קרון ופרודקשן — בלי שעון מזויף ובלי שליחה
+
+אסור לקרוא לקרון פרודקשן או לנקודות שליחה עם תופעות לוואי.
+
+- אימות רק עם `dry_run=1`, או רק למספר הבדיקה `972508318162`.
+- `dry_run=1` מחשב מה היה נשלח ולא שולח, לא כותב לתור, ל־dedup או ללוג, ולא מעדכן אנשי קשר.
+- דריסת זמן (`now`, `date`, `today`, `at`, `as_of`) מותרת רק יחד עם `dry_run=1`. בלי זה הקרון מחזיר 400 ולא עושה כלום.
+- אסור להריץ סקריפט מקומי שקורא ל־`runArboxDailyTriggersForBusiness` או ל־`runArboxTrialSyncForBusiness` עם `now` עתידי ובלי dry run. זה מה ששלח תבניות אמיתיות ב־7.10.2026.

@@ -64,6 +64,7 @@ import {
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { resolveCronNow } from "@/lib/cron-clock";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -112,7 +113,7 @@ export type PostTrialAttendance = {
 
 export type PostTrialSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials" | "not_seeded" | "no_sale" | "clock_skew";
+  skip_reason?: "no_rule" | "missing_credentials" | "not_seeded" | "no_sale" | "time_override_requires_dry_run";
   lookback_from?: string;
   lookback_to?: string;
   sales_from?: string;
@@ -165,18 +166,7 @@ export function isPostTrialDecisionDue(input: {
   return ymdCmp(input.todayYmd, decision) >= 0;
 }
 
-/** A caller-supplied `now` may not be a day ahead of the live clock. */
-export const POST_TRIAL_CLOCK_SKEW_MS = 15 * 60 * 1000;
-
-export function postTrialClockIsLive(
-  now: Date,
-  realNow: Date = new Date(),
-  skewMs = POST_TRIAL_CLOCK_SKEW_MS
-): boolean {
-  return Math.abs(now.getTime() - realNow.getTime()) <= skewMs;
-}
-
-/** WhatsApp uses the live Israel date. Delay 1 is the day after the class, not the class evening. */
+/** Live WhatsApp uses the real Israel date. A dry run uses its preview clock. */
 export function postTrialSendAllowedOnRealClock(input: {
   classDateYmd: string;
   delayDays: number;
@@ -609,6 +599,7 @@ async function dispatchFollowupTemplate(input: {
     !postTrialSendAllowedOnRealClock({
       classDateYmd: input.classDateYmd,
       delayDays,
+      realNow: isArboxDailyDryRun() ? input.now : new Date(),
     })
   ) {
     console.error("[leads/arbox-post-trial-followup] skip send outside configured day", {
@@ -863,21 +854,18 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
-  const now = input.now ?? new Date();
-  const realNow = new Date();
-  const nowIso = now.toISOString();
-  const todayYmd = formatDateYmdIsrael(realNow);
-
-  if (!postTrialClockIsLive(now, realNow)) {
+  const resolvedNow = resolveCronNow(input.now, isArboxDailyDryRun());
+  if (!resolvedNow.ok) {
     summary.skipped = true;
-    summary.skip_reason = "clock_skew";
-    console.error("[leads/arbox-post-trial-followup] skip — now is not the live clock", {
+    summary.skip_reason = resolvedNow.error;
+    console.error("[leads/arbox-post-trial-followup] refused time override without dry run", {
       businessId,
-      now: nowIso,
-      realNow: realNow.toISOString(),
     });
     return summary;
   }
+  const now = resolvedNow.now;
+  const nowIso = now.toISOString();
+  const todayYmd = formatDateYmdIsrael(now);
 
   if (!apiKey || !boxId) {
     summary.skipped = true;

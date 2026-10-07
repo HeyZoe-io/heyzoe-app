@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { getIsraelCalendarDay } from "@/lib/israel-time";
@@ -26,6 +27,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/reset-monthly-quota-warnings] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/reset-monthly-quota-warnings");
+
 
   if (getIsraelCalendarDay(new Date()) !== 1) {
     return NextResponse.json({ ok: true, skipped: true, reason: "not_il_first_of_month" });

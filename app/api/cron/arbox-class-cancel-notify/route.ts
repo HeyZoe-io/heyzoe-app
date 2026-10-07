@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { maybeSendAdminDailyUnsentSummary } from "@/lib/admin-daily-unsent-summary";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { syncArboxClassCancelledCustomerForBusiness } from "@/lib/leads/arbox-class-cancelled-customer";
@@ -49,8 +50,12 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-class-cancel-notify] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+
 
   const dryRun = dryRunRequested(req);
+  await acknowledgeCron(req, "/api/cron/arbox-class-cancel-notify");
   const admin = createSupabaseAdminClient();
   const now = new Date();
   const ranAt = now.toISOString();

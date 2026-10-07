@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import {
   ARBOX_SYNC_LOG_DELETE_BATCH,
   ARBOX_SYNC_LOG_DELETE_MAX_BATCHES,
@@ -85,6 +86,10 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/arbox-trial-sync-cleanup] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/arbox-trial-sync-cleanup");
+
 
   const ranAt = new Date().toISOString();
 

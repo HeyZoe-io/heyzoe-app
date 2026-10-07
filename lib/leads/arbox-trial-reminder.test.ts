@@ -4,7 +4,6 @@ import {
   claimTrialReminderSend,
   classStartMinutes,
   isTrialReminderDue,
-  trialReminderClockIsLive,
   trialReminderSendAllowedNow,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
@@ -338,12 +337,6 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
     }),
     false,
     "delay 0 evening class waits for the class morning"
-  );
-  assert.equal(trialReminderClockIsLive(wednesdayEvening, wednesdayEvening), true);
-  assert.equal(
-    trialReminderClockIsLive(thursdayMorning, wednesdayEvening),
-    false,
-    "Thursday's clock on Wednesday is not a live run"
   );
 }
 

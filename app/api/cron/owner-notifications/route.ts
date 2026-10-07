@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveCronSecret } from "@/lib/server-env";
 import { resolveDailySummaryCronPeriod } from "@/lib/israel-time";
@@ -33,6 +34,10 @@ export async function GET(req: NextRequest) {
     }
     console.warn("[cron/owner-notifications] CRON_SECRET not set — allowing request in dev only");
   }
+
+  const rejectedClock = rejectCronTimeOverride(req);
+  if (rejectedClock) return rejectedClock;
+  await acknowledgeCron(req, "/api/cron/owner-notifications");
 
   const admin = createSupabaseAdminClient();
   const now = Date.now();
