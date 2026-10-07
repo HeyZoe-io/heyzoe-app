@@ -30,6 +30,10 @@ import {
   normalizeMissedClassTimePk,
 } from "@/lib/leads/arbox-missed-class";
 import {
+  fetchArboxMembersOnHoldReport,
+  type ArboxMembersOnHoldRow,
+} from "@/lib/leads/arbox-members-on-hold-report";
+import {
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
   isBookingCheckedIn,
@@ -101,6 +105,12 @@ export type AttendanceGapSyncSummary = {
   abandoned: number;
   /** Sends skipped because a booking in the gap sat in a class with zero Yes. */
   class_unmarked: number;
+  /** Sends skipped because a freeze is active or overlapped the gap. */
+  frozen: number;
+  /** membersOnHoldReport windows fetched. Zero when there is no send candidate. */
+  freeze_report_calls: number;
+  /** Candidates left pending because the freeze report failed. */
+  freeze_unavailable: number;
   /** delay_days of the enabled rules. */
   gap_delays: number[];
   /** True when the fetched past span reaches the longest delay. */
@@ -282,6 +292,150 @@ export function attendanceGapUnmarkedBooking(input: {
     return { classDate, classTime, className };
   }
   return null;
+}
+
+/** membersOnHoldReport fromDate/toDate span. 30 days apart is the Arbox cap. */
+export const ATTENDANCE_GAP_FREEZE_SPAN_CAP_DAYS = 30;
+/**
+ * Live membersOnHoldReport returns a hold when its END falls in the range.
+ * An active freeze ending after today is invisible in a window that stops today.
+ * 90 days ahead covers that end; longer spans split into more calls.
+ */
+export const ATTENDANCE_GAP_FREEZE_END_HORIZON_DAYS = 90;
+
+export type AttendanceGapFreezeWindow = { fromDate: string; toDate: string };
+
+export type AttendanceGapFreezeHold = {
+  userId: number;
+  startYmd: string;
+  /** Null end stays open, so the freeze is still active. */
+  endYmd: string | null;
+};
+
+export type AttendanceGapFreezeDecision = "send" | "frozen" | "pending" | "stale_hold";
+
+/**
+ * Holds are returned by END date. Cover from the earliest candidate last-Yes
+ * through today+horizon so an active freeze and one that already ended inside
+ * the gap are both visible. No candidates → no call. A delay longer than the
+ * cap pulls the start back to today−delay. Spans over the cap split.
+ */
+export function attendanceGapFreezeReportWindows(input: {
+  candidateLastYesYmds: readonly string[];
+  todayYmd: string;
+  maxDelayDays: number;
+  spanCapDays?: number;
+  endHorizonDays?: number;
+}): AttendanceGapFreezeWindow[] {
+  if (!input.candidateLastYesYmds.length) return [];
+  const cap = Math.max(1, Math.trunc(input.spanCapDays ?? ATTENDANCE_GAP_FREEZE_SPAN_CAP_DAYS));
+  let start = input.candidateLastYesYmds.reduce((earliest, ymd) => (ymd < earliest ? ymd : earliest));
+  const delay = Math.max(0, Math.trunc(input.maxDelayDays));
+  if (delay > cap) {
+    const delayStart = addCalendarDaysYmd(input.todayYmd, -delay);
+    if (delayStart && delayStart < start) start = delayStart;
+  }
+  const horizon = Math.max(0, Math.trunc(input.endHorizonDays ?? ATTENDANCE_GAP_FREEZE_END_HORIZON_DAYS));
+  const horizonEnd = addCalendarDaysYmd(input.todayYmd, horizon);
+  const end = horizonEnd && horizonEnd > input.todayYmd ? horizonEnd : input.todayYmd;
+  if (!start || start > end) return [];
+  const windows: AttendanceGapFreezeWindow[] = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const chunkEnd = addCalendarDaysYmd(cursor, cap);
+    if (!chunkEnd) break;
+    const toDate = chunkEnd < end ? chunkEnd : end;
+    windows.push({ fromDate: cursor, toDate });
+    if (toDate >= end) break;
+    const next = addCalendarDaysYmd(toDate, 1);
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+  return windows;
+}
+
+/** Active now, or the hold overlaps last-Yes…today. An end before last Yes does not. */
+export function attendanceGapFreezeBlocks(input: {
+  userId: number;
+  lastYesYmd: string;
+  todayYmd: string;
+  holds: readonly AttendanceGapFreezeHold[];
+}): AttendanceGapFreezeHold | null {
+  for (const hold of input.holds) {
+    if (hold.userId !== input.userId) continue;
+    if (!hold.startYmd || hold.startYmd > input.todayYmd) continue;
+    if (hold.endYmd && hold.endYmd < input.lastYesYmd) continue;
+    return hold;
+  }
+  return null;
+}
+
+/**
+ * A pending row with no contact is the freeze-report failure marker.
+ * The same Israel day can still send. A later day must not.
+ */
+export function attendanceGapStaleFreezeHold(input: {
+  status: string | null | undefined;
+  contactId: string | null | undefined;
+  processedAtIso: string | null | undefined;
+  todayYmd: string;
+}): boolean {
+  if (String(input.status ?? "").trim() !== "pending") return false;
+  if (input.contactId) return false;
+  if (!input.processedAtIso || !input.todayYmd) return false;
+  const processed = new Date(input.processedAtIso);
+  if (Number.isNaN(processed.getTime())) return false;
+  const processedYmd = formatDateYmdIsrael(processed);
+  return Boolean(processedYmd) && processedYmd < input.todayYmd;
+}
+
+export function attendanceGapDecideFreeze(input: {
+  reportOk: boolean;
+  userId: number;
+  lastYesYmd: string;
+  todayYmd: string;
+  holds: readonly AttendanceGapFreezeHold[];
+  existingStatus?: string | null;
+  existingContactId?: string | null;
+  existingProcessedAtIso?: string | null;
+}): AttendanceGapFreezeDecision {
+  if (
+    attendanceGapStaleFreezeHold({
+      status: input.existingStatus,
+      contactId: input.existingContactId,
+      processedAtIso: input.existingProcessedAtIso,
+      todayYmd: input.todayYmd,
+    })
+  ) {
+    return "stale_hold";
+  }
+  if (!input.reportOk) return "pending";
+  if (
+    attendanceGapFreezeBlocks({
+      userId: input.userId,
+      lastYesYmd: input.lastYesYmd,
+      todayYmd: input.todayYmd,
+      holds: input.holds,
+    })
+  ) {
+    return "frozen";
+  }
+  return "send";
+}
+
+function attendanceGapHoldsFromRows(rows: readonly ArboxMembersOnHoldRow[]): AttendanceGapFreezeHold[] {
+  const holds: AttendanceGapFreezeHold[] = [];
+  for (const row of rows) {
+    const userId = parseAttendanceGapUserId(row.user_id) ?? parseAttendanceGapUserId(row.membership_user_id);
+    const startYmd = parseClassDateYmd(row.start_suspend_time);
+    if (userId == null || !startYmd) continue;
+    holds.push({
+      userId,
+      startYmd,
+      endYmd: parseClassDateYmd(row.end_suspend_time),
+    });
+  }
+  return holds;
 }
 
 function resolveReportFullName(row: ArboxBookingReportRow): string | null {
@@ -587,6 +741,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     no_phone: 0,
     abandoned: 0,
     class_unmarked: 0,
+    frozen: 0,
+    freeze_report_calls: 0,
+    freeze_unavailable: 0,
     gap_delays: [],
     lookback_covers_delays: false,
     errors: 0,
@@ -753,6 +910,20 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     });
   }
 
+  type GapExistingRow = {
+    status?: unknown;
+    contact_id?: unknown;
+    processed_at?: unknown;
+    trigger_id?: unknown;
+  };
+  type GapSendCandidate = {
+    state: AttendanceGapUserState;
+    tier: number;
+    pendingRules: PurchaseTemplateTriggerRule[];
+    existingRows: GapExistingRow[];
+  };
+  const gapSendQueue: GapSendCandidate[] = [];
+
   for (const state of states) {
     for (const tier of tiers) {
       if (state.gapDays < tier) continue;
@@ -774,64 +945,202 @@ export async function syncArboxAttendanceGapForBusiness(input: {
       try {
         const { data: existingRows } = await input.admin
           .from("arbox_attendance_gap_sync_log")
-          .select("trigger_id, status, attempts")
+          .select("trigger_id, status, attempts, contact_id, processed_at")
           .eq("business_id", businessId)
           .eq("user_id", state.userId)
           .eq("variant", ATTENDANCE_GAP_SYNC_VARIANT)
           .eq("gap_start_date", state.lastYesYmd)
           .eq("tier", tier);
+        const rows = (existingRows ?? []) as GapExistingRow[];
         const terminalIds = new Set(
-          (existingRows ?? [])
-            .filter((row) => {
-              const status = String((row as { status?: unknown }).status ?? "");
-              return isCancellationSyncLogTerminal(status);
-            })
-            .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
+          rows
+            .filter((row) => isCancellationSyncLogTerminal(String(row.status ?? "")))
+            .map((row) => String(row.trigger_id ?? ""))
         );
         const pendingRules = tierRules.filter((rule) => rule.id && !terminalIds.has(rule.id));
         if (!pendingRules.length) {
           summary.already += 1;
           continue;
         }
-        const unmarked = attendanceGapUnmarkedBooking({
-          userId: state.userId,
-          lastYesYmd: state.lastYesYmd,
-          todayYmd,
-          rows: pastRows,
-          occurrenceYes,
+        gapSendQueue.push({ state, tier, pendingRules, existingRows: rows });
+      } catch (e) {
+        summary.errors += 1;
+        console.error("[leads/arbox-attendance-gap] row threw", {
+          businessId,
+          user_id: state.userId,
+          tier,
+          error: e instanceof Error ? e.message : String(e),
         });
-        if (unmarked) {
-          let seededOk = true;
-          for (const rule of pendingRules) {
-            const up = await upsertGapSyncLog({
-              admin: input.admin,
-              businessId,
-              triggerId: rule.id,
-              userId: state.userId,
-              gapStartDate: state.lastYesYmd,
-              tier,
-              contactId: null,
-              attempts: 0,
-              status: "seeded",
-              nowIso,
-            });
-            if (!up.ok) seededOk = false;
-          }
-          if (!seededOk) summary.errors += 1;
-          summary.class_unmarked += 1;
-          console.info("[leads/arbox-attendance-gap] class_unmarked", {
+      }
+    }
+  }
+
+  const freezeHolds: AttendanceGapFreezeHold[] = [];
+  let freezeReportOk = true;
+  if (gapSendQueue.length) {
+    const windows = attendanceGapFreezeReportWindows({
+      candidateLastYesYmds: gapSendQueue.map((item) => item.state.lastYesYmd),
+      todayYmd,
+      maxDelayDays: Math.max(...tiers),
+    });
+    for (const window of windows) {
+      const report = await fetchArboxMembersOnHoldReport({
+        apiKey,
+        fromDate: window.fromDate,
+        toDate: window.toDate,
+        locationId: boxId,
+      });
+      summary.freeze_report_calls += 1;
+      if (!report.ok || report.hitPageCap) {
+        freezeReportOk = false;
+        summary.errors += 1;
+        summary.fetch_error = report.ok ? "membersOnHoldReport_page_cap" : report.error;
+        console.error("[leads/arbox-attendance-gap] freeze report failed", {
+          businessId,
+          from: window.fromDate,
+          to: window.toDate,
+          error: summary.fetch_error,
+        });
+        break;
+      }
+      freezeHolds.push(...attendanceGapHoldsFromRows(report.rows));
+    }
+    console.info("[leads/arbox-attendance-gap] freeze_report", {
+      businessId,
+      calls: summary.freeze_report_calls,
+      ok: freezeReportOk,
+      holds: freezeHolds.length,
+      windows,
+    });
+  }
+
+  for (const item of gapSendQueue) {
+    const { state, tier, pendingRules } = item;
+    try {
+      const stale = item.existingRows.some((row) =>
+        attendanceGapStaleFreezeHold({
+          status: row.status == null ? null : String(row.status),
+          contactId:
+            row.contact_id == null || String(row.contact_id).trim() === ""
+              ? null
+              : String(row.contact_id),
+          processedAtIso: row.processed_at == null ? null : String(row.processed_at),
+          todayYmd,
+        })
+      );
+      if (stale || !freezeReportOk) {
+        const status: CancellationSyncLogStatus = stale ? "seeded" : "pending";
+        let wroteOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
             businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
             tier,
-            user_id: state.userId,
-            contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
-            last_yes: state.lastYesYmd,
-            class_date: unmarked.classDate,
-            class_time: unmarked.classTime,
-            class_name: unmarked.className,
-            reason: "class_unmarked",
+            contactId: null,
+            attempts: 0,
+            status,
+            nowIso,
           });
-          continue;
+          if (!up.ok) wroteOk = false;
         }
+        if (!wroteOk) summary.errors += 1;
+        summary.freeze_unavailable += 1;
+        console.info("[leads/arbox-attendance-gap] freeze_report_failed", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          status,
+          reason: "freeze_report_failed",
+        });
+        continue;
+      }
+
+      const unmarked = attendanceGapUnmarkedBooking({
+        userId: state.userId,
+        lastYesYmd: state.lastYesYmd,
+        todayYmd,
+        rows: pastRows,
+        occurrenceYes,
+      });
+      if (unmarked) {
+        let seededOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) seededOk = false;
+        }
+        if (!seededOk) summary.errors += 1;
+        summary.class_unmarked += 1;
+        console.info("[leads/arbox-attendance-gap] class_unmarked", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          class_date: unmarked.classDate,
+          class_time: unmarked.classTime,
+          class_name: unmarked.className,
+          reason: "class_unmarked",
+        });
+        continue;
+      }
+
+      const blocking = attendanceGapFreezeBlocks({
+        userId: state.userId,
+        lastYesYmd: state.lastYesYmd,
+        todayYmd,
+        holds: freezeHolds,
+      });
+      if (blocking) {
+        let seededOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) seededOk = false;
+        }
+        if (!seededOk) summary.errors += 1;
+        summary.frozen += 1;
+        console.info("[leads/arbox-attendance-gap] frozen", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          freeze_start: blocking.startYmd,
+          freeze_end: blocking.endYmd,
+          reason: "frozen",
+        });
+        continue;
+      }
+
         const attemptsSoFar = 0;
 
         const resolved = await resolveOrCreateContact({
@@ -1013,19 +1322,19 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           user_id: state.userId,
           gap_days: state.gapDays,
           gap_start: state.lastYesYmd,
+          full_name: resolveReportFullName(state.sampleRow),
           contact: maskPhoneForLog(resolved.phone),
           dispatch: sendDispatch,
           status: next.status,
         });
-      } catch (e) {
-        summary.errors += 1;
-        console.error("[leads/arbox-attendance-gap] row threw", {
-          businessId,
-          user_id: state.userId,
-          tier,
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
+    } catch (e) {
+      summary.errors += 1;
+      console.error("[leads/arbox-attendance-gap] row threw", {
+        businessId,
+        user_id: state.userId,
+        tier,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 

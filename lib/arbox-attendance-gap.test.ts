@@ -3,6 +3,8 @@ import {
   ATTENDANCE_GAP_FUTURE_SPAN_DAYS,
   ATTENDANCE_GAP_PAST_SPAN_DAYS,
   ATTENDANCE_GAP_SYNC_VARIANT,
+  attendanceGapDecideFreeze,
+  attendanceGapFreezeReportWindows,
   attendanceGapFutureWindow,
   attendanceGapPastWindow,
   attendanceGapLookbackCoversDelays,
@@ -261,6 +263,115 @@ assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);
     }),
     false
   );
+}
+
+/** Freeze guard: active, overlapping, ended-before, report failure, no candidates. */
+{
+  const today = "2026-10-08";
+  const lastYes = "2026-09-24";
+  const base = {
+    reportOk: true,
+    userId: 1,
+    lastYesYmd: lastYes,
+    todayYmd: today,
+    holds: [] as { userId: number; startYmd: string; endYmd: string | null }[],
+  };
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      holds: [{ userId: 1, startYmd: "2026-10-01", endYmd: "2026-10-10" }],
+    }),
+    "frozen",
+    "active freeze"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      holds: [{ userId: 1, startYmd: "2026-10-01", endYmd: null }],
+    }),
+    "frozen",
+    "open-ended freeze is active"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      holds: [{ userId: 1, startYmd: "2026-09-28", endYmd: "2026-10-05" }],
+    }),
+    "frozen",
+    "freeze overlapped the gap and then ended"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      holds: [{ userId: 1, startYmd: "2026-09-01", endYmd: "2026-09-20" }],
+    }),
+    "send",
+    "freeze ended before last Yes"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({ ...base, reportOk: false }),
+    "pending",
+    "report failure writes pending and does not send"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      existingStatus: "pending",
+      existingContactId: null,
+      existingProcessedAtIso: "2026-10-08T06:00:00.000Z",
+    }),
+    "send",
+    "same-day retry after a failed report can still send"
+  );
+  assert.equal(
+    attendanceGapDecideFreeze({
+      ...base,
+      existingStatus: "pending",
+      existingContactId: null,
+      existingProcessedAtIso: "2026-10-07T06:00:00.000Z",
+    }),
+    "stale_hold",
+    "a failed report is not sent on a later day"
+  );
+  assert.deepEqual(
+    attendanceGapFreezeReportWindows({
+      candidateLastYesYmds: [],
+      todayYmd: today,
+      maxDelayDays: 21,
+    }),
+    [],
+    "no candidates means no freeze-report call"
+  );
+  assert.deepEqual(
+    attendanceGapFreezeReportWindows({
+      candidateLastYesYmds: ["2026-09-15", "2026-10-01"],
+      todayYmd: today,
+      maxDelayDays: 21,
+      endHorizonDays: 0,
+    }),
+    [{ fromDate: "2026-09-15", toDate: today }]
+  );
+  const activeEnd = attendanceGapFreezeReportWindows({
+    candidateLastYesYmds: ["2026-09-15"],
+    todayYmd: today,
+    maxDelayDays: 21,
+  });
+  assert.equal(activeEnd[0]?.fromDate, "2026-09-15");
+  assert.equal(activeEnd[activeEnd.length - 1]?.toDate, "2027-01-06");
+  assert.ok(
+    activeEnd.some((window) => window.fromDate <= "2026-10-10" && window.toDate >= "2026-10-10"),
+    "an active freeze ending after today is inside a fetched window"
+  );
+  assert.ok(activeEnd.length >= 2, "the end horizon past the cap splits into more than one call");
+  const split = attendanceGapFreezeReportWindows({
+    candidateLastYesYmds: ["2026-10-01"],
+    todayYmd: today,
+    maxDelayDays: 45,
+    endHorizonDays: 0,
+  });
+  assert.equal(split[0]?.fromDate, "2026-08-24");
+  assert.ok(split.length >= 2, "a delay past the 30-day cap splits into more than one call");
+  assert.equal(split[split.length - 1]?.toDate, today);
 }
 
 console.log("arbox-attendance-gap.test.ts: ok");
