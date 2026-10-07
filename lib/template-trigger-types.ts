@@ -32,6 +32,7 @@ export {
   parseLookbackDays,
   isPurchaseItemType,
   minDelayDaysForTrigger,
+  maxDelayDaysForTrigger,
   type TriggerType,
   type IncomingLeadTriggerType,
   type PurchaseItemType,

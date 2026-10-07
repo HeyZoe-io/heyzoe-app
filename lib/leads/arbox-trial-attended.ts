@@ -240,6 +240,15 @@ export function rememberSharedFutureBookings(entry: SharedFutureBookings): void 
   if (ctx) sharedFutureByContext.set(ctx, entry);
 }
 
+export function sharedFutureBookingsLookup(
+  fromDate: string,
+  toDate: string
+): "covered" | "failed" | "missing" {
+  const cached = sharedFutureCovering(fromDate, toDate);
+  if (!cached) return "missing";
+  return cached.ok ? "covered" : "failed";
+}
+
 function sharedFutureCovering(fromDate: string, toDate: string): SharedFutureBookings | null {
   const ctx = arboxDailyContext();
   if (!ctx) return null;

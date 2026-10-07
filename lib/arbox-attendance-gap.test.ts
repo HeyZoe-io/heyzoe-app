@@ -4,6 +4,9 @@ import {
   ATTENDANCE_GAP_PAST_SPAN_DAYS,
   ATTENDANCE_GAP_SYNC_VARIANT,
   attendanceGapDecideFreeze,
+  attendanceGapDueAction,
+  attendanceGapFutureBookingUserIds,
+  attendanceGapOct8CatchUp,
   attendanceGapFreezeReportWindows,
   attendanceGapMemberDecision,
   attendanceGapMembershipIsStaff,
@@ -24,6 +27,7 @@ import {
   formatDelayLabel,
   isAttendanceGapTriggerType,
   isTriggerType,
+  maxDelayDaysForTrigger,
   minDelayDaysForTrigger,
   triggerTypeLabel,
 } from "@/lib/trigger-catalog";
@@ -143,7 +147,7 @@ assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);
 }
 
 {
-  assert.equal(minDelayDaysForTrigger("attendance_gap"), 7);
+  assert.equal(minDelayDaysForTrigger("attendance_gap"), 1);
   assert.equal(formatDelayLabel("attendance_gap", 14, "after"), "14 ימי היעדרות");
   assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
 }
@@ -472,6 +476,67 @@ assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);
     "send",
     "a paid plan beside a staff plan still sends"
   );
+}
+
+/** New tier: due today sends, earlier is seeded, later stays for its own day. */
+{
+  const now = new Date("2026-10-08T06:00:00.000Z");
+  assert.equal(
+    attendanceGapDueAction({ lastYesYmd: "2026-09-24", tier: 14, now }),
+    "send",
+    "due today"
+  );
+  assert.equal(
+    attendanceGapDueAction({ lastYesYmd: "2026-09-23", tier: 14, now }),
+    "seed",
+    "due earlier"
+  );
+  assert.equal(
+    attendanceGapDueAction({ lastYesYmd: "2026-09-25", tier: 14, now }),
+    "send",
+    "due later"
+  );
+  const laterGap = ymdDiffDays("2026-10-08", "2026-09-25");
+  assert.equal(laterGap, 13);
+  assert.equal(laterGap != null && laterGap < 14, true, "due later is not a candidate until its day");
+  const onDay = ymdDiffDays("2026-10-09", "2026-09-25");
+  assert.equal(onDay, 14, "due later sends on its day");
+  assert.equal(maxDelayDaysForTrigger("attendance_gap"), 28);
+}
+
+/** One-off catch-up is only the four Oriya people, and only on 2026-10-08. */
+{
+  const chen = { businessId: 3646, userId: 8966278, tier: 14 };
+  assert.equal(attendanceGapOct8CatchUp({ ...chen, todayYmd: "2026-10-07" }), "hold");
+  assert.equal(attendanceGapOct8CatchUp({ ...chen, todayYmd: "2026-10-08" }), "send");
+  assert.equal(attendanceGapOct8CatchUp({ ...chen, todayYmd: "2026-10-09" }), null);
+  assert.equal(
+    attendanceGapOct8CatchUp({ businessId: 3646, userId: 11286969, tier: 14, todayYmd: "2026-10-08" }),
+    null,
+    "Mika is the normal due-today send, not the catch-up"
+  );
+  for (const userId of [11493613, 11493625, 9177440]) {
+    assert.equal(
+      attendanceGapOct8CatchUp({ businessId: 3646, userId, tier: 14, todayYmd: "2026-10-08" }),
+      "send"
+    );
+  }
+}
+
+/** A booking inside today…today+14 blocks. A booking after that does not. */
+{
+  const ids = attendanceGapFutureBookingUserIds({
+    rows: [
+      { user_id: 1, date: "2026-10-08" },
+      { user_id: 2, date: "2026-10-22" },
+      { user_id: 3, date: "2026-10-23" },
+    ],
+    fromYmd: "2026-10-08",
+    toYmd: "2026-10-22",
+  });
+  assert.equal(ids.has(1), true);
+  assert.equal(ids.has(2), true);
+  assert.equal(ids.has(3), false);
 }
 
 console.log("arbox-attendance-gap.test.ts: ok");

@@ -13,6 +13,7 @@ import {
   isPurchaseItemType,
   isTriggerType,
   minDelayDaysForTrigger,
+  maxDelayDaysForTrigger,
   parseTriggerId,
   showsItemTypeFilter,
   showsLookbackDays,
@@ -389,6 +390,10 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
   if (delayDays < minDelayDaysForTrigger(triggerType)) {
     return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
   }
+  const createMaxDelay = maxDelayDaysForTrigger(triggerType);
+  if (createMaxDelay != null && delayDays > createMaxDelay) {
+    return NextResponse.json({ error: "max_delay_days" }, { status: 400 });
+  }
 
   let productFilter = parseProductFilter(body.product_filter);
   if (productFilter === "invalid") {
@@ -594,6 +599,10 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     }
     if (delayDays < minDelayDaysForTrigger(typeForDelayDays)) {
       return NextResponse.json({ error: "min_delay_days" }, { status: 400 });
+    }
+    const patchMaxDelay = maxDelayDaysForTrigger(typeForDelayDays);
+    if (patchMaxDelay != null && delayDays > patchMaxDelay) {
+      return NextResponse.json({ error: "max_delay_days" }, { status: 400 });
     }
     patch.delay_days = delayDays;
   }

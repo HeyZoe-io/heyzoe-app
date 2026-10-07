@@ -62,6 +62,7 @@ import {
   isIncomingLeadTriggerType,
   isNthWorkoutTriggerType,
   minDelayDaysForTrigger,
+  maxDelayDaysForTrigger,
   plannedCatalogEntriesForCell,
   PURCHASE_ITEM_TYPE_LABELS_HE,
   PURCHASE_ITEM_TYPE_VALUES,
@@ -153,6 +154,20 @@ function delayDaysFieldLabel(type: string, variant: "create" | "edit"): string {
   if (isNthWorkoutTriggerType(type)) return "אימון מספר";
   if (isAttendanceGapTriggerType(type)) return "ימי היעדרות";
   return variant === "create" ? "ימים" : "השהייה (ימים)";
+}
+
+function AttendanceGapDelayNote({ days }: { days: number }) {
+  const max = maxDelayDaysForTrigger("attendance_gap");
+  return (
+    <>
+      <p className="text-xs text-zinc-500">
+        ניתן להגדיר עד 28 ימים - המערכת רואה נוכחות של 30 הימים האחרונים
+      </p>
+      {max != null && days > max ? (
+        <p className="text-xs font-medium text-red-600">אפשר עד 28 ימים</p>
+      ) : null}
+    </>
+  );
 }
 
 function isArboxTriggerType(type: TriggerType): boolean {
@@ -908,6 +923,9 @@ export default function TemplatesClient({
       if (j.error === "first_paid_purchase_exists") {
         throw new Error("כבר קיים טריגר הצטרפות ראשונה — ערכו את הקיים במקום ליצור עוד אחד");
       }
+      if (j.error === "max_delay_days") {
+        throw new Error("אפשר עד 28 ימים");
+      }
       throw new Error(j.error || `http_${res.status}`);
     }
     return j.trigger ?? null;
@@ -917,6 +935,11 @@ export default function TemplatesClient({
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    const createMaxDelay = maxDelayDaysForTrigger(newTriggerType);
+    if (!isNewImmediateDelay && createMaxDelay != null && newDelayDays > createMaxDelay) {
+      setError("אפשר עד 28 ימים");
+      return;
+    }
     setTriggerSaving(true);
     try {
       let templateName =
@@ -1120,9 +1143,13 @@ export default function TemplatesClient({
     try {
       const immediate = isImmediateDelayTrigger(trigger.trigger_type);
       const delayMin = minDelayDaysForTrigger(trigger.trigger_type);
+      const delayMax = maxDelayDaysForTrigger(trigger.trigger_type);
       const delayDays = immediate
         ? 0
         : Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
+      if (!immediate && delayMax != null && delayDays > delayMax) {
+        throw new Error("אפשר עד 28 ימים");
+      }
       const body: Record<string, unknown> = {
         id: trigger.id,
         delay_days: delayDays,
@@ -1150,6 +1177,9 @@ export default function TemplatesClient({
         }
         if (j.error === "lead_status_changed_exists") {
           throw new Error("כבר קיים טריגר ליד ללא מענה פעיל");
+        }
+        if (j.error === "max_delay_days") {
+          throw new Error("אפשר עד 28 ימים");
         }
         throw new Error(j.error || `http_${res.status}`);
       }
@@ -2036,6 +2066,9 @@ export default function TemplatesClient({
                                     {nthWorkoutTimingHint(editDelayDirection)}
                                   </p>
                                 ) : null}
+                                {isAttendanceGapTriggerType(trigger.trigger_type) ? (
+                                  <AttendanceGapDelayNote days={editDelayDays} />
+                                ) : null}
                               </div>
                               {delayDirectionOptions(trigger.trigger_type).length > 0 ? (
                                 <div className="space-y-1">
@@ -2457,6 +2490,9 @@ export default function TemplatesClient({
                                 }}
                                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                               />
+                              {isAttendanceGapTriggerType(newTriggerType) ? (
+                                <AttendanceGapDelayNote days={newDelayDays} />
+                              ) : null}
                               {newTriggerType === "no_response" ? (
                                 <p className="text-xs text-zinc-500">
                                   מינימום 2 ימי שתיקה (מתחת ל־24ש׳ מטופל בפולואפ סשן).

@@ -24,6 +24,7 @@ import {
   isPersistedTriggerType,
   isTriggerType,
   isUniquePerBusinessTriggerType,
+  maxDelayDaysForTrigger,
   minDelayDaysForTrigger,
   plannedCatalogEntriesForCell,
   showsProductFilter,
@@ -562,7 +563,9 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("credit_refusal", 1, "after"), "נשלח מיד");
   assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
   assert.equal(formatDelayLabel("attendance_gap", 21, "after"), "21 ימי היעדרות");
-  assert.equal(minDelayDaysForTrigger("attendance_gap"), 7);
+  assert.equal(minDelayDaysForTrigger("attendance_gap"), 1);
+  assert.equal(maxDelayDaysForTrigger("attendance_gap"), 28);
+  assert.equal(maxDelayDaysForTrigger("lost_lead"), null);
   assert.equal(formatDelayLabel("lost_lead", 0, "after"), "מיידי");
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
   assert.equal(minDelayDaysForTrigger("lost_lead"), 0);

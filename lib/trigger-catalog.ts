@@ -23,6 +23,8 @@ type TriggerCatalogEntryShape = {
   uniquePerBusiness: boolean;
   uniqueCreateMode?: TriggerUniqueCreateMode;
   minDelayDays: number;
+  /** Upper bound. Absent means the editor does not cap the number. */
+  maxDelayDays?: number;
   recipient: TriggerRecipient;
   /** Preset key for live automatic types; empty for manual / planned. */
   presetKey: string;
@@ -327,7 +329,8 @@ export const TRIGGER_CATALOG = [
     delay: "gap_days",
     showProductFilter: false,
     uniquePerBusiness: false,
-    minDelayDays: 7,
+    minDelayDays: 1,
+    maxDelayDays: 28,
     recipient: "customer",
     presetKey: "attendance_gap",
     uiOrder: 13,
@@ -942,6 +945,14 @@ export function showsProductFilter(triggerType: string): boolean {
 
 export function minDelayDaysForTrigger(triggerType: string): number {
   return triggerCatalogEntry(triggerType)?.minDelayDays ?? 0;
+}
+
+/** null when this trigger has no upper bound. Callers must reject, not clamp. */
+export function maxDelayDaysForTrigger(triggerType: string): number | null {
+  const entry = triggerCatalogEntry(triggerType);
+  if (!entry || !("maxDelayDays" in entry)) return null;
+  const max = entry.maxDelayDays;
+  return typeof max === "number" ? max : null;
 }
 
 export function defaultDelayDays(triggerType: string): number {

@@ -40,6 +40,7 @@ import {
 import {
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
+  sharedFutureBookingsLookup,
   isBookingCheckedIn,
   membershipTypeNameLooksLikeTrial,
   parseClassDateYmd,
@@ -122,6 +123,12 @@ export type AttendanceGapSyncSummary = {
   staff: number;
   /** Candidates left pending because this run had no complete membership report. */
   member_unavailable: number;
+  /** Sends skipped because the person has a booking in the next 14 days. */
+  has_future_booking: number;
+  /** bookingsReport calls made for the future-booking check. Zero when the run already had the rows. */
+  future_booking_calls: number;
+  /** Candidates left pending because the future-booking report failed. */
+  future_unavailable: number;
   /** delay_days of the enabled rules. */
   gap_delays: number[];
   /** True when the fetched past span reaches the longest delay. */
@@ -211,6 +218,57 @@ export function attendanceGapSeedCandidates(input: {
   tier: number;
 }): AttendanceGapUserState[] {
   return input.states.filter((s) => s.gapDays >= input.tier);
+}
+
+/**
+ * E1: seed only when the 09:00 slot on last-Yes + tier already passed.
+ * Due on the run day (sendAt === now) or later stays on the send path.
+ */
+export function attendanceGapDueAction(input: {
+  lastYesYmd: string;
+  tier: number;
+  now: Date;
+}): "seed" | "send" {
+  const dueYmd = addCalendarDaysYmd(input.lastYesYmd, input.tier);
+  const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
+  return decideActivationEventAction({ sendAt, now: input.now });
+}
+
+/**
+ * One-off for the Oriya 14-day tier. These four were due 2026-10-07 and the
+ * new-tier skip never sent them. On 2026-10-08 they take the normal send path.
+ * Any earlier run must not seed them.
+ */
+const ORIYA_TIER14_CATCHUP_USER_IDS = new Set([8966278, 11493613, 11493625, 9177440]);
+
+export function attendanceGapOct8CatchUp(input: {
+  businessId: number;
+  userId: number;
+  tier: number;
+  todayYmd: string;
+}): "send" | "hold" | null {
+  if (input.businessId !== 3646 || input.tier !== 14) return null;
+  if (!ORIYA_TIER14_CATCHUP_USER_IDS.has(input.userId)) return null;
+  if (input.todayYmd === "2026-10-08") return "send";
+  if (input.todayYmd < "2026-10-08") return "hold";
+  return null;
+}
+
+/** Any booking whose class date falls in [fromYmd, toYmd], including a No check-in. */
+export function attendanceGapFutureBookingUserIds(input: {
+  rows: readonly { user_id?: unknown; date?: unknown }[];
+  fromYmd: string;
+  toYmd: string;
+}): Set<number> {
+  const ids = new Set<number>();
+  for (const row of input.rows) {
+    const userId = parseAttendanceGapUserId(row.user_id);
+    const ymd = parseClassDateYmd(row.date);
+    if (userId == null || !ymd) continue;
+    if (ymd < input.fromYmd || ymd > input.toYmd) continue;
+    ids.add(userId);
+  }
+  return ids;
 }
 
 /**
@@ -871,6 +929,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     not_active_member: 0,
     staff: 0,
     member_unavailable: 0,
+    has_future_booking: 0,
+    future_booking_calls: 0,
+    future_unavailable: 0,
     gap_delays: [],
     lookback_covers_delays: false,
     errors: 0,
@@ -953,9 +1014,14 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   for (const tier of seedTiers) {
     let wroteForTier = 0;
     for (const state of attendanceGapSeedCandidates({ states, tier })) {
-      const dueYmd = addCalendarDaysYmd(state.lastYesYmd, tier);
-      const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
-      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+      const catchUp = attendanceGapOct8CatchUp({
+        businessId,
+        userId: state.userId,
+        tier,
+        todayYmd,
+      });
+      if (catchUp === "send" || catchUp === "hold") continue;
+      if (attendanceGapDueAction({ lastYesYmd: state.lastYesYmd, tier, now }) === "send") continue;
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
         businessId,
@@ -990,6 +1056,16 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         wroteForTier += 1;
         if (isFullSeed) summary.seeded += 1;
         else summary.soft_seeded += 1;
+        console.info("[leads/arbox-attendance-gap] seeded_past_due", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          due: addCalendarDaysYmd(state.lastYesYmd, tier),
+          reason: "seeded_past_due",
+        });
       } else summary.errors += 1;
     }
     // Soft-seed must be one-shot even with an empty cohort.
@@ -1025,10 +1101,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
       businessSlug,
       seeded: summary.seeded,
     });
-    return summary;
-  }
-
-  if (seedTiers.length) {
+  } else if (seedTiers.length) {
     console.info("[leads/arbox-attendance-gap] soft-seeded new tiers", {
       businessId,
       businessSlug,
@@ -1071,17 +1144,24 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   for (const state of states) {
     for (const tier of tiers) {
       if (state.gapDays < tier) continue;
-      if (seedTiers.includes(tier)) continue;
+      const catchUp = attendanceGapOct8CatchUp({
+        businessId,
+        userId: state.userId,
+        tier,
+        todayYmd,
+      });
+      if (catchUp === "hold") continue;
 
       const tierRules = rulesForCompanionSend(
         rules.filter(
           (candidate) =>
             Boolean(candidate.template_name?.trim()) &&
             Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier &&
-            !eventBeforeRuleActivation(
-              israelSlotInstant(addCalendarDaysYmd(state.lastYesYmd, tier) ?? "", "09:00"),
-              candidate
-            )
+            (catchUp === "send" ||
+              !eventBeforeRuleActivation(
+                israelSlotInstant(addCalendarDaysYmd(state.lastYesYmd, tier) ?? "", "09:00"),
+                candidate
+              ))
         )
       );
       if (!tierRules.length) continue;
@@ -1117,6 +1197,50 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         });
       }
     }
+  }
+
+  const futureWindow = sharedFutureBookingsWindow(now, { includeToday: true });
+  let futureBookingUserIds = new Set<number>();
+  let futureReportOk = true;
+  if (gapSendQueue.length) {
+    const lookup = sharedFutureBookingsLookup(futureWindow.fromDate, futureWindow.toDate);
+    if (lookup === "missing") summary.future_booking_calls += 1;
+    if (lookup === "failed") {
+      futureReportOk = false;
+      summary.errors += 1;
+      summary.fetch_error = "future_bookings_unavailable";
+    } else {
+      const futureReport = await fetchArboxBookingsReport({
+        apiKey,
+        fromDate: futureWindow.fromDate,
+        toDate: futureWindow.toDate,
+        locationId: boxId,
+      });
+      if (!futureReport.ok) {
+        futureReportOk = false;
+        summary.errors += 1;
+        summary.fetch_error = futureReport.error;
+        console.error("[leads/arbox-attendance-gap] future bookings failed", {
+          businessId,
+          error: futureReport.error,
+        });
+      } else {
+        futureBookingUserIds = attendanceGapFutureBookingUserIds({
+          rows: futureReport.rows,
+          fromYmd: futureWindow.fromDate,
+          toYmd: futureWindow.toDate,
+        });
+      }
+    }
+    console.info("[leads/arbox-attendance-gap] future_bookings", {
+      businessId,
+      from: futureWindow.fromDate,
+      to: futureWindow.toDate,
+      calls: summary.future_booking_calls,
+      lookup,
+      ok: futureReportOk,
+      users: futureBookingUserIds.size,
+    });
   }
 
   const freezeHolds: AttendanceGapFreezeHold[] = [];
@@ -1201,6 +1325,38 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           last_yes: state.lastYesYmd,
           status,
           reason: "freeze_report_failed",
+        });
+        continue;
+      }
+
+      if (!futureReportOk) {
+        let wroteOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "pending",
+            nowIso,
+          });
+          if (!up.ok) wroteOk = false;
+        }
+        if (!wroteOk) summary.errors += 1;
+        summary.future_unavailable += 1;
+        console.info("[leads/arbox-attendance-gap] future_bookings_unavailable", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          status: "pending",
+          reason: "future_bookings_unavailable",
         });
         continue;
       }
@@ -1356,6 +1512,37 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
           last_yes: state.lastYesYmd,
           reason: memberDecision,
+        });
+        continue;
+      }
+
+      if (futureBookingUserIds.has(state.userId)) {
+        let seededOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) seededOk = false;
+        }
+        if (!seededOk) summary.errors += 1;
+        summary.has_future_booking += 1;
+        console.info("[leads/arbox-attendance-gap] future_booking", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          reason: "has_future_booking",
         });
         continue;
       }
