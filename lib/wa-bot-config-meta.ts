@@ -1,6 +1,6 @@
 import { pickByDetectedLanguage, type DetectedMessageLanguage } from "@/lib/language-detect";
 
-/** שיחה על הגדרות/חוקיות/פלואו — זואי לא משתפת פעולה; מפנה לענייני הסטודיו. */
+/** שיחה על הגדרות/חוקיות/פלואו/פיתוח — לא קשור לסטודיו. השרת לא שולח מענה. */
 export const WA_STUDIO_SCOPE_REDIRECT_HE =
   "אני כאן כדי לעזור לגבי השירותים שלנו. במה אפשר לעזור?";
 export const WA_STUDIO_SCOPE_REDIRECT_EN =

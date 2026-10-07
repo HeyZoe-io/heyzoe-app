@@ -450,9 +450,8 @@ import {
   WA_PERSONAL_BLESSING_ACK_MODEL,
 } from "@/lib/wa-personal-blessing";
 import {
-  buildStudioScopeRedirectReply,
+  looksLikeBotConfigMetaReply,
   matchesBotConfigMetaTalk,
-  WA_BOT_CONFIG_META_MODEL,
 } from "@/lib/wa-bot-config-meta";
 import {
   claudeSignupTagMayOpenSalesFlow,
@@ -8535,24 +8534,15 @@ async function processIncoming(
     return;
   }
 
-  // שיחה על חוקיות / פלואו מכירה / הגדרות בוט — לא ייעוץ מוצר, רק ענייני הסטודיו
+  // לא קשור לסטודיו ולאימונים (חוקיות, פלואו, פיתוח מוצר) — בלי מענה ובלי קלוד.
   if (
     msg.type === "text" &&
     isSalesFlowFreeTextInbound(msg) &&
     matchesBotConfigMetaTalk(msg.text)
   ) {
-    const studioScopeTxt = buildStudioScopeRedirectReply(detectMessageLanguage(msg.text));
-    try {
-      await sendWhatsAppMessage(msg.toNumber, msg.from, studioScopeTxt, accountSid, authToken);
-    } catch (e) {
-      console.error("[WA Webhook] Send bot-config meta redirect failed:", e);
-    }
-    await logMessage({
+    console.info("[WA Webhook] off-studio meta — no reply", {
       business_slug,
-      role: "assistant",
-      content: studioScopeTxt,
-      model_used: WA_BOT_CONFIG_META_MODEL,
-      session_id: sessionId,
+      sessionId,
     });
     return;
   }
@@ -13057,6 +13047,14 @@ async function processIncoming(
       leadAgeBand,
     }
   );
+
+  if (!isFallbackErrorReply && looksLikeBotConfigMetaReply(replyCore)) {
+    console.info("[WA Webhook] off-studio meta reply dropped — no reply", {
+      business_slug,
+      sessionId,
+    });
+    return;
+  }
 
   if (
     !isFallbackErrorReply &&
