@@ -1,6 +1,12 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
+  claimSettleForDispatch,
+  settleSyncLogClaim,
+  syncLogRowRetryable,
+  type SyncLogSettle,
+} from "@/lib/leads/sync-log-claim";
+import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
@@ -637,7 +643,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
     try {
       const { data: existingSeen, error: seenErr } = await input.admin
         .from("arbox_credit_refusal_sync_log")
-        .select("trigger_id")
+        .select("*")
         .eq("business_id", businessId)
         .eq("transaction_id", transactionId)
         .in(
@@ -654,7 +660,15 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         continue;
       }
       const seenIds = new Set(
-        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+        (existingSeen ?? [])
+          .filter((log) => !syncLogRowRetryable((log as { status?: unknown }).status))
+          .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const attemptsByRule = new Map(
+        (existingSeen ?? []).map((log) => [
+          String((log as { trigger_id?: unknown }).trigger_id ?? ""),
+          Number((log as { attempts?: unknown }).attempts) || 0,
+        ])
       );
       const pendingRules = rulesOpenForEvent(
         rules.filter((item) => item.id && !seenIds.has(item.id)),
@@ -760,7 +774,29 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         continue;
       }
 
+      const settleClaim = (rule: (typeof claimedRules)[number], outcome: SyncLogSettle) =>
+        isArboxDailyDryRun()
+          ? Promise.resolve(true)
+          : settleSyncLogClaim({
+              admin: input.admin,
+              table: "arbox_credit_refusal_sync_log",
+              row: {
+                business_id: businessId,
+                trigger_id: rule.id,
+                transaction_id: transactionId,
+                contact_id: contactId,
+                attempts: attemptsByRule.get(rule.id) ?? 0,
+              },
+              filters: [
+                ["business_id", businessId],
+                ["trigger_id", rule.id],
+                ["transaction_id", transactionId],
+              ],
+              outcome,
+            });
+
       if (isWithinCreditRefusalThrottle(contact.credit_refusal_last_notified_at, now)) {
+        for (const rule of claimedRules) await settleClaim(rule, "skipped");
         summary.throttled += 1;
         console.info("[leads/arbox-credit-refusal] dispatch", {
           businessId,
@@ -772,6 +808,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
         continue;
       }
 
+      const dispatchByRule = new Map<string, string>();
       const sendDispatch = await runCompanionTemplateSends({
         rules: claimedRules,
         dryRun: isArboxDailyDryRun(),
@@ -786,16 +823,24 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
             transactionId,
             transactionDate: row.transaction_date,
             rule,
-          }).then((send) =>
-            send.dispatch === "immediate" ||
-            send.dispatch === "deferred" ||
-            send.dispatch === "gated" ||
-            send.dispatch === "skipped" ||
-            send.dispatch === "send_failed"
-              ? send.dispatch
-              : "skipped"
-          ),
+          }).then((send) => {
+            const dispatch =
+              send.dispatch === "immediate" ||
+              send.dispatch === "deferred" ||
+              send.dispatch === "gated" ||
+              send.dispatch === "skipped" ||
+              send.dispatch === "send_failed"
+                ? send.dispatch
+                : "skipped";
+            dispatchByRule.set(rule.id, dispatch);
+            return dispatch;
+          }),
       });
+      for (const rule of claimedRules) {
+        const dispatch = dispatchByRule.get(rule.id);
+        const settled = await settleClaim(rule, dispatch ? claimSettleForDispatch(dispatch) : "release");
+        if (!settled) summary.errors += 1;
+      }
       const send = { dispatch: sendDispatch, ok: sendDispatch === "immediate" || sendDispatch === "deferred" };
 
       summary.processed += 1;

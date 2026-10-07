@@ -38,6 +38,14 @@ import {
   contactPhoneLookupVariants,
 } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import {
+  claimSyncLogBeforeSend,
+  sendWithSyncLogClaim,
+  settleSyncLogClaim,
+  syncLogRowRetryable,
+  type SyncLogSettle,
+} from "@/lib/leads/sync-log-claim";
 
 const SALE_LOG_SENTINEL_TRIGGER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -294,6 +302,8 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   isTrialProduct?: boolean;
   /** Rules that already have a sync-log row for this sale. */
   skipTriggerIds?: ReadonlySet<string>;
+  /** Meta failures so far, per rule, for a sale the next run retries. */
+  attemptsByTrigger?: ReadonlyMap<string, number>;
   arboxUserId?: string;
   /** Shared across the cron batch. A hit means this rule already sent for this user today. */
   purchaseSameDaySent?: Set<string>;
@@ -348,6 +358,7 @@ async function sendOnePurchaseTemplate(input: {
   isTrialProduct?: boolean;
   arboxUserId?: string;
   purchaseSameDaySent?: Set<string>;
+  attemptsByTrigger?: ReadonlyMap<string, number>;
   matchedRule: PurchaseTemplateTriggerRule;
 }): Promise<OpeningTemplateResult> {
   const matchedRule = input.matchedRule;
@@ -505,14 +516,47 @@ async function sendOnePurchaseTemplate(input: {
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
   });
 
-  const sendResult = await sendBusinessTemplate({
-    to: input.phone,
-    phoneNumberId,
-    templateName,
-    alertTriggerId: matchedRule.id,
-    languageCode,
-    ...(sendComponents ? { components: sendComponents } : {}),
+  const claimed = await sendWithSyncLogClaim({
+    admin: input.admin,
+    ...trialSaleClaimKey(
+      input.businessId,
+      input.saleId,
+      matchedRule.id,
+      null,
+      input.attemptsByTrigger?.get(matchedRule.id) ?? 0
+    ),
+    send: async () => {
+      const sendResult = await sendBusinessTemplate({
+        to: input.phone,
+        phoneNumberId,
+        templateName,
+        alertTriggerId: matchedRule.id,
+        languageCode,
+        ...(sendComponents ? { components: sendComponents } : {}),
+      });
+      if (!sendResult.ok) {
+        return {
+          settle: isSendsHoldError(sendResult.error) ? ("release" as const) : ("failed" as const),
+          reason: String(sendResult.error ?? "send_failed").slice(0, 200),
+          value: sendResult,
+        };
+      }
+      return { settle: "sent" as const, value: sendResult };
+    },
   });
+
+  if (claimed.claim !== "won" || !claimed.value) {
+    if (claimed.claim === "error") {
+      logDedupBlockedSend({
+        log: "[leads/arbox-trial-sale-registered]",
+        businessId: input.businessId,
+        triggerId: matchedRule.id,
+        reason: "claim_failed",
+      });
+    }
+    return { outcome: "no_matching_rule", dispatch: "no_rule" };
+  }
+  const sendResult = claimed.value;
 
   console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {
     businessId: input.businessId,
@@ -545,15 +589,33 @@ async function sendOnePurchaseTemplate(input: {
   }
 
   rememberPurchaseSameDaySend(input.purchaseSameDaySent, sameDayIdentity);
-  await markPurchaseSaleSeen({
-    admin: input.admin,
-    businessId: input.businessId,
-    saleId: input.saleId,
-    triggerId: matchedRule.id,
-    contactId: null,
-    nowIso: new Date().toISOString(),
-  });
   return { outcome: "sent" };
+}
+
+/** One sale, one rule. The sentinel rule id marks the trial-registration side effects. */
+export function trialSaleClaimKey(
+  businessId: number,
+  saleId: number,
+  triggerId: string,
+  contactId: string | null = null,
+  attempts = 0
+): { table: string; row: Record<string, unknown>; filters: Array<[string, string | number]> } {
+  return {
+    table: "arbox_trial_sync_log",
+    row: {
+      business_id: businessId,
+      sale_id: saleId,
+      trigger_id: triggerId,
+      contact_id: contactId,
+      processed_at: new Date().toISOString(),
+      attempts,
+    },
+    filters: [
+      ["business_id", businessId],
+      ["sale_id", saleId],
+      ["trigger_id", triggerId],
+    ],
+  };
 }
 
 function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefined): boolean {
@@ -620,7 +682,7 @@ export async function handleArboxTrialSaleRegistered(input: {
   // 1) Seen check — one row per sale per rule. Any row means trial side effects already ran.
   const { data: existingSeen, error: seenErr } = await input.admin
     .from("arbox_trial_sync_log")
-    .select("trigger_id")
+    .select("*")
     .eq("business_id", businessId)
     .eq("sale_id", saleId);
 
@@ -630,10 +692,16 @@ export async function handleArboxTrialSaleRegistered(input: {
   }
   const seenTriggerIds = new Set(
     (existingSeen ?? [])
+      .filter((row) => !syncLogRowRetryable((row as { status?: unknown }).status))
       .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "").trim())
       .filter(Boolean)
   );
-  const saleAlreadyHandled = seenTriggerIds.size > 0;
+  const saleAlreadyHandled = (existingSeen ?? []).length > 0;
+  const attemptsByTrigger = new Map<string, number>();
+  for (const row of existingSeen ?? []) {
+    const r = row as { status?: unknown; trigger_id?: unknown; attempts?: unknown };
+    if (syncLogRowRetryable(r.status)) attemptsByTrigger.set(String(r.trigger_id ?? ""), Number(r.attempts) || 0);
+  }
 
   // 2) Contact lookup
   const contactSelect =
@@ -742,6 +810,7 @@ export async function handleArboxTrialSaleRegistered(input: {
       match: input.purchaseMatch,
       isTrialProduct: false,
       skipTriggerIds: seenTriggerIds,
+      attemptsByTrigger,
       arboxUserId,
       purchaseSameDaySent: input.purchaseSameDaySent,
     });
@@ -806,6 +875,7 @@ export async function handleArboxTrialSaleRegistered(input: {
       match: input.purchaseMatch,
       isTrialProduct: false,
       skipTriggerIds: seenTriggerIds,
+      attemptsByTrigger,
       arboxUserId,
       purchaseSameDaySent: input.purchaseSameDaySent,
     });
@@ -895,19 +965,16 @@ export async function handleArboxTrialSaleRegistered(input: {
     });
   }
 
-  // 4) Mark sale as seen
-  const seenMark = await markPurchaseSaleSeen({
-    admin: input.admin,
-    businessId,
-    saleId,
-    triggerId: SALE_LOG_SENTINEL_TRIGGER_ID,
-    contactId,
-    nowIso,
-  });
-  if (!seenMark.ok) {
-    console.error("[leads/arbox-trial-sale-registered] seen upsert failed:", seenMark.error);
+  // 4) Claim the sale before any WhatsApp. A run that loses the claim stops here.
+  const saleKey = trialSaleClaimKey(businessId, saleId, SALE_LOG_SENTINEL_TRIGGER_ID, contactId);
+  const saleClaim = await claimSyncLogBeforeSend({ admin: input.admin, ...saleKey });
+  if (saleClaim === "lost") return { ok: true, already: true };
+  if (saleClaim === "error") {
+    console.error("[leads/arbox-trial-sale-registered] sale claim failed", { businessSlug, sale_id: saleId });
     return { ok: false, error: "seen_upsert_failed" };
   }
+  const settleSale = (outcome: SyncLogSettle, reason?: string) =>
+    settleSyncLogClaim({ admin: input.admin, ...saleKey, outcome, reason: reason ?? null });
 
   const channel = await resolveSendChannelForContact(input.admin, businessId, canonicalPhone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
@@ -955,6 +1022,7 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "skipped_zoe_confirm"
     | "skipped_trial_template";
 
+  let saleHeld = false;
   if (isTrialSale) {
     const trialTaskTypeId = arboxTrialTaskTypeIdFromSocial(
       (business as { social_links?: unknown } | null)?.social_links
@@ -1000,6 +1068,7 @@ export async function handleArboxTrialSaleRegistered(input: {
     }
     // Trial welcome stays once per 2 days. Purchase templates are not throttled.
     if (isWithinTwoDayNotifyThrottle(lastNotifiedAt)) {
+      await settleSale("skipped", "throttled_2d");
       console.info("[leads/arbox-trial-sale-registered] notify throttled (2d)", {
         businessSlug,
         phone: maskPhoneForLog(canonicalPhone),
@@ -1040,6 +1109,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         instagramFollowPromptSent,
         businessPlan: (business as { plan?: unknown } | null)?.plan,
       });
+      if (!waResult.sent && waResult.reason === "sends_hold") saleHeld = true;
 
       if (waResult.sent) {
         whatsapp = "sent";
@@ -1049,12 +1119,6 @@ export async function handleArboxTrialSaleRegistered(input: {
         whatsapp = "send_failed";
       } else if (waResult.reason === "sends_hold") {
         whatsapp = "send_failed";
-        await input.admin
-          .from("arbox_trial_sync_log")
-          .delete()
-          .eq("business_id", businessId)
-          .eq("sale_id", saleId)
-          .eq("trigger_id", SALE_LOG_SENTINEL_TRIGGER_ID);
       } else if (waResult.reason === "opted_out") {
         whatsapp = "opted_out";
       } else {
@@ -1081,15 +1145,13 @@ export async function handleArboxTrialSaleRegistered(input: {
       purchaseSameDaySent: input.purchaseSameDaySent,
     });
     whatsapp = templateResult.outcome;
-    if (templateResult.outcome === "send_failed" && templateResult.dispatch === "gated") {
-      await input.admin
-        .from("arbox_trial_sync_log")
-        .delete()
-        .eq("business_id", businessId)
-        .eq("sale_id", saleId)
-        .eq("trigger_id", SALE_LOG_SENTINEL_TRIGGER_ID);
-    }
+    saleHeld = templateResult.outcome === "send_failed" && templateResult.dispatch === "gated";
   }
+
+  // The trial side effects above already ran, so only a hold reopens the sale.
+  if (saleHeld) await settleSale("release");
+  else if (whatsapp === "sent") await settleSale("sent");
+  else await settleSale("skipped", whatsapp);
 
   // 7) Throttle stamp only after a real notify (in-window send or out-of-window template no-op)
   if (whatsapp === "sent" || whatsapp === "template_not_configured") {

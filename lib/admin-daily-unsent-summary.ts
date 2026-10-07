@@ -47,6 +47,12 @@ const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
   { table: "arbox_nth_workout_sync_log", trigger: "nth_workout" },
   { table: "arbox_days_in_club_sync_log", trigger: "days_in_club" },
   { table: "arbox_class_cancelled_customer_notify_log", trigger: "class_cancelled_customer" },
+  { table: "arbox_birthday_sync_log", trigger: "birthday" },
+  { table: "arbox_sessions_expiring_sync_log", trigger: "sessions_expiring" },
+  { table: "arbox_credit_refusal_sync_log", trigger: "credit_refusal" },
+  { table: "arbox_expiring_sync_log", trigger: "membership_expiring" },
+  { table: "arbox_trial_sync_log", trigger: "purchase" },
+  { table: "arbox_new_lead_sync_log", trigger: "arbox_new_lead" },
 ];
 
 const LOG_SELECTS = [
@@ -56,6 +62,8 @@ const LOG_SELECTS = [
   "business_id, status, processed_at, user_id, trigger_id, contact_id",
   "business_id, status, processed_at, user_id, contact_id",
   "business_id, status, processed_at, user_id",
+  "business_id, status, processed_at, lead_id, trigger_id, contact_id, reason",
+  "business_id, status, processed_at, trigger_id, contact_id, reason",
 ];
 
 export function israelClock(now: Date): { hour: number; minute: number; ymd: string } {

@@ -41,8 +41,8 @@ import {
   buildTrainerTrialHeadsUpScheduledDedupKey,
   computeDueAt,
   enqueueScheduledTemplateSend,
-  markScheduledTemplateSendSentByDedupKey,
 } from "@/lib/scheduled-template-sends";
+import { claimQueuedTemplateSend, settleQueuedTemplateSend } from "@/lib/leads/sync-log-claim";
 import { dispatchStaffTemplateImmediate } from "@/lib/staff-template-dispatch";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
@@ -264,6 +264,7 @@ async function dispatchTrainerTrialHeadsUp(input: {
     console.error("[leads/arbox-trainer-trial-heads-up] enqueue failed:", enqueueResult.error);
     return { dispatch: "send_failed", ok: false };
   }
+  let heldError: string | null = null;
   if (!enqueueResult.inserted) {
     if (input.bodyVarCount !== 5) return { dispatch: "already", ok: true };
     const { data: pendingHold } = await input.admin
@@ -275,7 +276,12 @@ async function dispatchTrainerTrialHeadsUp(input: {
     if (row?.status !== "pending" || row.last_error !== TRAINER_TEMPLATE_PENDING) {
       return { dispatch: "already", ok: true };
     }
+    heldError = TRAINER_TEMPLATE_PENDING;
   }
+
+  const claim = await claimQueuedTemplateSend(input.admin, dedupKey);
+  if (claim === "lost") return { dispatch: "already", ok: true };
+  if (claim === "error") return { dispatch: "send_failed", ok: false };
 
   const send = await dispatchStaffTemplateImmediate({
     admin: input.admin,
@@ -292,16 +298,14 @@ async function dispatchTrainerTrialHeadsUp(input: {
     now: input.now,
   });
   if (send === "sent") {
-    const marked = await markScheduledTemplateSendSentByDedupKey({
-      admin: input.admin,
-      dedupKey,
-    });
-    if (!marked.ok) {
-      console.error("[leads/arbox-trainer-trial-heads-up] mark sent failed:", marked.error);
-    }
+    await settleQueuedTemplateSend(input.admin, dedupKey, "sent");
     return { dispatch: "immediate", ok: true };
   }
-  if (send === "gated") return { dispatch: "gated", ok: false };
+  if (send === "gated") {
+    await settleQueuedTemplateSend(input.admin, dedupKey, "release", heldError);
+    return { dispatch: "gated", ok: false };
+  }
+  await settleQueuedTemplateSend(input.admin, dedupKey, "failed", heldError);
   return { dispatch: "send_failed", ok: false };
 }
 

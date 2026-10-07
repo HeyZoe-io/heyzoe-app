@@ -29,6 +29,7 @@ import {
   companionTemplateAlreadySent,
   createCompanionSendGate,
   recordCompanionTemplateSent,
+  settleCompanionTemplateSent,
   rulesForCompanionSend,
 } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
@@ -458,6 +459,22 @@ export async function POST(req: NextRequest) {
         firstName,
         businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
       });
+      const claimed = await recordCompanionTemplateSent(admin, {
+        dedupKey,
+        businessId,
+        ruleId: rule.id,
+        phone: phoneNorm,
+        templateName: ruleTemplate,
+        nowIso,
+      });
+      if (claimed == null) {
+        hardError = "template_send_failed";
+        break;
+      }
+      if (!claimed) {
+        already += 1;
+        continue;
+      }
       const sendResult = await sendBusinessTemplate({
         to: phoneNorm,
         phoneNumberId,
@@ -477,23 +494,18 @@ export async function POST(req: NextRequest) {
       if (!sendResult.ok) {
         console.error("[api/leads/incoming] template send failed:", sendResult.error);
         if (isSendsHoldError(sendResult.error)) {
+          await settleCompanionTemplateSent(admin, dedupKey, "release");
           companion.after(ruleTemplate, "gated");
           gated += 1;
           continue;
         }
+        await settleCompanionTemplateSent(admin, dedupKey, "failed");
         companion.after(ruleTemplate, "send_failed");
         hardError = "template_send_failed";
         continue;
       }
+      await settleCompanionTemplateSent(admin, dedupKey, "sent");
       companion.after(ruleTemplate, "immediate");
-      await recordCompanionTemplateSent(admin, {
-        dedupKey,
-        businessId,
-        ruleId: rule.id,
-        phone: phoneNorm,
-        templateName: ruleTemplate,
-        nowIso,
-      });
       const sessionId = buildWaSessionId(phoneNumberId, phoneNorm);
       await logMessage({
         business_slug: businessSlug,

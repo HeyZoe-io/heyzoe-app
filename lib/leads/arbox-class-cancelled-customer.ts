@@ -54,6 +54,7 @@ import {
 } from "@/lib/template-presets";
 import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { sendWithSyncLogClaim, type SyncLogSettle } from "@/lib/leads/sync-log-claim";
 import { isSendsHoldError } from "@/lib/business-sends-hold";
 import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -1188,6 +1189,40 @@ async function recordCancelNotify(input: {
   return true;
 }
 
+/**
+ * One cancelled class, one customer, one rule. Any existing row means handled:
+ * a Meta failure releases the claim, and the snapshot's attempts drive the retry.
+ */
+export function classCancelNotifyClaimKey(
+  businessId: number,
+  ruleId: string,
+  row: { schedule_id: string; user_id: string },
+  now: Date
+): {
+  table: string;
+  row: Record<string, unknown>;
+  filters: Array<[string, string | number]>;
+  retryable: readonly string[];
+} {
+  return {
+    table: CLASS_CANCEL_NOTIFY_LOG,
+    row: {
+      business_id: businessId,
+      trigger_id: ruleId,
+      schedule_id: row.schedule_id,
+      user_id: row.user_id,
+      processed_at: now.toISOString(),
+    },
+    filters: [
+      ["business_id", businessId],
+      ["trigger_id", ruleId],
+      ["schedule_id", row.schedule_id],
+      ["user_id", row.user_id],
+    ],
+    retryable: [],
+  };
+}
+
 async function sendPending(input: {
   admin: Db;
   businessId: number;
@@ -1309,30 +1344,35 @@ async function sendPending(input: {
         classDateYmd: row.class_date,
         classTime: row.class_time,
       });
-      const send = await sendBusinessTemplate({
-        to: phone,
-        phoneNumberId,
-        templateName: rule.template_name,
-        alertTriggerId: rule.id,
-        languageCode: tpl?.language || "he",
-        skipOptOutGate: true,
-        components: classCancelledCustomerBodyComponents(values),
+      const claimed = await sendWithSyncLogClaim({
+        admin: input.admin,
+        ...classCancelNotifyClaimKey(input.businessId, rule.id, row, input.now),
+        send: async () => {
+          const value = await sendBusinessTemplate({
+            to: phone,
+            phoneNumberId,
+            templateName: rule.template_name,
+            alertTriggerId: rule.id,
+            languageCode: tpl?.language || "he",
+            skipOptOutGate: true,
+            components: classCancelledCustomerBodyComponents(values),
+          });
+          return { settle: value.ok ? ("sent" as const) : ("release" as const), value };
+        },
       });
+      if (claimed.claim !== "won" || !claimed.value) {
+        companion.after(rule.template_name, "skipped");
+        if (claimed.claim === "lost") logged.add(rule.id);
+        continue;
+      }
+      const send = claimed.value;
       if (!send.ok && isSendsHoldError(send.error)) {
         companion.after(rule.template_name, "gated");
         continue;
       }
       if (send.ok) {
         companion.after(rule.template_name, "immediate");
-        const ok = await recordCancelNotify({
-          admin: input.admin,
-          businessId: input.businessId,
-          ruleId: rule.id,
-          row,
-          status: "sent",
-          now: input.now,
-        });
-        if (ok) logged.add(rule.id);
+        logged.add(rule.id);
         input.summary.sent += 1;
         console.info("[leads/arbox-class-cancelled-customer] sent", {
           businessId: input.businessId,
@@ -1754,31 +1794,46 @@ async function notifySnapshottedTrainers(input: {
           classDateYmd: trainer.class_date,
           classTime: trainer.class_time,
         });
-        const send = await sendBusinessTemplate({
-          to: phone,
-          phoneNumberId,
-          templateName: rule.template_name,
-          alertTriggerId: rule.id,
-          languageCode: tpl?.language || "he",
-          skipOptOutGate: true,
-          recipientKind: "staff",
-          components: classCancelledCustomerBodyComponents(values),
+        const claimed = await sendWithSyncLogClaim({
+          admin: input.admin,
+          ...classCancelNotifyClaimKey(
+            input.businessId,
+            rule.id,
+            { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            input.now
+          ),
+          send: async () => {
+            const value = await sendBusinessTemplate({
+              to: phone,
+              phoneNumberId,
+              templateName: rule.template_name,
+              alertTriggerId: rule.id,
+              languageCode: tpl?.language || "he",
+              skipOptOutGate: true,
+              recipientKind: "staff",
+              components: classCancelledCustomerBodyComponents(values),
+            });
+            const settle: SyncLogSettle = value.ok
+              ? "sent"
+              : isSendsHoldError(value.error) || isTransientMetaSendFailure(value.error)
+                ? "release"
+                : "failed";
+            return { settle, value };
+          },
         });
+        if (claimed.claim !== "won" || !claimed.value) {
+          companion.after(rule.template_name, "skipped");
+          if (claimed.claim === "lost") logged.add(rule.id);
+          continue;
+        }
+        const send = claimed.value;
         if (!send.ok && isSendsHoldError(send.error)) {
           companion.after(rule.template_name, "gated");
           continue;
         }
         if (send.ok) {
           companion.after(rule.template_name, "immediate");
-          const ok = await recordCancelNotify({
-            admin: input.admin,
-            businessId: input.businessId,
-            ruleId: rule.id,
-            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
-            status: "sent",
-            now: input.now,
-          });
-          if (ok) logged.add(rule.id);
+          logged.add(rule.id);
           input.summary.trainer_sent += 1;
           console.info("[leads/arbox-class-cancelled-customer] trainer sent", {
             businessId: input.businessId,
@@ -1799,17 +1854,7 @@ async function notifySnapshottedTrainers(input: {
           phone: maskPhone(phone),
           error: String(send.error ?? "").slice(0, 300),
         });
-        if (!transient) {
-          const ok = await recordCancelNotify({
-            admin: input.admin,
-            businessId: input.businessId,
-            ruleId: rule.id,
-            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
-            status: "failed",
-            now: input.now,
-          });
-          if (ok) logged.add(rule.id);
-        }
+        if (!transient) logged.add(rule.id);
       }
     }
   }

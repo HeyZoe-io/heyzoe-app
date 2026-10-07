@@ -1,49 +1,51 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { isMissingSyncLogReasonColumn } from "@/lib/leads/sync-log-reason";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
 type WriteError = { code?: string; message?: string } | null;
 
-/**
- * Claim the sync-log row before the Graph call.
- * `sending` is terminal: a worker that dies after the claim is not retried.
- * If the status check does not allow `sending` yet, the same claim is stored
- * as `sent` with reason `sending` (same no-retry rule, visible in the daily summary).
- */
-export async function claimSyncLogBeforeSend(input: {
-  admin: Admin;
-  table: string;
-  row: Record<string, unknown>;
-  filters: Array<[string, string | number]>;
-}): Promise<"won" | "lost" | "error"> {
-  const inserted = await insertClaim(input.admin, input.table, input.row, "sending");
-  if (inserted === "ok") return "won";
-  if (inserted === "check") {
-    const fallback = await insertClaim(input.admin, input.table, input.row, "sent");
-    if (fallback === "ok") return "won";
-    if (fallback === "duplicate") return upgradeRetryable(input);
-    return "error";
-  }
-  if (inserted === "duplicate") return upgradeRetryable(input);
-  return "error";
+type Filters = Array<[string, string | number]>;
+
+const DEFAULT_RETRYABLE: readonly string[] = ["pending", "skipped", "failed"];
+
+/** Meta failures before a claim is abandoned. Same cap as the cancellation log. */
+export const SYNC_LOG_SEND_ATTEMPT_CAP = 3;
+
+/** Column named in a PostgREST (PGRST204) or Postgres (42703) missing-column error. */
+export function missingColumnFromError(error: WriteError): string | null {
+  const message = String(error?.message ?? "");
+  const cache = /could not find the '([^']+)' column/i.exec(message);
+  if (cache) return cache[1]!;
+  const pg = /column "?(?:[a-z0-9_]+\.)?([a-z0-9_]+)"?(?: of relation "[^"]+")? does not exist/i.exec(message);
+  if (pg) return pg[1]!;
+  if (isMissingSyncLogReasonColumn(message)) return "reason";
+  return null;
 }
 
-async function insertClaim(
-  admin: Admin,
-  table: string,
-  row: Record<string, unknown>,
-  status: "sending" | "sent"
-): Promise<"ok" | "duplicate" | "check" | "error"> {
-  const withReason = { ...row, status, reason: "sending" };
-  const first = await admin.from(table).insert(withReason);
-  if (!first.error) return "ok";
-  if (isMissingSyncLogReasonColumn(first.error.message)) {
-    const second = await admin.from(table).insert({ ...row, status });
-    if (!second.error) return "ok";
-    return classify(second.error);
+/**
+ * Retry the same write without a column the table does not have yet.
+ * Identity columns are never dropped. `dropped` tells the caller what was removed.
+ */
+async function writeWithoutMissingColumns(
+  payload: Record<string, unknown>,
+  keep: ReadonlySet<string>,
+  run: (payload: Record<string, unknown>) => PromiseLike<{ data?: unknown; error: WriteError }>
+): Promise<{ data?: unknown; error: WriteError; dropped: Set<string> }> {
+  const current = { ...payload };
+  const dropped = new Set<string>();
+  for (let i = 0; i < 6; i += 1) {
+    const result = await run(current);
+    if (!result.error) return { data: result.data, error: null, dropped };
+    const column = missingColumnFromError(result.error);
+    if (!column || keep.has(column) || !(column in current)) {
+      return { error: result.error, dropped };
+    }
+    delete current[column];
+    dropped.add(column);
   }
-  return classify(first.error);
+  return { error: { message: "too_many_missing_columns" }, dropped };
 }
 
 function classify(error: WriteError): "duplicate" | "check" | "error" {
@@ -54,12 +56,64 @@ function classify(error: WriteError): "duplicate" | "check" | "error" {
   return "error";
 }
 
-async function upgradeRetryable(input: {
+function identity(filters: Filters): Set<string> {
+  return new Set(filters.map(([column]) => column));
+}
+
+/**
+ * Claim the sync-log row before the Graph call.
+ * `sending` is terminal: a worker that dies after the claim is not retried.
+ * If the status check does not allow `sending` yet, the same claim is stored
+ * as `sent` with reason `sending` (same no-retry rule, visible in the daily summary).
+ * A table without a status column: the inserted row is the claim, and any
+ * existing row means the event was handled.
+ */
+export async function claimSyncLogBeforeSend(input: {
   admin: Admin;
   table: string;
   row: Record<string, unknown>;
-  filters: Array<[string, string | number]>;
+  filters: Filters;
+  /** Existing statuses a new run may take over. Default: pending, skipped, failed. */
+  retryable?: readonly string[];
 }): Promise<"won" | "lost" | "error"> {
+  const inserted = await insertClaim(input, "sending");
+  if (inserted === "ok") return "won";
+  if (inserted === "legacy_duplicate") return "lost";
+  if (inserted === "check") {
+    const fallback = await insertClaim(input, "sent");
+    if (fallback === "ok") return "won";
+    if (fallback === "duplicate") return upgradeRetryable(input);
+    return "error";
+  }
+  if (inserted === "duplicate") return upgradeRetryable(input);
+  return "error";
+}
+
+async function insertClaim(
+  input: { admin: Admin; table: string; row: Record<string, unknown>; filters: Filters },
+  status: "sending" | "sent"
+): Promise<"ok" | "duplicate" | "legacy_duplicate" | "check" | "error"> {
+  const result = await writeWithoutMissingColumns(
+    { ...input.row, status, reason: "sending" },
+    identity(input.filters),
+    (payload) => input.admin.from(input.table).insert(payload)
+  );
+  if (!result.error) return "ok";
+  const kind = classify(result.error);
+  if (kind === "duplicate" && result.dropped.has("status")) return "legacy_duplicate";
+  if (kind === "error") {
+    console.error(`[sync-log-claim] ${input.table} claim insert failed:`, result.error.message);
+  }
+  return kind;
+}
+
+async function upgradeRetryable(input: {
+  admin: Admin;
+  table: string;
+  filters: Filters;
+  retryable?: readonly string[];
+}): Promise<"won" | "lost" | "error"> {
+  if (input.retryable && input.retryable.length === 0) return "lost";
   const sending = await updateRetryable(input, "sending");
   if (sending === "won" || sending === "error") return sending;
   if (sending === "check") {
@@ -71,47 +125,209 @@ async function upgradeRetryable(input: {
 }
 
 async function updateRetryable(
-  input: {
-    admin: Admin;
-    table: string;
-    filters: Array<[string, string | number]>;
-  },
+  input: { admin: Admin; table: string; filters: Filters; retryable?: readonly string[] },
   status: "sending" | "sent"
 ): Promise<"won" | "lost" | "check" | "error"> {
-  const patch: Record<string, unknown> = {
-    status,
-    reason: "sending",
-    processed_at: new Date().toISOString(),
-  };
-  const first = await filteredUpdate(input, patch);
-  if (first.kind === "missing_reason") {
-    const rest = { ...patch };
-    delete rest.reason;
-    const second = await filteredUpdate(input, rest);
-    if (second.kind === "ok") return second.won ? "won" : "lost";
-    if (second.kind === "check") return "check";
-    return "error";
-  }
-  if (first.kind === "ok") return first.won ? "won" : "lost";
-  if (first.kind === "check") return "check";
+  const keep = identity(input.filters);
+  keep.add("status");
+  const result = await writeWithoutMissingColumns(
+    { status, reason: "sending", processed_at: new Date().toISOString() },
+    keep,
+    (patch) => {
+      let query = input.admin.from(input.table).update(patch);
+      for (const [column, value] of input.filters) query = query.eq(column, value);
+      return query.in("status", [...(input.retryable ?? DEFAULT_RETRYABLE)]).select("status");
+    }
+  );
+  if (!result.error) return Array.isArray(result.data) && result.data.length > 0 ? "won" : "lost";
+  if (classify(result.error) === "check") return "check";
+  console.error(`[sync-log-claim] ${input.table} claim upgrade failed:`, result.error.message);
   return "error";
 }
 
-async function filteredUpdate(
-  input: {
-    admin: Admin;
-    table: string;
-    filters: Array<[string, string | number]>;
-  },
-  patch: Record<string, unknown>
-): Promise<{ kind: "ok"; won: boolean } | { kind: "missing_reason" } | { kind: "check" } | { kind: "error" }> {
-  let query = input.admin.from(input.table).update(patch);
-  for (const [column, value] of input.filters) {
-    query = query.eq(column, value);
+export type SyncLogSettle = "sent" | "failed" | "skipped" | "release";
+
+/** A row the next run may claim again. Missing status (older tables) means handled. */
+export function syncLogRowRetryable(status: unknown): boolean {
+  const value = String(status ?? "").trim();
+  return value === "failed" || value === "pending";
+}
+
+/**
+ * Trigger dispatch → claim outcome. gated (hold, mute, no channel, template
+ * not approved) releases the claim so a later run can send.
+ */
+export function claimSettleForDispatch(dispatch: string): SyncLogSettle {
+  if (dispatch === "immediate" || dispatch === "deferred") return "sent";
+  if (dispatch === "send_failed") return "failed";
+  if (dispatch === "gated") return "release";
+  return "skipped";
+}
+
+/**
+ * Close a claim this worker won.
+ * sent / skipped: final. failed: retried by the next run until the attempt cap,
+ * then abandoned. release: the claim row is removed (a hold, not a send).
+ */
+export async function settleSyncLogClaim(input: {
+  admin: Admin;
+  table: string;
+  row: Record<string, unknown>;
+  filters: Filters;
+  outcome: SyncLogSettle;
+  reason?: string | null;
+  attemptCap?: number;
+}): Promise<boolean> {
+  if (input.outcome === "release") return releaseSyncLogClaim(input);
+  const attemptsSoFar = Math.max(0, Math.trunc(Number(input.row.attempts) || 0));
+  let status: string = input.outcome;
+  let attempts = attemptsSoFar;
+  if (input.outcome === "failed") {
+    attempts = attemptsSoFar + 1;
+    if (attempts >= (input.attemptCap ?? SYNC_LOG_SEND_ATTEMPT_CAP)) status = "abandoned";
   }
-  const { data, error } = await query.in("status", ["pending", "skipped", "failed"]).select("status");
-  if (!error) return { kind: "ok", won: Array.isArray(data) && data.length > 0 };
-  if (isMissingSyncLogReasonColumn(error.message)) return { kind: "missing_reason" };
-  if (classify(error) === "check") return { kind: "check" };
-  return { kind: "error" };
+  const onConflict = input.filters.map(([column]) => column).join(",");
+  const upsert = (payload: Record<string, unknown>) =>
+    writeWithoutMissingColumns(payload, identity(input.filters), (body) =>
+      input.admin.from(input.table).upsert(body, { onConflict })
+    );
+  const payload = {
+    ...input.row,
+    status,
+    attempts,
+    reason: input.reason ?? null,
+    processed_at: new Date().toISOString(),
+  };
+  const first = await upsert(payload);
+  if (!first.error) {
+    // No status column yet: a failed send leaves no row, as before the claim existed.
+    if (status !== "sent" && status !== "skipped" && first.dropped.has("status")) {
+      return releaseSyncLogClaim(input);
+    }
+    return true;
+  }
+  if (status === "failed" && classify(first.error) === "check") {
+    const fallback = await upsert({ ...payload, status: "pending", reason: input.reason ?? "failed" });
+    if (!fallback.error) return true;
+  }
+  console.error(`[sync-log-claim] ${input.table} settle ${status} failed:`, first.error.message);
+  return false;
+}
+
+async function releaseSyncLogClaim(input: {
+  admin: Admin;
+  table: string;
+  filters: Filters;
+}): Promise<boolean> {
+  const remove = (extra: Array<[string, string]>) => {
+    let query = input.admin.from(input.table).delete();
+    for (const [column, value] of input.filters) query = query.eq(column, value);
+    for (const [column, value] of extra) query = query.eq(column, value);
+    return query;
+  };
+  const first = await remove([["status", "sending"]]);
+  if (first.error) {
+    if (missingColumnFromError(first.error) === "status") {
+      const bare = await remove([]);
+      if (!bare.error) return true;
+      console.error(`[sync-log-claim] ${input.table} release failed:`, bare.error.message);
+      return false;
+    }
+    console.error(`[sync-log-claim] ${input.table} release failed:`, first.error.message);
+    return false;
+  }
+  const fallback = await remove([
+    ["status", "sent"],
+    ["reason", "sending"],
+  ]);
+  if (fallback.error && missingColumnFromError(fallback.error) !== "reason") {
+    console.error(`[sync-log-claim] ${input.table} release failed:`, fallback.error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Claim, send once, settle. A send that throws leaves the claim at `sending`,
+ * so it is never sent again. Dry-run skips the claim and the settle.
+ */
+export async function sendWithSyncLogClaim<T>(input: {
+  admin: Admin;
+  table: string;
+  row: Record<string, unknown>;
+  filters: Filters;
+  retryable?: readonly string[];
+  attemptCap?: number;
+  send: () => Promise<{
+    settle: SyncLogSettle;
+    reason?: string | null;
+    value: T;
+    /** Extra columns written with the settle (e.g. confirm_status). */
+    row?: Record<string, unknown>;
+  }>;
+}): Promise<{ claim: "won" | "lost" | "error"; value?: T }> {
+  if (isArboxDailyDryRun()) {
+    const result = await input.send();
+    return { claim: "won", value: result.value };
+  }
+  const claim = await claimSyncLogBeforeSend(input);
+  if (claim !== "won") return { claim };
+  const result = await input.send();
+  await settleSyncLogClaim({
+    ...input,
+    row: { ...input.row, ...result.row },
+    outcome: result.settle,
+    reason: result.reason,
+  });
+  return { claim, value: result.value };
+}
+
+/**
+ * A queued template the immediate path sends itself: pending → sending before
+ * the Graph call, so the Stage C drain (pending only) cannot send it too.
+ */
+export async function claimQueuedTemplateSend(admin: Admin, dedupKey: string): Promise<"won" | "lost" | "error"> {
+  const key = dedupKey.trim();
+  if (!key) return "error";
+  if (isArboxDailyDryRun()) return "won";
+  const { data, error } = await admin
+    .from("scheduled_template_sends")
+    .update({ status: "sending", updated_at: new Date().toISOString() })
+    .eq("dedup_key", key)
+    .eq("status", "pending")
+    .select("id");
+  if (error) {
+    console.error("[sync-log-claim] queued claim failed:", error.message);
+    return "error";
+  }
+  return Array.isArray(data) && data.length > 0 ? "won" : "lost";
+}
+
+/**
+ * sent: final. failed / release: back to pending so the drain retries it
+ * with `lastError` (failed defaults to send_failed). Only a row this worker
+ * holds at `sending` moves.
+ */
+export async function settleQueuedTemplateSend(
+  admin: Admin,
+  dedupKey: string,
+  outcome: "sent" | "failed" | "release",
+  lastError?: string | null
+): Promise<boolean> {
+  const key = dedupKey.trim();
+  if (!key || isArboxDailyDryRun()) return true;
+  const patch =
+    outcome === "sent"
+      ? { status: "sent", last_error: null }
+      : { status: "pending", last_error: outcome === "failed" ? lastError || "send_failed" : lastError ?? null };
+  const { error } = await admin
+    .from("scheduled_template_sends")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("dedup_key", key)
+    .eq("status", "sending");
+  if (error) {
+    console.error("[sync-log-claim] queued settle failed:", error.message);
+    return false;
+  }
+  return true;
 }

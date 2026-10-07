@@ -41,6 +41,11 @@ import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activatio
 import { rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  claimSettleForDispatch,
+  sendWithSyncLogClaim,
+  syncLogRowRetryable,
+} from "@/lib/leads/sync-log-claim";
 import type { PurchaseTemplateTriggerRule } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
@@ -336,14 +341,15 @@ export async function hasEnabledFirstPaidPurchaseTrigger(
 async function knownTriggerIdsByUser(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number,
-  userIds: number[]
+  userIds: number[],
+  attempts: Map<string, number> = new Map()
 ): Promise<Map<number, Set<string>>> {
   const known = new Map<number, Set<string>>();
   for (let i = 0; i < userIds.length; i += UPSERT_CHUNK) {
     const chunk = userIds.slice(i, i + UPSERT_CHUNK);
     const { data, error } = await admin
       .from("arbox_first_paid_purchase_log")
-      .select("user_id, trigger_id")
+      .select("*")
       .eq("business_id", businessId)
       .in("user_id", chunk);
     if (error) {
@@ -354,6 +360,10 @@ async function knownTriggerIdsByUser(
       const id = Number((row as { user_id?: unknown }).user_id);
       const triggerId = String((row as { trigger_id?: unknown }).trigger_id ?? "");
       if (!Number.isFinite(id) || !triggerId) continue;
+      if (syncLogRowRetryable((row as { status?: unknown }).status)) {
+        attempts.set(`${id}:${triggerId}`, Number((row as { attempts?: unknown }).attempts) || 0);
+        continue;
+      }
       const set = known.get(id) ?? new Set<string>();
       set.add(triggerId);
       known.set(id, set);
@@ -445,6 +455,25 @@ async function sendWelcome(input: {
   return "sent";
 }
 
+/** One customer, one rule: the first paid purchase sends once. */
+export function firstPaidPurchaseClaimKey(
+  businessId: number,
+  triggerId: string,
+  userId: number,
+  saleId: number,
+  attempts = 0
+): { table: string; row: Record<string, unknown>; filters: Array<[string, string | number]> } {
+  return {
+    table: "arbox_first_paid_purchase_log",
+    row: { business_id: businessId, trigger_id: triggerId, user_id: userId, sale_id: saleId, seeded: false, attempts },
+    filters: [
+      ["business_id", businessId],
+      ["trigger_id", triggerId],
+      ["user_id", userId],
+    ],
+  };
+}
+
 export async function syncFirstPaidPurchasesForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
@@ -530,8 +559,9 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
   ];
 
   let known: Map<number, Set<string>>;
+  const priorAttempts = new Map<string, number>();
   try {
-    known = await knownTriggerIdsByUser(input.admin, input.businessId, userIds);
+    known = await knownTriggerIdsByUser(input.admin, input.businessId, userIds, priorAttempts);
   } catch {
     summary.errors += 1;
     return summary;
@@ -570,55 +600,44 @@ export async function syncFirstPaidPurchasesForBusiness(input: {
     }
 
     for (const rule of pending) {
-      const { error: claimErr } = await input.admin.from("arbox_first_paid_purchase_log").insert({
-        business_id: input.businessId,
-        trigger_id: rule.id,
-        user_id: userId,
-        sale_id: saleId,
-        seeded: false,
+      const claimed = await sendWithSyncLogClaim({
+        admin: input.admin,
+        ...firstPaidPurchaseClaimKey(
+          input.businessId,
+          rule.id,
+          userId,
+          saleId,
+          priorAttempts.get(`${userId}:${rule.id}`) ?? 0
+        ),
+        send: async () => {
+          const outcome = await sendWelcome({
+            admin: input.admin,
+            businessId: input.businessId,
+            businessSlug: input.businessSlug,
+            phone,
+            fullName: reportFullName(row),
+            templateName: String(rule.template_name ?? "").trim(),
+            triggerId: rule.id,
+          });
+          return { settle: claimSettleForDispatch(outcome === "sent" ? "immediate" : outcome), value: outcome };
+        },
       });
-      if (claimErr) {
+      if (claimed.claim !== "won") {
         console.error(`${LOG} claim blocked send`, {
           business_id: input.businessId,
           trigger_id: rule.id,
-          reason: claimErr.message,
+          reason: claimed.claim,
         });
-        if (String(claimErr.code ?? "") === "23505" || /duplicate/i.test(claimErr.message)) {
-          seen.add(rule.id);
-        } else {
-          summary.errors += 1;
-        }
+        if (claimed.claim === "lost") seen.add(rule.id);
+        else summary.errors += 1;
         continue;
       }
-      const outcome = await sendWelcome({
-        admin: input.admin,
-        businessId: input.businessId,
-        businessSlug: input.businessSlug,
-        phone,
-        fullName: reportFullName(row),
-        templateName: String(rule.template_name ?? "").trim(),
-        triggerId: rule.id,
-      });
-      seen.add(rule.id);
+      const outcome = claimed.value;
       if (outcome === "gated") {
-        const { error: releaseErr } = await input.admin
-          .from("arbox_first_paid_purchase_log")
-          .delete()
-          .eq("business_id", input.businessId)
-          .eq("trigger_id", rule.id)
-          .eq("user_id", userId);
-        if (releaseErr) {
-          console.error(`${LOG} claim release failed`, {
-            business_id: input.businessId,
-            trigger_id: rule.id,
-            reason: releaseErr.message,
-          });
-        } else {
-          seen.delete(rule.id);
-        }
         summary.gated += 1;
         continue;
       }
+      seen.add(rule.id);
       if (outcome === "skipped") continue;
       if (outcome !== "sent") {
         summary.errors += 1;

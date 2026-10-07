@@ -10,6 +10,7 @@
  */
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { SYNC_LOG_SEND_ATTEMPT_CAP } from "@/lib/leads/sync-log-claim";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -251,7 +252,9 @@ export async function recordCompanionTemplateSent(
     updated_at: input.nowIso,
   });
   if (!error) return true;
-  if (error.code === "23505" || /duplicate/i.test(error.message)) return false;
+  if (error.code === "23505" || /duplicate/i.test(error.message)) {
+    return retakeFailedCompanionClaim(admin, dedupKey, input);
+  }
   logDedupBlockedSend({
     log: "[same-trigger-template-order]",
     businessId: input.businessId,
@@ -261,6 +264,64 @@ export async function recordCompanionTemplateSent(
   return null;
 }
 
+/** Meta failures so far, stored on the claim row: claim_held:N while sending, send_failed:N after. */
+export function companionClaimFailures(lastError: unknown): number {
+  const match = /^(?:claim_held|send_failed)(?::(\d+))?$/.exec(String(lastError ?? "").trim());
+  if (!match) return 0;
+  return match[1] ? Number(match[1]) : String(lastError).startsWith("send_failed") ? 1 : 0;
+}
+
+function isCompanionClaimHeld(lastError: unknown): boolean {
+  return /^claim_held(?::\d+)?$/.test(String(lastError ?? "").trim());
+}
+
+/**
+ * A claim whose send failed at Meta may be taken again until the attempt cap.
+ * A claim still held (sending, or a worker that died) is never taken again.
+ */
+async function retakeFailedCompanionClaim(
+  admin: AdminClient,
+  dedupKey: string,
+  input: { businessId: number; ruleId: string; nowIso: string }
+): Promise<boolean | null> {
+  const { data, error } = await admin
+    .from("scheduled_template_sends")
+    .select("status, last_error")
+    .eq("dedup_key", dedupKey)
+    .maybeSingle();
+  if (error) {
+    logDedupBlockedSend({
+      log: "[same-trigger-template-order]",
+      businessId: input.businessId,
+      triggerId: input.ruleId,
+      reason: error.message,
+    });
+    return null;
+  }
+  const row = data as { status?: unknown; last_error?: unknown } | null;
+  const lastError = String(row?.last_error ?? "");
+  if (String(row?.status ?? "") !== "failed" || !lastError.startsWith("send_failed")) return false;
+  const failures = companionClaimFailures(lastError);
+  if (failures >= SYNC_LOG_SEND_ATTEMPT_CAP) return false;
+  const { data: taken, error: takeErr } = await admin
+    .from("scheduled_template_sends")
+    .update({ status: "canceled", last_error: `claim_held:${failures}`, updated_at: input.nowIso })
+    .eq("dedup_key", dedupKey)
+    .eq("status", "failed")
+    .eq("last_error", lastError)
+    .select("id");
+  if (takeErr) {
+    logDedupBlockedSend({
+      log: "[same-trigger-template-order]",
+      businessId: input.businessId,
+      triggerId: input.ruleId,
+      reason: takeErr.message,
+    });
+    return null;
+  }
+  return Array.isArray(taken) && taken.length > 0;
+}
+
 export async function settleCompanionTemplateSent(
   admin: AdminClient,
   dedupKey: string,
@@ -268,12 +329,22 @@ export async function settleCompanionTemplateSent(
 ): Promise<void> {
   const key = dedupKey.trim();
   if (!key) return;
+  const { data: held, error: readErr } = await admin
+    .from("scheduled_template_sends")
+    .select("last_error")
+    .eq("dedup_key", key)
+    .maybeSingle();
+  const heldError = String((held as { last_error?: unknown } | null)?.last_error ?? "");
+  if (readErr || !isCompanionClaimHeld(heldError)) {
+    if (readErr) logDedupBlockedSend({ log: "[same-trigger-template-order]", businessId: null, reason: readErr.message });
+    return;
+  }
   if (status === "release") {
     const { error } = await admin
       .from("scheduled_template_sends")
       .delete()
       .eq("dedup_key", key)
-      .eq("last_error", "claim_held");
+      .eq("last_error", heldError);
     if (error) {
       logDedupBlockedSend({
         log: "[same-trigger-template-order]",
@@ -287,11 +358,11 @@ export async function settleCompanionTemplateSent(
     .from("scheduled_template_sends")
     .update({
       status,
-      last_error: status === "failed" ? "send_failed" : null,
+      last_error: status === "failed" ? `send_failed:${companionClaimFailures(heldError) + 1}` : null,
       updated_at: new Date().toISOString(),
     })
     .eq("dedup_key", key)
-    .eq("last_error", "claim_held");
+    .eq("last_error", heldError);
   if (error) {
     logDedupBlockedSend({
       log: "[same-trigger-template-order]",

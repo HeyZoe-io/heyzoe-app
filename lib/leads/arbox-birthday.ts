@@ -30,7 +30,11 @@ import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/templa
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
-import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
+import {
+  claimSettleForDispatch,
+  sendWithSyncLogClaim,
+  syncLogRowRetryable,
+} from "@/lib/leads/sync-log-claim";
 import {
   loadEnabledBirthdayFormerTemplateTriggers,
   loadEnabledBirthdayTemplateTriggers,
@@ -721,7 +725,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
     try {
       const { data: existingSeen } = await input.admin
         .from("arbox_birthday_sync_log")
-        .select("trigger_id")
+        .select("*")
         .eq("business_id", businessId)
         .eq("user_id", userId)
         .eq("birthday_year", syncYear)
@@ -730,7 +734,15 @@ export async function syncArboxBirthdaysForBusiness(input: {
           dueRules.map((item) => item.id)
         );
       const seenIds = new Set(
-        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+        (existingSeen ?? [])
+          .filter((log) => !syncLogRowRetryable((log as { status?: unknown }).status))
+          .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const attemptsByRule = new Map(
+        (existingSeen ?? []).map((log) => [
+          String((log as { trigger_id?: unknown }).trigger_id ?? ""),
+          Number((log as { attempts?: unknown }).attempts) || 0,
+        ])
       );
       const pendingRules = dueRules.filter((item) => item.id && !seenIds.has(item.id));
       if (!pendingRules.length) {
@@ -812,58 +824,56 @@ export async function syncArboxBirthdaysForBusiness(input: {
         });
         continue;
       }
-      const heldByOther = new Set<string>();
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
         send: async (rule) => {
-          if (!isArboxDailyDryRun()) {
-            const claimed = await claimSyncLogBeforeSend({
-              admin: input.admin,
-              table: "arbox_birthday_sync_log",
-              row: {
-                business_id: businessId,
-                trigger_id: rule.id,
-                user_id: userId,
-                birthday_year: syncYear,
-                contact_id: sendContact.id,
-                processed_at: now.toISOString(),
-                attempts: 0,
-              },
-              filters: [
-                ["business_id", businessId],
-                ["trigger_id", rule.id],
-                ["user_id", userId],
-                ["birthday_year", syncYear],
-              ],
-            });
-            if (claimed !== "won") {
-              heldByOther.add(rule.id);
-              return "skipped" as const;
-            }
-          }
-          return sendBirthdayTemplate({
+          const claimed = await sendWithSyncLogClaim({
             admin: input.admin,
-            businessId,
-            businessSlug,
-            phone: sendPhone,
-            fullName: resolveReportFullName(row),
-            contactFullName: sendContact.full_name ?? null,
-            userId,
-            birthdayYear: celebrationYear,
-            birthdayRaw: row.birthday,
-            rule,
-            triggerType,
-            now,
-          }).then((send) =>
-            send.dispatch === "immediate" ||
-            send.dispatch === "deferred" ||
-            send.dispatch === "gated" ||
-            send.dispatch === "skipped" ||
-            send.dispatch === "send_failed"
-              ? send.dispatch
-              : "skipped"
-          );
+            table: "arbox_birthday_sync_log",
+            row: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: userId,
+              birthday_year: syncYear,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+              attempts: attemptsByRule.get(rule.id) ?? 0,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["user_id", userId],
+              ["birthday_year", syncYear],
+            ],
+            send: async () => {
+              const send = await sendBirthdayTemplate({
+                admin: input.admin,
+                businessId,
+                businessSlug,
+                phone: sendPhone,
+                fullName: resolveReportFullName(row),
+                contactFullName: sendContact.full_name ?? null,
+                userId,
+                birthdayYear: celebrationYear,
+                birthdayRaw: row.birthday,
+                rule,
+                triggerType,
+                now,
+              });
+              const dispatch =
+                send.dispatch === "immediate" ||
+                send.dispatch === "deferred" ||
+                send.dispatch === "gated" ||
+                send.dispatch === "skipped" ||
+                send.dispatch === "send_failed"
+                  ? send.dispatch
+                  : "skipped";
+              return { settle: claimSettleForDispatch(dispatch), value: dispatch };
+            },
+          });
+          if (claimed.claim === "error") summary.errors += 1;
+          return claimed.value ?? "skipped";
         },
       });
 
@@ -879,52 +889,6 @@ export async function syncArboxBirthdaysForBusiness(input: {
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
       else if (sendDispatch === "send_failed") summary.errors += 1;
-
-      if (sendDispatch === "send_failed") {
-        for (const rule of pendingRules) {
-          if (heldByOther.has(rule.id)) continue;
-          const marked = await upsertOptionalReason(
-            input.admin,
-            "arbox_birthday_sync_log",
-            {
-              business_id: businessId,
-              trigger_id: rule.id,
-              user_id: userId,
-              birthday_year: syncYear,
-              contact_id: sendContact.id,
-              processed_at: now.toISOString(),
-              status: "failed",
-              attempts: 1,
-            },
-            "business_id,trigger_id,user_id,birthday_year"
-          );
-          if (!marked.ok) summary.errors += 1;
-        }
-      } else if (
-        sendDispatch === "skipped" ||
-        sendDispatch === "immediate" ||
-        sendDispatch === "deferred"
-      ) {
-        for (const rule of pendingRules) {
-          if (heldByOther.has(rule.id)) continue;
-          const { error: logErr } = await input.admin.from("arbox_birthday_sync_log").upsert(
-            {
-              business_id: businessId,
-              trigger_id: rule.id,
-              user_id: userId,
-              birthday_year: syncYear,
-              contact_id: sendContact.id,
-              processed_at: now.toISOString(),
-              status: "sent",
-            },
-            { onConflict: "business_id,trigger_id,user_id,birthday_year" }
-          );
-          if (logErr) {
-            console.error("[leads/arbox-birthday] sync_log upsert failed:", logErr.message);
-            summary.errors += 1;
-          }
-        }
-      }
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-birthday] row threw", {

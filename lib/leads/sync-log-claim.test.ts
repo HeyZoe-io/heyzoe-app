@@ -1,128 +1,392 @@
 import assert from "node:assert/strict";
-import { claimSyncLogBeforeSend } from "./sync-log-claim";
+import {
+  claimQueuedTemplateSend,
+  claimSyncLogBeforeSend,
+  missingColumnFromError,
+  sendWithSyncLogClaim,
+  settleQueuedTemplateSend,
+  type SyncLogSettle,
+} from "./sync-log-claim";
+import { TRIAL_BOOKING_RETRYABLE, trialBookingClaimKey } from "./arbox-trial-booking-confirm";
+import { trialSaleClaimKey } from "./arbox-trial-sale-registered";
+import { firstPaidPurchaseClaimKey } from "./arbox-first-paid-purchase";
+import { arboxNewLeadClaimKey } from "./arbox-new-lead";
+import { classCancelNotifyClaimKey } from "./arbox-class-cancelled-customer";
+import {
+  companionClaimFailures,
+  recordCompanionTemplateSent,
+  settleCompanionTemplateSent,
+} from "../same-trigger-template-order";
 
 type Row = Record<string, unknown>;
+type TableSpec = { columns: string[]; pk: string[]; statuses?: string[] };
 
-function fakeAdmin(rows: Row[], opts?: { rejectFailed?: boolean }) {
-  return {
-    from() {
-      return {
-        insert(row: Row) {
-          const key = `${row.business_id}|${row.user_id}`;
-          if (rows.some((existing) => `${existing.business_id}|${existing.user_id}` === key)) {
-            return Promise.resolve({ error: { code: "23505", message: "duplicate" } });
-          }
-          if (opts?.rejectFailed && row.status === "sending") {
-            return Promise.resolve({ error: { code: "23514", message: "check constraint" } });
-          }
-          rows.push({ ...row });
-          return Promise.resolve({ error: null });
-        },
-        update(patch: Row) {
-          const filters: Array<[string, unknown]> = [];
-          let allowed: string[] = [];
-          const query = {
-            eq(column: string, value: unknown) {
-              filters.push([column, value]);
-              return query;
-            },
-            in(column: string, values: string[]) {
-              allowed = values;
-              const matched = rows.filter(
-                (row) =>
-                  filters.every(([key, value]) => row[key] === value) &&
-                  allowed.includes(String(row[column] ?? ""))
-              );
-              if (opts?.rejectFailed && patch.status === "failed") {
-                return {
-                  select() {
-                    return Promise.resolve({
-                      data: null,
-                      error: { code: "23514", message: "check constraint" },
-                    });
-                  },
-                };
-              }
-              for (const row of matched) Object.assign(row, patch);
-              return {
-                select() {
-                  return Promise.resolve({ data: matched.map((row) => ({ status: row.status })), error: null });
-                },
-              };
-            },
-            select() {
-              return Promise.resolve({ data: [], error: null });
-            },
-          };
+/** In-memory PostgREST: missing columns, unique keys and status checks fail like Supabase. */
+function fakeDb(specs: Record<string, TableSpec>) {
+  const data: Record<string, Row[]> = {};
+  for (const name of Object.keys(specs)) data[name] = [];
+
+  function from(table: string) {
+    const spec = specs[table]!;
+    const rows = data[table]!;
+    const missing = (payload: Row) => Object.keys(payload).find((key) => !spec.columns.includes(key));
+    const missingErr = (column: string) => ({
+      code: "PGRST204",
+      message: `Could not find the '${column}' column of '${table}' in the schema cache`,
+    });
+    const checkErr = (payload: Row) =>
+      spec.statuses && "status" in payload && !spec.statuses.includes(String(payload.status))
+        ? { code: "23514", message: "violates check constraint" }
+        : null;
+    const keyOf = (row: Row) => spec.pk.map((column) => String(row[column])).join("|");
+
+    function filtered(op: "select" | "update" | "delete", patch?: Row) {
+      const eqs: Array<[string, unknown]> = [];
+      const ins: Array<[string, unknown[]]> = [];
+      let selected = false;
+      const run = () => {
+        const bad = [...eqs.map(([column]) => column), ...ins.map(([column]) => column)].find(
+          (column) => !spec.columns.includes(column)
+        );
+        if (bad) return { data: null, error: { code: "42703", message: `column ${table}.${bad} does not exist` } };
+        if (patch) {
+          const column = missing(patch);
+          if (column) return { data: null, error: missingErr(column) };
+          const check = checkErr(patch);
+          if (check) return { data: null, error: check };
+        }
+        const matched = rows.filter(
+          (row) =>
+            eqs.every(([column, value]) => row[column] === value) &&
+            ins.every(([column, values]) => values.includes(row[column]))
+        );
+        if (op === "update") for (const row of matched) Object.assign(row, patch);
+        if (op === "delete") for (const row of matched) rows.splice(rows.indexOf(row), 1);
+        return { data: op === "select" || selected ? matched.map((row) => ({ ...row })) : null, error: null };
+      };
+      const query = {
+        eq(column: string, value: unknown) {
+          eqs.push([column, value]);
           return query;
         },
+        in(column: string, values: unknown[]) {
+          ins.push([column, values]);
+          return query;
+        },
+        select() {
+          selected = true;
+          return query;
+        },
+        maybeSingle() {
+          const result = run();
+          return Promise.resolve({ data: result.data?.[0] ?? null, error: result.error });
+        },
+        then(resolve: (value: unknown) => void, reject?: (reason: unknown) => void) {
+          return Promise.resolve(run()).then(resolve, reject);
+        },
       };
-    },
-  };
+      return query;
+    }
+
+    return {
+      insert(payload: Row) {
+        const column = missing(payload);
+        if (column) return Promise.resolve({ error: missingErr(column) });
+        if (rows.some((row) => keyOf(row) === keyOf(payload))) {
+          return Promise.resolve({ error: { code: "23505", message: "duplicate key value" } });
+        }
+        const check = checkErr(payload);
+        if (check) return Promise.resolve({ error: check });
+        rows.push({ ...payload });
+        return Promise.resolve({ error: null });
+      },
+      upsert(payload: Row) {
+        const column = missing(payload);
+        if (column) return Promise.resolve({ error: missingErr(column) });
+        const check = checkErr(payload);
+        if (check) return Promise.resolve({ error: check });
+        const existing = rows.find((row) => keyOf(row) === keyOf(payload));
+        if (existing) Object.assign(existing, payload);
+        else rows.push({ ...payload });
+        return Promise.resolve({ error: null });
+      },
+      update: (patch: Row) => filtered("update", patch),
+      delete: () => filtered("delete"),
+      select: () => filtered("select"),
+    };
+  }
+
+  return { admin: { from } as never, data };
 }
 
-const filters: Array<[string, string | number]> = [
-  ["business_id", 1],
-  ["user_id", 9],
+const SYNC_COLUMNS = ["status", "attempts", "reason", "processed_at"];
+const ALL_STATUSES = ["pending", "seeded", "sent", "abandoned", "no_phone", "skipped", "sending", "failed"];
+
+type Key = { table: string; row: Row; filters: Array<[string, string | number]>; retryable?: readonly string[] };
+
+type Path = {
+  name: string;
+  spec: TableSpec;
+  key: (attempts: number) => Key;
+  /** Meta error on this path: retried (failed) or released for an outer retry counter. */
+  metaSettle: SyncLogSettle;
+  /** False: a failed trial-booking claim stays terminal (Oct 5 decision). */
+  metaRetried?: boolean;
+};
+
+const now = new Date("2026-10-08T06:00:00.000Z");
+
+const paths: Path[] = [
+  {
+    name: "trial booking confirm",
+    spec: {
+      columns: [
+        "business_id", "trigger_id", "user_id", "class_date", "class_time", "class_name", "channel",
+        "confirm_status", "template_status", ...SYNC_COLUMNS,
+      ],
+      pk: ["business_id", "trigger_id", "user_id", "class_date", "class_time", "class_name", "channel"],
+      statuses: ALL_STATUSES,
+    },
+    key: (attempts) => ({
+      ...trialBookingClaimKey(
+        1,
+        { userId: 11, classDate: "2026-10-09", classTime: "18:00", className: "Power" },
+        "rule-a",
+        "template",
+        attempts,
+        now
+      ),
+      retryable: TRIAL_BOOKING_RETRYABLE,
+    }),
+    metaSettle: "failed",
+    metaRetried: false,
+  },
+  {
+    name: "trial sale / purchase",
+    spec: {
+      columns: ["business_id", "sale_id", "trigger_id", "contact_id", ...SYNC_COLUMNS],
+      pk: ["business_id", "sale_id", "trigger_id"],
+      statuses: ALL_STATUSES,
+    },
+    key: (attempts) => trialSaleClaimKey(1, 500, "rule-a", null, attempts),
+    metaSettle: "failed",
+  },
+  {
+    name: "first purchase",
+    spec: {
+      columns: ["business_id", "trigger_id", "user_id", "sale_id", "seeded", "status", "attempts", "reason"],
+      pk: ["business_id", "trigger_id", "user_id"],
+      statuses: ALL_STATUSES,
+    },
+    key: (attempts) => firstPaidPurchaseClaimKey(1, "rule-a", 11, 500, attempts),
+    metaSettle: "failed",
+  },
+  {
+    name: "arbox new lead",
+    spec: {
+      columns: ["business_id", "trigger_id", "lead_id", "contact_id", ...SYNC_COLUMNS],
+      pk: ["business_id", "trigger_id", "lead_id"],
+      statuses: ALL_STATUSES,
+    },
+    key: (attempts) => arboxNewLeadClaimKey(1, "rule-a", 900, null, attempts),
+    metaSettle: "failed",
+  },
+  {
+    name: "class cancelled customer / trainer",
+    spec: {
+      columns: ["business_id", "trigger_id", "schedule_id", "user_id", "status", "reason", "processed_at"],
+      pk: ["business_id", "trigger_id", "schedule_id", "user_id"],
+    },
+    key: () => classCancelNotifyClaimKey(1, "rule-a", { schedule_id: "77", user_id: "11" }, now),
+    metaSettle: "release",
+  },
 ];
-const base = { business_id: 1, user_id: 9, trigger_id: "t", processed_at: "2026-10-08T06:00:00.000Z", attempts: 0 };
+
+async function send(key: Key, admin: never, settle: SyncLogSettle | "throw") {
+  let graphCalls = 0;
+  const outcome = await sendWithSyncLogClaim({
+    admin,
+    ...key,
+    send: async () => {
+      graphCalls += 1;
+      if (settle === "throw") throw new Error("worker died after Graph");
+      return { settle, value: settle };
+    },
+  }).catch(() => ({ claim: "won" as const, value: "throw" }));
+  return { claim: outcome.claim, graphCalls };
+}
+
+async function pathTests(path: Path) {
+  const table = path.key(0).table;
+  const fresh = () => fakeDb({ [table]: path.spec });
+  const statusOf = (db: ReturnType<typeof fakeDb>) => db.data[table]![0]?.status;
+
+  // Success: one Graph call, final sent, a rerun does not call Graph.
+  {
+    const db = fresh();
+    assert.deepEqual(await send(path.key(0), db.admin, "sent"), { claim: "won", graphCalls: 1 }, path.name);
+    assert.equal(statusOf(db), "sent", path.name);
+    assert.deepEqual(await send(path.key(0), db.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
+  }
+
+  // Meta error: the claim does not stay at sending, and the next run sends again.
+  {
+    const db = fresh();
+    await send(path.key(0), db.admin, path.metaSettle);
+    if (path.metaSettle === "failed") {
+      assert.equal(statusOf(db), "failed", path.name);
+      assert.equal(db.data[table]![0]?.attempts, 1, path.name);
+    } else {
+      assert.equal(db.data[table]!.length, 0, path.name);
+    }
+    if (path.metaRetried === false) {
+      assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
+    } else {
+      assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "won", graphCalls: 1 }, path.name);
+      assert.equal(statusOf(db), "sent", path.name);
+    }
+  }
+
+  // Worker death after the Graph call: the row stays at sending and is never sent again.
+  {
+    const db = fresh();
+    await send(path.key(0), db.admin, "throw");
+    assert.equal(statusOf(db), "sending", path.name);
+    assert.deepEqual(await send(path.key(0), db.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
+  }
+
+  // A hold releases the claim: no row, the next run may send.
+  {
+    const db = fresh();
+    await send(path.key(0), db.admin, "release");
+    assert.equal(db.data[table]!.length, 0, path.name);
+  }
+}
+
+async function capTests() {
+  const spec: TableSpec = {
+    columns: ["business_id", "trigger_id", "user_id", ...SYNC_COLUMNS],
+    pk: ["business_id", "trigger_id", "user_id"],
+    statuses: ALL_STATUSES,
+  };
+  const db = fakeDb({ arbox_birthday_sync_log: spec });
+  const key = (attempts: number): Key => ({
+    table: "arbox_birthday_sync_log",
+    row: { business_id: 1, trigger_id: "r", user_id: 11, attempts },
+    filters: [
+      ["business_id", 1],
+      ["trigger_id", "r"],
+      ["user_id", 11],
+    ],
+  });
+  await send(key(0), db.admin, "failed");
+  await send(key(1), db.admin, "failed");
+  await send(key(2), db.admin, "failed");
+  assert.equal(db.data.arbox_birthday_sync_log![0]?.status, "abandoned");
+  assert.deepEqual(await send(key(3), db.admin, "sent"), { claim: "lost", graphCalls: 0 });
+}
+
+async function legacyTableTests() {
+  // Before the migration: no status / attempts / reason columns.
+  const spec: TableSpec = { columns: ["business_id", "trigger_id", "user_id", "processed_at"], pk: ["business_id", "trigger_id", "user_id"] };
+  const key: Key = {
+    table: "arbox_birthday_sync_log",
+    row: { business_id: 1, trigger_id: "r", user_id: 11, processed_at: now.toISOString(), attempts: 0 },
+    filters: [
+      ["business_id", 1],
+      ["trigger_id", "r"],
+      ["user_id", 11],
+    ],
+  };
+  const sent = fakeDb({ arbox_birthday_sync_log: spec });
+  assert.deepEqual(await send(key, sent.admin, "sent"), { claim: "won", graphCalls: 1 });
+  assert.equal(sent.data.arbox_birthday_sync_log!.length, 1);
+  assert.deepEqual(await send(key, sent.admin, "sent"), { claim: "lost", graphCalls: 0 });
+
+  const failed = fakeDb({ arbox_birthday_sync_log: spec });
+  await send(key, failed.admin, "failed");
+  assert.equal(failed.data.arbox_birthday_sync_log!.length, 0, "legacy failed send leaves no row");
+
+  const died = fakeDb({ arbox_birthday_sync_log: spec });
+  await send(key, died.admin, "throw");
+  assert.deepEqual(await send(key, died.admin, "sent"), { claim: "lost", graphCalls: 0 });
+
+  // Status check without sending/failed yet: claim is stored as sent + reason sending.
+  const checked = fakeDb({
+    arbox_birthday_sync_log: { columns: ["business_id", "trigger_id", "user_id", ...SYNC_COLUMNS], pk: spec.pk, statuses: ["sent", "pending", "skipped"] },
+  });
+  assert.equal(await claimSyncLogBeforeSend({ admin: checked.admin, ...key }), "won");
+  assert.equal(checked.data.arbox_birthday_sync_log![0]?.status, "sent");
+  assert.equal(checked.data.arbox_birthday_sync_log![0]?.reason, "sending");
+}
+
+async function companionTests() {
+  // site_lead + no_response: claim row in scheduled_template_sends before the Graph call.
+  const spec: TableSpec = {
+    columns: ["business_id", "trigger_id", "contact_phone", "template_name", "due_at", "status", "dedup_key", "last_error", "updated_at", "id"],
+    pk: ["dedup_key"],
+  };
+  const input = { dedupKey: "site:1:r:972500000000:2026-10-08", businessId: 1, ruleId: "r", phone: "972500000000", templateName: "t", nowIso: now.toISOString() };
+  const db = fakeDb({ scheduled_template_sends: spec });
+  const rows = db.data.scheduled_template_sends!;
+
+  assert.equal(await recordCompanionTemplateSent(db.admin, input), true);
+  assert.equal(await recordCompanionTemplateSent(db.admin, input), false, "held claim is not taken twice");
+  await settleCompanionTemplateSent(db.admin, input.dedupKey, "failed");
+  assert.equal(rows[0]?.status, "failed");
+  assert.equal(companionClaimFailures(rows[0]?.last_error), 1);
+  assert.equal(await recordCompanionTemplateSent(db.admin, input), true, "Meta failure is retried");
+  await settleCompanionTemplateSent(db.admin, input.dedupKey, "failed");
+  assert.equal(await recordCompanionTemplateSent(db.admin, input), true);
+  await settleCompanionTemplateSent(db.admin, input.dedupKey, "failed");
+  assert.equal(companionClaimFailures(rows[0]?.last_error), 3);
+  assert.equal(await recordCompanionTemplateSent(db.admin, input), false, "attempt cap");
+
+  const ok = fakeDb({ scheduled_template_sends: spec });
+  assert.equal(await recordCompanionTemplateSent(ok.admin, input), true);
+  await settleCompanionTemplateSent(ok.admin, input.dedupKey, "sent");
+  assert.equal(ok.data.scheduled_template_sends![0]?.status, "sent");
+  assert.equal(await recordCompanionTemplateSent(ok.admin, input), false);
+
+  const held = fakeDb({ scheduled_template_sends: spec });
+  assert.equal(await recordCompanionTemplateSent(held.admin, input), true);
+  await settleCompanionTemplateSent(held.admin, input.dedupKey, "release");
+  assert.equal(held.data.scheduled_template_sends!.length, 0);
+}
+
+async function queuedTests() {
+  // Trainer heads-up immediate: pending → sending before Graph, so the drain cannot send it too.
+  const spec: TableSpec = { columns: ["dedup_key", "status", "last_error", "updated_at", "id"], pk: ["dedup_key"] };
+  const db = fakeDb({ scheduled_template_sends: spec });
+  const rows = db.data.scheduled_template_sends!;
+  rows.push({ id: 1, dedup_key: "k", status: "pending", last_error: null });
+  assert.equal(await claimQueuedTemplateSend(db.admin, "k"), "won");
+  assert.equal(rows[0]?.status, "sending");
+  assert.equal(await claimQueuedTemplateSend(db.admin, "k"), "lost", "worker death: never sent again");
+  await settleQueuedTemplateSend(db.admin, "k", "failed", "trainer_template_pending");
+  assert.equal(rows[0]?.status, "pending");
+  assert.equal(rows[0]?.last_error, "trainer_template_pending");
+  assert.equal(await claimQueuedTemplateSend(db.admin, "k"), "won");
+  await settleQueuedTemplateSend(db.admin, "k", "sent");
+  assert.equal(rows[0]?.status, "sent");
+  assert.equal(await claimQueuedTemplateSend(db.admin, "k"), "lost");
+}
 
 async function main() {
-  const sentRows: Row[] = [];
-  const won = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(sentRows) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: base,
-    filters,
-  });
-  assert.equal(won, "won");
-  assert.equal(sentRows[0]?.status, "sending");
-  sentRows[0]!.status = "sent";
-  sentRows[0]!.reason = null;
-  const again = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(sentRows) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: base,
-    filters,
-  });
-  assert.equal(again, "lost");
-
-  const dead: Row[] = [];
-  const first = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(dead) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: base,
-    filters,
-  });
-  assert.equal(first, "won");
-  const second = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(dead) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: base,
-    filters,
-  });
-  assert.equal(second, "lost");
-  assert.equal(dead[0]?.status, "sending");
-
-  const meta: Row[] = [{ ...base, status: "sending", reason: "sending" }];
-  const retry = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(meta) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: { ...base, status: "failed" },
-    filters,
-  });
-  meta[0]!.status = "failed";
-  const reclaimed = await claimSyncLogBeforeSend({
-    admin: fakeAdmin(meta) as never,
-    table: "arbox_days_in_club_sync_log",
-    row: base,
-    filters,
-  });
-  assert.equal(retry, "lost");
-  assert.equal(reclaimed, "won");
-  assert.equal(meta[0]?.status, "sending");
-
+  assert.equal(missingColumnFromError({ message: "column arbox_birthday_sync_log.status does not exist" }), "status");
+  assert.equal(
+    missingColumnFromError({ message: "Could not find the 'attempts' column of 'arbox_birthday_sync_log' in the schema cache" }),
+    "attempts"
+  );
+  for (const path of paths) await pathTests(path);
+  await capTests();
+  await legacyTableTests();
+  await companionTests();
+  await queuedTests();
   console.log("sync-log-claim.test.ts ok");
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

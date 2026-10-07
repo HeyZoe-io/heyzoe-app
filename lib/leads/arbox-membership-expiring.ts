@@ -26,7 +26,16 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { rulesForCompanionSend, runCompanionTemplateSends } from "@/lib/same-trigger-template-order";
+import {
+  type CompanionDispatch,
+  rulesForCompanionSend,
+  runCompanionTemplateSends,
+} from "@/lib/same-trigger-template-order";
+import {
+  claimSettleForDispatch,
+  sendWithSyncLogClaim,
+  syncLogRowRetryable,
+} from "@/lib/leads/sync-log-claim";
 import {
   loadEnabledMembershipExpiringTemplateTriggers,
   type PurchaseTemplateTriggerRule,
@@ -691,7 +700,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     try {
       const { data: existingSeen } = await input.admin
         .from("arbox_expiring_sync_log")
-        .select("trigger_id")
+        .select("*")
         .eq("business_id", businessId)
         .eq("membership_user_id", membershipUserId)
         .eq("end_date", endDateYmd)
@@ -700,7 +709,15 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
           dueRules.map((item) => item.id)
         );
       const seenIds = new Set(
-        (existingSeen ?? []).map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+        (existingSeen ?? [])
+          .filter((log) => !syncLogRowRetryable((log as { status?: unknown }).status))
+          .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
+      );
+      const attemptsByRule = new Map(
+        (existingSeen ?? []).map((log) => [
+          String((log as { trigger_id?: unknown }).trigger_id ?? ""),
+          Number((log as { attempts?: unknown }).attempts) || 0,
+        ])
       );
       const pendingRules = dueRules.filter((item) => item.id && !seenIds.has(item.id));
       if (!pendingRules.length) {
@@ -754,29 +771,54 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
-        send: (rule) =>
-          dispatchMembershipExpiringTemplate({
+        send: async (rule) => {
+          const claimed = await sendWithSyncLogClaim({
             admin: input.admin,
-            businessId,
-            businessSlug,
-            phone: sendPhone,
-            fullName: resolveReportFullName(row),
-            contactFullName: sendContact.full_name ?? null,
-            membershipUserId,
-            endDateYmd,
-            dueAt: computeMembershipExpiringDueAt(endDateYmd, rule),
-            rule,
-            now,
-          }).then((send) =>
-            send.dispatch === "enqueued"
-              ? "deferred"
-              : send.dispatch === "immediate" ||
-                  send.dispatch === "gated" ||
-                  send.dispatch === "skipped" ||
-                  send.dispatch === "send_failed"
-                ? send.dispatch
-                : "skipped"
-          ),
+            table: "arbox_expiring_sync_log",
+            row: {
+              business_id: businessId,
+              trigger_id: rule.id,
+              membership_user_id: membershipUserId,
+              end_date: endDateYmd,
+              contact_id: sendContact.id,
+              processed_at: now.toISOString(),
+              attempts: attemptsByRule.get(rule.id) ?? 0,
+            },
+            filters: [
+              ["business_id", businessId],
+              ["trigger_id", rule.id],
+              ["membership_user_id", membershipUserId],
+              ["end_date", endDateYmd],
+            ],
+            send: async () => {
+              const send = await dispatchMembershipExpiringTemplate({
+                admin: input.admin,
+                businessId,
+                businessSlug,
+                phone: sendPhone,
+                fullName: resolveReportFullName(row),
+                contactFullName: sendContact.full_name ?? null,
+                membershipUserId,
+                endDateYmd,
+                dueAt: computeMembershipExpiringDueAt(endDateYmd, rule),
+                rule,
+                now,
+              });
+              const dispatch: CompanionDispatch =
+                send.dispatch === "enqueued"
+                  ? "deferred"
+                  : send.dispatch === "immediate" ||
+                      send.dispatch === "gated" ||
+                      send.dispatch === "skipped" ||
+                      send.dispatch === "send_failed"
+                    ? send.dispatch
+                    : "skipped";
+              return { settle: claimSettleForDispatch(dispatch), value: dispatch };
+            },
+          });
+          if (claimed.claim === "error") summary.errors += 1;
+          return claimed.value ?? "skipped";
+        },
       });
 
       summary.processed += 1;
@@ -784,29 +826,6 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
       else if (sendDispatch === "send_failed") summary.errors += 1;
-
-      if (sendDispatch === "skipped" || sendDispatch === "immediate" || sendDispatch === "deferred") {
-        for (const rule of pendingRules) {
-          const { error: logErr } = await input.admin.from("arbox_expiring_sync_log").upsert(
-            {
-              business_id: businessId,
-              trigger_id: rule.id,
-              membership_user_id: membershipUserId,
-              end_date: endDateYmd,
-              contact_id: sendContact.id,
-              processed_at: now.toISOString(),
-            },
-            { onConflict: "business_id,trigger_id,membership_user_id,end_date" }
-          );
-          if (logErr) {
-            console.error(
-              "[leads/arbox-membership-expiring] sync_log upsert failed:",
-              logErr.message
-            );
-            summary.errors += 1;
-          }
-        }
-      }
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-membership-expiring] row threw", {

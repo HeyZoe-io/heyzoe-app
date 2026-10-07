@@ -20,6 +20,12 @@ import { parseReportEventInstant, rulesOpenForEvent } from "@/lib/rule-activatio
 import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import {
+  claimSettleForDispatch,
+  sendWithSyncLogClaim,
+  syncLogRowRetryable,
+} from "@/lib/leads/sync-log-claim";
 import {
   loadEnabledArboxNewLeadTemplateTriggers,
   type PurchaseTemplateTriggerRule,
@@ -533,21 +539,53 @@ async function seenArboxNewLeadTriggerIds(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   leadId: number;
+  /** Filled with the Meta failures so far for rules the next run retries. */
+  attempts?: Map<string, number>;
 }): Promise<Set<string> | null> {
   const { data, error } = await input.admin
     .from("arbox_new_lead_sync_log")
-    .select("trigger_id")
+    .select("*")
     .eq("business_id", input.businessId)
     .eq("lead_id", input.leadId);
   if (error) {
     console.error("[leads/arbox-new-lead] sync_log lookup failed:", error.message);
     return null;
   }
-  return new Set(
-    (data ?? [])
-      .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "").trim())
-      .filter(Boolean)
-  );
+  const seen = new Set<string>();
+  for (const row of data ?? []) {
+    const r = row as { trigger_id?: unknown; status?: unknown; attempts?: unknown };
+    const triggerId = String(r.trigger_id ?? "").trim();
+    if (!triggerId) continue;
+    if (syncLogRowRetryable(r.status)) input.attempts?.set(triggerId, Number(r.attempts) || 0);
+    else seen.add(triggerId);
+  }
+  return seen;
+}
+
+/** One lead, one rule. */
+export function arboxNewLeadClaimKey(
+  businessId: number,
+  triggerId: string,
+  leadId: number,
+  contactId: string | null,
+  attempts = 0
+): { table: string; row: Record<string, unknown>; filters: Array<[string, string | number]> } {
+  return {
+    table: "arbox_new_lead_sync_log",
+    row: {
+      business_id: businessId,
+      trigger_id: triggerId,
+      lead_id: leadId,
+      contact_id: contactId,
+      processed_at: new Date().toISOString(),
+      attempts,
+    },
+    filters: [
+      ["business_id", businessId],
+      ["trigger_id", triggerId],
+      ["lead_id", leadId],
+    ],
+  };
 }
 
 /**
@@ -685,6 +723,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
     leadId: number;
     userId: string;
     pending: PurchaseTemplateTriggerRule[];
+    attempts: Map<string, number>;
   };
   const unseenNonZoe: Candidate[] = [];
 
@@ -696,10 +735,12 @@ export async function syncArboxNewLeadsForBusiness(input: {
       continue;
     }
 
+    const attempts = new Map<string, number>();
     const seenIds = await seenArboxNewLeadTriggerIds({
       admin: input.admin,
       businessId,
       leadId,
+      attempts,
     });
     if (!seenIds) {
       summary.errors += 1;
@@ -758,7 +799,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
       continue;
     }
 
-    unseenNonZoe.push({ row, leadId, userId, pending });
+    unseenNonZoe.push({ row, leadId, userId, pending, attempts });
   }
 
   if (!shouldFetchArboxCustomerSet(unseenNonZoe.length)) {
@@ -784,7 +825,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
   }
   const activeKeys = customers.keys;
 
-  for (const { row, leadId, userId, pending } of unseenNonZoe) {
+  for (const { row, leadId, userId, pending, attempts } of unseenNonZoe) {
     try {
       const reportPhone =
         normalizePhone(row.phone) ?? normalizePhone(row.additional_phone);
@@ -872,16 +913,38 @@ export async function syncArboxNewLeadsForBusiness(input: {
       for (const rule of pending) {
         const slot = await companion.before(String(rule.template_name ?? ""));
         if (slot === "skip") continue;
-        const send = await sendArboxNewLeadTemplate({
+        const claimed = await sendWithSyncLogClaim({
           admin: input.admin,
-          businessId,
-          businessSlug,
-          phone,
-          fullName,
-          leadId,
-          createdAt: row.created_at,
-          rule,
+          ...arboxNewLeadClaimKey(businessId, rule.id, leadId, contactId, attempts.get(rule.id) ?? 0),
+          send: async () => {
+            const value = await sendArboxNewLeadTemplate({
+              admin: input.admin,
+              businessId,
+              businessSlug,
+              phone,
+              fullName,
+              leadId,
+              createdAt: row.created_at,
+              rule,
+            });
+            return { settle: claimSettleForDispatch(value.dispatch), value };
+          },
         });
+        if (claimed.claim !== "won" || !claimed.value) {
+          if (claimed.claim === "error") {
+            summary.errors += 1;
+            logDedupBlockedSend({
+              log: "[leads/arbox-new-lead]",
+              businessId,
+              triggerId: rule.id,
+              reason: "claim_failed",
+            });
+          } else {
+            summary.already += 1;
+          }
+          continue;
+        }
+        const send = claimed.value;
         companion.after(String(rule.template_name ?? ""), send.dispatch === "immediate" ? "immediate" : send.dispatch);
 
         if (send.dispatch === "gated" || send.dispatch === "send_failed") {
@@ -899,18 +962,6 @@ export async function syncArboxNewLeadsForBusiness(input: {
           continue;
         }
 
-        const marked = await markArboxNewLeadSeen({
-          admin: input.admin,
-          businessId,
-          leadId,
-          triggerIds: [rule.id],
-          contactId,
-          nowIso,
-        });
-        if (!marked.ok) {
-          summary.errors += 1;
-          continue;
-        }
         summary.processed += 1;
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;
