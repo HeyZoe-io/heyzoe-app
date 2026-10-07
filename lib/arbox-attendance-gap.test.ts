@@ -5,8 +5,10 @@ import {
   ATTENDANCE_GAP_SYNC_VARIANT,
   attendanceGapFutureWindow,
   attendanceGapPastWindow,
+  attendanceGapLookbackCoversDelays,
   attendanceGapSeedCandidates,
   attendanceGapTiersNeedingSoftSeed,
+  attendanceGapUnmarkedBooking,
   computeAttendanceGapStates,
   sharedFutureBookingsWindow,
   ymdDiffDays,
@@ -21,6 +23,7 @@ import {
   minDelayDaysForTrigger,
   triggerTypeLabel,
 } from "@/lib/trigger-catalog";
+import { missedOccurrenceYesCount } from "@/lib/leads/arbox-missed-class";
 import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
 
 function row(
@@ -198,6 +201,66 @@ assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);
   const t7 = buildAttendanceGapScheduledDedupKey(1, "r7", 1, episodeA, 7);
   const t21 = buildAttendanceGapScheduledDedupKey(1, "r21", 1, episodeA, 21);
   assert.notEqual(t7, t21, "tiers are independent keys");
+}
+
+/** Unmarked class inside the gap blocks. Marked-class No, or an empty window, does not. */
+{
+  const today = "2026-10-08";
+  const rows = [
+    row({ user_id: 1, date: "2026-09-24", check_in: "Yes", class_name: "כוח", time: "10:00" }),
+    row({ user_id: 1, date: "2026-10-01", check_in: "No", class_name: "כוח", time: "18:00" }),
+    row({ user_id: 2, date: "2026-09-24", check_in: "Yes", class_name: "יוגה", time: "09:00" }),
+    row({ user_id: 2, date: "2026-10-01", check_in: "No", class_name: "יוגה", time: "19:00" }),
+    row({ user_id: 9, date: "2026-10-01", check_in: "Yes", class_name: "יוגה", time: "19:00" }),
+    row({ user_id: 3, date: "2026-09-20", check_in: "Yes", class_name: "פילאטיס", time: "08:00" }),
+  ];
+  const yes = missedOccurrenceYesCount(rows);
+  assert.deepEqual(
+    attendanceGapUnmarkedBooking({
+      userId: 1,
+      lastYesYmd: "2026-09-24",
+      todayYmd: today,
+      rows,
+      occurrenceYes: yes,
+    }),
+    { classDate: "2026-10-01", classTime: "18:00", className: "כוח" }
+  );
+  assert.equal(
+    attendanceGapUnmarkedBooking({
+      userId: 2,
+      lastYesYmd: "2026-09-24",
+      todayYmd: today,
+      rows,
+      occurrenceYes: yes,
+    }),
+    null
+  );
+  assert.equal(
+    attendanceGapUnmarkedBooking({
+      userId: 3,
+      lastYesYmd: "2026-09-20",
+      todayYmd: today,
+      rows,
+      occurrenceYes: yes,
+    }),
+    null
+  );
+  assert.equal(
+    attendanceGapLookbackCoversDelays({
+      lookbackFrom: "2026-09-09",
+      todayYmd: today,
+      delayDays: [7, 14],
+    }),
+    true
+  );
+  assert.equal(
+    attendanceGapLookbackCoversDelays({
+      lookbackFrom: "2026-10-01",
+      todayYmd: today,
+      delayDays: [14],
+    }),
+    false
+  );
 }
 
 console.log("arbox-attendance-gap.test.ts: ok");

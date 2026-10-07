@@ -24,6 +24,12 @@ import {
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import {
+  missedClassOccurrenceKey,
+  missedOccurrenceYesCount,
+  normalizeMissedClassNamePk,
+  normalizeMissedClassTimePk,
+} from "@/lib/leads/arbox-missed-class";
+import {
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
   isBookingCheckedIn,
@@ -93,6 +99,12 @@ export type AttendanceGapSyncSummary = {
   gated: number;
   no_phone: number;
   abandoned: number;
+  /** Sends skipped because a booking in the gap sat in a class with zero Yes. */
+  class_unmarked: number;
+  /** delay_days of the enabled rules. */
+  gap_delays: number[];
+  /** True when the fetched past span reaches the longest delay. */
+  lookback_covers_delays: boolean;
   errors: number;
   fetch_error?: string;
 };
@@ -228,6 +240,48 @@ export function computeAttendanceGapStates(input: {
     });
   }
   return out;
+}
+
+/**
+ * The fetched span covers a delay when last Yes for that delay is still inside it.
+ * A 30-day report starts 29 days back, so delays of 7, 14, and 21 fit. 30 does not.
+ */
+export function attendanceGapLookbackCoversDelays(input: {
+  lookbackFrom: string | undefined;
+  todayYmd: string;
+  delayDays: readonly number[];
+}): boolean {
+  const delays = input.delayDays.map((day) => Math.trunc(day)).filter((day) => day > 0);
+  if (!input.lookbackFrom || !delays.length) return false;
+  const earliestYes = addCalendarDaysYmd(input.todayYmd, -Math.max(...delays));
+  if (!earliestYes) return false;
+  return input.lookbackFrom <= earliestYes;
+}
+
+/**
+ * Gap window is past classes strictly after last Yes and before today.
+ * A booking in a class occurrence with zero Yes blocks the send.
+ * No bookings in the window, or only bookings in a class that has a Yes, do not.
+ */
+export function attendanceGapUnmarkedBooking(input: {
+  userId: number;
+  lastYesYmd: string;
+  todayYmd: string;
+  rows: readonly Pick<ArboxBookingReportRow, "user_id" | "date" | "time" | "class_name">[];
+  occurrenceYes: ReadonlyMap<string, number>;
+}): { classDate: string; classTime: string; className: string } | null {
+  for (const row of input.rows) {
+    if (parseAttendanceGapUserId(row.user_id) !== input.userId) continue;
+    const classDate = parseClassDateYmd(row.date);
+    const classTime = normalizeMissedClassTimePk(row.time);
+    const className = normalizeMissedClassNamePk(row.class_name);
+    if (!classDate || !classTime || !className) continue;
+    if (classDate <= input.lastYesYmd || classDate >= input.todayYmd) continue;
+    const yes = input.occurrenceYes.get(missedClassOccurrenceKey(classDate, classTime, className)) ?? 0;
+    if (yes > 0) continue;
+    return { classDate, classTime, className };
+  }
+  return null;
 }
 
 function resolveReportFullName(row: ArboxBookingReportRow): string | null {
@@ -532,6 +586,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     gated: 0,
     no_phone: 0,
     abandoned: 0,
+    class_unmarked: 0,
+    gap_delays: [],
+    lookback_covers_delays: false,
     errors: 0,
   };
 
@@ -551,6 +608,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
 
   const rules = await loadEnabledAttendanceGapTemplateTriggers(input.admin, businessId);
   const tiers = normalizeTiersFromRules(rules);
+  summary.gap_delays = tiers;
   if (!tiers.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
@@ -582,6 +640,12 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     pastRows = pastReport.rows;
   }
   summary.fetched_past = pastRows.length;
+  summary.lookback_covers_delays = attendanceGapLookbackCoversDelays({
+    lookbackFrom: summary.lookback_from,
+    todayYmd,
+    delayDays: tiers,
+  });
+  const occurrenceYes = missedOccurrenceYesCount(pastRows);
 
   const states = computeAttendanceGapStates({
     pastRows,
@@ -727,6 +791,46 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         const pendingRules = tierRules.filter((rule) => rule.id && !terminalIds.has(rule.id));
         if (!pendingRules.length) {
           summary.already += 1;
+          continue;
+        }
+        const unmarked = attendanceGapUnmarkedBooking({
+          userId: state.userId,
+          lastYesYmd: state.lastYesYmd,
+          todayYmd,
+          rows: pastRows,
+          occurrenceYes,
+        });
+        if (unmarked) {
+          let seededOk = true;
+          for (const rule of pendingRules) {
+            const up = await upsertGapSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId: state.userId,
+              gapStartDate: state.lastYesYmd,
+              tier,
+              contactId: null,
+              attempts: 0,
+              status: "seeded",
+              nowIso,
+            });
+            if (!up.ok) seededOk = false;
+          }
+          if (!seededOk) summary.errors += 1;
+          summary.class_unmarked += 1;
+          console.info("[leads/arbox-attendance-gap] class_unmarked", {
+            businessId,
+            tier,
+            user_id: state.userId,
+            full_name: resolveReportFullName(state.sampleRow),
+            contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+            last_yes: state.lastYesYmd,
+            class_date: unmarked.classDate,
+            class_time: unmarked.classTime,
+            class_name: unmarked.className,
+            reason: "class_unmarked",
+          });
           continue;
         }
         const attemptsSoFar = 0;

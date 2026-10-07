@@ -983,6 +983,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
       gated: 0,
       no_phone: 0,
       abandoned: 0,
+      class_unmarked: 0,
+      gap_delays: [],
+      lookback_covers_delays: false,
       errors: 1,
       fetch_error: message,
     };
