@@ -1,3 +1,4 @@
+import { isArboxMembershipBadge, type ArboxMembershipBadge } from "@/lib/arbox-membership-badge";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { computeContactStatus, type ContactStatusKey } from "@/lib/contact-status";
 import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
@@ -42,6 +43,8 @@ export type SessionSummary = {
   arboxProfileId?: string | null;
   /** businesses.crm_type — gate the Arbox profile link */
   crmType?: CrmType | null;
+  /** contacts.arbox_membership_status. Null = not checked or not an Arbox business. */
+  arboxMembershipStatus?: ArboxMembershipBadge | null;
 };
 
 export function sessionAwaitingReply(session: {
@@ -63,7 +66,12 @@ type ContactPhoneMeta = {
   lastContactAt: string | null;
   arboxUserId: string | null;
   arboxProfileId: string | null;
+  arboxMembershipStatus: ArboxMembershipBadge | null;
 };
+
+function contactMembershipBadge(row: { arbox_membership_status?: unknown }): ArboxMembershipBadge | null {
+  return isArboxMembershipBadge(row.arbox_membership_status) ? row.arbox_membership_status : null;
+}
 
 function contactArboxUserId(row: { arbox_user_id?: unknown }): string | null {
   const id = String(row.arbox_user_id ?? "").trim();
@@ -97,6 +105,7 @@ function mergeContactMetaRow(
     lastContactAt,
     arboxUserId: contactArboxUserId(row as { arbox_user_id?: unknown }),
     arboxProfileId: contactArboxProfileId(row as { arbox_profile_id?: unknown }),
+    arboxMembershipStatus: contactMembershipBadge(row as { arbox_membership_status?: unknown }),
   };
   const prev = map.get(key);
   if (!prev) {
@@ -111,6 +120,7 @@ function mergeContactMetaRow(
     ...winner,
     arboxUserId: winner.arboxUserId || loser.arboxUserId,
     arboxProfileId: winner.arboxProfileId || loser.arboxProfileId,
+    arboxMembershipStatus: winner.arboxMembershipStatus ?? loser.arboxMembershipStatus,
   });
 }
 
@@ -119,15 +129,39 @@ async function loadContactMetaByPhoneForBusiness(
   businessId: number
 ): Promise<Map<string, ContactPhoneMeta>> {
   const map = new Map<string, ContactPhoneMeta>();
+  const baseCols =
+    "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id, arbox_profile_id";
+  let includeBadge = true;
+  const contacts = admin.from("contacts") as unknown as {
+    select: (columns: string) => {
+      eq: (column: string, value: unknown) => {
+        order: (column: string, opts: { ascending: boolean }) => {
+          range: (from: number, to: number) => Promise<{
+            data: Record<string, unknown>[] | null;
+            error: { message: string } | null;
+          }>;
+        };
+      };
+    };
+  };
   for (let off = 0; off < CONTACT_META_CAP; off += CONTACT_META_PAGE) {
-    const { data, error } = await admin
-      .from("contacts")
-      .select(
-        "phone, full_name, opted_out, not_relevant_at, human_requested_at, trial_registered, session_phase, source, wa_followup_stage, last_contact_at, wa_no_response_at, arbox_user_id, arbox_profile_id"
-      )
+    const cols: string = includeBadge ? `${baseCols}, arbox_membership_status` : baseCols;
+    let { data, error } = await contacts
+      .select(cols)
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
       .range(off, off + CONTACT_META_PAGE - 1);
+
+    if (error && includeBadge && /arbox_membership_status/.test(error.message)) {
+      includeBadge = false;
+      const retry = await contacts
+        .select(baseCols)
+        .eq("business_id", businessId)
+        .order("created_at", { ascending: false })
+        .range(off, off + CONTACT_META_PAGE - 1);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.warn("[conversations-sessions] contacts meta load:", error.message);
@@ -187,6 +221,7 @@ function enrichSessionsWithContactMeta(
       ...s,
       fullName: meta?.fullName ?? s.fullName ?? null,
       contactStatus: meta?.status ?? null,
+      arboxMembershipStatus: meta?.arboxMembershipStatus ?? s.arboxMembershipStatus ?? null,
       arboxUserId: meta?.arboxUserId ?? s.arboxUserId ?? null,
       arboxProfileId: meta?.arboxProfileId ?? s.arboxProfileId ?? null,
       lastAt,

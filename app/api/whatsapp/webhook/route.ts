@@ -7144,10 +7144,11 @@ async function processIncoming(
   // resolver treats missing credentials as "nothing resolvable", never suppressing a slot).
   let crmApiKey = "";
   let crmBoxId = "";
+  let crmType = "";
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated, crm_api_key, crm_api_key_enc, crm_box_id")
+      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
       .eq("slug", business_slug)
       .maybeSingle();
     if (bizErr || !biz) {
@@ -7161,6 +7162,7 @@ async function processIncoming(
     zoeActivated = (biz as { zoe_activated?: boolean | null }).zoe_activated === true;
     crmApiKey = getArboxApiKey(biz as Record<string, unknown>);
     crmBoxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
+    crmType = String((biz as { crm_type?: unknown }).crm_type ?? "").trim().toLowerCase();
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
     if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
@@ -7354,7 +7356,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang, arbox_is_member, arbox_user_id",
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang, arbox_is_member, arbox_user_id, arbox_membership_status, arbox_membership_checked_at",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
@@ -7424,6 +7426,45 @@ async function processIncoming(
       const rawArboxUserId = Number((contactRow as { arbox_user_id?: unknown } | null)?.arbox_user_id);
       contactArboxUserId =
         Number.isFinite(rawArboxUserId) && rawArboxUserId > 0 ? Math.trunc(rawArboxUserId) : null;
+
+      const badgeRow = contactRow as {
+        arbox_membership_checked_at?: unknown;
+      } | null;
+      if (
+        contactId != null &&
+        crmType === "arbox" &&
+        crmApiKey &&
+        crmBoxId &&
+        badgeRow != null &&
+        Object.prototype.hasOwnProperty.call(badgeRow, "arbox_membership_checked_at")
+      ) {
+        const checkedAt =
+          typeof badgeRow.arbox_membership_checked_at === "string"
+            ? badgeRow.arbox_membership_checked_at
+            : null;
+        const { shouldRefreshArboxMembershipBadge } = await import("@/lib/arbox-membership-badge");
+        if (shouldRefreshArboxMembershipBadge(checkedAt, new Date(nowIso))) {
+          const refreshBusinessId = Number(businessId);
+          const refreshContactId = contactId;
+          const refreshPhone = contactPhone;
+          const refreshKey = crmApiKey;
+          const refreshBox = crmBoxId;
+          after(() =>
+            import("@/lib/arbox-membership-badge-sync")
+              .then(({ refreshArboxMembershipBadge }) =>
+                refreshArboxMembershipBadge({
+                  businessId: refreshBusinessId,
+                  contactId: refreshContactId,
+                  phone: refreshPhone,
+                  apiKey: refreshKey,
+                  boxId: refreshBox,
+                  now: new Date(nowIso),
+                })
+              )
+              .catch((e) => console.error("[WA Webhook] membership badge refresh failed:", e))
+          );
+        }
+      }
 
       const rawKinds = (contactRow as any)?.sf_clicked_cta_kinds;
       if (Array.isArray(rawKinds)) {

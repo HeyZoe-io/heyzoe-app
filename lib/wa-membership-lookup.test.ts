@@ -5,6 +5,11 @@ import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent
 import { matchesRegistrationIntentPhrase } from "@/lib/wa-registration-intent";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
+  ARBOX_MEMBERSHIP_BADGE_ACTIVE,
+  ARBOX_MEMBERSHIP_BADGE_EXPIRED,
+  ARBOX_MEMBERSHIP_BADGE_LEAD,
+} from "@/lib/arbox-membership-badge";
+import {
   buildArboxUserMembershipsPath,
   buildMembershipEndDateReply,
   classifyMembershipLookup,
@@ -16,6 +21,7 @@ import {
   hasPositiveMembershipDebt,
   isInForceMembership,
   mapMembershipLookupReply,
+  membershipBadgeFromRecords,
   MEMBERSHIP_LOOKUP_ACTIVE_DEBT_MODEL,
   MEMBERSHIP_LOOKUP_ACTIVE_DEBT_REPLY,
   MEMBERSHIP_LOOKUP_ACTIVE_FOLLOWUP_MODEL,
@@ -459,6 +465,30 @@ const TODAY = "2026-08-23";
     mapMembershipEndDateReply({ fetched: { status: "fetch_failed" }, todayYmd: TODAY }).modelUsed,
     MEMBERSHIP_LOOKUP_FETCH_FAILED_MODEL
   );
+
+/** Conversations badge uses the same in-force rule. Empty records are «ליד», not expired. */
+{
+  const open: ArboxUserMembershipRecord = { active: 1, cancelled: 0, end_time: null, debt: 40 };
+  assert.equal(
+    membershipBadgeFromRecords({ records: [open], todayYmd: TODAY }),
+    ARBOX_MEMBERSHIP_BADGE_ACTIVE
+  );
+  const lapsed: ArboxUserMembershipRecord = { active: 1, cancelled: 0, end_time: "2026-08-22" };
+  const cancelled: ArboxUserMembershipRecord = { active: 1, cancelled: 1, end_time: null };
+  assert.equal(
+    membershipBadgeFromRecords({ records: [lapsed, cancelled], todayYmd: TODAY }),
+    ARBOX_MEMBERSHIP_BADGE_EXPIRED
+  );
+  assert.equal(
+    membershipBadgeFromRecords({ records: [], todayYmd: TODAY }),
+    ARBOX_MEMBERSHIP_BADGE_LEAD
+  );
+  assert.equal(
+    membershipBadgeFromRecords({ records: [lapsed, open], todayYmd: TODAY }),
+    ARBOX_MEMBERSHIP_BADGE_ACTIVE
+  );
+  const path = buildArboxUserMembershipsPath("99");
+  assert.equal(path.includes("active="), false);
 }
 
 console.log("wa-membership-lookup.test.ts: ok");
