@@ -236,7 +236,7 @@ import {
   inboundTextForSalesFlowStartCheck,
   shouldResendDeterministicMenuOnUnrecognizedPick,
 } from "@/lib/sales-flow-inbound";
-import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage, mayHandleSalesFlowCtaMenu, assistantModelsShowCurrentFlowTrainings, memberSalesFlowStartGate } from "@/lib/sales-flow-start-triggers";
+import { normalizeSalesFlowGreetingToken, isSalesFlowStartTrigger, isCasualHiGreeting, buildCasualHiGreetingReply, isOpeningServicePickMenuModel, businessOpensSalesFlowOnAnyNewLeadMessage, mayHandleSalesFlowCtaMenu, assistantModelsShowCurrentFlowTrainings, memberSalesFlowStartGate, salesFlowOpeningMayStart } from "@/lib/sales-flow-start-triggers";
 import {
   buildOwnerAddressedGreetingReply,
   parseOwnerAddressedGreeting,
@@ -7145,6 +7145,7 @@ async function processIncoming(
         text: msg.type === "text" ? String(msg.text ?? "") : "",
         phoneNumberId: msg.toNumber,
         sessionId: earlySessionId,
+        arboxIsMember: contactArboxIsMember,
       });
       if (nodeFlow.handled) return;
     } catch (e) {
@@ -9422,10 +9423,13 @@ async function processIncoming(
   // 0) Greeting messages (deterministic) — don't send to Claude.
   if (msg.type === "text") {
     if (
-      contactArboxIsMember !== true &&
-      (isSalesFlowStartInbound(msg, salesFlowStartOpts) ||
-        wantsRussianFlowRestart ||
-        pipmanNewLeadOpensFlow)
+      salesFlowOpeningMayStart({
+        text: inboundTextForSalesFlowStartCheck(msg),
+        arboxIsMember: contactArboxIsMember,
+        salesFlowInProgress: salesFlowStarted,
+        opts: salesFlowStartOpts,
+        extraStart: wantsRussianFlowRestart || pipmanNewLeadOpensFlow,
+      })
     ) {
       // «אשמח לפרטים» / «בואו נתחיל» וכו׳ — מאפסים את הפלואו לסשן חדש; המרות קודמות נשמרות באירועי messages.
       const restartState = await restartSalesFlowFromGreeting({

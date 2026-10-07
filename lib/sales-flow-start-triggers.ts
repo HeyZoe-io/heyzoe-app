@@ -407,3 +407,25 @@ export function memberSalesFlowStartGate(input: {
   if (input.salesFlowInProgress) return "leave_in_progress";
   return "block_start";
 }
+
+/**
+ * Global opening phrases and a business's own extra phrases.
+ * A known member never starts or resets. false and null stay on today's path.
+ */
+export function salesFlowOpeningMayStart(input: {
+  text: string;
+  arboxIsMember?: boolean | null;
+  salesFlowInProgress: boolean;
+  opts?: SalesFlowStartTriggerOpts;
+  extraStart?: boolean;
+}): boolean {
+  const trigger =
+    input.extraStart === true || isSalesFlowStartTrigger(input.text, input.opts);
+  if (!trigger) return false;
+  return (
+    memberSalesFlowStartGate({
+      arboxIsMember: input.arboxIsMember,
+      salesFlowInProgress: input.salesFlowInProgress,
+    }) === "allow"
+  );
+}

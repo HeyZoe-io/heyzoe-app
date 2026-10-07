@@ -13,6 +13,7 @@ import {
   sessionCountsAsSalesFlowStarted,
   mayHandleSalesFlowCtaMenu,
   memberSalesFlowStartGate,
+  salesFlowOpeningMayStart,
   businessStartsSalesFlowOnHi,
   businessOpensSalesFlowOnAnyNewLeadMessage,
   businessUsesConversationFollowupNodes,
@@ -271,5 +272,73 @@ assert.equal(memberSalesFlowStartGate({ arboxIsMember: true, salesFlowInProgress
 assert.equal(memberSalesFlowStartGate({ arboxIsMember: true, salesFlowInProgress: true }), "leave_in_progress");
 assert.equal(memberSalesFlowStartGate({ arboxIsMember: false, salesFlowInProgress: false }), "allow");
 assert.equal(memberSalesFlowStartGate({ arboxIsMember: null, salesFlowInProgress: false }), "allow");
+
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "אשמח לפרטים",
+    arboxIsMember: true,
+    salesFlowInProgress: false,
+  }),
+  false
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "בואו נתחיל",
+    arboxIsMember: true,
+    salesFlowInProgress: false,
+  }),
+  false
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "hello can i get more info on this",
+    arboxIsMember: true,
+    salesFlowInProgress: false,
+    opts: { slug: "omers-place" },
+  }),
+  false
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "היי",
+    arboxIsMember: true,
+    salesFlowInProgress: false,
+    opts: { slug: "info-2815" },
+  }),
+  false
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "אשמח לפרטים",
+    arboxIsMember: true,
+    salesFlowInProgress: true,
+  }),
+  false
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "אשמח לפרטים",
+    arboxIsMember: false,
+    salesFlowInProgress: false,
+  }),
+  true
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "אשמח לפרטים",
+    arboxIsMember: null,
+    salesFlowInProgress: false,
+  }),
+  true
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "hello can i get more info on this",
+    arboxIsMember: false,
+    salesFlowInProgress: false,
+    opts: { slug: "omers-place" },
+  }),
+  true
+);
 
 console.log("sales-flow-start-triggers.test.ts: ok");

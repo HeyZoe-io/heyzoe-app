@@ -14,7 +14,10 @@ import {
   inboundRestartsBusinessFlowFromStart,
   matchQuestionButton,
 } from "@/lib/business-conversation-flow-text";
-import { businessOpensSalesFlowOnAnyNewLeadMessage } from "@/lib/sales-flow-start-triggers";
+import {
+  businessOpensSalesFlowOnAnyNewLeadMessage,
+  memberSalesFlowStartGate,
+} from "@/lib/sales-flow-start-triggers";
 import { markContactSalesFlowStarted } from "@/lib/contacts-sales-flow-started";
 import { buildWaSessionId, contactPhoneLookupVariants, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import { clampWaReplyButtonTitle } from "@/lib/wa-button-label";
@@ -626,6 +629,8 @@ export async function handleBusinessConversationFlowInbound(input: {
   text: string;
   phoneNumberId: string;
   sessionId: string;
+  /** Already loaded on the contact row. Known members do not start or reset this flow. */
+  arboxIsMember?: boolean | null;
 }): Promise<{ handled: boolean }> {
   const businessId = Number(input.businessId);
   const phone = phoneKey(input.phone);
@@ -641,7 +646,14 @@ export async function handleBusinessConversationFlowInbound(input: {
   const waitingNode = session?.current_node_id
     ? graph.nodes.find((node) => node.id === session?.current_node_id)
     : null;
+  const salesFlowInProgress =
+    Boolean(session?.current_node_id) && session?.flow_completed !== true;
+  const memberGate = memberSalesFlowStartGate({
+    arboxIsMember: input.arboxIsMember,
+    salesFlowInProgress,
+  });
   const restartFromStart =
+    memberGate === "allow" &&
     Boolean(text) &&
     inboundRestartsBusinessFlowFromStart({
       text,
@@ -663,12 +675,16 @@ export async function handleBusinessConversationFlowInbound(input: {
       waitingNode?.type === "register" ||
       waitingNode?.type === "details");
   const openFromAnyMessage =
+    memberGate === "allow" &&
     !restartFromStart &&
     businessOpensSalesFlowOnAnyNewLeadMessage(input.businessSlug) &&
     !alreadyInsideFlow &&
     (await leadStillWaitingToOpenSalesFlow(admin, businessId, input.phone));
 
-  if (restartFromStart || openFromAnyMessage || !session?.current_node_id) {
+  if (
+    memberGate === "allow" &&
+    (restartFromStart || openFromAnyMessage || !session?.current_node_id)
+  ) {
     if (restartFromStart) {
       console.info("[business-conversation-flow] start trigger reopens flow from first node", {
         businessSlug: input.businessSlug,
@@ -704,7 +720,10 @@ export async function handleBusinessConversationFlowInbound(input: {
     return { handled: true };
   }
 
-  const current = graph.nodes.find((n) => n.id === session?.current_node_id);
+  if (!session || !session.current_node_id) return { handled: false };
+  const openSession = session;
+
+  const current = graph.nodes.find((n) => n.id === openSession.current_node_id);
   if (current?.type === "daytime") {
     const slots = await weeklySlotsForProduct(admin, businessId, session.product_slug);
     const index = matchQuestionButton(
@@ -781,6 +800,7 @@ export async function handleBusinessConversationFlowInbound(input: {
   }
 
   if (!current || current.type !== "question") {
+    if (memberGate !== "allow") return { handled: false };
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
     await deliverFrom({
