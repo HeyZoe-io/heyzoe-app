@@ -301,9 +301,9 @@ export function postTrialLogStatusBlocksSend(status: string | null | undefined):
 }
 
 /**
- * Soft-seed / active-skip used to mark due rows as seeded without WhatsApp.
- * Allow catch-up on the decision day and one calendar day after, still subject
- * to conversion / phone / template checks. Older history seeds stay blocked.
+ * Soft-seed used to mark due-today as seeded without WhatsApp.
+ * Catch-up only for that mistake: status seeded and decision day is today.
+ * Intentional history seeds (decision day already past) stay blocked.
  * Already-sent rows stay blocked via status sent.
  */
 export function postTrialSeededBlocksSend(input: {
@@ -314,12 +314,11 @@ export function postTrialSeededBlocksSend(input: {
 }): boolean {
   const status = String(input.status ?? "").trim();
   if (status !== "seeded") return postTrialLogStatusBlocksSend(status);
-  const decision = postTrialDecisionYmd(input.classDateYmd, input.delayDays);
-  if (!decision) return true;
-  if (ymdCmp(decision, input.todayYmd) === 0) return false;
-  const graceDay = addDaysYmd(decision, 1);
-  if (graceDay && ymdCmp(graceDay, input.todayYmd) === 0) return false;
-  return true;
+  return postTrialSeedAction({
+    classDateYmd: input.classDateYmd,
+    delayDays: input.delayDays,
+    todayYmd: input.todayYmd,
+  }) !== "send";
 }
 
 export function triggerTypeForOutcome(outcome: PostTrialOutcome): PostTrialTriggerType {

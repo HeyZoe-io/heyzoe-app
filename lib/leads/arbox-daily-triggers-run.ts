@@ -448,9 +448,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
         fetch_error: message,
       };
     }
-    // C5/C6 catch-up for due-today (and one-day grace) after a missed morning run.
-    // IO only when an enabled rule exists: bookings lookback + salesReport (+ active
-    // product when C6 is about to send). Same as the morning step for that business.
+    // C5/C6: due-today still sends; wrongly soft-seeded decision-day rows reopen.
+    // History seeds (decision day already past) stay blocked. IO only when a rule
+    // is enabled: bookings lookback + salesReport (+ active product for C6).
     try {
       entry.post_trial_followup = await timeStep(timings, business.id, "post_trial_followup", () =>
         syncArboxPostTrialFollowupForBusiness({
