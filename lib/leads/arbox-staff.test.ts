@@ -7,6 +7,7 @@ import {
   fetchArboxStaffMembers,
   isRetentionStaff,
   isTaughtInWindow,
+  isUpcomingInWindow,
   parseStaffMembers,
   qualifyingStaffPeople,
   staffIndexFromPeople,
@@ -127,6 +128,45 @@ const customerOnly = staffTaughtFromBookings({
 assert.equal(customerOnly.teachers.length, 0);
 assert.deepEqual(customerOnly.match.unmatched, ["לקוח אחר"]);
 assert.equal(qualifyingStaffPeople([ofir], customerOnly.teachers).length, 0);
+
+const upcomingWindow = {
+  todayYmd: "2026-10-08",
+  nowMinutes: 9 * 60,
+  fromYmd: "2026-10-08",
+  toYmd: "2026-10-22",
+  span: "upcoming" as const,
+};
+assert.equal(isUpcomingInWindow({ ...upcomingWindow, classDate: "2026-10-15", classTime: "10:00" }), true);
+assert.equal(isUpcomingInWindow({ ...upcomingWindow, classDate: "2026-10-28", classTime: "10:00" }), false);
+assert.equal(isUpcomingInWindow({ ...upcomingWindow, classDate: "2026-10-08", classTime: "18:00" }), true);
+assert.equal(isUpcomingInWindow({ ...upcomingWindow, classDate: "2026-10-08", classTime: "08:00" }), false);
+const upcomingBooking = staffTaughtFromBookings({
+  roster: [ofir, noa],
+  rows: [
+    { date: "2026-10-15", time: "10:00", staff_member: "אופיר  רבינוביץ", user_id: 999, full_name: "נועה כהן" },
+    { date: "2026-10-28", time: "10:00", staff_member: "נועה כהן" },
+  ],
+  ...upcomingWindow,
+});
+assert.equal(upcomingBooking.match.byName, 1);
+assert.deepEqual(
+  qualifyingStaffPeople([ofir, noa], upcomingBooking.teachers).map((person) => person.userId),
+  [10]
+);
+const upcomingCustomer = staffTaughtFromBookings({
+  roster: [ofir],
+  rows: [
+    {
+      date: "2026-10-15",
+      time: "10:00",
+      user_id: 10,
+      full_name: "אופיר רבינוביץ",
+      staff_member: "לקוח אחר",
+    },
+  ],
+  ...upcomingWindow,
+});
+assert.equal(qualifyingStaffPeople([ofir], upcomingCustomer.teachers).length, 0);
 
 for (const trigger of RETENTION_STAFF_TRIGGERS) {
   assert.equal(triggerSkipsStaff(trigger), true, trigger);

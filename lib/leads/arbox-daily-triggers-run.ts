@@ -19,10 +19,12 @@ import {
   fetchArboxStaffMembers,
   loadStoredStaffIndex,
   loadTaughtStaffWindow,
+  loadUpcomingStaffWindow,
   qualifyingStaffPeople,
   staffIndexFromPeople,
   staffTaughtBounds,
   staffTaughtFromBookings,
+  staffUpcomingBounds,
   syncArboxStaffFlags,
   type StaffPerson,
 } from "@/lib/leads/arbox-staff";
@@ -746,9 +748,12 @@ export async function runArboxDailyTriggersForBusiness(input: {
 
 
   if (slot === "morning" && morningRoster) {
-    if (pastBookingsFailed) {
+    const futureMissing = needsFuture && prefetchedFutureRows == null;
+    if (pastBookingsFailed || futureMissing) {
       console.error("[arbox-staff] bookings trainer read failed — keep previous flags", {
         slug: business.slug,
+        past: pastBookingsFailed,
+        future: futureMissing,
       });
     } else {
       const taught = await loadTaughtStaffWindow(admin, business.id, now);
@@ -758,7 +763,15 @@ export async function runArboxDailyTriggersForBusiness(input: {
           error: taught.error,
         });
       }
+      const upcomingSnap = await loadUpcomingStaffWindow(admin, business.id, now);
+      if (!upcomingSnap.ok) {
+        console.error("[arbox-staff] upcoming snapshot read failed — bookings still count", {
+          slug: business.slug,
+          error: upcomingSnap.error,
+        });
+      }
       const bounds = staffTaughtBounds(now);
+      const ahead = staffUpcomingBounds(now);
       const booking = staffTaughtFromBookings({
         roster: morningRoster,
         rows: (prefetchedRows ?? []) as unknown as Record<string, unknown>[],
@@ -766,9 +779,20 @@ export async function runArboxDailyTriggersForBusiness(input: {
         nowMinutes: bounds.nowMinutes,
         fromYmd: bounds.fromYmd,
       });
+      const upcoming = staffTaughtFromBookings({
+        roster: morningRoster,
+        rows: (prefetchedFutureRows ?? []) as unknown as Record<string, unknown>[],
+        todayYmd: ahead.todayYmd,
+        nowMinutes: ahead.nowMinutes,
+        fromYmd: ahead.todayYmd,
+        toYmd: ahead.toYmd,
+        span: "upcoming",
+      });
       const qualifying = qualifyingStaffPeople(morningRoster, [
         ...(taught.ok ? taught.teachers : []),
+        ...(upcomingSnap.ok ? upcomingSnap.teachers : []),
         ...booking.teachers,
+        ...upcoming.teachers,
       ]);
       const returned = qualifying.filter((person) => !person.active);
       const index = staffIndexFromPeople(qualifying, true);
@@ -793,6 +817,14 @@ export async function runArboxDailyTriggersForBusiness(input: {
         unmatched: booking.match.unmatched,
         bookings_from: lookbackFrom ?? null,
         bookings_to: lookbackTo ?? null,
+        future_fetched: needsFuture,
+        future_rows: prefetchedFutureRows?.length ?? null,
+        upcoming_fields: upcoming.match.fields,
+        upcoming_has_id: upcoming.match.hasId,
+        upcoming_by_id: upcoming.match.byId,
+        upcoming_by_name: upcoming.match.byName,
+        upcoming_unmatched: upcoming.match.unmatched,
+        upcoming_to: ahead.toYmd,
         returned: returned.map((person) => `${person.userId} ${person.name}`.trim()),
         names: qualifying.map((person) => `${person.userId} ${person.name}`.trim()),
         ...flags,

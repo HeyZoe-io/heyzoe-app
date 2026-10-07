@@ -1,14 +1,15 @@
 /**
  * Staff roster: one GET /v3/users/allStaffMembers per business on the morning run.
  * A person counts as staff when active=1, or when active=0 and they taught a class
- * in the last 30 days. Teaching comes from the bookingsReport rows the morning
- * run already fetches, plus arbox_class_trainer_snapshot when it has rows.
+ * in the last 30 days, or when they are assigned to a class in the next 14 days.
+ * Past and upcoming teaching come from the bookingsReport rows the morning run
+ * already fetches, plus arbox_class_trainer_snapshot when it has rows.
  * Trainer id wins; otherwise the trainer name is matched only inside this
  * business's staff list. No extra Arbox call.
  * A failed staff fetch, or a failed bookings read, does not clear contacts.arbox_is_staff.
  *
- * IO: the staff GET the morning already makes, plus the bookings GET it already
- * makes, plus one indexed snapshot read. No Claude, no WhatsApp.
+ * IO: the staff GET the morning already makes, plus the past and future bookings
+ * GETs it already makes, plus two indexed snapshot reads. No Claude, no WhatsApp.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -19,6 +20,8 @@ const MAX_PAGES = 3;
 const PHONE_CHUNK = 80;
 const ID_CHUNK = 200;
 const TAUGHT_LOOKBACK_DAYS = 30;
+/** Matches the future bookings window the morning run already fetches (today…+14). */
+const UPCOMING_DAYS = 14;
 const TRAINER_SNAPSHOT_TABLE = "arbox_class_trainer_snapshot";
 const ISRAEL_TZ = "Asia/Jerusalem";
 
@@ -112,6 +115,11 @@ export function staffTaughtBounds(now: Date): { todayYmd: string; nowMinutes: nu
   return { todayYmd, nowMinutes: israelMinutes(now), fromYmd: addDaysYmd(todayYmd, -TAUGHT_LOOKBACK_DAYS) };
 }
 
+export function staffUpcomingBounds(now: Date): { todayYmd: string; nowMinutes: number; toYmd: string } {
+  const todayYmd = israelYmd(now);
+  return { todayYmd, nowMinutes: israelMinutes(now), toYmd: addDaysYmd(todayYmd, UPCOMING_DAYS) };
+}
+
 function israelYmd(now: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: ISRAEL_TZ,
@@ -165,6 +173,22 @@ export function isTaughtInWindow(input: {
   return minutes != null && minutes <= input.nowMinutes;
 }
 
+/** Assigned, not yet started, through the forward window the run already fetched. */
+export function isUpcomingInWindow(input: {
+  classDate: string;
+  classTime?: string | null;
+  todayYmd: string;
+  nowMinutes: number;
+  toYmd: string;
+}): boolean {
+  const classDate = String(input.classDate ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(classDate)) return false;
+  if (classDate < input.todayYmd || classDate > input.toYmd) return false;
+  if (classDate > input.todayYmd) return true;
+  const minutes = classTimeMinutes(input.classTime ?? null);
+  return minutes != null && minutes > input.nowMinutes;
+}
+
 /** Trim, collapse spaces, ignore case and diacritics. */
 export function normalizeStaffName(raw: string | null | undefined): string {
   return String(raw ?? "")
@@ -178,7 +202,7 @@ export function normalizeStaffName(raw: string | null | undefined): string {
 /**
  * active=1, or inactive and present in the taught set.
  * An id matches that staff user. A name matches only people on this roster.
- * Callers pass only classes already inside the 30-day window.
+ * Callers pass taught sightings and upcoming assignments already in window.
  */
 export function qualifyingStaffPeople(
   roster: readonly StaffPerson[],
@@ -275,6 +299,9 @@ export function staffTaughtFromBookings(input: {
   todayYmd: string;
   nowMinutes: number;
   fromYmd: string;
+  /** taught = already started, last 30 days. upcoming = not yet started, through toYmd. */
+  span?: "taught" | "upcoming";
+  toYmd?: string;
 }): { teachers: TaughtSighting[]; match: BookingTrainerMatch } {
   const rosterIds = new Set(input.roster.map((person) => person.userId));
   const rosterByName = new Map<string, StaffPerson[]>();
@@ -296,17 +323,24 @@ export function staffTaughtFromBookings(input: {
   for (const row of input.rows) {
     const classDate = String(row.date ?? row.class_date ?? "");
     const classTime = row.time ?? row.start_time ?? row.class_time;
-    if (
-      !isTaughtInWindow({
-        classDate,
-        classTime: classTime == null ? null : String(classTime),
-        todayYmd: input.todayYmd,
-        nowMinutes: input.nowMinutes,
-        fromYmd: input.fromYmd,
-      })
-    ) {
-      continue;
-    }
+    const classTimeText = classTime == null ? null : String(classTime);
+    const inWindow =
+      input.span === "upcoming"
+        ? isUpcomingInWindow({
+            classDate,
+            classTime: classTimeText,
+            todayYmd: input.todayYmd,
+            nowMinutes: input.nowMinutes,
+            toYmd: input.toYmd ?? input.todayYmd,
+          })
+        : isTaughtInWindow({
+            classDate,
+            classTime: classTimeText,
+            todayYmd: input.todayYmd,
+            nowMinutes: input.nowMinutes,
+            fromYmd: input.fromYmd,
+          });
+    if (!inWindow) continue;
     const slots = [
       trainerSlot(row, "staff_member", "staff_member_id", "staff_member_phone"),
       trainerSlot(row, "second_staff_member", "second_staff_member_id", "second_staff_member_phone"),
@@ -448,6 +482,57 @@ export async function loadTaughtStaffWindow(
     latestPast,
     covers30Days: earliestPast != null && earliestPast <= fromYmd,
   };
+}
+
+/** Future assignments already stored from classesSummary. Cancelled classes are not in this table. */
+export async function loadUpcomingStaffWindow(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  businessId: number,
+  now: Date
+): Promise<{ ok: true; teachers: TaughtSighting[] } | { ok: false; error: string }> {
+  const bounds = staffUpcomingBounds(now);
+  const seen = new Set<string>();
+  const teachers: TaughtSighting[] = [];
+  for (let from = 0; ; from += 500) {
+    const { data, error } = await admin
+      .from(TRAINER_SNAPSHOT_TABLE)
+      .select("staff_user_id, phone, full_name, class_date, class_time")
+      .eq("business_id", businessId)
+      .gte("class_date", bounds.todayYmd)
+      .lte("class_date", bounds.toYmd)
+      .range(from, from + 499);
+    if (error) return { ok: false, error: error.message };
+    for (const row of data ?? []) {
+      const record = row as {
+        staff_user_id?: unknown;
+        phone?: unknown;
+        full_name?: unknown;
+        class_date?: unknown;
+        class_time?: unknown;
+      };
+      if (
+        !isUpcomingInWindow({
+          classDate: String(record.class_date ?? ""),
+          classTime: record.class_time == null ? null : String(record.class_time),
+          todayYmd: bounds.todayYmd,
+          nowMinutes: bounds.nowMinutes,
+          toYmd: bounds.toYmd,
+        })
+      ) {
+        continue;
+      }
+      const userIdRaw = Number(record.staff_user_id);
+      const userId = Number.isFinite(userIdRaw) && userIdRaw > 0 ? Math.trunc(userIdRaw) : null;
+      const phone = normalizePhone(record.phone);
+      const name = String(record.full_name ?? "").trim() || null;
+      const key = `${userId ?? ""}|${phone ?? ""}|${name ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      teachers.push({ userId, phone, name });
+    }
+    if (!data || data.length < 500) break;
+  }
+  return { ok: true, teachers };
 }
 
 export function staffIndexFromPeople(people: readonly StaffPerson[], ready: boolean): StaffIndex {
