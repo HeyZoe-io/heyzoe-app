@@ -8,7 +8,6 @@
  * At 10x studios that is about 10 calls a day. No Claude, no WhatsApp.
  */
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
-import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -266,11 +265,18 @@ export async function loadStoredStaffIndex(
   return { ready: true, userIds: new Set(), phones, people: [] };
 }
 
+function morningStaffIndex(businessId: number): StaffIndex | undefined {
+  const bridge = (globalThis as {
+    __hzArboxDaily?: { context: () => { businessId: number; staffIndex?: StaffIndex } | undefined };
+  }).__hzArboxDaily;
+  const ctx = bridge?.context();
+  if (ctx?.staffIndex && ctx.businessId === businessId) return ctx.staffIndex;
+  return undefined;
+}
+
 export async function retentionStaffIndex(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   businessId: number
 ): Promise<StaffIndex> {
-  const ctx = arboxDailyContext();
-  if (ctx?.staffIndex && ctx.businessId === businessId) return ctx.staffIndex;
-  return loadStoredStaffIndex(admin, businessId);
+  return morningStaffIndex(businessId) ?? loadStoredStaffIndex(admin, businessId);
 }
