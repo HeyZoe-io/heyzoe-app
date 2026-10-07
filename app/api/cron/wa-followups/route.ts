@@ -23,6 +23,7 @@ import {
   WA_FOLLOWUP_MS_23_H,
 } from "@/lib/wa-sales-followup-defaults";
 import { evaluateBusinessWaFollowup } from "@/lib/wa-followup-cron-eval";
+import { hasTrialSignupNotice } from "@/lib/trial-signup-notice";
 import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
 import { customerServicePhoneFromSocialLinks } from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
@@ -77,7 +78,7 @@ function maskPhone(phone: string): string {
 }
 
 const CONTACT_DEBUG_SELECT =
-  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered, self_reported_registered_at";
+  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered, self_reported_registered_at, trial_signup_notice";
 
 async function findContactByPhone(
   admin: ReturnType<typeof createSupabaseAdminClient>,
@@ -300,6 +301,7 @@ export async function GET(req: NextRequest) {
         opted_out?: boolean | null;
         trial_registered?: boolean | null;
         self_reported_registered_at?: string | null;
+        trial_signup_notice?: string | null;
       },
     });
     if (evalResult.skip_reason !== "eligible") {
@@ -349,9 +351,9 @@ export async function GET(req: NextRequest) {
   const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
 
   const followupSelect =
-    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at";
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at, trial_signup_notice";
   const followupSelectNoSelfReported =
-    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase";
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, trial_signup_notice";
 
   let contacts: any[] | null = null;
   const { data: contactsData, error } = await admin
@@ -362,6 +364,7 @@ export async function GET(req: NextRequest) {
     .is("not_relevant_at", null)
     .is("human_requested_at", null)
     .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("trial_signup_notice", null)
     .is("self_reported_registered_at", null)
     .lt("wa_followup_stage", 3)
     .not("wa_next_followup_at", "is", null)
@@ -384,6 +387,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
         .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("trial_signup_notice", null)
         .lt("wa_followup_stage", 3)
         .not("wa_next_followup_at", "is", null)
         .lte("wa_next_followup_at", nowIso)
@@ -403,6 +407,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
     .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("trial_signup_notice", null)
         .is("self_reported_registered_at", null)
         .lt("wa_followup_stage", 3)
         .not("last_contact_at", "is", null)
@@ -431,6 +436,7 @@ export async function GET(req: NextRequest) {
         .is("not_relevant_at", null)
     .is("human_requested_at", null)
         .or("trial_registered.eq.false,trial_registered.is.null")
+        .is("trial_signup_notice", null)
         .is("self_reported_registered_at", null)
         .lt("wa_followup_stage", 3)
         .is("wa_next_followup_at", null)
@@ -477,6 +483,17 @@ export async function GET(req: NextRequest) {
         wa_no_response_at: noResponseAt,
       });
       bumpSkip("no_response");
+      continue;
+    }
+
+    if (hasTrialSignupNotice((c as { trial_signup_notice?: string | null }).trial_signup_notice)) {
+      logWaFollowupSkip("invalid_contact", {
+        contact_id: contactId ?? null,
+        phone: phone ? maskPhone(phone) : null,
+        business_id: businessId ?? null,
+        filtered_reason: "trial_signup_notice",
+      });
+      bumpSkip("invalid_contact");
       continue;
     }
 

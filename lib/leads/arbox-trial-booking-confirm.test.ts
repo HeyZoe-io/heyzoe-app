@@ -6,12 +6,31 @@ import {
   trialBookingClassHasStarted,
   trialBookingConfirmEnabled,
   trialBookingConfirmIsTerminalSkip,
+  trialBookingStopsSalesFollowups,
   trialBookingTemplateFollowUp,
 } from "@/lib/leads/arbox-trial-booking-confirm";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 
 assert.equal(trialBookedSendsEnabled(), true);
+assert.equal(
+  trialBookingStopsSalesFollowups({
+    sales_flow_started_at: "2026-10-06T11:29:57.726+00:00",
+    trial_registered: false,
+    session_phase: "schedule_date",
+  }),
+  true
+);
+assert.equal(
+  trialBookingStopsSalesFollowups({
+    sales_flow_started_at: "2026-10-06T11:29:57.726+00:00",
+    trial_registered: true,
+  }),
+  false
+);
+assert.equal(trialBookingStopsSalesFollowups({ sales_flow_started_at: null }), false);
+assert.equal(trialBookingStopsSalesFollowups(null), false);
+
 assert.equal(trialBookingConfirmEnabled(false), false);
 assert.equal(trialBookingConfirmEnabled(true), true);
 

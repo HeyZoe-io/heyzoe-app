@@ -30,6 +30,8 @@ import {
     false
   );
   assert.equal(waNoResponseEligible({ session_phase: "registered" }), false);
+  assert.equal(waNoResponseEligible({ trial_signup_notice: "zoe" }), false);
+  assert.equal(waNoResponseEligible({ trial_signup_notice: "template" }), false);
   assert.equal(waNoResponseEligible({ session_phase: "cta", trial_registered: false }), true);
 }
 

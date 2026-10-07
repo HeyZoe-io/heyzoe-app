@@ -1,5 +1,6 @@
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { hasTrialSignupNotice } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** 26 שעות אחרי הודעת הליד האחרונה — ללא «נרשמתי» (trial_registered) */
@@ -11,6 +12,7 @@ export type WaNoResponseContactGate = {
   human_requested_at?: string | null;
   trial_registered?: boolean | null;
   self_reported_registered_at?: string | null;
+  trial_signup_notice?: string | null;
   session_phase?: string | null;
 };
 
@@ -20,6 +22,7 @@ export function waNoResponseEligible(contact: WaNoResponseContactGate): boolean 
   if (contact.human_requested_at) return false;
   if (contact.trial_registered === true) return false;
   if (String(contact.self_reported_registered_at ?? "").trim()) return false;
+  if (hasTrialSignupNotice(contact.trial_signup_notice)) return false;
   if (String(contact.session_phase ?? "").trim() === "registered") return false;
   return true;
 }

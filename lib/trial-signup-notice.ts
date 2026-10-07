@@ -16,6 +16,12 @@ export function zoeRegistrationConfirmBlockedByTrialTemplate(
   return notice === "template";
 }
 
+/** Zoe already told this person they are registered. Sales follow-ups must stop. */
+export function hasTrialSignupNotice(notice: unknown): boolean {
+  const raw = String(notice ?? "").trim().toLowerCase();
+  return raw === "zoe" || raw === "template";
+}
+
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
 function phoneVariants(phone: string): string[] {

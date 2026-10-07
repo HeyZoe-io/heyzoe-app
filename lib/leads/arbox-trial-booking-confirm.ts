@@ -47,8 +47,69 @@ import { planTrialRegistrationSends } from "@/lib/leads/trial-registration-plan"
 import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/trial-signup-notice";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
+import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
+
+/** A sales-flow lead with a trial on the calendar is no longer a follow-up target. */
+export function trialBookingStopsSalesFollowups(
+  contact: {
+    trial_registered?: boolean | null;
+    session_phase?: string | null;
+    sales_flow_started_at?: string | null;
+  } | null
+): boolean {
+  if (!contact) return false;
+  if (contact.trial_registered === true) return false;
+  if (String(contact.session_phase ?? "").trim() === "registered") return false;
+  return Boolean(String(contact.sales_flow_started_at ?? "").trim());
+}
+
+async function stopSalesFollowupsAfterTrialBooking(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  phone: string;
+  now: Date;
+}): Promise<void> {
+  const variants = contactPhoneLookupVariants(input.phone);
+  if (!variants.length) return;
+  const { data, error } = await input.admin
+    .from("contacts")
+    .select("id, trial_registered, session_phase, sales_flow_started_at")
+    .eq("business_id", input.businessId)
+    .in("phone", variants)
+    .limit(5);
+  if (error) {
+    console.error(LOG, "sales followup stop lookup failed:", error.message);
+    return;
+  }
+  const rows = (data ?? []) as Array<{
+    id?: string;
+    trial_registered?: boolean | null;
+    session_phase?: string | null;
+    sales_flow_started_at?: string | null;
+  }>;
+  const row = rows.find((item) => trialBookingStopsSalesFollowups(item));
+  const contactId = String(row?.id ?? "").trim();
+  if (!row || !contactId) return;
+  const nowIso = input.now.toISOString();
+  const { error: updateErr } = await input.admin
+    .from("contacts")
+    .update({
+      ...buildTrialRegisteredContactPatch(nowIso),
+      wa_no_response_at: null,
+      updated_at: nowIso,
+    })
+    .eq("id", contactId);
+  if (updateErr) {
+    console.error(LOG, "sales followup stop update failed:", updateErr.message);
+    return;
+  }
+  console.info(LOG, "stopped sales followups after trial booking", {
+    businessId: input.businessId,
+  });
+}
+
 const FUTURE_DAYS = 14;
 const TABLE = "arbox_trial_booking_confirm_log";
 
@@ -738,6 +799,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
       continue;
     }
+
+    await stopSalesFollowupsAfterTrialBooking({ admin, businessId, phone, now });
 
     const counts = await loadTrialMessageCounts({
       admin,

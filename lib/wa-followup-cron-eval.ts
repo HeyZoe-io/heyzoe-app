@@ -10,6 +10,7 @@ import {
   WA_FOLLOWUP_MS_2_H,
   WA_FOLLOWUP_MS_23_H,
 } from "@/lib/wa-sales-followup-defaults";
+import { hasTrialSignupNotice } from "@/lib/trial-signup-notice";
 
 export type WaFollowupSkipReason =
   | "time_window"
@@ -139,6 +140,7 @@ export async function evaluateBusinessWaFollowup(input: {
     human_requested_at?: string | null;
     trial_registered?: boolean | null;
     self_reported_registered_at?: string | null;
+    trial_signup_notice?: string | null;
   };
 }): Promise<WaFollowupEvalResult & { session_id: string; business_slug: string }> {
   const business_slug = input.business_slug.trim().toLowerCase();
@@ -182,6 +184,14 @@ export async function evaluateBusinessWaFollowup(input: {
       session_id: "",
       business_slug,
       detail: { filtered_reason: "self_reported_registered" },
+    };
+  }
+  if (hasTrialSignupNotice(input.contact.trial_signup_notice)) {
+    return {
+      skip_reason: "invalid_contact",
+      session_id: "",
+      business_slug,
+      detail: { filtered_reason: "trial_signup_notice" },
     };
   }
 

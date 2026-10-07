@@ -31,6 +31,7 @@ type StatusContactRow = {
   session_phase?: string | null;
   trial_registered?: boolean | null;
   self_reported_registered_at?: string | null;
+  trial_signup_notice?: string | null;
   opted_out?: boolean | null;
   last_contact_at?: string | null;
   wa_followup_stage?: number | null;
@@ -117,9 +118,9 @@ export async function GET(req: NextRequest) {
   }
 
   const statusSelect =
-    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, self_reported_registered_at, opted_out, last_contact_at, source, wa_followup_stage, full_name";
+    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, self_reported_registered_at, trial_signup_notice, opted_out, last_contact_at, source, wa_followup_stage, full_name";
   const statusSelectNoSelfReported =
-    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, opted_out, last_contact_at, source, wa_followup_stage, full_name";
+    "id, phone, business_id, session_phase, wa_no_response_due_at, trial_registered, trial_signup_notice, opted_out, last_contact_at, source, wa_followup_stage, full_name";
 
   let contacts: StatusContactRow[] | null = null;
   const { data: contactsData, error } = await applyWaStatusDueGuards(
@@ -131,6 +132,7 @@ export async function GET(req: NextRequest) {
       .is("not_relevant_at", null)
       .is("human_requested_at", null)
       .or("trial_registered.eq.false,trial_registered.is.null")
+      .is("trial_signup_notice", null)
       .is("self_reported_registered_at", null)
       .is("wa_no_response_at", null)
       .not("wa_no_response_due_at", "is", null)
@@ -154,6 +156,7 @@ export async function GET(req: NextRequest) {
           .is("not_relevant_at", null)
           .is("human_requested_at", null)
           .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("trial_signup_notice", null)
           .is("wa_no_response_at", null)
           .not("wa_no_response_due_at", "is", null)
           .lt("wa_no_response_due_at", nowIso),
@@ -173,12 +176,13 @@ export async function GET(req: NextRequest) {
       const { data: legacy, error: legacyErr } = await applyWaStatusDueGuards(
         admin
           .from("contacts")
-          .select("id, phone, business_id, session_phase, trial_registered, opted_out, last_contact_at")
+          .select("id, phone, business_id, session_phase, trial_registered, trial_signup_notice, opted_out, last_contact_at")
           .eq("source", "whatsapp")
           .or("opted_out.eq.false,opted_out.is.null")
           .is("not_relevant_at", null)
           .is("human_requested_at", null)
           .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("trial_signup_notice", null)
           .is("wa_no_response_at", null)
           .not("last_contact_at", "is", null)
           .lt("last_contact_at", cutoffIso),
@@ -206,6 +210,7 @@ export async function GET(req: NextRequest) {
           .is("not_relevant_at", null)
           .is("human_requested_at", null)
           .or("trial_registered.eq.false,trial_registered.is.null")
+          .is("trial_signup_notice", null)
           .is("self_reported_registered_at", null)
           .is("wa_no_response_at", null)
           .is("wa_no_response_due_at", null)
@@ -355,6 +360,7 @@ export async function GET(req: NextRequest) {
       .is("not_relevant_at", null)
       .is("human_requested_at", null)
       .or("trial_registered.eq.false,trial_registered.is.null")
+      .is("trial_signup_notice", null)
       .is("self_reported_registered_at", null)
       .is("wa_no_response_at", null)
       .not("wa_no_response_due_at", "is", null)
