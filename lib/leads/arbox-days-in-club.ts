@@ -13,7 +13,13 @@
  * Soft-seed: flag true + empty log for that trigger_id → same past-X mark.
  */
 import { logMessage } from "@/lib/analytics";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  addCalendarDaysYmd,
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -498,6 +504,9 @@ export async function syncArboxDaysInClubForBusiness(input: {
       ) {
         continue;
       }
+      const milestoneYmd = addCalendarDaysYmd(member.memberSinceYmd, delayDays);
+      const sendAt = milestoneYmd ? israelSlotInstant(milestoneYmd, "09:00") : null;
+      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       const marked = await upsertDaysInClubSyncLog({
         admin: input.admin,
         businessId,
@@ -599,8 +608,12 @@ export async function syncArboxDaysInClubForBusiness(input: {
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
-      if (eventBeforeRuleActivation(parseReportEventInstant(member.memberSinceYmd), rule)) continue;
       const delayDays = daysInClubDelayDays(rule.delay_days);
+      const milestoneYmd = addCalendarDaysYmd(member.memberSinceYmd, delayDays);
+      const sendAt =
+        (milestoneYmd ? israelSlotInstant(milestoneYmd, "09:00") : null) ??
+        parseReportEventInstant(member.memberSinceYmd);
+      if (eventBeforeRuleActivation(sendAt, rule)) continue;
       if (
         !isDaysInClubDueToday({
           memberSinceYmd: member.memberSinceYmd,

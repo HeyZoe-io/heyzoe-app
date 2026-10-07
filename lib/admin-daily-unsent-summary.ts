@@ -113,19 +113,45 @@ export function renderAdminDailyUnsentText(count: number, detail: string): strin
   return `דוח יומי מזואי: ב-24 השעות האחרונות ${count} הודעות אוטומטיות לא יצאו. פירוט: ${detail}. הפירוט המלא בדשבורד האדמין.`;
 }
 
+function squashParam(text: string): string {
+  return text.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
+}
+
 export function unsentDetailParam(rows: readonly UnsentRow[]): string {
-  const counts = new Map<string, number>();
+  const attention = new Map<string, number>();
+  let history = 0;
+  let cap = 0;
+  let started = 0;
   for (const row of rows) {
-    const key = `${row.business} · ${row.trigger} · ${row.reason}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const expected =
+      !row.future &&
+      (row.reason === "סומן בלי שליחה" ||
+        row.reason === "תקרת שימור יומית" ||
+        row.reason === "דילוג");
+    if (!expected) {
+      const reason = row.metaError ? `${row.reason} ${row.metaError}` : row.reason;
+      const key = `${row.business} · ${row.trigger} · ${reason}`;
+      attention.set(key, (attention.get(key) ?? 0) + 1);
+      continue;
+    }
+    if (row.reason === "תקרת שימור יומית") cap += 1;
+    else if (row.reason === "דילוג") started += 1;
+    else history += 1;
   }
-  const parts = [...counts.entries()]
+  const lines = [...attention.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "he"))
-    .map(([key, count]) => `${key} ${count}`);
-  let detail = parts.join(" | ");
-  detail = detail.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
-  if (detail.length > DETAIL_CAP) detail = `${detail.slice(0, DETAIL_CAP - 1)}…`;
-  return detail || "אין פירוט";
+    .map(([key, count]) => squashParam(`${key} ${count}`));
+  const expectedLine = `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר), ${cap} דילוגי תקרת שימור, ${started} שיעורים שכבר התחילו`;
+  const pointer = "הפירוט המלא ב-/admin/unsent";
+  let kept = lines;
+  const join = (items: string[]) => squashParam([...items, expectedLine].join(" | "));
+  while (kept.length > 0 && join(kept).length > DETAIL_CAP) kept = kept.slice(0, -1);
+  let detail = join(kept);
+  if (kept.length < lines.length) {
+    const withPointer = squashParam(`${detail} | ${pointer}`);
+    detail = withPointer.length <= DETAIL_CAP ? withPointer : detail;
+  }
+  return detail || expectedLine;
 }
 
 function israelStamp(iso: string): string {
@@ -172,6 +198,8 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
     phone: string;
     reason: string;
     at: string;
+    classStart: string;
+    metaError: string;
   }> = [];
 
   for (const source of SYNC_LOGS) {
@@ -188,6 +216,9 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       const businessId = Number(row.business_id);
       if (!Number.isFinite(businessId)) continue;
       const userId = String(row.user_id ?? row.lead_id ?? row.contact_id ?? "").trim();
+      const classDate = String(row.class_date ?? "").slice(0, 10);
+      const classClock = String(row.class_time ?? "").trim().slice(0, 5);
+      const classHm = /^\d{1,2}:\d{2}$/.test(classClock) ? classClock.padStart(5, "0") : "";
       raw.push({
         businessId,
         triggerId: String(row.trigger_id ?? ""),
@@ -196,6 +227,8 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
         phone: "",
         reason,
         at,
+        classStart: classDate && classHm ? `${classDate}T${classHm}:00+03:00` : "",
+        metaError: "",
       });
     }
   }
@@ -225,6 +258,8 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       phone: String((row as { contact_phone?: unknown }).contact_phone ?? ""),
       reason,
       at: String((row as { updated_at?: unknown }).updated_at ?? dueAt),
+      classStart: dueAt,
+      metaError: String((row as { last_error?: unknown }).last_error ?? ""),
     });
   }
 
@@ -236,8 +271,11 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
   const contacts = new Map<string, string>();
 
   if (businessIds.length) {
-    const { data } = await admin.from("businesses").select("id, slug").in("id", businessIds);
-    for (const row of data ?? []) names.set(Number(row.id), String(row.slug ?? row.id));
+    const { data } = await admin.from("businesses").select("id, name, slug").in("id", businessIds);
+    for (const row of data ?? []) {
+      const label = String(row.name ?? "").trim() || String(row.slug ?? row.id);
+      names.set(Number(row.id), label);
+    }
   }
   if (triggerIds.length) {
     const { data } = await admin.from("template_triggers").select("id, trigger_type").in("id", triggerIds);
@@ -270,6 +308,13 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
     const key = `${row.businessId}|${trigger}|${contact}|${row.reason}|${row.at.slice(0, 16)}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const classAt = row.classStart ? new Date(row.classStart) : null;
+    const future =
+      row.reason === "סומן בלי שליחה" &&
+      classAt != null &&
+      !Number.isNaN(classAt.getTime()) &&
+      classAt.getTime() > now.getTime();
+    const meta = row.reason === "נכשל" ? squashParam(row.metaError).slice(0, 80) : "";
     out.push({
       businessId: row.businessId,
       business: names.get(row.businessId) || String(row.businessId),
@@ -277,7 +322,31 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       contact,
       reason: row.reason,
       at: israelStamp(row.at),
+      future,
+      metaError: meta && !/^(activation_seed|retention_daily_cap|send_failed)$/i.test(meta) ? meta : "",
     });
+  }
+
+  const { data: failures, error: failureErr } = await admin
+    .from("template_send_failures")
+    .select("business_id, meta_code, meta_message, created_at")
+    .gte("created_at", sinceIso)
+    .limit(200);
+  if (failureErr && !/does not exist|schema cache/i.test(failureErr.message)) {
+    console.error("[admin-daily-unsent] failure read failed", failureErr.message);
+  }
+  const failureByBusiness = new Map<number, string>();
+  for (const row of failures ?? []) {
+    const id = Number((row as { business_id?: unknown }).business_id);
+    const code = String((row as { meta_code?: unknown }).meta_code ?? "").trim();
+    const message = String((row as { meta_message?: unknown }).meta_message ?? "").trim();
+    if (!Number.isFinite(id) || !code) continue;
+    failureByBusiness.set(id, squashParam(message ? `${code}: ${message}` : code).slice(0, 80));
+  }
+  for (const row of out) {
+    if (row.reason === "נכשל" && !row.metaError) {
+      row.metaError = failureByBusiness.get(row.businessId) ?? "";
+    }
   }
 
   out.sort((a, b) => a.business.localeCompare(b.business, "he") || a.trigger.localeCompare(b.trigger));

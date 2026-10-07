@@ -12,7 +12,7 @@ import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
 } from "@/lib/arbox-membership-types";
-import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
@@ -21,6 +21,7 @@ import {
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
   trialReminderFutureWindow,
+  trialReminderNormalSendAt,
   type TrialReminderSlot,
 } from "@/lib/leads/arbox-trial-reminder";
 import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
@@ -567,6 +568,12 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       for (const rule of freshRules) {
         const templateName = String(rule.template_name ?? "").trim();
         if (!templateName) continue;
+        const sendAt = trialReminderNormalSendAt({
+          classDateYmd,
+          classTime,
+          delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+        });
+        if (decideActivationEventAction({ sendAt, now }) === "send") continue;
         const dedupKey = buildTrainerTrialHeadsUpScheduledDedupKey({
           businessId,
           triggerId: rule.id,
@@ -594,6 +601,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
         if (error) summary.errors += 1;
       }
     }
+    for (const rule of freshRules) activeRuleIds.add(rule.id);
   }
 
   for (const row of reportRows) {

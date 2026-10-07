@@ -59,5 +59,33 @@ const rows: UnsentRow[] = [
 ];
 const detail = unsentDetailParam(rows);
 assert.equal(detail.includes("\n"), false);
-assert.equal(detail, "tights · trial_booked · סומן בלי שליחה 2");
+assert.equal(
+  detail,
+  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
+);
+const attention = unsentDetailParam([
+  ...rows,
+  {
+    businessId: 2,
+    business: "Oriya Wellness",
+    trigger: "trial_reminder",
+    contact: "12122221",
+    reason: "סומן בלי שליחה",
+    at: "07.10, 09:00",
+    future: true,
+  },
+  {
+    businessId: 1,
+    business: "Tights",
+    trigger: "trial_booked",
+    contact: "נירי",
+    reason: "נכשל",
+    at: "06.10, 17:00",
+    metaError: "131026: Message undeliverable",
+  },
+]);
+assert.match(attention, /Oriya Wellness · trial_reminder · סומן בלי שליחה 1/);
+assert.match(attention, /Tights · trial_booked · נכשל 131026: Message undeliverable 1/);
+assert.match(attention, /צפוי: 2 סימוני היסטוריה/);
+assert.equal(attention.includes("…"), false);
 assert.match(renderAdminDailyUnsentText(2, detail), /2 הודעות אוטומטיות לא יצאו/);

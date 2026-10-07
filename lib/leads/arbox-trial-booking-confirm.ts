@@ -38,7 +38,7 @@ import {
 } from "@/lib/trial-registered-wa-reply";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { rememberTrialBookingIdentities } from "@/lib/leads/arbox-trial-booking-identity";
-import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
 import { claimBlockReason } from "@/lib/leads/duplicate-block-alarm";
@@ -461,7 +461,15 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   ];
 
   if (!seeded) {
+    let keptFuture = false;
     for (const item of trials) {
+      const sendAt = trialBookingClassHasStarted(item.classDate, item.classTime, now)
+        ? null
+        : new Date(now.getTime() + 60_000);
+      if (decideActivationEventAction({ sendAt, now }) === "send") {
+        keptFuture = true;
+        continue;
+      }
       for (const triggerId of bookingTriggerIds) {
       const { error } = await admin.from(TABLE).upsert(
         {
@@ -508,7 +516,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       seeded: summary.seeded,
       trial_rows: summary.trial_rows,
     });
-    return summary;
+    if (!keptFuture) return summary;
   }
 
   const activeRuleIds = await ruleIdsActiveSinceActivation(admin, TABLE, businessId, trialRules);
@@ -528,6 +536,10 @@ export async function syncTrialBookingConfirmForBusiness(input: {
     for (const item of trials) {
       const triggerIds = freshRules.map((rule) => rule.id);
       if (freshRules.length === trialRules.length) triggerIds.push(SYNC_LOG_SENTINEL_TRIGGER_ID);
+      const sendAt = trialBookingClassHasStarted(item.classDate, item.classTime, now)
+        ? null
+        : new Date(now.getTime() + 60_000);
+      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       for (const triggerId of triggerIds) {
         const { error } = await admin.from(TABLE).upsert(
           {
@@ -553,6 +565,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
         else summary.seeded += 1;
       }
     }
+    for (const rule of freshRules) activeRuleIds.add(rule.id);
   }
 
   const { data: existing, error: existingErr } = await admin

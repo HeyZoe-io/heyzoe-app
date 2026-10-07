@@ -14,6 +14,7 @@ import {
   suppressMarketingOptOutFromSendError,
 } from "@/lib/wa-marketing-opt-out";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 
@@ -76,7 +77,15 @@ export async function sendOwnerNotification(input: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendOwnerNotification] Meta error:", res.status, errText);
-      return { ok: false, error: errText || `http_${res.status}` };
+      const formatted = formatMetaSendError(errText || `http_${res.status}`);
+      await recordTemplateSendFailure({
+        phoneNumberId,
+        phone: to,
+        templateName,
+        metaError: formatted,
+        raw: errText,
+      }).catch((e) => console.error("[sendOwnerNotification] failure log failed:", e));
+      return { ok: false, error: formatted };
     }
     try {
       const { logZoeAdminTemplateToConversations } = await import("@/lib/wa-zoe-admin-template-log");
@@ -230,6 +239,15 @@ export async function sendBusinessTemplate(input: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
+      const formatted = formatMetaSendError(errText || `http_${res.status}`);
+      await recordTemplateSendFailure({
+        phoneNumberId,
+        phone: to,
+        templateName,
+        triggerId: input.alertTriggerId,
+        metaError: formatted,
+        raw: errText,
+      }).catch((e) => console.error("[sendBusinessTemplate] failure log failed:", e));
       if (!isStaffRecipient) {
         await suppressMarketingOptOutFromSendError({
           phoneNumberId,
@@ -239,7 +257,7 @@ export async function sendBusinessTemplate(input: {
           console.error("[sendBusinessTemplate] marketing opt-out suppress failed:", e)
         );
       }
-      return { ok: false, error: errText || `http_${res.status}` };
+      return { ok: false, error: formatted };
     }
     const json = (await res.json().catch(() => null)) as unknown;
     const wamid = graphTemplateMessageId(json);

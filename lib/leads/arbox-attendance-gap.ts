@@ -5,7 +5,12 @@
  * sync_log still stores variant='unbooked' (PK column kept; no migration).
  */
 import { logMessage } from "@/lib/analytics";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  addCalendarDaysYmd,
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+} from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -600,6 +605,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   for (const tier of seedTiers) {
     let wroteForTier = 0;
     for (const state of attendanceGapSeedCandidates({ states, tier })) {
+      const dueYmd = addCalendarDaysYmd(state.lastYesYmd, tier);
+      const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
+      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
         businessId,
@@ -691,7 +699,10 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           (candidate) =>
             Boolean(candidate.template_name?.trim()) &&
             Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier &&
-            !eventBeforeRuleActivation(parseReportEventInstant(state.lastYesYmd), candidate)
+            !eventBeforeRuleActivation(
+              israelSlotInstant(addCalendarDaysYmd(state.lastYesYmd, tier) ?? "", "09:00"),
+              candidate
+            )
         )
       );
       if (!tierRules.length) continue;

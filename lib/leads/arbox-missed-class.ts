@@ -8,7 +8,10 @@ import {
   type ActiveProductKeys,
 } from "@/lib/leads/arbox-active-product";
 import { logMessage } from "@/lib/analytics";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+} from "@/lib/rule-activation";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -630,13 +633,26 @@ export async function syncArboxMissedClassForBusiness(input: {
         row,
         source: "arbox_missed_class_seed",
       });
-      const seedIds = [...classRules, ...trialRules].map((item) => item.id).filter(Boolean);
+      const seedRules = [...classRules, ...trialRules].filter((item) => item.id);
       let upOk = true;
-      for (const triggerId of seedIds) {
+      let attempted = 0;
+      for (const rule of seedRules) {
+        const dueAt = computeDueAt(
+          {
+            delay_days: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+            delay_direction: delayDirectionForTrigger(
+              rule.trigger_type === "missed_trial" ? "missed_trial" : "missed_class",
+              rule.delay_direction
+            ),
+          },
+          parseClassDateAsEventDate(classDateYmd)
+        );
+        if (decideActivationEventAction({ sendAt: dueAt, now }) === "send") continue;
+        attempted += 1;
         const up = await upsertMissedSyncLog({
           admin: input.admin,
           businessId,
-          triggerId,
+          triggerId: rule.id,
           userId,
           classDateYmd,
           classTime,
@@ -648,6 +664,7 @@ export async function syncArboxMissedClassForBusiness(input: {
         });
         if (!up.ok) upOk = false;
       }
+      if (attempted === 0) continue;
       if (upOk) summary.seeded += 1;
       else summary.errors += 1;
     }
@@ -800,7 +817,16 @@ export async function syncArboxMissedClassForBusiness(input: {
         (item) =>
           item.id &&
           !terminalIds.has(item.id) &&
-          !eventBeforeRuleActivation(parseReportEventInstant(classDateYmd), item)
+          !eventBeforeRuleActivation(
+            computeDueAt(
+              {
+                delay_days: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+                delay_direction: delayDirectionForTrigger(kind, item.delay_direction),
+              },
+              parseClassDateAsEventDate(classDateYmd)
+            ),
+            item
+          )
       );
       if (!pendingRules.length) {
         summary.already += 1;

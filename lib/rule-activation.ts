@@ -156,6 +156,40 @@ export function decideFilterScopeAction(input: {
 }
 
 /**
+ * New rule or disable+enable. A send time that is still ahead goes out once
+ * on the normal path. A missing or already-passed send time is history.
+ */
+export function decideActivationEventAction(input: {
+  sendAt: Date | null;
+  now: Date;
+}): "seed" | "send" {
+  const action = decideFilterScopeAction({
+    previouslyInScope: false,
+    nowInScope: true,
+    sendAt: input.sendAt,
+    now: input.now,
+  });
+  return action === "send" ? "send" : "seed";
+}
+
+/** Israel wall clock. `hm` is HH:MM. */
+export function israelSlotInstant(ymd: string, hm: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !/^\d{2}:\d{2}$/.test(hm)) return null;
+  const dt = new Date(`${ymd}T${hm}:00+03:00`);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+export function addCalendarDaysYmd(ymd: string, days: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return null;
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days, 12, 0, 0));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * True only when this patch should start the activation clock over.
  * Template name is ignored on purpose: rebinding or rewording a template
  * must keep the existing schedule.

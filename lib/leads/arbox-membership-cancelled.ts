@@ -1,6 +1,11 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -633,6 +638,12 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
       ) {
         continue;
       }
+      const eventYmd = reportTimestampToYmd(cancelledTime);
+      const dueYmd = eventYmd
+        ? addCalendarDaysYmd(eventYmd, Math.max(0, Math.trunc(Number(rule.delay_days) || 0)))
+        : null;
+      const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
+      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       const marked = await upsertCancellationSyncLog({
         admin: input.admin,
         businessId,
@@ -805,7 +816,12 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
 
         logBase.contact = maskPhoneForLog(resolved.phone);
 
-        if (eventBeforeRuleActivation(parseReportEventInstant(cancelledTime), rule)) {
+        const dueYmd = eventYmd
+          ? addCalendarDaysYmd(eventYmd, Math.max(0, Math.trunc(Number(rule.delay_days) || 0)))
+          : null;
+        const sendAt =
+          (dueYmd ? israelSlotInstant(dueYmd, "09:00") : null) ?? parseReportEventInstant(cancelledTime);
+        if (eventBeforeRuleActivation(sendAt, rule)) {
           await upsertCancellationSyncLog({
             admin: input.admin,
             businessId,

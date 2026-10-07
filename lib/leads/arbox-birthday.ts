@@ -13,7 +13,11 @@ import {
 import { fetchArboxCustomerUserIds } from "@/lib/leads/arbox-customer-set";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
-import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  israelSlotInstant,
+  ruleIdsActiveSinceActivation,
+} from "@/lib/rule-activation";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildBirthdayScheduledDedupKey,
@@ -677,6 +681,8 @@ export async function syncArboxBirthdaysForBusiness(input: {
       const fresh = kind === "members" ? freshMember : freshFormer;
       if (!fresh.length) continue;
       const syncYear = birthdaySyncLogYear(celebrationYear, kind);
+      const morning = israelSlotInstant(formatDateYmdIsrael(now), "09:00");
+      if (decideActivationEventAction({ sendAt: morning, now }) === "send") continue;
       for (const rule of fresh) {
         const { error } = await input.admin.from("arbox_birthday_sync_log").upsert(
           {
@@ -692,6 +698,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
         if (error) summary.errors += 1;
       }
     }
+    for (const rule of [...freshMember, ...freshFormer]) activeRuleIds.add(rule.id);
   }
 
   for (const [userId, row] of rowsByUser) {

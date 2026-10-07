@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
+  addCalendarDaysYmd,
+  decideActivationEventAction,
   decideFilterScopeAction,
+  israelSlotInstant,
   eventBeforeRuleActivation,
   parseReportEventInstant,
   productFilterChanged,
@@ -153,5 +156,22 @@ assert.equal(
   "stop",
   "leaving the filter stops the send"
 );
+
+const pastSend = israelSlotInstant("2026-10-06", "09:00");
+const futureSend = israelSlotInstant("2026-10-08", "09:00");
+const activationNow = new Date("2026-10-07T06:00:20.000Z");
+const reenabledAt = new Date("2026-10-07T18:00:00.000Z");
+assert.ok(pastSend && futureSend);
+
+function activateThenDeliver(sendAt: Date, openedAt: Date): "seeded" | "sent" {
+  if (decideActivationEventAction({ sendAt, now: openedAt }) === "seed") return "seeded";
+  return "sent";
+}
+
+assert.equal(activateThenDeliver(pastSend, activationNow), "seeded");
+assert.equal(activateThenDeliver(futureSend, activationNow), "sent");
+assert.equal(activateThenDeliver(pastSend, reenabledAt), "seeded");
+assert.equal(activateThenDeliver(futureSend, reenabledAt), "sent");
+assert.equal(addCalendarDaysYmd("2026-10-07", 1), "2026-10-08");
 
 console.log("rule-activation.test.ts: ok");

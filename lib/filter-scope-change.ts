@@ -11,15 +11,16 @@ import { isMissedClassDatePast, parseClassDateAsEventDate } from "@/lib/leads/ar
 import { postTrialDecisionYmd } from "@/lib/leads/arbox-post-trial-followup";
 import {
   addIsraelCalendarDays,
-  classStartMinutes,
+  trialReminderNormalSendAt,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
-  reminderEarlyCutoffHm,
 } from "@/lib/leads/arbox-trial-reminder";
 import { clientFullNameFromBookingRow } from "@/lib/leads/arbox-trainer-trial-heads-up";
 import { normalizePhone } from "@/lib/phone-normalize";
 import { decideFilterScopeAction, type FilterScopeAction } from "@/lib/rule-activation";
+
+export { trialReminderNormalSendAt };
 import {
   buildMissedClassScheduledDedupKey,
   buildPostTrialFollowupScheduledDedupKey,
@@ -46,7 +47,6 @@ const INHERITED_TRIAL_TYPES = new Set<string>([
 ]);
 
 const MORNING_HM = "09:00";
-const EVENING_HM = "20:30";
 
 export type FilterScopeChangeMode =
   | { kind: "business_trial_ids"; previousIds: number[]; nextIds: number[] }
@@ -93,24 +93,6 @@ export function sameProductIdList(left: unknown, right: unknown): boolean {
 function israelWall(ymd: string, hm: string): Date | null {
   const dt = new Date(`${ymd}T${hm}:00+03:00`);
   return Number.isNaN(dt.getTime()) ? null : dt;
-}
-
-/** The 09:00 or 20:30 Israel slot this reminder would normally use. */
-export function trialReminderNormalSendAt(input: {
-  classDateYmd: string;
-  classTime: string;
-  delayDays: number;
-}): Date | null {
-  const delay = Math.max(0, Math.trunc(input.delayDays));
-  const minutes = classStartMinutes(input.classTime);
-  const cutoff = classStartMinutes(reminderEarlyCutoffHm());
-  if (minutes == null || cutoff == null) return null;
-  if (delay === 0 && minutes < cutoff) {
-    const prev = addIsraelCalendarDays(input.classDateYmd, -1);
-    return prev ? israelWall(prev, EVENING_HM) : null;
-  }
-  const due = addIsraelCalendarDays(input.classDateYmd, -delay);
-  return due ? israelWall(due, MORNING_HM) : null;
 }
 
 function morningOn(ymd: string | null): Date | null {

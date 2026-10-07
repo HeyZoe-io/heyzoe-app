@@ -13,7 +13,11 @@
  * 21:00 night hold, so a 20:30 start is not held.
  */
 import { logMessage } from "@/lib/analytics";
-import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  israelSlotInstant,
+  ruleIdsActiveSinceActivation,
+} from "@/lib/rule-activation";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -200,6 +204,27 @@ export function addIsraelCalendarDays(ymd: string, days: number): string | null 
   const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
   const day = String(dt.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+const REMINDER_MORNING_HM = "09:00";
+const REMINDER_EVENING_HM = "20:30";
+
+/** The 09:00 or 20:30 Israel slot this reminder would normally use. */
+export function trialReminderNormalSendAt(input: {
+  classDateYmd: string;
+  classTime: string;
+  delayDays: number;
+}): Date | null {
+  const delay = Math.max(0, Math.trunc(input.delayDays));
+  const minutes = classStartMinutes(input.classTime);
+  const cutoff = classStartMinutes(reminderEarlyCutoffHm());
+  if (minutes == null || cutoff == null) return null;
+  if (delay === 0 && minutes < cutoff) {
+    const prev = addIsraelCalendarDays(input.classDateYmd, -1);
+    return prev ? israelSlotInstant(prev, REMINDER_EVENING_HM) : null;
+  }
+  const due = addIsraelCalendarDays(input.classDateYmd, -delay);
+  return due ? israelSlotInstant(due, REMINDER_MORNING_HM) : null;
 }
 
 /**
@@ -797,7 +822,15 @@ export async function syncArboxTrialReminderForBusiness(input: {
       if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
       summary.trial_rows += 1;
       let ok = true;
+      let seededRule = false;
       for (const rule of sendRules) {
+        const sendAt = trialReminderNormalSendAt({
+          classDateYmd,
+          classTime,
+          delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+        });
+        if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        seededRule = true;
         const up = await upsertTrialReminderSyncLog({
           admin: input.admin,
           businessId,
@@ -813,7 +846,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         });
         if (!up.ok) ok = false;
       }
-      if (ok) {
+      if (ok && seededRule) {
         wrote += 1;
         if (needsFullSeed) summary.seeded += 1;
         else summary.soft_seeded += 1;
@@ -888,6 +921,12 @@ export async function syncArboxTrialReminderForBusiness(input: {
       if (userId === TRIAL_REMINDER_SOFT_SEED_SENTINEL_USER_ID) continue;
       if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
       for (const rule of freshRules) {
+        const sendAt = trialReminderNormalSendAt({
+          classDateYmd,
+          classTime,
+          delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+        });
+        if (decideActivationEventAction({ sendAt, now }) === "send") continue;
         const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
           {
             business_id: businessId,
@@ -909,6 +948,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         if (error) summary.errors += 1;
       }
     }
+    for (const rule of freshRules) activeRuleIds.add(rule.id);
   }
 
   for (const row of reportRows) {

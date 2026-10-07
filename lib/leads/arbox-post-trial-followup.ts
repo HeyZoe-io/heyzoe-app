@@ -28,7 +28,12 @@ import {
   reclassifiedPostClassPastDue,
   type TrialBookingClass,
 } from "@/lib/leads/trial-booking-class";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -1078,7 +1083,9 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     if (!dueRules.length) continue;
     summary.due += 1;
 
-    if (seedThisRun && softSeedOutcomes.includes(outcome)) {
+    const morningPassed =
+      decideActivationEventAction({ sendAt: israelSlotInstant(todayYmd, "09:00"), now }) === "seed";
+    if (seedThisRun && softSeedOutcomes.includes(outcome) && morningPassed) {
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
         businessId,
@@ -1108,8 +1115,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       continue;
     }
 
-    // Soft-seeded outcomes this run: no forward send.
-    if (softSeedOutcomes.includes(outcome)) continue;
+    if (softSeedOutcomes.includes(outcome) && morningPassed) continue;
 
     let rulesToSend = dueRules;
     if (classRun?.ready) {

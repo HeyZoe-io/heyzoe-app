@@ -12,7 +12,13 @@ import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  addCalendarDaysYmd,
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -262,6 +268,22 @@ export function lostLeadImmediateWindow(now: Date): { fromDate: string; toDate: 
 
 export function isLostLeadImmediateDue(eventYmd: string, todayYmd: string): boolean {
   return eventYmd === todayYmd || eventYmd === shiftLostLeadYmd(todayYmd, -1);
+}
+
+function lostLeadNormalSendAt(
+  lostDate: string,
+  delayDays: number,
+  todayYmd: string,
+  now: Date
+): Date | null {
+  const eventYmd = reportTimestampToYmd(lostDate);
+  if (!eventYmd) return null;
+  const delay = Math.max(0, Math.trunc(Number(delayDays) || 0));
+  if (delay === 0) {
+    return isLostLeadImmediateDue(eventYmd, todayYmd) ? new Date(now.getTime() + 60_000) : null;
+  }
+  const due = addCalendarDaysYmd(eventYmd, delay);
+  return due ? israelSlotInstant(due, "09:00") : null;
 }
 
 /** One lostLeadsReport day per distinct delay: fromDate = toDate = today - N. */
@@ -697,6 +719,8 @@ export async function syncArboxLostLeadForBusiness(input: {
       const leadId = parseLostLeadId(row);
       const lostDate = normalizeLostDatePk(row.lost_date);
       if (leadId == null || !lostDate) continue;
+      const sendAt = lostLeadNormalSendAt(lostDate, rule.delay_days, todayYmd, now);
+      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       const marked = await upsertLostLeadSyncLog({
         admin: input.admin,
         businessId,
@@ -816,7 +840,14 @@ export async function syncArboxLostLeadForBusiness(input: {
         if (existingErr) continue;
         const status = String((existing as { status?: unknown } | null)?.status ?? "");
         if (!shouldRetryCancellationSyncLog(status)) continue;
-        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) continue;
+        if (
+          eventBeforeRuleActivation(
+            lostLeadNormalSendAt(lostDate, rule.delay_days, todayYmd, now) ?? parseReportEventInstant(lostDate),
+            rule
+          )
+        ) {
+          continue;
+        }
         openDueCandidates += 1;
       }
     }
@@ -918,7 +949,12 @@ export async function syncArboxLostLeadForBusiness(input: {
           continue;
         }
 
-        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) {
+        if (
+          eventBeforeRuleActivation(
+            lostLeadNormalSendAt(lostDate, rule.delay_days, todayYmd, now) ?? parseReportEventInstant(lostDate),
+            rule
+          )
+        ) {
           const marked = await upsertLostLeadSyncLog({
             admin: input.admin,
             businessId,

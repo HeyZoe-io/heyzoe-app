@@ -7,7 +7,13 @@
  */
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  addCalendarDaysYmd,
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -1131,7 +1137,13 @@ export async function syncArboxFreezeForBusiness(input: {
     // window entry does not blast historical holds.
     if (seedEnding) {
       let ok = true;
+      let seededAny = false;
       for (const rule of endingPool) {
+        const days = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
+        const notifyFrom = addCalendarDaysYmd(endYmd, -days);
+        const sendAt = notifyFrom ? israelSlotInstant(notifyFrom, "09:00") : null;
+        if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        seededAny = true;
         const up = await upsertEndingLog({
           admin: input.admin,
           businessId,
@@ -1147,11 +1159,13 @@ export async function syncArboxFreezeForBusiness(input: {
         });
         if (!up) ok = false;
       }
-      if (ok) {
-        if (needsFullSeed) summary.ending_seeded += 1;
-        else summary.soft_seeded += 1;
-      } else summary.errors += 1;
-      continue;
+      if (seededAny) {
+        if (ok) {
+          if (needsFullSeed) summary.ending_seeded += 1;
+          else summary.soft_seeded += 1;
+        } else summary.errors += 1;
+        continue;
+      }
     }
 
     if (!dueRules.length) continue;
@@ -1188,7 +1202,13 @@ export async function syncArboxFreezeForBusiness(input: {
         (item) =>
           item.id &&
           !terminalIds.has(item.id) &&
-          !eventBeforeRuleActivation(parseReportEventInstant(startYmd), item)
+          !eventBeforeRuleActivation(
+            israelSlotInstant(
+              addCalendarDaysYmd(endYmd, -Math.max(0, Math.trunc(Number(item.delay_days) || 0))) ?? "",
+              "09:00"
+            ) ?? parseReportEventInstant(startYmd),
+            item
+          )
       );
       if (!pendingRules.length) {
         summary.already += 1;

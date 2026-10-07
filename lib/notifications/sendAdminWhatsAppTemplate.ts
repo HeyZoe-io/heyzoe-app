@@ -1,5 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
+import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 
 export const ADMIN_SUPPORT_ALERT_WHATSAPP =
   process.env.ADMIN_SUPPORT_ALERT_WHATSAPP || "972508318162";
@@ -52,7 +53,15 @@ export async function sendAdminWhatsAppTemplate(input: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendAdminWhatsAppTemplate] Meta error:", res.status, errText);
-      return { ok: false, error: errText || `http_${res.status}` };
+      const formatted = formatMetaSendError(errText || `http_${res.status}`);
+      await recordTemplateSendFailure({
+        phoneNumberId,
+        phone: to,
+        templateName,
+        metaError: formatted,
+        raw: errText,
+      }).catch((e) => console.error("[sendAdminWhatsAppTemplate] failure log failed:", e));
+      return { ok: false, error: formatted };
     }
     return { ok: true };
   } catch (e) {

@@ -9,7 +9,7 @@ import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification"
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
-import { ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
   isIntroWorkoutProductName,
@@ -553,6 +553,8 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
       const endDateYmd = parseEndDateYmd(row.end_date);
       if (!Number.isFinite(membershipUserIdRaw) || membershipUserIdRaw <= 0 || !endDateYmd) continue;
       for (const rule of freshRules) {
+        const dueAt = computeMembershipExpiringDueAt(endDateYmd, rule);
+        if (decideActivationEventAction({ sendAt: dueAt, now }) === "send") continue;
         const { error } = await input.admin.from("arbox_expiring_sync_log").upsert(
           {
             business_id: businessId,
@@ -568,6 +570,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
       }
     }
   }
+  for (const rule of freshRules) activeRuleIds.add(rule.id);
 
   for (const row of report.rows) {
     const membershipUserIdRaw = Number(row.membership_user_id);
