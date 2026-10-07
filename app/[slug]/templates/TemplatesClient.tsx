@@ -2011,9 +2011,24 @@ export default function TemplatesClient({
                                 </label>
                                 <input
                                   type="number"
-                                  min={minDelayDaysForTrigger(trigger.trigger_type)}
+                                  min={0}
+                                  step={1}
                                   value={editDelayDays}
-                                  onChange={(e) => setEditDelayDays(Number(e.target.value))}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    if (raw === "") {
+                                      setEditDelayDays(0);
+                                      return;
+                                    }
+                                    const n = Math.trunc(Number(raw));
+                                    if (Number.isFinite(n) && n >= 0) setEditDelayDays(n);
+                                  }}
+                                  onBlur={() => {
+                                    const delayMin = minDelayDaysForTrigger(trigger.trigger_type);
+                                    setEditDelayDays((current) =>
+                                      Math.max(delayMin, Math.trunc(Number(current) || 0))
+                                    );
+                                  }}
                                   className="w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
                                 />
                                 {isNthWorkoutTriggerType(trigger.trigger_type) ? (
@@ -2423,17 +2438,23 @@ export default function TemplatesClient({
                               </label>
                               <input
                                 type="number"
-                                min={newDelayDaysMin}
+                                min={0}
                                 step={1}
                                 value={newDelayDays}
-                                onChange={(e) =>
-                                  setNewDelayDays(
-                                    Math.max(
-                                      newDelayDaysMin,
-                                      Number(e.target.value) || newDelayDaysMin
-                                    )
-                                  )
-                                }
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  if (raw === "") {
+                                    setNewDelayDays(0);
+                                    return;
+                                  }
+                                  const n = Math.trunc(Number(raw));
+                                  if (Number.isFinite(n) && n >= 0) setNewDelayDays(n);
+                                }}
+                                onBlur={() => {
+                                  setNewDelayDays((current) =>
+                                    Math.max(newDelayDaysMin, Math.trunc(Number(current) || 0))
+                                  );
+                                }}
                                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                               />
                               {newTriggerType === "no_response" ? (
