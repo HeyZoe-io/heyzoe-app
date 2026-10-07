@@ -47,7 +47,11 @@ import {
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
-import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
+import {
+  nthWorkoutTemplateParamValues,
+  templateBodyUsesFirstNameSlot,
+  templateSendPayload,
+} from "@/lib/template-send-params";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   createCompanionSendGate,
@@ -431,6 +435,8 @@ async function dispatchNthWorkoutTemplate(input: {
   fullName: string | null;
   contactFullName?: string | null;
   rule: PurchaseTemplateTriggerRule;
+  classDateYmd?: string | null;
+  classTime?: string | null;
 }): Promise<{ dispatch: NthWorkoutDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
@@ -468,12 +474,28 @@ async function dispatchNthWorkoutTemplate(input: {
   const languageCode =
     String((approvedTpl as { language?: string }).language ?? "he").trim() || "he";
   const storedComponents = (approvedTpl as { components?: unknown }).components;
+  const classParams = nthWorkoutTemplateParamValues({
+    storedComponents,
+    firstName,
+    workoutN: nthWorkoutN(input.rule.delay_days),
+    classDateYmd: input.classDateYmd,
+    classTime: input.classTime,
+  });
+  if (!classParams.ok) {
+    console.info("[leads/arbox-nth-workout] skip", {
+      reason: classParams.reason,
+      var_count: classParams.varCount,
+    });
+    return { dispatch: "skipped", ok: false };
+  }
   const { sendComponents, bodyParams } = templateSendPayload({
     triggerType: "nth_workout",
     storedComponents,
     firstName,
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
     workoutN: nthWorkoutN(input.rule.delay_days),
+    classDateYmd: input.classDateYmd,
+    classTime: input.classTime,
   });
 
   const sendResult = await sendBusinessTemplate({
@@ -925,6 +947,8 @@ export async function syncArboxNthWorkoutForBusiness(input: {
           fullName: resolveReportFullName(member),
           contactFullName: resolved.contact?.full_name ?? null,
           rule,
+          classDateYmd: beforeTarget?.classDateYmd ?? null,
+          classTime: beforeTarget?.classTime ?? null,
         });
         companionGate.after(templateName, send.dispatch);
 

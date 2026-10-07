@@ -355,6 +355,17 @@ export function trainerHeadsUpTemplateParamValues(input: {
 }
 
 export function resolveTemplateBodyParamValues(ctx: TemplateSendParamContext): string[] {
+  if (ctx.triggerType === "nth_workout" && bodyTextFromTemplateComponents(ctx.storedComponents)) {
+    const decided = nthWorkoutTemplateParamValues({
+      storedComponents: ctx.storedComponents,
+      firstName: ctx.firstName ?? null,
+      workoutN: ctx.workoutN,
+      classDateYmd: ctx.classDateYmd,
+      classTime: ctx.classTime,
+    });
+    if (!decided.ok) return [];
+    return decided.values;
+  }
   if (ctx.triggerType === "trial_reminder" && bodyTextFromTemplateComponents(ctx.storedComponents)) {
     const decided = trialReminderTemplateParamValues({
       storedComponents: ctx.storedComponents,
@@ -460,6 +471,39 @@ export function formatTrialReminderClassTime(raw: unknown): string | null {
   const minute = Number(match[2]);
   if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour > 23 || minute > 59) return null;
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/**
+ * Body params for one nth_workout send, counted from the approved body.
+ * 1 → [first name]. 2 → [first name, workout number].
+ * 3 → [first name, "יום שלישי 7.10", HH:MM]. Any other count is a skip.
+ */
+export function nthWorkoutTemplateParamValues(input: {
+  storedComponents: unknown;
+  firstName: string | null;
+  workoutN?: number | string | null;
+  classDateYmd?: string | null;
+  classTime?: string | null;
+}): { ok: true; values: string[] } | { ok: false; reason: string; varCount: number } {
+  const indexes = trialReminderBodyPlaceholderIndexes(input.storedComponents);
+  const contiguous = indexes.every((n, i) => n === i + 1);
+  const count = indexes.length;
+  if (!contiguous || (count !== 1 && count !== 2 && count !== 3)) {
+    return { ok: false, reason: "nth_workout_param_count", varCount: count };
+  }
+  const first =
+    firstNameFromFullName(String(input.firstName ?? "").trim()) || TEMPLATE_NAME_FALLBACK;
+  if (count === 1) return { ok: true, values: [first] };
+  if (count === 2) {
+    const n = Math.trunc(Number(input.workoutN));
+    return { ok: true, values: [first, Number.isFinite(n) && n > 0 ? String(n) : "3"] };
+  }
+  const day = formatTrialReminderClassDay(input.classDateYmd);
+  const time = formatTrialReminderClassTime(input.classTime);
+  if (!day || !time) {
+    return { ok: false, reason: "nth_workout_param_missing_class", varCount: count };
+  }
+  return { ok: true, values: [first, day, time] };
 }
 
 export function trialReminderBodyPlaceholderIndexes(components: unknown): number[] {

@@ -213,6 +213,23 @@ import {
     ["דנה"],
     "a body with only {{1}} does not send a workout number"
   );
+  assert.deepEqual(
+    resolveTemplateBodyParamValues({
+      triggerType: "nth_workout",
+      storedComponents: [
+        {
+          type: "BODY",
+          text: "היי {{1}}❤️\n\nעוד רגע נפגשות ב{{2}} בשעה {{3}} לאימון הראשון שלך במנוי 😊",
+        },
+      ],
+      firstName: "דנה כהן",
+      classDateYmd: "2026-10-07",
+      classTime: "18:00",
+      workoutN: 1,
+    }),
+    ["דנה", "יום רביעי 7.10", "18:00"],
+    "three slots send the class day and time"
+  );
 }
 
 {
