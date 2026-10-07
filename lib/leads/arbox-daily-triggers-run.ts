@@ -241,6 +241,8 @@ export async function listArboxDailyBusinessIds(
         "trainer_trial_heads_up",
         "nth_workout",
         "lead_status_changed",
+        "registered_after_trial",
+        "not_registered_after_trial",
       ])
     : await ruleQuery.in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
@@ -323,7 +325,11 @@ export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now?: Date;
-  /** 20:30 Asia/Jerusalem via ?slot=evening. Trial reminder, trainer heads-up, and nth_workout before-rules. Clock hour is not checked here. */
+  /**
+   * 20:30 Asia/Jerusalem via ?slot=evening. Trial reminder, trainer heads-up,
+   * nth_workout before-rules, post-trial C5/C6 catch-up, and lead_status_changed.
+   * Clock hour is not checked here.
+   */
   slot?: "morning" | "evening";
 }): Promise<ArboxDailyBusinessRun> {
   const admin = input.admin;
@@ -435,6 +441,46 @@ export async function runArboxDailyTriggersForBusiness(input: {
         processed: 0,
         already: 0,
         notified: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
+        fetch_error: message,
+      };
+    }
+    // C5/C6 catch-up for due-today (and one-day grace) after a missed morning run.
+    // IO only when an enabled rule exists: bookings lookback + salesReport (+ active
+    // product when C6 is about to send). Same as the morning step for that business.
+    try {
+      entry.post_trial_followup = await timeStep(timings, business.id, "post_trial_followup", () =>
+        syncArboxPostTrialFollowupForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.crm_api_key,
+          boxId: business.crm_box_id,
+          postTrialFollowupSeeded: business.arbox_post_trial_followup_seeded,
+          now,
+        })
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[cron/arbox-daily-triggers] evening post_trial_followup threw", {
+        slug: business.slug,
+        error: message,
+      });
+      entry.post_trial_followup = {
+        fetched_bookings: 0,
+        fetched_sales: 0,
+        pages_fetched: 0,
+        trial_attended: 0,
+        due: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        notified: 0,
+        deferred: 0,
         gated: 0,
         no_phone: 0,
         abandoned: 0,

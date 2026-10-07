@@ -274,7 +274,18 @@ assert.equal(
       delayDays: 1,
       todayYmd: today,
     }),
-    true
+    false,
+    "one day after a missed decision day still catches up"
+  );
+  assert.equal(
+    postTrialSeededBlocksSend({
+      status: "seeded",
+      classDateYmd: "2026-10-04",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    true,
+    "older history seeds stay blocked"
   );
   assert.equal(
     postTrialSeededBlocksSend({

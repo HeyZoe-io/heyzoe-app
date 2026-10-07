@@ -42,6 +42,8 @@ type TriggerCatalogEntryShape = {
 const SEND_HINT_FREQUENT_HE =
   "נשלח עד כ־15 דקות אחרי האירוע, בכל שעות היום";
 const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
+const SEND_HINT_POST_TRIAL_NOT_REGISTERED_HE =
+  "נשלח ב־09:00 (שעון ישראל). אם פוספס בבוקר — גם ב־20:30 באותו יום";
 const SEND_HINT_LOST_LEAD_HE =
   "דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-09:00 ביום היעד (שעון ישראל).";
 const SEND_HINT_LEAD_STATUS_HE =
@@ -140,7 +142,7 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "not_registered_after_trial",
     uiOrder: 7,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: SEND_HINT_POST_TRIAL_NOT_REGISTERED_HE,
   },
   {
     type: "birthday",

@@ -301,8 +301,10 @@ export function postTrialLogStatusBlocksSend(status: string | null | undefined):
 }
 
 /**
- * A soft-seed that ran after 09:00 used to mark due-today as seeded without sending.
- * On the decision day itself, allow one catch-up attempt.
+ * Soft-seed / active-skip used to mark due rows as seeded without WhatsApp.
+ * Allow catch-up on the decision day and one calendar day after, still subject
+ * to conversion / phone / template checks. Older history seeds stay blocked.
+ * Already-sent rows stay blocked via status sent.
  */
 export function postTrialSeededBlocksSend(input: {
   status: string | null | undefined;
@@ -312,11 +314,12 @@ export function postTrialSeededBlocksSend(input: {
 }): boolean {
   const status = String(input.status ?? "").trim();
   if (status !== "seeded") return postTrialLogStatusBlocksSend(status);
-  return postTrialSeedAction({
-    classDateYmd: input.classDateYmd,
-    delayDays: input.delayDays,
-    todayYmd: input.todayYmd,
-  }) !== "send";
+  const decision = postTrialDecisionYmd(input.classDateYmd, input.delayDays);
+  if (!decision) return true;
+  if (ymdCmp(decision, input.todayYmd) === 0) return false;
+  const graceDay = addDaysYmd(decision, 1);
+  if (graceDay && ymdCmp(graceDay, input.todayYmd) === 0) return false;
+  return true;
 }
 
 export function triggerTypeForOutcome(outcome: PostTrialOutcome): PostTrialTriggerType {
@@ -1348,6 +1351,37 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           const attemptsSoFar = parseCancellationSyncAttempts(
             (existing as { attempts?: unknown } | null)?.attempts
           );
+          // claimPendingSyncLog only bumps pending rows. Re-open a soft-seeded
+          // catch-up row so the claim can win, then send.
+          if (status === "seeded") {
+            const { data: reopened, error: reopenErr } = await input.admin
+              .from("arbox_post_trial_followup_sync_log")
+              .update({
+                status: "pending",
+                contact_id: resolved.contact.id,
+                processed_at: nowIso,
+              })
+              .eq("business_id", businessId)
+              .eq("trigger_id", rule.id)
+              .eq("user_id", att.userId)
+              .eq("class_date", att.classDateYmd)
+              .eq("status", "seeded")
+              .select("status");
+            if (reopenErr) {
+              logDedupBlockedSend({
+                log: "[leads/arbox-post-trial-followup]",
+                businessId,
+                triggerId: rule.id,
+                reason: reopenErr.message,
+              });
+              summary.errors += 1;
+              continue;
+            }
+            if (!Array.isArray(reopened) || reopened.length === 0) {
+              summary.already += 1;
+              continue;
+            }
+          }
           const claim = await claimPendingSyncLog({
             admin: input.admin,
             table: "arbox_post_trial_followup_sync_log",
