@@ -12,6 +12,16 @@ import {
   stampFutureBookings,
   type SnapshotLogicRow,
 } from "@/lib/leads/arbox-class-cancelled-customer";
+import {
+  classifyTrainerStoreError,
+  planTrainerRefresh,
+  shouldNotifyClassTrainer,
+  trainerPhoneCoveredByCustomers,
+  trainerRuleIdsToSend,
+  trainerSkipReason,
+  trainersFromActiveSummary,
+  type TrainerSnapshotRow,
+} from "@/lib/leads/arbox-class-trainer-snapshot";
 
 const summary = (
   scheduleId: string,
@@ -273,6 +283,259 @@ const row = (
 {
   assert.equal(classStartHasPassed("2026-09-28", "18:00", israelWallTimeToUtc("2026-09-28", "18:01")), true);
   assert.equal(classStartHasPassed("2026-09-28", "18:00", israelWallTimeToUtc("2026-09-28", "17:00")), false);
+}
+
+const trainer = (
+  partial: Partial<TrainerSnapshotRow> & Pick<TrainerSnapshotRow, "staff_user_id">
+): TrainerSnapshotRow => ({
+  schedule_id: "sch-1",
+  slot: "primary",
+  phone: "972501111111",
+  full_name: "אסתר וקנין",
+  class_name: "פילאטיס",
+  class_date: "2026-10-08",
+  class_time: "18:00",
+  seen_at: "2026-10-07T08:00:00.000Z",
+  ...partial,
+});
+
+{
+  const sightings = trainersFromActiveSummary([
+    {
+      schedule_id: "sch-1",
+      class_name: "פילאטיס",
+      date: "2026-10-08",
+      start_time: "18:00",
+      status: "active",
+      staff_member: { user_id: 10, full_name: "אסתר וקנין", phone: "0528388406" },
+      second_staff_member: { user_id: 11, full_name: "אופל עקיבא", phone: "0500000511" },
+    },
+    {
+      schedule_id: "open",
+      class_name: "Open Gym",
+      date: "2026-10-08",
+      start_time: "09:00",
+      status: "active",
+      staff_member: null,
+    },
+  ]);
+  assert.equal(sightings.length, 2);
+  assert.equal(sightings[0]!.staff_user_id, "10");
+  assert.equal(sightings[0]!.phone, "972528388406");
+  assert.equal(sightings[1]!.slot, "second");
+  assert.equal(sightings[1]!.phone, "972500000511");
+}
+
+{
+  const existing = [trainer({ staff_user_id: "old", phone: "972501111111", full_name: "ישן" })];
+  const swapped = planTrainerRefresh({
+    existing,
+    sightings: [
+      {
+        schedule_id: "sch-1",
+        slot: "primary",
+        staff_user_id: "new",
+        phone: "972502222222",
+        full_name: "חדש",
+        class_name: "פילאטיס",
+        class_date: "2026-10-08",
+        class_time: "18:00",
+      },
+    ],
+    activeScheduleIds: new Set(["sch-1"]),
+    nowIso: "2026-10-07T09:00:00.000Z",
+  });
+  assert.equal(swapped.upserts.length, 1);
+  assert.equal(swapped.upserts[0]!.staff_user_id, "new");
+  assert.equal(swapped.upserts[0]!.phone, "972502222222");
+  assert.equal(swapped.deleteSlots.length, 0);
+  assert.equal(
+    shouldNotifyClassTrainer({
+      customerRowCount: 2,
+      pendingCustomerCount: 2,
+      newlyMarkedCount: 1,
+      classPassed: false,
+    }),
+    true
+  );
+}
+
+{
+  const kept = planTrainerRefresh({
+    existing: [trainer({ staff_user_id: "10", phone: "972501111111" })],
+    sightings: [
+      {
+        schedule_id: "sch-1",
+        slot: "primary",
+        staff_user_id: "10",
+        phone: null,
+        full_name: "אסתר וקנין",
+        class_name: "פילאטיס",
+        class_date: "2026-10-08",
+        class_time: "18:00",
+      },
+    ],
+    activeScheduleIds: new Set(["sch-1"]),
+    nowIso: "2026-10-07T09:00:00.000Z",
+  });
+  assert.equal(kept.upserts[0]!.phone, "972501111111");
+}
+
+{
+  const removedSecond = planTrainerRefresh({
+    existing: [
+      trainer({ staff_user_id: "10" }),
+      trainer({ staff_user_id: "11", slot: "second", phone: "972503333333" }),
+    ],
+    sightings: [
+      {
+        schedule_id: "sch-1",
+        slot: "primary",
+        staff_user_id: "10",
+        phone: "972501111111",
+        full_name: "אסתר וקנין",
+        class_name: "פילאטיס",
+        class_date: "2026-10-08",
+        class_time: "18:00",
+      },
+    ],
+    activeScheduleIds: new Set(["sch-1"]),
+    nowIso: "2026-10-07T09:00:00.000Z",
+  });
+  assert.deepEqual(removedSecond.deleteSlots, [{ schedule_id: "sch-1", slot: "second" }]);
+}
+
+{
+  const cancelledKept = planTrainerRefresh({
+    existing: [trainer({ staff_user_id: "10" })],
+    sightings: [],
+    activeScheduleIds: new Set(),
+    nowIso: "2026-10-07T10:00:00.000Z",
+  });
+  assert.equal(cancelledKept.upserts.length, 0);
+  assert.equal(cancelledKept.deleteSlots.length, 0);
+}
+
+{
+  assert.equal(
+    shouldNotifyClassTrainer({
+      customerRowCount: 0,
+      pendingCustomerCount: 0,
+      newlyMarkedCount: 0,
+      classPassed: false,
+    }),
+    true
+  );
+  assert.equal(trainerPhoneCoveredByCustomers("052-838-8406", ["972528388406"]), true);
+  assert.equal(trainerPhoneCoveredByCustomers("972501111111", ["972502222222"]), false);
+  assert.equal(
+    trainerSkipReason({
+      inWindow: true,
+      classPassed: false,
+      hasSnapshot: true,
+      phone: null,
+      coveredByCustomer: false,
+    }),
+    "no_staff_phone"
+  );
+  assert.equal(
+    trainerSkipReason({
+      inWindow: false,
+      classPassed: false,
+      hasSnapshot: true,
+      phone: "972501111111",
+      coveredByCustomer: false,
+    }),
+    "outside_window"
+  );
+  assert.equal(
+    trainerSkipReason({
+      inWindow: true,
+      classPassed: false,
+      hasSnapshot: false,
+      phone: null,
+      coveredByCustomer: false,
+    }),
+    "no_snapshot"
+  );
+}
+
+{
+  assert.equal(
+    shouldNotifyClassTrainer({
+      customerRowCount: 3,
+      pendingCustomerCount: 0,
+      newlyMarkedCount: 0,
+      classPassed: false,
+    }),
+    false
+  );
+  assert.equal(
+    shouldNotifyClassTrainer({
+      customerRowCount: 3,
+      pendingCustomerCount: 0,
+      newlyMarkedCount: 0,
+      classPassed: true,
+    }),
+    false
+  );
+}
+
+{
+  assert.deepEqual(
+    trainerRuleIdsToSend({
+      ruleIds: ["rule-a", "rule-b"],
+      loggedRuleIds: new Set(),
+      coveredByCustomer: false,
+    }),
+    ["rule-a", "rule-b"]
+  );
+  assert.deepEqual(
+    trainerRuleIdsToSend({
+      ruleIds: ["rule-a", "rule-b"],
+      loggedRuleIds: new Set(["rule-a"]),
+      coveredByCustomer: false,
+    }),
+    ["rule-b"]
+  );
+  assert.deepEqual(
+    trainerRuleIdsToSend({
+      ruleIds: ["rule-a", "rule-b"],
+      loggedRuleIds: new Set(),
+      coveredByCustomer: true,
+    }),
+    []
+  );
+}
+
+{
+  assert.equal(classifyTrainerStoreError("Could not find the table 'public.arbox_class_trainer_snapshot' in the schema cache"), "missing");
+  assert.equal(classifyTrainerStoreError("relation \"arbox_class_trainer_snapshot\" does not exist"), "missing");
+  assert.equal(classifyTrainerStoreError("connection reset"), "failed");
+}
+
+{
+  const components = [{ type: "BODY", text: "היי {{1}}, השיעור {{2}} שנרשמת אליו בתאריך {{3}} בשעה {{4}} בוטל." }];
+  assert.deepEqual(
+    classCancelledCustomerBodyParams({
+      components,
+      firstName: "אסתר וקנין",
+      className: "פילאטיס",
+      classDateYmd: "2026-10-08",
+      classTime: "18:00",
+    }),
+    ["אסתר", "פילאטיס", "08/10", "18:00"]
+  );
+  assert.deepEqual(
+    classCancelledCustomerBodyParams({
+      components,
+      firstName: "דנה",
+      className: "פילאטיס",
+      classDateYmd: "2026-10-08",
+      classTime: "18:00",
+    }),
+    ["דנה", "פילאטיס", "08/10", "18:00"]
+  );
 }
 
 console.log("arbox-class-cancelled-customer.test.ts: ok");

@@ -4,10 +4,16 @@
  * (status=active, exact class_name + date + HH:MM), then match cancellations on
  * that id only. Name + date + time collides on cancelledSessionsReport.
  *
- * Order per run: cancellation pass, snapshot refresh, send, retention.
+ * Order per run: cancellation pass, snapshot refresh (bookings + trainer), send, retention.
+ * The trainer gets the same template. Their phone is copied from the
+ * classesSummaryReport fetch this run already makes, into
+ * arbox_class_trainer_snapshot. A missing table skips trainer capture and
+ * trainer sends; registered customers still go out.
  * Scheduling: cron-job.org hourly → /api/cron/arbox-class-cancel-notify.
  * IO (10 businesses, rule enabled): 3–5 Arbox GETs/business/hour
- * (cancelled + bookings + summary, bookings may be 2 pages). No Claude.
+ * (cancelled + bookings + summary, bookings may be 2 pages). No extra Arbox
+ * call for the trainer. Extra Supabase: one indexed read, one upsert of the
+ * active classes in the horizon, and the same retention delete. No Claude.
  * Businesses without an enabled rule: 0 Arbox calls.
  */
 import { ARBOX_API_BASE } from "@/lib/crm/adapters/arbox";
@@ -17,6 +23,19 @@ import {
   decideScheduledSendGate,
 } from "@/lib/scheduled-template-sends";
 import { isCancelledSessionStatus } from "@/lib/leads/arbox-class-cancelled-staff";
+import {
+  CLASS_TRAINER_SNAPSHOT_TABLE,
+  activeScheduleIdsFromSummary,
+  classifyTrainerStoreError,
+  planTrainerRefresh,
+  shouldNotifyClassTrainer,
+  trainerPhoneCoveredByCustomers,
+  trainerRuleIdsToSend,
+  trainerSkipReason,
+  trainersFromActiveSummary,
+  type TrainerSnapshotRow,
+  type TrainerStoreFailure,
+} from "@/lib/leads/arbox-class-trainer-snapshot";
 import { fetchArboxPagedReportRows } from "@/lib/leads/arbox-paged-report";
 import {
   buildClassesSummaryReportPath,
@@ -71,6 +90,8 @@ export type ClassCancelSummaryInput = {
   start_time?: unknown;
   time?: unknown;
   status?: unknown;
+  staff_member?: unknown;
+  second_staff_member?: unknown;
 };
 
 export type StampedRegistration = {
@@ -712,6 +733,10 @@ export type ClassCancelSyncSummary = {
   held_quiet_hours: number;
   failed: number;
   retained: number;
+  trainer_sent: number;
+  trainer_skipped_no_phone: number;
+  trainer_skipped_no_snapshot: number;
+  trainer_held_quiet_hours: number;
   refresh_aborted?: boolean;
   fetch_error?: string;
 };
@@ -737,6 +762,10 @@ function emptySummary(): ClassCancelSyncSummary {
     held_quiet_hours: 0,
     failed: 0,
     retained: 0,
+    trainer_sent: 0,
+    trainer_skipped_no_phone: 0,
+    trainer_skipped_no_snapshot: 0,
+    trainer_held_quiet_hours: 0,
   };
 }
 
@@ -841,6 +870,9 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
 
   const occurrences = cancelledOccurrencesFromRows(cancelled.rows);
   const cancelledIds = new Set(occurrences.map((o) => o.scheduleId));
+  const newlyMarkedSchedules = new Set<string>();
+  const trainerStore: TrainerStoreFlag = { missingLogged: false };
+  let trainerRowsThisRun: TrainerSnapshotRow[] | null = null;
 
   for (const occ of occurrences) {
     if (!Number.isFinite(ruleCreatedAt.getTime())) continue;
@@ -853,6 +885,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
       if (dryRun) {
         row.notify_status = "pending";
         summary.cancel_marked += 1;
+        newlyMarkedSchedules.add(row.schedule_id);
         continue;
       }
       const { error } = await input.admin
@@ -875,6 +908,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
       }
       row.notify_status = "pending";
       summary.cancel_marked += 1;
+      newlyMarkedSchedules.add(row.schedule_id);
     }
   }
 
@@ -1021,9 +1055,19 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
       row.disappeared_at = null;
       summary.reappeared += 1;
     }
+
+    trainerRowsThisRun = await refreshTrainerSnapshot({
+      admin: input.admin,
+      businessId,
+      summaryRows: summaryReport.rows as ClassCancelSummaryInput[],
+      now,
+      dryRun,
+      store: trainerStore,
+    });
   }
 
-  if (classCancelQuietHoursDecision(now) === "hold") {
+  const inSendWindow = classCancelQuietHoursDecision(now) === "send";
+  if (!inSendWindow) {
     const held = rows.filter((r) => r.notify_status === "pending").length;
     summary.held_quiet_hours = held;
     console.info("[leads/arbox-class-cancelled-customer] quiet hours — leave pending", {
@@ -1038,6 +1082,23 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
       rows: rows.filter((r) => r.notify_status === "pending"),
       now,
       summary,
+    });
+  }
+
+  if (!dryRun) {
+    await notifySnapshottedTrainers({
+      admin: input.admin,
+      businessId,
+      rules,
+      rows,
+      occurrences,
+      newlyMarkedSchedules,
+      now,
+      summary,
+      inSendWindow,
+      store: trainerStore,
+      todayYmd,
+      preloaded: trainerRowsThisRun,
     });
   }
 
@@ -1056,6 +1117,16 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     } else {
       summary.retained = count ?? 0;
     }
+    if (!trainerStore.missingLogged) {
+      const { error: trainerRetainErr } = await input.admin
+        .from(CLASS_TRAINER_SNAPSHOT_TABLE)
+        .delete()
+        .eq("business_id", businessId)
+        .lt("class_date", retainBefore);
+      if (trainerRetainErr) {
+        noteTrainerStoreError(trainerStore, businessId, trainerRetainErr.message, "retention");
+      }
+    }
   }
 
   console.info("[leads/arbox-class-cancelled-customer] business done", {
@@ -1066,6 +1137,10 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     inserted: summary.inserted,
     disappeared: summary.disappeared,
     sent: summary.sent,
+    trainer_sent: summary.trainer_sent,
+    trainer_skipped_no_phone: summary.trainer_skipped_no_phone,
+    trainer_skipped_no_snapshot: summary.trainer_skipped_no_snapshot,
+    trainer_held_quiet_hours: summary.trainer_held_quiet_hours,
     refresh_aborted: summary.refresh_aborted === true,
     gets: summary.pages.length,
   });
@@ -1079,7 +1154,7 @@ type ClassCancelRule = { id: string; template_name: string; created_at?: string;
 async function loggedCancelTriggerIds(
   admin: Db,
   businessId: number,
-  row: SnapshotDbRow
+  row: { schedule_id: string; user_id: string }
 ): Promise<Set<string> | null> {
   const { data, error } = await admin
     .from(CLASS_CANCEL_NOTIFY_LOG)
@@ -1106,7 +1181,7 @@ async function recordCancelNotify(input: {
   admin: Db;
   businessId: number;
   ruleId: string;
-  row: SnapshotDbRow;
+  row: { schedule_id: string; user_id: string };
   status: string;
   now: Date;
 }): Promise<boolean> {
@@ -1340,5 +1415,422 @@ async function markNotify(
       schedule_id: row.schedule_id,
       error: error.message,
     });
+  }
+}
+
+type TrainerStoreFlag = { missingLogged: boolean };
+
+function noteTrainerStoreError(
+  store: TrainerStoreFlag,
+  businessId: number,
+  message: string,
+  what: string
+): TrainerStoreFailure {
+  const kind = classifyTrainerStoreError(message);
+  if (kind === "missing") {
+    if (!store.missingLogged) {
+      store.missingLogged = true;
+      console.warn(
+        "[leads/arbox-class-cancelled-customer] trainer snapshot table missing — skip trainer capture and sends until supabase/arbox_class_trainer_snapshot.sql is applied",
+        { businessId }
+      );
+    }
+    return kind;
+  }
+  console.error("[leads/arbox-class-cancelled-customer] trainer snapshot failed", {
+    businessId,
+    what,
+    error: message,
+  });
+  return kind;
+}
+
+function mapTrainerRow(row: Record<string, unknown>): TrainerSnapshotRow | null {
+  const scheduleId = String(row.schedule_id ?? "").trim();
+  const slot = row.slot === "second" ? "second" : row.slot === "primary" ? "primary" : null;
+  const staffUserId = String(row.staff_user_id ?? "").trim();
+  if (!scheduleId || !slot || !staffUserId) return null;
+  return {
+    schedule_id: scheduleId,
+    slot,
+    staff_user_id: staffUserId,
+    phone: trimOrNull(row.phone),
+    full_name: trimOrNull(row.full_name),
+    class_name: String(row.class_name ?? ""),
+    class_date: String(row.class_date ?? "").slice(0, 10),
+    class_time: String(row.class_time ?? ""),
+    seen_at: String(row.seen_at ?? ""),
+  };
+}
+
+async function loadTrainerSnapshots(
+  admin: Db,
+  businessId: number,
+  todayYmd: string,
+  store: TrainerStoreFlag
+): Promise<TrainerSnapshotRow[] | null> {
+  if (store.missingLogged) return null;
+  const from = addCalendarDaysYmd(todayYmd, -CLASS_CANCEL_RETENTION_DAYS);
+  const { data, error } = await admin
+    .from(CLASS_TRAINER_SNAPSHOT_TABLE)
+    .select("schedule_id, slot, staff_user_id, phone, full_name, class_name, class_date, class_time, seen_at")
+    .eq("business_id", businessId)
+    .gte("class_date", from);
+  if (error) {
+    noteTrainerStoreError(store, businessId, error.message, "read");
+    return null;
+  }
+  return (data ?? []).flatMap((row) => {
+    const mapped = mapTrainerRow(row as Record<string, unknown>);
+    return mapped ? [mapped] : [];
+  });
+}
+
+async function refreshTrainerSnapshot(input: {
+  admin: Db;
+  businessId: number;
+  summaryRows: ClassCancelSummaryInput[];
+  now: Date;
+  dryRun: boolean;
+  store: TrainerStoreFlag;
+}): Promise<TrainerSnapshotRow[] | null> {
+  const existing = await loadTrainerSnapshots(
+    input.admin,
+    input.businessId,
+    formatDateYmdIsrael(input.now),
+    input.store
+  );
+  if (!existing) return null;
+  const sightings = trainersFromActiveSummary(input.summaryRows);
+  const plan = planTrainerRefresh({
+    existing,
+    sightings,
+    activeScheduleIds: activeScheduleIdsFromSummary(input.summaryRows),
+    nowIso: input.now.toISOString(),
+  });
+  if (input.dryRun) return [];
+  if (plan.upserts.length) {
+    const { error } = await input.admin.from(CLASS_TRAINER_SNAPSHOT_TABLE).upsert(
+      plan.upserts.map((row) => ({
+        business_id: input.businessId,
+        schedule_id: row.schedule_id,
+        slot: row.slot,
+        staff_user_id: row.staff_user_id,
+        phone: row.phone,
+        full_name: row.full_name,
+        class_name: row.class_name,
+        class_date: row.class_date,
+        class_time: row.class_time,
+        seen_at: row.seen_at,
+      })),
+      { onConflict: "business_id,schedule_id,slot" }
+    );
+    if (error) {
+      noteTrainerStoreError(input.store, input.businessId, error.message, "upsert");
+      return null;
+    }
+  }
+  for (const slot of plan.deleteSlots) {
+    if (input.store.missingLogged) return null;
+    const { error } = await input.admin
+      .from(CLASS_TRAINER_SNAPSHOT_TABLE)
+      .delete()
+      .eq("business_id", input.businessId)
+      .eq("schedule_id", slot.schedule_id)
+      .eq("slot", slot.slot);
+    if (error) {
+      noteTrainerStoreError(input.store, input.businessId, error.message, "delete-slot");
+      if (input.store.missingLogged) return null;
+    }
+  }
+  const deleted = new Set(plan.deleteSlots.map((slot) => `${slot.schedule_id}\n${slot.slot}`));
+  const merged = new Map(existing.map((row) => [`${row.schedule_id}\n${row.slot}`, row]));
+  for (const key of deleted) merged.delete(key);
+  for (const row of plan.upserts) merged.set(`${row.schedule_id}\n${row.slot}`, row);
+  return [...merged.values()];
+}
+
+async function notifySnapshottedTrainers(input: {
+  admin: Db;
+  businessId: number;
+  rules: ClassCancelRule[];
+  rows: SnapshotDbRow[];
+  occurrences: CancelledOccurrence[];
+  newlyMarkedSchedules: ReadonlySet<string>;
+  now: Date;
+  summary: ClassCancelSyncSummary;
+  inSendWindow: boolean;
+  store: TrainerStoreFlag;
+  todayYmd: string;
+  preloaded: TrainerSnapshotRow[] | null;
+}): Promise<void> {
+  if (!input.rules.length || input.store.missingLogged) return;
+  const trainers =
+    input.preloaded ??
+    (await loadTrainerSnapshots(input.admin, input.businessId, input.todayYmd, input.store));
+  if (!trainers) return;
+
+  const cancelledAtBySchedule = new Map(input.occurrences.map((occ) => [occ.scheduleId, occ.cancelledAt]));
+  const scheduleIds = new Set<string>([
+    ...input.occurrences.map((occ) => occ.scheduleId),
+    ...input.rows.filter((row) => row.notify_status === "pending").map((row) => row.schedule_id),
+  ]);
+
+  let wabaId = "";
+  let contextLoaded = false;
+  const templates = new Map<string, { language: string; components: unknown; approved: boolean }>();
+  const ensureSendContext = async () => {
+    if (contextLoaded) return;
+    contextLoaded = true;
+    const { data: bizRow } = await input.admin
+      .from("businesses")
+      .select("waba_id")
+      .eq("id", input.businessId)
+      .maybeSingle();
+    wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
+      .trim()
+      .replace(/\s+/g, "");
+    for (const rule of input.rules) {
+      const { data: approvedTpl } = await input.admin
+        .from("whatsapp_templates")
+        .select("id, language, components")
+        .eq("business_id", input.businessId)
+        .eq("name", rule.template_name)
+        .eq("status", "APPROVED")
+        .eq("disabled", false)
+        .limit(1)
+        .maybeSingle();
+      templates.set(rule.id, {
+        language: String((approvedTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
+        components: (approvedTpl as { components?: unknown } | null)?.components,
+        approved: Boolean((approvedTpl as { id?: unknown } | null)?.id),
+      });
+    }
+  };
+
+  for (const scheduleId of scheduleIds) {
+    const customers = input.rows.filter((row) => row.schedule_id === scheduleId);
+    const trainerRows = trainers.filter((row) => row.schedule_id === scheduleId);
+    const timeSource = trainerRows[0] ?? customers[0];
+    const classPassed = timeSource
+      ? classStartHasPassed(timeSource.class_date, timeSource.class_time, input.now)
+      : false;
+    const open = shouldNotifyClassTrainer({
+      customerRowCount: customers.length,
+      pendingCustomerCount: customers.filter((row) => row.notify_status === "pending").length,
+      newlyMarkedCount: input.newlyMarkedSchedules.has(scheduleId) ? 1 : 0,
+      classPassed,
+    });
+    if (!open) continue;
+    const pendingReady = customers.filter((row) => row.notify_status === "pending" && row.class_cancelled_at);
+    if (customers.length > 0 && pendingReady.length === 0) continue;
+    if (!input.inSendWindow) {
+      if (trainerRows.length > 0) {
+        input.summary.trainer_held_quiet_hours += trainerRows.length;
+        console.info("[leads/arbox-class-cancelled-customer] trainer skip", {
+          businessId: input.businessId,
+          schedule_id: scheduleId,
+          reason: "outside_window",
+        });
+      }
+      continue;
+    }
+    if (!trainerRows.length) {
+      const customersWaiting = customers.some((row) => row.notify_status === "pending");
+      if (customersWaiting || input.newlyMarkedSchedules.has(scheduleId)) {
+        input.summary.trainer_skipped_no_snapshot += 1;
+        console.info("[leads/arbox-class-cancelled-customer] trainer skip", {
+          businessId: input.businessId,
+          schedule_id: scheduleId,
+          reason: "no_snapshot",
+        });
+      }
+      continue;
+    }
+
+    const cancelledAt =
+      cancelledAtBySchedule.get(scheduleId) ??
+      (() => {
+        const raw = customers.find((row) => row.class_cancelled_at)?.class_cancelled_at;
+        const parsed = raw ? new Date(raw) : null;
+        return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+      })();
+    if (!cancelledAt) continue;
+
+    const coveredPhones = customers.filter((row) => row.notify_status != null).map((row) => row.phone);
+    const seenPhones = new Set<string>();
+    for (const trainer of trainerRows) {
+      const phone = normalizePhone(trainer.phone);
+      const covered =
+        trainerPhoneCoveredByCustomers(trainer.phone, coveredPhones) || (phone != null && seenPhones.has(phone));
+      const reason = trainerSkipReason({
+        inWindow: true,
+        classPassed: false,
+        hasSnapshot: true,
+        phone: trainer.phone,
+        coveredByCustomer: covered,
+      });
+      if (reason === "covered") {
+        if (phone) seenPhones.add(phone);
+        continue;
+      }
+      if (reason === "no_staff_phone") {
+        input.summary.trainer_skipped_no_phone += 1;
+        console.info("[leads/arbox-class-cancelled-customer] trainer skip", {
+          businessId: input.businessId,
+          schedule_id: scheduleId,
+          staff_user_id: trainer.staff_user_id,
+          reason: "no_staff_phone",
+        });
+        const logged = await loggedCancelTriggerIds(input.admin, input.businessId, {
+          schedule_id: scheduleId,
+          user_id: trainer.staff_user_id,
+        });
+        if (!logged) continue;
+        for (const rule of input.rules) {
+          if (logged.has(rule.id)) continue;
+          const ok = await recordCancelNotify({
+            admin: input.admin,
+            businessId: input.businessId,
+            ruleId: rule.id,
+            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            status: "skipped_no_phone",
+            now: input.now,
+          });
+          if (ok) logged.add(rule.id);
+        }
+        continue;
+      }
+      if (!phone) continue;
+      seenPhones.add(phone);
+
+      const logged = await loggedCancelTriggerIds(input.admin, input.businessId, {
+        schedule_id: scheduleId,
+        user_id: trainer.staff_user_id,
+      });
+      if (!logged) continue;
+      const ruleIds = trainerRuleIdsToSend({
+        ruleIds: input.rules
+          .filter((rule) => !eventBeforeRuleActivation(cancelledAt, rule))
+          .map((rule) => rule.id),
+        loggedRuleIds: logged,
+        coveredByCustomer: false,
+      });
+      if (!ruleIds.length) continue;
+      await ensureSendContext();
+
+      const optedOut = await contactOptedOut(input.admin, input.businessId, phone);
+      if (optedOut === "error") continue;
+      if (optedOut) {
+        for (const ruleId of ruleIds) {
+          const ok = await recordCancelNotify({
+            admin: input.admin,
+            businessId: input.businessId,
+            ruleId,
+            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            status: "skipped_opted_out",
+            now: input.now,
+          });
+          if (ok) logged.add(ruleId);
+        }
+        continue;
+      }
+
+      const channel =
+        (await resolveSendChannelForContact(input.admin, input.businessId, phone)) ??
+        (await resolveDefaultSendChannel(input.admin, input.businessId));
+      const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
+      const companion = createCompanionSendGate();
+      const rulesById = new Map(input.rules.map((rule) => [rule.id, rule]));
+      for (const ruleId of ruleIds) {
+        const rule = rulesById.get(ruleId);
+        if (!rule) continue;
+        const tpl = templates.get(rule.id);
+        const slot = await companion.before(rule.template_name);
+        if (slot === "skip") continue;
+        const gate = decideScheduledSendGate({
+          hasChannel: Boolean(phoneNumberId),
+          hasWaba: Boolean(wabaId),
+          hasApprovedTemplate: Boolean(tpl?.approved),
+        });
+        if (gate.action === "cancel") {
+          companion.after(rule.template_name, "gated");
+          const ok = await recordCancelNotify({
+            admin: input.admin,
+            businessId: input.businessId,
+            ruleId: rule.id,
+            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            status: "skipped_gate",
+            now: input.now,
+          });
+          if (ok) logged.add(rule.id);
+          input.summary.skipped_gate += 1;
+          continue;
+        }
+        const values = classCancelledCustomerBodyParams({
+          components: tpl?.components,
+          firstName: trainer.full_name,
+          className: trainer.class_name,
+          classDateYmd: trainer.class_date,
+          classTime: trainer.class_time,
+        });
+        const send = await sendBusinessTemplate({
+          to: phone,
+          phoneNumberId,
+          templateName: rule.template_name,
+          alertTriggerId: rule.id,
+          languageCode: tpl?.language || "he",
+          skipOptOutGate: true,
+          recipientKind: "staff",
+          components: classCancelledCustomerBodyComponents(values),
+        });
+        if (!send.ok && isSendsHoldError(send.error)) {
+          companion.after(rule.template_name, "gated");
+          continue;
+        }
+        if (send.ok) {
+          companion.after(rule.template_name, "immediate");
+          const ok = await recordCancelNotify({
+            admin: input.admin,
+            businessId: input.businessId,
+            ruleId: rule.id,
+            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            status: "sent",
+            now: input.now,
+          });
+          if (ok) logged.add(rule.id);
+          input.summary.trainer_sent += 1;
+          console.info("[leads/arbox-class-cancelled-customer] trainer sent", {
+            businessId: input.businessId,
+            schedule_id: scheduleId,
+            trigger_id: rule.id,
+            staff_user_id: trainer.staff_user_id,
+            phone: maskPhone(phone),
+          });
+          continue;
+        }
+        companion.after(rule.template_name, "send_failed");
+        const transient = isTransientMetaSendFailure(send.error);
+        console.error("[leads/arbox-class-cancelled-customer] trainer send failed", {
+          businessId: input.businessId,
+          schedule_id: scheduleId,
+          trigger_id: rule.id,
+          staff_user_id: trainer.staff_user_id,
+          phone: maskPhone(phone),
+          error: String(send.error ?? "").slice(0, 300),
+        });
+        if (!transient) {
+          const ok = await recordCancelNotify({
+            admin: input.admin,
+            businessId: input.businessId,
+            ruleId: rule.id,
+            row: { schedule_id: scheduleId, user_id: trainer.staff_user_id },
+            status: "failed",
+            now: input.now,
+          });
+          if (ok) logged.add(rule.id);
+        }
+      }
+    }
   }
 }

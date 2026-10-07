@@ -15,7 +15,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  *
  * IO when the rule is enabled (10 businesses): about 3–5 Arbox GETs per
  * business per hour (cancelledSessionsReport + bookingsReport + classesSummaryReport;
- * bookings can be a second page). No Claude. No Arbox calls when the business
+ * bookings can be a second page). The trainer phone is taken from that same
+ * classesSummaryReport fetch (0 extra Arbox calls) and upserted into
+ * arbox_class_trainer_snapshot. No Claude. No Arbox calls when the business
  * has no enabled class_cancelled_customer rule.
  */
 export const runtime = "nodejs";
@@ -75,6 +77,10 @@ export async function GET(req: NextRequest) {
     sent?: number;
     refresh_aborted?: boolean;
     fetch_error?: string;
+    trainer_sent?: number;
+    trainer_skipped_no_phone?: number;
+    trainer_skipped_no_snapshot?: number;
+    trainer_held_quiet_hours?: number;
   }> = [];
 
   for (const row of businessRows ?? []) {
@@ -106,6 +112,10 @@ export async function GET(req: NextRequest) {
         sent: result.sent,
         refresh_aborted: result.refresh_aborted,
         fetch_error: result.fetch_error,
+        trainer_sent: result.trainer_sent,
+        trainer_skipped_no_phone: result.trainer_skipped_no_phone,
+        trainer_skipped_no_snapshot: result.trainer_skipped_no_snapshot,
+        trainer_held_quiet_hours: result.trainer_held_quiet_hours,
       });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
