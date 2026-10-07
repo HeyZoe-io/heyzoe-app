@@ -100,7 +100,8 @@ export type CancellationSyncLogStatus =
   | "sent"
   | "abandoned"
   | "no_phone"
-  | "skipped";
+  | "skipped"
+  | "sending";
 
 const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] = [
   "seeded",
@@ -108,6 +109,7 @@ const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] 
   "abandoned",
   "no_phone",
   "skipped",
+  "sending",
 ];
 
 export function isCancellationSyncLogTerminal(status: string | null | undefined): boolean {

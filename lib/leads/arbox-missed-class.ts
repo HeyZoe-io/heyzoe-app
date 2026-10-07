@@ -49,7 +49,9 @@ import {
   reclassifiedPostClassPastDue,
 } from "@/lib/leads/trial-booking-class";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
+import { DUPLICATE_GUARD_ERROR } from "@/lib/notifications/template-duplicate-guard";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildMissedClassScheduledDedupKey,
@@ -391,7 +393,11 @@ async function dispatchMissedTemplate(input: {
   rule: PurchaseTemplateTriggerRule;
   now: Date;
   dueOffsetMs?: number;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{
+  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule";
+  ok: boolean;
+  reason?: string;
+}> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -483,6 +489,14 @@ async function dispatchMissedTemplate(input: {
   });
 
   if (!sendResult.ok) {
+    if (sendResult.error === DUPLICATE_GUARD_ERROR) {
+      console.info("[leads/arbox-missed-class] duplicate_guard", {
+        businessId: input.businessId,
+        userId: input.userId,
+        classDateYmd: input.classDateYmd,
+      });
+      return { dispatch: "skipped", ok: false, reason: DUPLICATE_GUARD_ERROR };
+    }
     console.error("[leads/arbox-missed-class] template send failed:", sendResult.error);
     return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
@@ -1156,10 +1170,42 @@ export async function syncArboxMissedClassForBusiness(input: {
         continue;
       }
 
+      const heldByOther = new Set<string>();
+      let duplicateGuard = false;
       const sendDispatch = await runCompanionTemplateSends({
         rules: rulesToSend,
         dryRun: isArboxDailyDryRun(),
         send: async (rule, ctx) => {
+          if (!isArboxDailyDryRun() && rule.id) {
+            const claimed = await claimSyncLogBeforeSend({
+              admin: input.admin,
+              table: "arbox_missed_class_sync_log",
+              row: {
+                business_id: businessId,
+                trigger_id: rule.id,
+                user_id: userId,
+                class_date: classDateYmd,
+                class_time: classTime,
+                class_name: className,
+                contact_id: sendContact.id,
+                processed_at: nowIso,
+                attempts: attemptsSoFar,
+              },
+              filters: [
+                ["business_id", businessId],
+                ["trigger_id", rule.id],
+                ["user_id", userId],
+                ["class_date", classDateYmd],
+                ["class_time", classTime],
+                ["class_name", className],
+              ],
+            });
+            if (claimed !== "won") {
+              heldByOther.add(rule.id);
+              if (claimed === "error") summary.errors += 1;
+              return "skipped";
+            }
+          }
           const send = await dispatchMissedTemplate({
             admin: input.admin,
             businessId,
@@ -1183,6 +1229,7 @@ export async function syncArboxMissedClassForBusiness(input: {
             template_name: rule.template_name,
             dispatch: send.dispatch,
           });
+          if (send.reason === DUPLICATE_GUARD_ERROR) duplicateGuard = true;
           return send.dispatch;
         },
         alreadyDelivered: (rule) =>
@@ -1250,6 +1297,7 @@ export async function syncArboxMissedClassForBusiness(input: {
         attemptsSoFar,
       });
       for (const rule of rulesToSend) {
+        if (!rule.id || heldByOther.has(rule.id)) continue;
         await upsertMissedSyncLog({
           admin: input.admin,
           businessId,
@@ -1260,8 +1308,9 @@ export async function syncArboxMissedClassForBusiness(input: {
           className,
           contactId: resolved.contact.id,
           attempts: next.attempts,
-          status: next.status,
+          status: duplicateGuard ? "sent" : next.status,
           nowIso,
+          reason: duplicateGuard ? DUPLICATE_GUARD_ERROR : null,
         });
       }
 

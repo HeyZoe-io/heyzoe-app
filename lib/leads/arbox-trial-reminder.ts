@@ -34,10 +34,13 @@ import {
   ymdDiffDays,
 } from "@/lib/leads/arbox-attendance-gap";
 import {
+  isCancellationSyncLogTerminal,
   nextCancellationSyncLogAfterDispatch,
   type CancellationSyncLogStatus,
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
+import { isMissingSyncLogReasonColumn } from "@/lib/leads/sync-log-reason";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
@@ -48,6 +51,7 @@ import {
 } from "@/lib/leads/arbox-trial-attended";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
+import { DUPLICATE_GUARD_ERROR } from "@/lib/notifications/template-duplicate-guard";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import {
   buildTrialReminderScheduledDedupKey,
@@ -473,27 +477,37 @@ async function upsertTrialReminderSyncLog(input: {
   attempts: number;
   status: CancellationSyncLogStatus;
   nowIso: string;
+  /** null clears a claim reason. Omit to leave the column alone. */
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
-    {
-      business_id: input.businessId,
-      trigger_id: input.triggerId,
-      user_id: input.userId,
-      class_date: input.classDateYmd,
-      class_time: input.classTime,
-      class_name: input.className,
-      contact_id: input.contactId,
-      processed_at: input.nowIso,
-      attempts: input.attempts,
-      status: input.status,
-    },
-    { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" }
-  );
-  if (error) {
-    console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", error.message);
+  const row: Record<string, unknown> = {
+    business_id: input.businessId,
+    trigger_id: input.triggerId,
+    user_id: input.userId,
+    class_date: input.classDateYmd,
+    class_time: input.classTime,
+    class_name: input.className,
+    contact_id: input.contactId,
+    processed_at: input.nowIso,
+    attempts: input.attempts,
+    status: input.status,
+  };
+  if (input.reason !== undefined) row.reason = input.reason;
+  const first = await input.admin
+    .from("arbox_trial_reminder_sync_log")
+    .upsert(row, { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" });
+  if (!first.error) return { ok: true };
+  if (input.reason !== undefined && isMissingSyncLogReasonColumn(first.error.message)) {
+    delete row.reason;
+    const second = await input.admin
+      .from("arbox_trial_reminder_sync_log")
+      .upsert(row, { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" });
+    if (!second.error) return { ok: true };
+    console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", second.error.message);
     return { ok: false };
   }
-  return { ok: true };
+  console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", first.error.message);
+  return { ok: false };
 }
 
 async function dispatchTrialReminderTemplate(input: {
@@ -511,7 +525,7 @@ async function dispatchTrialReminderTemplate(input: {
   now: Date;
   dueOffsetMs?: number;
   slot?: TrialReminderSlot;
-}): Promise<{ dispatch: TrialReminderDispatch; ok: boolean }> {
+}): Promise<{ dispatch: TrialReminderDispatch; ok: boolean; reason?: string }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -631,6 +645,14 @@ async function dispatchTrialReminderTemplate(input: {
   });
 
   if (!sendResult.ok) {
+    if (sendResult.error === DUPLICATE_GUARD_ERROR) {
+      console.info("[leads/arbox-trial-reminder] duplicate_guard", {
+        businessId: input.businessId,
+        userId: input.userId,
+        classDateYmd: input.classDateYmd,
+      });
+      return { dispatch: "skipped", ok: false, reason: DUPLICATE_GUARD_ERROR };
+    }
     console.error("[leads/arbox-trial-reminder] template send failed:", sendResult.error);
     return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   }
@@ -1085,7 +1107,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         (existingRows ?? [])
           .filter((row) => {
             const status = String((row as { status?: unknown }).status ?? "");
-            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            return isCancellationSyncLogTerminal(status) && status !== "skipped";
           })
           .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );
@@ -1147,10 +1169,42 @@ export async function syncArboxTrialReminderForBusiness(input: {
         });
         continue;
       }
+      const heldByOther = new Set<string>();
+      let duplicateGuard = false;
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
         send: async (item, ctx) => {
+          if (!isArboxDailyDryRun() && item.id) {
+            const claimed = await claimSyncLogBeforeSend({
+              admin: input.admin,
+              table: "arbox_trial_reminder_sync_log",
+              row: {
+                business_id: businessId,
+                trigger_id: item.id,
+                user_id: userId,
+                class_date: classDateYmd,
+                class_time: classTime,
+                class_name: className,
+                contact_id: resolved.contact?.id ?? null,
+                processed_at: nowIso,
+                attempts: existingAttempts,
+              },
+              filters: [
+                ["business_id", businessId],
+                ["trigger_id", item.id],
+                ["user_id", userId],
+                ["class_date", classDateYmd],
+                ["class_time", classTime],
+                ["class_name", className],
+              ],
+            });
+            if (claimed !== "won") {
+              heldByOther.add(item.id);
+              if (claimed === "error") summary.errors += 1;
+              return "skipped";
+            }
+          }
           const send = await dispatchTrialReminderTemplate({
             admin: input.admin,
             businessId,
@@ -1167,6 +1221,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
             dueOffsetMs: ctx.dueOffsetMs,
             slot,
           });
+          if (send.reason === DUPLICATE_GUARD_ERROR) duplicateGuard = true;
           return send.dispatch as CompanionDispatch;
         },
         alreadyDelivered: (item) =>
@@ -1237,6 +1292,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         });
         if (next.hitCap) summary.abandoned += 1;
         if (!isArboxDailyDryRun()) for (const rule of pendingRules) {
+          if (!rule.id || heldByOther.has(rule.id)) continue;
           const marked = await upsertTrialReminderSyncLog({
             admin: input.admin,
             businessId,
@@ -1247,8 +1303,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
             className,
             contactId: resolved.contact?.id ?? null,
             attempts: next.attempts,
-            status: next.status,
+            status: duplicateGuard ? "sent" : next.status,
             nowIso,
+            reason: duplicateGuard ? DUPLICATE_GUARD_ERROR : null,
           });
           if (!marked.ok) summary.errors += 1;
         }

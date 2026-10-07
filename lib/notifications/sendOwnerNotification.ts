@@ -14,6 +14,10 @@ import {
   suppressMarketingOptOutFromSendError,
 } from "@/lib/wa-marketing-opt-out";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import {
+  DUPLICATE_GUARD_ERROR,
+  findRecentAutomatedTemplateSend,
+} from "@/lib/notifications/template-duplicate-guard";
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
@@ -205,6 +209,31 @@ export async function sendBusinessTemplate(input: {
       console.error("[sendBusinessTemplate] alert mute check failed:", e);
       admin = null;
       businessId = null;
+    }
+  }
+
+  if (!isStaffRecipient && admin && businessId) {
+    const params = (input.components ?? []).flatMap((component) =>
+      component.type === "body" ? component.parameters.map((parameter) => parameter.text) : []
+    );
+    const duplicate = await findRecentAutomatedTemplateSend({
+      admin,
+      businessId,
+      phoneNumberId,
+      phone: to,
+      templateName,
+      params,
+    }).catch((e) => {
+      console.error("[sendBusinessTemplate] duplicate guard failed", e);
+      return false;
+    });
+    if (duplicate) {
+      console.info("[sendBusinessTemplate] duplicate_guard", {
+        businessId,
+        templateName,
+        phone: to.slice(-4),
+      });
+      return { ok: false, error: DUPLICATE_GUARD_ERROR };
     }
   }
 

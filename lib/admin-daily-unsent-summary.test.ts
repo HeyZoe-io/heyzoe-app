@@ -13,6 +13,15 @@ assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "09:30")), t
 assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "08:00")), false);
 
 assert.equal(unsentReason({ status: "sent", overdue: true }), null);
+assert.equal(unsentReason({ status: "sending", overdue: true }), "נשאר באמצע שליחה");
+assert.equal(
+  unsentReason({ status: "sent", lastError: "sending", overdue: true }),
+  "נשאר באמצע שליחה"
+);
+assert.equal(
+  unsentReason({ status: "sent", lastError: "duplicate_guard", overdue: true }),
+  "נחסם כפילות"
+);
 assert.equal(unsentReason({ status: "seeded", overdue: false }), "סומן בלי שליחה");
 assert.equal(unsentReason({ status: "no_phone", overdue: false }), "אין טלפון");
 assert.equal(unsentReason({ status: "skipped", overdue: false }), "דילוג");

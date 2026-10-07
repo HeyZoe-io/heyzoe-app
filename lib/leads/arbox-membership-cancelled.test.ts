@@ -230,6 +230,7 @@ function rule(
   assert.equal(shouldRetryCancellationSyncLog("sent"), false);
   assert.equal(shouldRetryCancellationSyncLog("abandoned"), false);
   assert.equal(isCancellationSyncLogTerminal("abandoned"), true);
+  assert.equal(isCancellationSyncLogTerminal("sending"), true);
   assert.equal(isCancellationSyncLogTerminal("pending"), false);
 
   const nameSkip = nextCancellationSyncLogAfterDispatch({ dispatch: "skipped", attemptsSoFar: 0 });

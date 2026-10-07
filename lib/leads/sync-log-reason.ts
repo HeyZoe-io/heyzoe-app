@@ -14,10 +14,10 @@ export async function upsertOptionalReason(
   onConflict: string,
   reason?: string | null
 ): Promise<{ ok: boolean }> {
-  const payload = reason ? { ...row, reason } : row;
+  const payload = reason === undefined ? row : { ...row, reason };
   const first = await admin.from(table).upsert(payload, { onConflict });
   if (!first.error) return { ok: true };
-  if (reason && isMissingSyncLogReasonColumn(first.error.message)) {
+  if (reason !== undefined && isMissingSyncLogReasonColumn(first.error.message)) {
     const second = await admin.from(table).upsert(row, { onConflict });
     if (!second.error) return { ok: true };
     console.error(`[${table}] sync_log upsert failed:`, second.error.message);
