@@ -1,7 +1,10 @@
 /**
  * People who should not get lost-lead win-back or silence re-engage:
- * active membership (מנוי), active punch card (כרטיסיה), or a trial class
- * still on the calendar (today through +14 days).
+ * active paid membership (מנוי), active paid punch card (כרטיסיה), or a trial
+ * class still on the calendar (today through +14 days).
+ * A leftover trial membership/session (configured ids, type trial, or a
+ * trial-like name) is not “already a customer” — otherwise C6
+ * not_registered_after_trial never fires for studios like Tights.
  *
  * IO per business per cron (only when a send is about to happen):
  * 1 activeMembershipsReport + 1 sessionsReport + 1 future bookingsReport.
@@ -80,6 +83,26 @@ export function isUpcomingTrialBooking(input: {
   });
 }
 
+/**
+ * Leftover trial membership / punch card (Tights «שיעור הכרות») is not a paid
+ * product. Counting it as active blocked not_registered_after_trial.
+ */
+export function rowLooksLikeTrialProduct(input: {
+  row: { membership_type_id?: unknown; membership_type_name?: unknown; item_name?: unknown };
+  trialTypeIds: readonly number[];
+  trialTypeNamesNormalized: ReadonlySet<string>;
+}): boolean {
+  const mid = Number(input.row.membership_type_id);
+  if (Number.isFinite(mid) && mid > 0 && input.trialTypeIds.includes(Math.trunc(mid))) {
+    return true;
+  }
+  const name = String(input.row.membership_type_name ?? input.row.item_name ?? "").trim();
+  if (!name) return false;
+  if (membershipTypeNameLooksLikeTrial(name)) return true;
+  const normalized = normalizeMembershipTypeName(name);
+  return Boolean(normalized && input.trialTypeNamesNormalized.has(normalized));
+}
+
 export function collectActiveProductKeys(input: {
   membershipRows: Record<string, unknown>[];
   sessionRows: Record<string, unknown>[];
@@ -91,10 +114,28 @@ export function collectActiveProductKeys(input: {
   const keys = emptyKeys();
   for (const row of input.membershipRows) {
     if (!isArboxActiveCustomerMembershipStatus(row.status)) continue;
+    if (
+      rowLooksLikeTrialProduct({
+        row,
+        trialTypeIds: input.trialTypeIds,
+        trialTypeNamesNormalized: input.trialTypeNamesNormalized,
+      })
+    ) {
+      continue;
+    }
     addIdentity(keys, row);
   }
   for (const row of input.sessionRows) {
     if (!isArboxActiveCustomerSessionStatus(row.status)) continue;
+    if (
+      rowLooksLikeTrialProduct({
+        row,
+        trialTypeIds: input.trialTypeIds,
+        trialTypeNamesNormalized: input.trialTypeNamesNormalized,
+      })
+    ) {
+      continue;
+    }
     addIdentity(keys, row);
   }
   for (const row of input.bookingRows) {

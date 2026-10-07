@@ -9,6 +9,8 @@ import {
   isPostTrialDecisionDue,
   postTrialActivationInstant,
   postTrialLogStatusBlocksSend,
+  postTrialSeedAction,
+  postTrialSeededBlocksSend,
   saleDateActivationInstant,
   salesBatchMayRegisterAfterTrial,
   orderSameTriggerTemplateRules,
@@ -226,6 +228,64 @@ assert.equal(
   }),
   true
 );
+
+{
+  const today = "2026-10-07";
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: "2026-10-05",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "seed",
+    "decision day already passed → seed only"
+  );
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: "2026-10-06",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "send",
+    "decision day is today → still send after 09:00"
+  );
+  assert.equal(
+    postTrialSeedAction({
+      classDateYmd: "2026-10-07",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    "later"
+  );
+  assert.equal(
+    postTrialSeededBlocksSend({
+      status: "seeded",
+      classDateYmd: "2026-10-06",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    false,
+    "wrong soft-seed on decision day may catch up"
+  );
+  assert.equal(
+    postTrialSeededBlocksSend({
+      status: "seeded",
+      classDateYmd: "2026-10-05",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    true
+  );
+  assert.equal(
+    postTrialSeededBlocksSend({
+      status: "sent",
+      classDateYmd: "2026-10-06",
+      delayDays: 1,
+      todayYmd: today,
+    }),
+    true
+  );
+}
 
 {
   const rows = [

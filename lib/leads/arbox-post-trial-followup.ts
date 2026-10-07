@@ -13,6 +13,10 @@
  * in that batch costs one bookingsReport (the daily 7-day lookback, usually one
  * page) and membershipTypes only when this run has not loaded them already.
  * Delay of 1+ and «לא נרשם» stay on the daily cron. The same sync_log dedups both.
+ *
+ * First enable / empty outcome log: seed only decision days already past.
+ * Decision day itself still sends on that run (even after 09:00), matching
+ * lost-lead / cancellation new-rule activation.
  */
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
@@ -28,12 +32,7 @@ import {
   reclassifiedPostClassPastDue,
   type TrialBookingClass,
 } from "@/lib/leads/trial-booking-class";
-import {
-  decideActivationEventAction,
-  eventBeforeRuleActivation,
-  israelSlotInstant,
-  parseReportEventInstant,
-} from "@/lib/rule-activation";
+import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
 import { logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -167,6 +166,22 @@ export function isPostTrialDecisionDue(input: {
 }
 
 /**
+ * New-rule / empty-log seed. A decision day before today is history.
+ * The decision day itself still sends on this run (including after 09:00).
+ */
+export function postTrialSeedAction(input: {
+  classDateYmd: string;
+  delayDays: number;
+  todayYmd: string;
+}): "seed" | "send" | "later" {
+  const decision = postTrialDecisionYmd(input.classDateYmd, input.delayDays);
+  if (!decision) return "later";
+  if (ymdCmp(decision, input.todayYmd) < 0) return "seed";
+  if (ymdCmp(decision, input.todayYmd) === 0) return "send";
+  return "later";
+}
+
+/**
  * True conversion after trial: plan or session purchase that is NOT a trial product.
  * item_type=trial never counts; membership_type_id in trial ids / trial-like name excluded.
  */
@@ -283,6 +298,25 @@ export function postTrialActivationInstant(input: {
 export function postTrialLogStatusBlocksSend(status: string | null | undefined): boolean {
   const value = String(status ?? "").trim();
   return value === "seeded" || value === "sent" || value === "abandoned" || value === "no_phone";
+}
+
+/**
+ * A soft-seed that ran after 09:00 used to mark due-today as seeded without sending.
+ * On the decision day itself, allow one catch-up attempt.
+ */
+export function postTrialSeededBlocksSend(input: {
+  status: string | null | undefined;
+  classDateYmd: string;
+  delayDays: number;
+  todayYmd: string;
+}): boolean {
+  const status = String(input.status ?? "").trim();
+  if (status !== "seeded") return postTrialLogStatusBlocksSend(status);
+  return postTrialSeedAction({
+    classDateYmd: input.classDateYmd,
+    delayDays: input.delayDays,
+    todayYmd: input.todayYmd,
+  }) !== "send";
 }
 
 export function triggerTypeForOutcome(outcome: PostTrialOutcome): PostTrialTriggerType {
@@ -1083,45 +1117,54 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
     if (!dueRules.length) continue;
     summary.due += 1;
 
-    const morningPassed =
-      decideActivationEventAction({ sendAt: israelSlotInstant(todayYmd, "09:00"), now }) === "seed";
-    if (seedThisRun && softSeedOutcomes.includes(outcome) && morningPassed) {
-      const resolved = await resolveOrCreateContact({
-        admin: input.admin,
-        businessId,
-        row: att.sampleRow,
-        source: "arbox_post_trial_followup_seed",
-      });
-      let upOk = true;
+    let rulesToSend = dueRules;
+    if (seedThisRun && softSeedOutcomes.includes(outcome)) {
+      const seedRules: typeof dueRules = [];
+      const sendRules: typeof dueRules = [];
       for (const rule of dueRules) {
-        const up = await upsertFollowupSyncLog({
+        const action = postTrialSeedAction({
+          classDateYmd: att.classDateYmd,
+          delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
+          todayYmd,
+        });
+        if (action === "seed") seedRules.push(rule);
+        else if (action === "send") sendRules.push(rule);
+      }
+      if (seedRules.length) {
+        const resolved = await resolveOrCreateContact({
           admin: input.admin,
           businessId,
-          triggerId: rule.id,
-          userId: att.userId,
-          classDateYmd: att.classDateYmd,
-          outcome,
-          contactId: resolved.contact?.id ?? null,
-          attempts: 0,
-          status: "seeded",
-          nowIso,
+          row: att.sampleRow,
+          source: "arbox_post_trial_followup_seed",
         });
-        if (!up.ok) upOk = false;
+        let upOk = true;
+        for (const rule of seedRules) {
+          const up = await upsertFollowupSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: att.userId,
+            classDateYmd: att.classDateYmd,
+            outcome,
+            contactId: resolved.contact?.id ?? null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) upOk = false;
+        }
+        if (upOk) {
+          if (needsSeed) summary.seeded += 1;
+          else summary.soft_seeded += 1;
+        } else summary.errors += 1;
       }
-      if (upOk) {
-        if (needsSeed) summary.seeded += 1;
-        else summary.soft_seeded += 1;
-      } else summary.errors += 1;
-      continue;
+      if (!sendRules.length) continue;
+      rulesToSend = sendRules;
     }
-
-    if (softSeedOutcomes.includes(outcome) && morningPassed) continue;
-
-    let rulesToSend = dueRules;
     if (classRun?.ready) {
       const memberships = await classRun.membershipsFor(att.userId);
-      const keep: typeof dueRules = [];
-      for (const rule of dueRules) {
+      const keep: typeof rulesToSend = [];
+      for (const rule of rulesToSend) {
         const sendAt = postClassNormalSendAt({
           triggerType: rule.trigger_type,
           delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
@@ -1257,7 +1300,14 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           continue;
         }
         const status = String((existing as { status?: unknown } | null)?.status ?? "");
-        if (postTrialLogStatusBlocksSend(status)) {
+        if (
+          postTrialSeededBlocksSend({
+            status,
+            classDateYmd: att.classDateYmd,
+            delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
+            todayYmd,
+          })
+        ) {
           summary.already += 1;
           dispatches.push("immediate");
           continue;
