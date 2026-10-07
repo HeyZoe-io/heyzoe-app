@@ -20,6 +20,8 @@ assert.equal(decide("[[route:class_move]]", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "freeze"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nתבטלי את השיעור", "class_cancel"), "use_hint");
+assert.equal(decide("[[route:booking_change_trial]]\nביטול ניסיון", "class_cancel"), "use_hint");
+assert.equal(decide("[[route:booking_change_trial]]\nביטול ניסיון", "reschedule"), "use_hint");
 assert.equal(decide("[[route:answer]]\nאפשר להצטרף במקומה", "cancellation"), "ignore_hint");
 assert.equal(decide("[[route:schedule]]\nהנה המערכת", "cancellation"), "ignore_hint");
 assert.equal(decide("בלי תג", "cancellation"), "use_hint");

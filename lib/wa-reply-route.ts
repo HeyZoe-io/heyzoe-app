@@ -10,6 +10,7 @@ export const WA_REPLY_ROUTES = [
   "answer",
   "schedule",
   "booking_change",
+  "booking_change_trial",
   "class_move",
   "class_move_member",
   "class_move_trial",
@@ -80,6 +81,7 @@ export function extractReplyRoute(raw: string): ExtractedReplyRoute {
       name === "class_move" ||
       name === "class_move_member" ||
       name === "class_move_trial" ||
+      name === "booking_change_trial" ||
       name === "registration_check" ||
       name === "my_schedule" ||
       name === "schedule"
@@ -111,7 +113,9 @@ export function decideReplyRouteAction(input: {
     if (input.scheduleImageEnabled && !input.suppressTimetable) return { kind: "timetable" };
     return { kind: "send_body" };
   }
-  if (input.extracted.route === "booking_change") return { kind: "booking_change" };
+  if (input.extracted.route === "booking_change" || input.extracted.route === "booking_change_trial") {
+    return { kind: "booking_change" };
+  }
   if (input.extracted.route === "class_move") return { kind: "class_move" };
   if (input.extracted.route === "class_move_member") return { kind: "class_move_member" };
   if (input.extracted.route === "class_move_trial") return { kind: "class_move_trial" };
@@ -183,8 +187,9 @@ export function buildReplyRoutePromptBlock(): string {
 התחילי בדיוק בשורה [[route:X]] ואחר כך ההודעה ללקוח. X הוא אחד מאלה, לפי המשמעות ולא לפי מילה בודדת:
 - answer - תשובה למי שכבר בפלואו, או למנוייה ששואלת על מה שכבר יש לה, או שאלה שלא נועדה להצטרף: ציוד, ברכה, מי מנהל, שעות פתיחה. למנוייה קיימת (מהשיחה, או מנוייה בארבוקס) אין שיווק ואין הזמנה להגיע. לידה שאינה מנוייה ומבקשת מידע, מחיר, או מיקום כדי לשקול להצטרף היא interest, לא answer. מדיניות ביטול, הקפאה או החזר אינה answer.
 - schedule - הלקוחה שואלת אילו שיעורים או שעות קיימים בלוח, בלי לבקש לשנות שיבוץ שלה.
-- booking_change - הלקוחה רוצה לבטל שיעור שהיא כבר רשומה אליו, בלי לבקש מועד אחר. שעה שהיא מציינת בתוך בקשת הביטול היא השיעור לביטול, לא שאלה מה יש בלוח.
-- class_move - הלקוחה רוצה להעביר אימון מיום ליום אחר. שעה בתוך הבקשה היא היעד החדש, לא שאלה על הלוח. אם באותה הודעה עדיין לא ברור אם יש לה מנוי או שזה אימון ניסיון — class_move. אם כבר ברור שיש מנוי או כרטיסייה — class_move_member. אם כבר ברור שזה אימון ניסיון שקיים — class_move_trial. «אני רשומה לשעה X ורוצה לבוא בשעה Y» באותו היום היא booking_change, לא class_move. ביטול בלי מועד אחר, וביטול מאוחר שצריך לבטל, נשארים booking_change. בקשה לקבוע אימון ניסיון חדש היא signup, לא class_move. אם האפליקציה כבר לא נתנה לה לשנות — handoff, לא class_move.
+- booking_change - הלקוחה רוצה לבטל שיעור שהיא כבר רשומה אליו, בלי לבקש מועד אחר, וזה לא אימון ניסיון. שעה שהיא מציינת בתוך בקשת הביטול היא השיעור לביטול, לא שאלה מה יש בלוח.
+- booking_change_trial - אותו ביטול כמו booking_change, והשיעור הוא אימון ניסיון שכבר קיים. זה יכול להיות כתוב בהודעה, או ברור מההודעות האחרונות, גם אם המילה ניסיון לא חוזרת עכשיו. בקשה לקבוע אימון ניסיון חדש היא signup, לא booking_change_trial.
+- class_move - הלקוחה רוצה להעביר אימון מיום ליום אחר. שעה בתוך הבקשה היא היעד החדש, לא שאלה על הלוח. אם באותה הודעה עדיין לא ברור אם יש לה מנוי או שזה אימון ניסיון — class_move. אם כבר ברור שיש מנוי או כרטיסייה — class_move_member. אם כבר ברור שזה אימון ניסיון שקיים, או שההודעות האחרונות כבר הראו שזה אימון הניסיון שלה — class_move_trial. «אני רשומה לשעה X ורוצה לבוא בשעה Y» באותו היום היא booking_change, לא class_move, ו-booking_change_trial אם זה אימון הניסיון. ביטול בלי מועד אחר, וביטול מאוחר שצריך לבטל, נשארים booking_change או booking_change_trial. בקשה לקבוע אימון ניסיון חדש היא signup, לא class_move. אם האפליקציה כבר לא נתנה לה לשנות — handoff, לא class_move.
 - class_move_member - יש לה מנוי קיים (או כרטיסייה), והיא מבקשת להעביר אימון מיום ליום. תשובה לשאלה «מנוי קיים או אימון ניסיון» בלי בקשה להעביר אימון אינה class_move.
 - class_move_trial - מדובר באימון ניסיון שכבר קיים, והיא מבקשת להעביר אותו ליום אחר. תשובה לשאלה «מנוי קיים או אימון ניסיון» בלי בקשה להעביר אימון אינה class_move.
 - handoff - בקשה שהצוות יבצע פעולה: תלונה, החזר בפועל, ביטול מנוי, הקפאה בפועל, כאב או מגבלה בגוף, בקשה מפורשת לנציג, או בקשה אישית להנחה או למחיר אחר. שאלה מה לעשות עם כאב או פציעה היא handoff, גם כשהיא נשמעת כמו שאלה רגילה.
@@ -217,6 +222,7 @@ export function buildReplyRoutePromptBlock(): string {
 - "אני לא מצליחה לבטל באפליקציה את השיעור של מחר ב-19:00" -> [[route:booking_change]]
 - "לא אגיע מחר, אפשר לבטל?" -> [[route:booking_change]]
 - "תורידו אותי מהרשימה של חמישי ב-17:00" -> [[route:booking_change]]
+- "יש אפשרות לבטל את השיעור נסיון? שמתי לב שהזמנים של השיעורים לא מתאימים לי" -> [[route:booking_change_trial]]
 דוגמאות class_move (העברה מיום ליום, גם כשיש שעה):
 - "אפשר להזיז אותי מחמישי לשני ב-8:30?" -> [[route:class_move]]
 - "תמחקו אותי מהשיעור ותעבירו אותי ליום שני" -> [[route:class_move]]
@@ -275,7 +281,7 @@ export function buildReplyRoutePromptBlock(): string {
 - "לא מצליחה להירשם" בלי סימן שהיא חדשה -> [[route:member_or_trial_unclear]]
 אם מופיעה שורה Possible intent detected by keyword, זו השערה בלבד ולא עובדה. ברירת המחדל היא answer. השערה לא גוברת על מסלול ברור.
 תייגי handoff אם ההשערה עצמה היא מה שהלקוחה מבקשת עכשיו: ביטול מנוי, הקפאה, החזר, נציג, בדיקת מנוי, או מתי נקבע השיעור שלה. תייגי handoff גם בלי השערה כשהבקשה היא הנחה אישית, מחיר אחר, מחיר לזוג, או מחיר לחברה.
-תייגי booking_change כשהיא מבקשת לבטל שיעור אחד שהיא כבר רשומה אליו, בלי מועד חלופי, וההשערה היא על השיעור ולא על המנוי. גם «אני רשומה לשעה ואני רוצה שעה אחרת באותו היום» וגם ביטול מאוחר שצריך לבטל הם booking_change, לא schedule ולא class_move. תייגי class_move אם היא מבקשת להעביר מיום ליום אחר, גם כשההשערה אומרת reschedule או class_cancel.
+תייגי booking_change כשהיא מבקשת לבטל שיעור אחד שהיא כבר רשומה אליו, בלי מועד חלופי, וההשערה היא על השיעור ולא על המנוי. אם השיעור הוא אימון ניסיון שכבר קיים, מההודעה או מההודעות האחרונות, תייגי booking_change_trial. גם «אני רשומה לשעה ואני רוצה שעה אחרת באותו היום» וגם ביטול מאוחר שצריך לבטל הם booking_change, לא schedule ולא class_move, ו-booking_change_trial כשזה אימון הניסיון. תייגי class_move אם היא מבקשת להעביר מיום ליום אחר, גם כשההשערה אומרת reschedule או class_cancel, ו-class_move_trial כשזה אימון הניסיון.
 תייגי interest כשלידה חדשה רוצה לשמוע עוד, גם אם המשפט לא זהה לטריגר שמור. תייגי signup רק כשהיא כבר החליטה להירשם או לקבוע ניסיון, גם אם ההשערה אומרת registration_no_member.
 אם היא כבר באמצע הפלואו, שאלה על מחיר או פרט היא answer, לא interest ולא signup. אם כתוב שהיא לא באמצע הפלואו, היסטוריה ישנה לא הופכת בקשת מידע ל-answer.
 אסור לאשר, להכחיש, לפרש או להתנצל על משהו שנאמר או סוכם מחוץ לצ'אט הזה. אסור לדבר בגוף ראשון על המעשים, הלוח, ההיעדרות או אמירות העבר של הבעלים. אם לא בטוח שההודעה אישית, תייגי personal.

@@ -80,7 +80,12 @@ const POLICY_FACT_CATEGORIES = new Set<ClosedPlaybookResolution["category"]>([
 export function replyForPolicyQuestionRoute(opts: {
   inbound: string;
   knowledge: ClosedPlaybookKnowledge | null | undefined;
-}): { reply: string; notifyHumanRequested: boolean; modelUsed: string } {
+}): {
+  reply: string;
+  notifyHumanRequested: boolean;
+  modelUsed: string;
+  category: ClosedPlaybookResolution["category"] | null;
+} {
   const intent = detectClosedPlaybookIntent(opts.inbound);
   const category = intent && POLICY_FACT_CATEGORIES.has(intent.category) ? intent.category : null;
   const fact = category ? lookupPlaybookFact(category, opts.knowledge) : null;
@@ -89,12 +94,14 @@ export function replyForPolicyQuestionRoute(opts: {
       reply: fact,
       notifyHumanRequested: false,
       modelUsed: closedPlaybookModelUsed(category, "fact"),
+      category,
     };
   }
   return {
     reply: CLOSED_PLAYBOOK_POLICY_QUESTION_REPLY,
     notifyHumanRequested: true,
     modelUsed: "closed_playbook_policy_question",
+    category,
   };
 }
 

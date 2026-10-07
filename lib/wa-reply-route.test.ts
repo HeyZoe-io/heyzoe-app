@@ -61,6 +61,9 @@ assert.equal(actionFor(`[[route:schedule]]\n${timeBody}`, true), "timetable");
 assert.equal(actionFor(`[[route:schedule]]\n${timeBody}`, false), "send_body");
 assert.equal(actionFor(`[[route:schedule]]\n${timeBody}`, true, true), "send_body");
 assert.equal(actionFor(`[[route:booking_change]]\n${timeBody}`, true), "booking_change");
+assert.equal(actionFor("[[route:booking_change_trial]]\nמבטלת ניסיון", true), "booking_change");
+assert.equal(extractReplyRoute("[[route:booking_change_trial]]").tagStatus, "ok");
+assert.equal(extractReplyRoute("[[route:booking_change_trial]]").route, "booking_change_trial");
 assert.equal(actionFor("[[route:class_move]]", true), "class_move");
 assert.equal(actionFor("[[route:class_move_member]]\nמנוי", true), "class_move_member");
 assert.equal(actionFor("[[route:class_move_trial]]", true), "class_move_trial");
@@ -102,6 +105,8 @@ assert.match(resolveRouteBookingChangeReply({ botName: "זואי" }), /צוות/
 
 const waPrompt = buildSystemPrompt(null, "tights", "whatsapp");
 assert.match(waPrompt, /\[\[route:booking_change\]\]/);
+assert.match(waPrompt, /\[\[route:booking_change_trial\]\]/);
+assert.match(waPrompt, /יש אפשרות לבטל את השיעור נסיון/);
 assert.match(waPrompt, /\[\[route:class_move\]\]/);
 assert.match(waPrompt, /שעה שהיא מציינת בתוך בקשת הביטול/);
 const webPrompt = buildSystemPrompt(null, "tights", "web");

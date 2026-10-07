@@ -388,8 +388,15 @@ import {
   registrationIntentMembershipAnswer,
   registrationMemberCopyAwaitingHelp,
   registrationMemberFlagFollowupNeedsHandoff,
+  resolveClassCancelWithTrialGate,
+  resolveRescheduleHintWithTrialGate,
   rescheduleTagApplies,
 } from "@/lib/wa-registration-intent";
+import {
+  CLASS_CHANGE_TRIAL_TEAM_MODEL,
+  claudeRouteMarksTrialClass,
+  contactHasFutureTrialBooking,
+} from "@/lib/wa-class-change-trial";
 import {
   assistantAskedMembershipOrTrialClarify,
   assistantReplyDumpsAccountAccessToSelfServeCall,
@@ -1822,6 +1829,8 @@ async function deliverArboxClassMoveOutcome(input: {
   business_slug: string;
   sessionId: string;
   nowIso: string;
+  /** Claude route kept on the row. Falls back to the outcome model. */
+  modelUsed?: string;
 }): Promise<void> {
   if (input.outcome.notifyTeam && input.businessId) {
     try {
@@ -1853,7 +1862,7 @@ async function deliverArboxClassMoveOutcome(input: {
     business_slug: input.business_slug,
     role: "assistant",
     content: input.outcome.reply,
-    model_used: input.outcome.model,
+    model_used: input.modelUsed ?? input.outcome.model,
     session_id: input.sessionId,
   });
 }
@@ -7189,6 +7198,8 @@ async function processIncoming(
   let contactId: string | number | null = null;
   /** Daily Arbox flag. true skips the reschedule member-or-trial question. false and null still ask. */
   let contactArboxIsMember: boolean | null = null;
+  let contactArboxUserId: number | null = null;
+  let futureTrialLookup: Promise<boolean> | null = null;
   /** אל תחזירו הנעה לאינסטגרם לאחר שנשלחה כבר הזמנה לעקוב */
   let contactInstagramFollowPromptSent = false;
   /** סוגי CTA שכבר צורכו (מערכת שעות / מנויים / כתובת) למעט ניסיון — מתאפס בברכה */
@@ -7288,7 +7299,7 @@ async function processIncoming(
           console.warn("[WA Webhook] contacts upsert failed (continuing):", upsertErr);
         } else {
           const selectVariants = [
-            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang, arbox_is_member",
+            "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent, wa_ui_lang, arbox_is_member, arbox_user_id",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, free_text_replies_since_cta, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, not_relevant_at, human_requested_at, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, starter_quota_notice_month, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
             "opted_out, claude_message_count, trial_registered, trial_registered_at, session_phase, flow_step, warmup_extra_awaiting_idx, sf_requested_date, sf_requested_time, id, sf_clicked_cta_kinds, instagram_follow_prompt_sent",
@@ -7355,6 +7366,9 @@ async function processIncoming(
       contactId = cid !== undefined && cid !== null ? cid : null;
       const memberFlag = (contactRow as { arbox_is_member?: unknown } | null)?.arbox_is_member;
       contactArboxIsMember = memberFlag === true ? true : memberFlag === false ? false : null;
+      const rawArboxUserId = Number((contactRow as { arbox_user_id?: unknown } | null)?.arbox_user_id);
+      contactArboxUserId =
+        Number.isFinite(rawArboxUserId) && rawArboxUserId > 0 ? Math.trunc(rawArboxUserId) : null;
 
       const rawKinds = (contactRow as any)?.sf_clicked_cta_kinds;
       if (Array.isArray(rawKinds)) {
@@ -7367,6 +7381,23 @@ async function processIncoming(
   } else {
     console.warn("[WA Webhook] missing business_id; skipping contacts upsert");
   }
+
+  const loadStoredFutureTrial = (): Promise<boolean> => {
+    if (futureTrialLookup) return futureTrialLookup;
+    const business = Number(businessId);
+    const userId = contactArboxUserId;
+    if (!business || !userId) {
+      futureTrialLookup = Promise.resolve(false);
+      return futureTrialLookup;
+    }
+    futureTrialLookup = contactHasFutureTrialBooking({
+      admin: supabase,
+      businessId: business,
+      userId,
+      now: new Date(nowIso),
+    });
+    return futureTrialLookup;
+  };
 
   // Helper: normalize inbound text for matching
   const incomingTextRaw = msg.type === "text" ? msg.text : "";
@@ -14181,6 +14212,37 @@ async function processIncoming(
           knowledge,
           hasArbox: knowledge.hasArboxConnection === true,
         });
+        if (confirmed && (hintCategory === "class_cancel" || hintCategory === "reschedule")) {
+          const storedFutureTrial = await loadStoredFutureTrial();
+          const claudeSaysTrial = claudeRouteMarksTrialClass(waReplyRoute.route);
+          if (hintCategory === "class_cancel") {
+            const gated = resolveClassCancelWithTrialGate({
+              claudeSaysTrial,
+              storedFutureTrial,
+              current: {
+                reply: confirmed.reply,
+                model: confirmed.modelUsed,
+                notifyTeam: confirmed.notifyHumanRequested,
+              },
+            });
+            if (gated.notifyTeam) await notifyTeam();
+            await sendClosed(gated.reply, gated.model);
+            return;
+          }
+          const gated = resolveRescheduleHintWithTrialGate({
+            claudeSaysTrial,
+            storedFutureTrial,
+            arboxIsMember: contactArboxIsMember,
+            memberReply: {
+              reply: confirmed.reply,
+              model: confirmed.modelUsed,
+              notifyTeam: confirmed.notifyHumanRequested,
+            },
+          });
+          if (gated.notifyTeam) await notifyTeam();
+          await sendClosed(gated.reply, gated.model);
+          return;
+        }
         if (confirmed) {
           if (confirmed.notifyHumanRequested) await notifyTeam();
           await sendClosed(confirmed.reply, confirmed.modelUsed);
@@ -14696,10 +14758,27 @@ async function processIncoming(
       return;
     }
     if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "policy_question") {
-      const policy = replyForPolicyQuestionRoute({
+      let policy = replyForPolicyQuestionRoute({
         inbound: msg.text.trim(),
         knowledge,
       });
+      if (policy.category === "class_cancel") {
+        const gated = resolveClassCancelWithTrialGate({
+          claudeSaysTrial: false,
+          storedFutureTrial: await loadStoredFutureTrial(),
+          current: {
+            reply: policy.reply,
+            model: policy.modelUsed,
+            notifyTeam: policy.notifyHumanRequested,
+          },
+        });
+        policy = {
+          reply: gated.reply,
+          modelUsed: gated.model,
+          notifyHumanRequested: gated.notifyTeam,
+          category: policy.category,
+        };
+      }
       if (policy.notifyHumanRequested && businessId) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -14800,12 +14879,16 @@ async function processIncoming(
         waReplyRoute.route === "class_move_trial") &&
       rescheduleTagApplies(lastAssistForWarmupPriority, msg.text)
     ) {
+      const classMoveOutcome = resolveRescheduleWithMemberFlag(msg.text, {
+        knowledge,
+        arboxIsMember: contactArboxIsMember,
+        hasArboxConnection: knowledge.hasArboxConnection === true,
+        claudeSaysTrial: claudeRouteMarksTrialClass(waReplyRoute.route),
+        storedFutureTrial: await loadStoredFutureTrial(),
+      });
       await deliverArboxClassMoveOutcome({
-        outcome: resolveRescheduleWithMemberFlag(msg.text, {
-          knowledge,
-          arboxIsMember: contactArboxIsMember,
-          hasArboxConnection: knowledge.hasArboxConnection === true,
-        }),
+        outcome: classMoveOutcome,
+        modelUsed: appendRouteToModelUsed(classMoveOutcome.model, waReplyRoute, fastPathHint?.category),
         msg,
         accountSid,
         authToken,
@@ -14818,6 +14901,47 @@ async function processIncoming(
       return;
     }
     if (routeAction.kind === "booking_change" || routeAction.kind === "handoff") {
+      if (routeAction.kind === "booking_change") {
+        const gatedCancel = resolveClassCancelWithTrialGate({
+          claudeSaysTrial: claudeRouteMarksTrialClass(waReplyRoute.route),
+          storedFutureTrial: await loadStoredFutureTrial(),
+          current: {
+            reply: resolveRouteBookingChangeReply(knowledge),
+            model: "class_reschedule_team_handoff",
+            notifyTeam: false,
+          },
+        });
+        if (gatedCancel.model === CLASS_CHANGE_TRIAL_TEAM_MODEL) {
+          if (businessId) {
+            try {
+              const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+              await handleLeadHumanRequested({
+                supabase,
+                businessId: Number(businessId),
+                businessSlug: business_slug,
+                phone: msg.from,
+                nowIso,
+                sessionId,
+              });
+            } catch (e) {
+              console.error("[WA Webhook] trial class-cancel human_requested failed:", e);
+            }
+          }
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, gatedCancel.reply, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] trial class-cancel send failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: gatedCancel.reply,
+            model_used: appendRouteToModelUsed(gatedCancel.model, waReplyRoute, fastPathHint?.category),
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
       let outbound =
         routeAction.kind === "handoff" && replyCoreClean.trim()
           ? replyCoreClean.trim()

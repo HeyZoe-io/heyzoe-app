@@ -1,3 +1,4 @@
+import { CLASS_CHANGE_TRIAL_TEAM_MODEL } from "@/lib/wa-class-change-trial";
 import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule";
 import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
 import { parseModelUsed } from "@/lib/wa-reply-route";
@@ -127,6 +128,49 @@ export const RESCHEDULE_MEMBER_BY_FLAG_MODEL = "reschedule_member_by_flag";
 export const RESCHEDULE_UNKNOWN_TEAM_REPLY =
   "אין לי את היכולת לעשות את זה אבל אני מעבירה לצוות שידאגו לך סבבה?";
 export const RESCHEDULE_UNKNOWN_TEAM_MODEL = "reschedule_unknown_team_handoff";
+
+export type ClassChangeSend = { reply: string; model: string; notifyTeam: boolean };
+
+function trialClassChangeHandoff(): ClassChangeSend {
+  return {
+    reply: RESCHEDULE_UNKNOWN_TEAM_REPLY,
+    model: CLASS_CHANGE_TRIAL_TEAM_MODEL,
+    notifyTeam: true,
+  };
+}
+
+/**
+ * Class cancel after Claude confirmed the route.
+ * A trial signal replaces the knowledge fact and the app how-to.
+ * Member and unknown keep today's playbook reply, so an unsynced member still gets the policy.
+ */
+export function resolveClassCancelWithTrialGate(input: {
+  claudeSaysTrial: boolean;
+  storedFutureTrial: boolean;
+  current: ClassChangeSend;
+}): ClassChangeSend {
+  if (input.claudeSaysTrial || input.storedFutureTrial) return trialClassChangeHandoff();
+  return input.current;
+}
+
+/**
+ * Reschedule playbook confirmed by booking_change, not the class_move route block.
+ * Trial, then a known member's fact, then the same unknown handoff as rule A.
+ */
+export function resolveRescheduleHintWithTrialGate(input: {
+  claudeSaysTrial: boolean;
+  storedFutureTrial: boolean;
+  arboxIsMember?: boolean | null;
+  memberReply: ClassChangeSend;
+}): ClassChangeSend {
+  if (input.claudeSaysTrial || input.storedFutureTrial) return trialClassChangeHandoff();
+  if (input.arboxIsMember === true) return input.memberReply;
+  return {
+    reply: RESCHEDULE_UNKNOWN_TEAM_REPLY,
+    model: RESCHEDULE_UNKNOWN_TEAM_MODEL,
+    notifyTeam: true,
+  };
+}
 export const REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL = "registration_intent_member_by_flag";
 export const REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL = "registration_intent_member_help_handoff";
 
@@ -202,8 +246,16 @@ export function resolveRescheduleWithMemberFlag(
     arboxIsMember?: boolean | null;
     /** false = non-Arbox. Omitted means the caller already applied that. */
     hasArboxConnection?: boolean;
+    /** Claude route class_move_trial or booking_change_trial. */
+    claudeSaysTrial?: boolean;
+    /** arbox_trial_booking_identity classification trial with a future start. */
+    storedFutureTrial?: boolean;
   }
 ): ArboxClassMoveOutcome {
+  if (opts?.claudeSaysTrial || opts?.storedFutureTrial) {
+    const trial = trialClassChangeHandoff();
+    return { kind: "trial_team", reply: trial.reply, model: trial.model, notifyTeam: true };
+  }
   const knownMember = opts?.arboxIsMember === true && opts?.hasArboxConnection !== false;
   if (knownMember) {
     const member = arboxClassMoveMemberReply(raw, opts?.knowledge);

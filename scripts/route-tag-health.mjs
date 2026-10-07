@@ -20,7 +20,7 @@ function parseLoggedModel(raw) {
   const value = String(raw ?? "").trim();
   const hash = value.indexOf("#");
   if (hash === -1) return { model: value, route: null, tagStatus: null, tagged: false };
-  const match = /^#route=([a-z_]+);tag=(ok|missing|invalid)$/.exec(value.slice(hash));
+  const match = /^#route=([a-z_]+);tag=(ok|missing|invalid)(?:;hint=([a-z0-9_]+))?$/.exec(value.slice(hash));
   if (!match) return { model: value.slice(0, hash), route: null, tagStatus: "invalid", tagged: true };
   return { model: value.slice(0, hash), route: match[1], tagStatus: match[2], tagged: true };
 }
@@ -60,11 +60,23 @@ for (let offset = 0; ; offset += 1000) {
 }
 
 const byRoute = {};
+const byModel = {};
 let tagged = 0;
 let missing = 0;
 let invalid = 0;
+const USAGE_MODELS = new Set([
+  "class_change_trial_team_handoff",
+  "reschedule_member_by_flag",
+  "reschedule_unknown_team_handoff",
+  "closed_playbook_fact_class_cancel",
+  "closed_playbook_fact_reschedule",
+  "booked_class_move_app",
+]);
 for (const row of rows) {
   const parsed = parseLoggedModel(row.model_used);
+  if (USAGE_MODELS.has(parsed.model)) {
+    byModel[parsed.model] = (byModel[parsed.model] ?? 0) + 1;
+  }
   if (!parsed.tagged) continue;
   tagged += 1;
   const keyName = parsed.route || "(none)";
@@ -114,6 +126,7 @@ console.log(
       assistantRows: rows.length,
       tagged,
       byRoute,
+      byModel,
       missing,
       invalid,
       missingOrInvalidRate: Number(rate.toFixed(4)),

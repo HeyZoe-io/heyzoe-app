@@ -70,7 +70,12 @@ export function decideHintAction(input: {
   // Class move is Claude's tag. A keyword hint must not replace that route.
   if (CLASS_MOVE_ROUTES.has(route)) return "ignore_hint";
   if (route === "handoff") return "use_hint";
-  if (route === "booking_change" && BOOKING_CHANGE_HINTS.has(input.hint.category)) return "use_hint";
+  if (
+    (route === "booking_change" || route === "booking_change_trial") &&
+    BOOKING_CHANGE_HINTS.has(input.hint.category)
+  ) {
+    return "use_hint";
+  }
   return "ignore_hint";
 }
 
