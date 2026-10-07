@@ -1116,11 +1116,7 @@ export default function Step4SalesFlow(props: Step4SalesFlowProps) {
           <p className="text-[11px] leading-relaxed text-zinc-500 text-center">
             {t.salesFlow.scheduleBoardPlacementHint}
           </p>
-          <Field
-            label={t.salesFlow.scheduleBoardCaptionLabel}
-            description={t.salesFlow.scheduleBoardCaptionHint}
-            lang={lang}
-          >
+          <Field label={t.salesFlow.scheduleBoardCaptionLabel} lang={lang}>
             <Textarea
               lang={lang}
               rows={2}

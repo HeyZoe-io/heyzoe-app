@@ -323,8 +323,6 @@ export const dashboardSettingsI18n = {
       scheduleBoard: "מערכת שעות",
       scheduleBoardCaption: "כאן ניתן לראות את מערכת השעות שלנו",
       scheduleBoardCaptionLabel: "הטקסט שנשלח ללקוח",
-      scheduleBoardCaptionHint:
-        "אפשר לערוך. בלי שינוי נשלח «כאן ניתן לראות את מערכת השעות שלנו».",
       imageToSend: "תמונה שתישלח",
       noImageLink: "ללא תמונה — יישלח קישור:",
       addScheduleInLinks: "הוסיפו תמונה או לינק למערכת שעות בטאב «לינקים» → קישורי מערכת.",
@@ -867,8 +865,6 @@ export const dashboardSettingsI18n = {
       scheduleBoard: "Schedule board",
       scheduleBoardCaption: "Here you can view our schedule",
       scheduleBoardCaptionLabel: "Text sent to the customer",
-      scheduleBoardCaptionHint:
-        "You can edit this. If you leave it unchanged, customers still get the default schedule line.",
       imageToSend: "Image to send",
       noImageLink: "No image — a link will be sent:",
       addScheduleInLinks: "Add a schedule image or link in Links → System links.",
