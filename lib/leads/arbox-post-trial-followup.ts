@@ -112,7 +112,7 @@ export type PostTrialAttendance = {
 
 export type PostTrialSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials" | "not_seeded" | "no_sale";
+  skip_reason?: "no_rule" | "missing_credentials" | "not_seeded" | "no_sale" | "clock_skew";
   lookback_from?: string;
   lookback_to?: string;
   sales_from?: string;
@@ -163,6 +163,31 @@ export function isPostTrialDecisionDue(input: {
   const decision = postTrialDecisionYmd(input.classDateYmd, input.delayDays);
   if (!decision) return false;
   return ymdCmp(input.todayYmd, decision) >= 0;
+}
+
+/** A caller-supplied `now` may not be a day ahead of the live clock. */
+export const POST_TRIAL_CLOCK_SKEW_MS = 15 * 60 * 1000;
+
+export function postTrialClockIsLive(
+  now: Date,
+  realNow: Date = new Date(),
+  skewMs = POST_TRIAL_CLOCK_SKEW_MS
+): boolean {
+  return Math.abs(now.getTime() - realNow.getTime()) <= skewMs;
+}
+
+/** WhatsApp uses the live Israel date. Delay 1 is the day after the class, not the class evening. */
+export function postTrialSendAllowedOnRealClock(input: {
+  classDateYmd: string;
+  delayDays: number;
+  realNow?: Date;
+}): boolean {
+  const realNow = input.realNow ?? new Date();
+  return isPostTrialDecisionDue({
+    classDateYmd: input.classDateYmd,
+    delayDays: input.delayDays,
+    todayYmd: formatDateYmdIsrael(realNow),
+  });
 }
 
 /**
@@ -579,6 +604,23 @@ async function dispatchFollowupTemplate(input: {
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
   const triggerType = triggerTypeForOutcome(input.outcome);
+  const delayDays = effectivePostTrialDelayDays(triggerType, input.rule.delay_days);
+  if (
+    !postTrialSendAllowedOnRealClock({
+      classDateYmd: input.classDateYmd,
+      delayDays,
+    })
+  ) {
+    console.error("[leads/arbox-post-trial-followup] skip send outside configured day", {
+      businessId: input.businessId,
+      classDateYmd: input.classDateYmd,
+      delayDays,
+      outcome: input.outcome,
+      realToday: formatDateYmdIsrael(new Date()),
+    });
+    return { dispatch: "skipped", ok: false };
+  }
+
   // Conversion window already waited via delay_days vs class_date; send immediate on decision day.
   const dueAt = computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now);
 
@@ -822,8 +864,20 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
+  const realNow = new Date();
   const nowIso = now.toISOString();
-  const todayYmd = formatDateYmdIsrael(now);
+  const todayYmd = formatDateYmdIsrael(realNow);
+
+  if (!postTrialClockIsLive(now, realNow)) {
+    summary.skipped = true;
+    summary.skip_reason = "clock_skew";
+    console.error("[leads/arbox-post-trial-followup] skip — now is not the live clock", {
+      businessId,
+      now: nowIso,
+      realNow: realNow.toISOString(),
+    });
+    return summary;
+  }
 
   if (!apiKey || !boxId) {
     summary.skipped = true;

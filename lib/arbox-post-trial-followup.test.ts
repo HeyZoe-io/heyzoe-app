@@ -8,9 +8,11 @@ import {
   isPostTrialConversionSale,
   isPostTrialDecisionDue,
   postTrialActivationInstant,
+  postTrialClockIsLive,
   postTrialLogStatusBlocksSend,
   postTrialSeedAction,
   postTrialSeededBlocksSend,
+  postTrialSendAllowedOnRealClock,
   saleDateActivationInstant,
   salesBatchMayRegisterAfterTrial,
   orderSameTriggerTemplateRules,
@@ -43,6 +45,27 @@ assert.equal(
 assert.equal(
   isPostTrialDecisionDue({ classDateYmd: "2026-09-01", delayDays: 3, todayYmd: "2026-09-04" }),
   true
+);
+assert.equal(
+  postTrialSendAllowedOnRealClock({
+    classDateYmd: "2026-10-07",
+    delayDays: 1,
+    realNow: new Date("2026-10-07T15:19:29Z"),
+  }),
+  false,
+  "delay 1 is not the class evening"
+);
+assert.equal(
+  postTrialSendAllowedOnRealClock({
+    classDateYmd: "2026-10-07",
+    delayDays: 1,
+    realNow: new Date("2026-10-08T06:00:00Z"),
+  }),
+  true
+);
+assert.equal(
+  postTrialClockIsLive(new Date("2026-10-08T06:00:00Z"), new Date("2026-10-07T15:19:29Z")),
+  false
 );
 
 /** Trial product never counts as conversion — even if item_type looks like plan. */
