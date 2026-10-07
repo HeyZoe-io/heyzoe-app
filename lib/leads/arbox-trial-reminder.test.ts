@@ -4,6 +4,8 @@ import {
   claimTrialReminderSend,
   classStartMinutes,
   isTrialReminderDue,
+  trialReminderClockIsLive,
+  trialReminderSendAllowedNow,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
@@ -289,6 +291,59 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
       slot: "morning",
     }),
     true
+  );
+}
+
+{
+  const wednesdayEvening = new Date("2026-10-07T15:20:18Z");
+  const thursdayMorning = new Date("2026-10-08T06:00:00Z");
+  assert.equal(
+    trialReminderSendAllowedNow({
+      classDateYmd: "2026-10-09",
+      classTime: "09:00",
+      delayDays: 1,
+      slot: "morning",
+      realNow: wednesdayEvening,
+    }),
+    false,
+    "1 day before a Friday class is not Wednesday"
+  );
+  assert.equal(
+    trialReminderSendAllowedNow({
+      classDateYmd: "2026-10-09",
+      classTime: "09:00",
+      delayDays: 1,
+      slot: "evening",
+      realNow: wednesdayEvening,
+    }),
+    false
+  );
+  assert.equal(
+    trialReminderSendAllowedNow({
+      classDateYmd: "2026-10-09",
+      classTime: "09:00",
+      delayDays: 1,
+      slot: "morning",
+      realNow: thursdayMorning,
+    }),
+    true
+  );
+  assert.equal(
+    trialReminderSendAllowedNow({
+      classDateYmd: "2026-10-08",
+      classTime: "19:00",
+      delayDays: 0,
+      slot: "morning",
+      realNow: wednesdayEvening,
+    }),
+    false,
+    "delay 0 evening class waits for the class morning"
+  );
+  assert.equal(trialReminderClockIsLive(wednesdayEvening, wednesdayEvening), true);
+  assert.equal(
+    trialReminderClockIsLive(thursdayMorning, wednesdayEvening),
+    false,
+    "Thursday's clock on Wednesday is not a live run"
   );
 }
 

@@ -91,7 +91,12 @@ export type TrialReminderDispatch =
 
 export type TrialReminderSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials" | "no_trial_scope" | "activation_read_failed";
+  skip_reason?:
+    | "no_rule"
+    | "missing_credentials"
+    | "no_trial_scope"
+    | "activation_read_failed"
+    | "clock_skew";
   lookback_from?: string;
   lookback_to?: string;
   fetched: number;
@@ -263,6 +268,40 @@ export function trialReminderMatchesSlot(input: {
   }
   if (delay === 0 && early) return false;
   return true;
+}
+
+/** A caller-supplied `now` may not be a day ahead of the live clock. */
+export const TRIAL_REMINDER_CLOCK_SKEW_MS = 15 * 60 * 1000;
+
+export function trialReminderClockIsLive(
+  now: Date,
+  realNow: Date = new Date(),
+  skewMs = TRIAL_REMINDER_CLOCK_SKEW_MS
+): boolean {
+  return Math.abs(now.getTime() - realNow.getTime()) <= skewMs;
+}
+
+/**
+ * WhatsApp uses the live Israel date, not `input.now`.
+ * A preview that passes Thursday's clock on Wednesday must not send Friday's class.
+ */
+export function trialReminderSendAllowedNow(input: {
+  classDateYmd: string;
+  classTime: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+  realNow?: Date;
+  cutoffHm?: string;
+}): boolean {
+  const realNow = input.realNow ?? new Date();
+  return trialReminderMatchesSlot({
+    classDateYmd: input.classDateYmd,
+    classTime: input.classTime,
+    todayYmd: formatDateYmdIsrael(realNow),
+    delayDays: input.delayDays,
+    slot: input.slot,
+    cutoffHm: input.cutoffHm,
+  });
 }
 
 /**
@@ -471,9 +510,31 @@ async function dispatchTrialReminderTemplate(input: {
   rule: PurchaseTemplateTriggerRule;
   now: Date;
   dueOffsetMs?: number;
+  slot?: TrialReminderSlot;
 }): Promise<{ dispatch: TrialReminderDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
+
+  const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
+  const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
+  if (
+    !trialReminderSendAllowedNow({
+      classDateYmd: input.classDateYmd,
+      classTime: input.classTime,
+      delayDays,
+      slot,
+    })
+  ) {
+    console.error("[leads/arbox-trial-reminder] skip send outside configured day", {
+      businessId: input.businessId,
+      classDateYmd: input.classDateYmd,
+      classTime: input.classTime,
+      delayDays,
+      slot,
+      realToday: formatDateYmdIsrael(new Date()),
+    });
+    return { dispatch: "skipped", ok: false };
+  }
 
   // Detection delay already applied (due-day filter). Send on this cron run.
   const dueAt = new Date(
@@ -663,9 +724,21 @@ export async function syncArboxTrialReminderForBusiness(input: {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const now = input.now ?? new Date();
+  const realNow = new Date();
   const nowIso = now.toISOString();
-  const todayYmd = formatDateYmdIsrael(now);
+  const todayYmd = formatDateYmdIsrael(realNow);
   const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
+
+  if (!trialReminderClockIsLive(now, realNow)) {
+    summary.skipped = true;
+    summary.skip_reason = "clock_skew";
+    console.error("[leads/arbox-trial-reminder] skip — now is not the live clock", {
+      businessId,
+      now: nowIso,
+      realNow: realNow.toISOString(),
+    });
+    return summary;
+  }
 
   if (!apiKey || !boxId) {
     summary.skipped = true;
@@ -1092,6 +1165,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
             rule: item,
             now,
             dueOffsetMs: ctx.dueOffsetMs,
+            slot,
           });
           return send.dispatch as CompanionDispatch;
         },
