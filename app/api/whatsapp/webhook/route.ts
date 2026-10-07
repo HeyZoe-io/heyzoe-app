@@ -1,4 +1,5 @@
 import { NextRequest, after } from "next/server";
+import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
@@ -246,6 +247,7 @@ import { isExplicitTimetableRequest, isScheduleIntent, shouldSendScheduleBoardOn
 import {
   ARBOX_REGISTRATION_VERIFY_MODEL,
   ARBOX_REGISTRATION_VERIFY_REPLY,
+  looksLikeMembershipStatusConfirm,
   matchesArboxRegistrationVerifyAsk,
 } from "@/lib/wa-arbox-registration-verify";
 import {
@@ -257,6 +259,7 @@ import {
   replyForPolicyQuestionRoute,
   resolveClosedPlaybook,
   CLOSED_PLAYBOOK_CLASS_CANCEL_ACTION_REPLY,
+  CLOSED_PLAYBOOK_REFUND_REPLY,
   buildNonArboxClassChangeTeamHandoffReply,
   knowledgeInstructsClassCancelViaApp,
   replyGivesGenericClassCancelAppHowTo,
@@ -6455,9 +6458,9 @@ export async function POST(req: NextRequest) {
     const claimed = await claimMessageForProcessing(message.messageId);
     if (claimed) {
       after(() =>
-        processIncoming(message, accountSid, authToken, ctwaClid).catch((e) =>
-          console.error("[WA Webhook] processIncoming error:", e)
-        )
+        runWithArboxCallCount({ cron: "conversation", slug: "pending", emitIfEmpty: false }, () =>
+          processIncoming(message, accountSid, authToken, ctwaClid)
+        ).catch((e) => console.error("[WA Webhook] processIncoming error:", e))
       );
     }
   }
@@ -6583,6 +6586,7 @@ async function processIncoming(
   }
 
   const { business_slug } = channel;
+  setArboxCallCounterSlug(String(business_slug ?? ""));
   const inboundSessionId = buildWaSessionId(msg.toNumber, msg.from);
   if (!processOpts?.logScopeReady) {
     await withWaMessageLogScope({ businessSlug: business_slug, sessionId: inboundSessionId }, () =>
@@ -13651,7 +13655,51 @@ async function processIncoming(
         return;
       }
     }
-    if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "registration_check") {
+    if (
+      waReplyRoute.tagStatus === "ok" &&
+      waReplyRoute.route === "registration_check" &&
+      !matchesArboxRegistrationVerifyAsk(msg.text) &&
+      looksLikeMembershipStatusConfirm(msg.text)
+    ) {
+      const outbound = CLOSED_PLAYBOOK_REFUND_REPLY;
+      if (businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] membership-confirm human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] membership-confirm handoff send failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: outbound,
+        model_used: appendRouteToModelUsed(
+          "wa_route_handoff",
+          { ...waReplyRoute, route: "handoff" },
+          fastPathHint?.category
+        ),
+        session_id: sessionId,
+      });
+      return;
+    }
+    if (
+      waReplyRoute.tagStatus === "ok" &&
+      waReplyRoute.route === "registration_check" &&
+      matchesArboxRegistrationVerifyAsk(msg.text)
+    ) {
       const verifyText = ARBOX_REGISTRATION_VERIFY_REPLY;
       const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
       const repeated = await lastClosedOutboundRepeats({
