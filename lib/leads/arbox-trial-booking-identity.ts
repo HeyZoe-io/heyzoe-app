@@ -133,6 +133,24 @@ export async function loadTrialBookingIdentityKeys(input: {
   return keys;
 }
 
+/**
+ * First insert stays pending (`unknown`, empty note). The column default is
+ * `trial`, which the classifier treats as final, so the classification is set
+ * explicitly. A later sighting does not overwrite a row that already exists.
+ */
+export function trialIdentityUpsertRow(businessId: number, item: TrialIdentityInput) {
+  return {
+    business_id: businessId,
+    user_id: item.userId,
+    class_date: item.classDate,
+    class_time: normalizeTrialClassTime(item.classTime),
+    class_name: item.className || "",
+    membership_type_name: item.membershipTypeName,
+    classification: "unknown" as const,
+    classification_note: null as string | null,
+  };
+}
+
 /** Idempotent. A later sighting does not overwrite the first label. */
 export async function rememberTrialBookingIdentities(
   admin: Admin,
@@ -146,14 +164,7 @@ export async function rememberTrialBookingIdentities(
     if (!key || byKey.has(key)) continue;
     byKey.set(key, item);
   }
-  const rows = [...byKey.values()].map((item) => ({
-    business_id: businessId,
-    user_id: item.userId,
-    class_date: item.classDate,
-    class_time: normalizeTrialClassTime(item.classTime),
-    class_name: item.className || "",
-    membership_type_name: item.membershipTypeName,
-  }));
+  const rows = [...byKey.values()].map((item) => trialIdentityUpsertRow(businessId, item));
   const chunkSize = 200;
   for (let i = 0; i < rows.length; i += chunkSize) {
     const chunk = rows.slice(i, i + chunkSize);
@@ -164,6 +175,27 @@ export async function rememberTrialBookingIdentities(
     if (!error) continue;
     if (isMissingIdentityTable(error.message)) {
       warnMissingTable();
+      return;
+    }
+    if (/classification/i.test(error.message)) {
+      const plain = chunk.map((row) => ({
+        business_id: row.business_id,
+        user_id: row.user_id,
+        class_date: row.class_date,
+        class_time: row.class_time,
+        class_name: row.class_name,
+        membership_type_name: row.membership_type_name,
+      }));
+      const again = await admin.from(TABLE).upsert(plain, {
+        onConflict: "business_id,user_id,class_date,class_time",
+        ignoreDuplicates: true,
+      });
+      if (!again.error) continue;
+      if (isMissingIdentityTable(again.error.message)) {
+        warnMissingTable();
+        return;
+      }
+      console.error(LOG, "remember failed:", again.error.message);
       return;
     }
     console.error(LOG, "remember failed:", error.message);

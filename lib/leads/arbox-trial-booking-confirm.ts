@@ -38,6 +38,7 @@ import {
 } from "@/lib/trial-registered-wa-reply";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { rememberTrialBookingIdentities } from "@/lib/leads/arbox-trial-booking-identity";
+import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
 import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { claimInsertAllowsSend, trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
@@ -448,6 +449,23 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       membershipTypeName: String(item.row.membership_type_name ?? "").trim() || null,
     }))
   );
+  try {
+    await prepareTrialBookingClasses({
+      admin,
+      businessId,
+      apiKey,
+      rows: trials.map((item) => item.row),
+      trialTypeIds,
+      todayYmd: today,
+      phase: "pre_class",
+      isCandidate: () => false,
+    });
+  } catch (error) {
+    console.error(LOG, "classification failed", {
+      businessId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   const { data: bizPlanRow } = await admin.from("businesses").select("plan").eq("id", businessId).maybeSingle();
   const businessPlan = (bizPlanRow as { plan?: unknown } | null)?.plan;

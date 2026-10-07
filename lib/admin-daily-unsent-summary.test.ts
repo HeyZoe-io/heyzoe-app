@@ -73,7 +73,25 @@ const detail = unsentDetailParam(rows);
 assert.equal(detail.includes("\n"), false);
 assert.equal(
   detail,
-  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
+  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 0 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
+);
+assert.equal(
+  unsentReason({ status: "seeded", lastError: "class_unmarked", overdue: false }),
+  "אימון בלי סימון"
+);
+assert.equal(
+  unsentDetailParam([
+    ...rows,
+    {
+      businessId: 1,
+      business: "apex",
+      trigger: "missed_class",
+      contact: "עידן",
+      reason: "אימון בלי סימון",
+      at: "08.10, 09:00",
+    },
+  ]),
+  "צפוי: 2 סימוני היסטוריה (כללים חדשים / זמן עבר), 1 אימונים בלי סימון נוכחות, 0 דילוגי תקרת שימור, 0 שיעורים שכבר התחילו"
 );
 const attention = unsentDetailParam([
   ...rows,

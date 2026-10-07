@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { trialIdentityUpsertRow } from "@/lib/leads/arbox-trial-booking-identity";
 import { bookingMatchesTrialScope } from "@/lib/leads/arbox-trial-attended";
 import {
   classificationForPhase,
@@ -278,6 +279,24 @@ assert.equal(
   }),
   true
 );
+
+assert.equal(
+  classificationForPhase({ phase: "post_class", stored: "unknown", fresh: "trial", atSend: false }),
+  "trial"
+);
+assert.equal(
+  classificationForPhase({ phase: "pre_class", stored: "unknown", fresh: "not_trial", atSend: false }),
+  "not_trial"
+);
+const pendingInsert = trialIdentityUpsertRow(3251, {
+  userId: 11,
+  classDate: "2026-10-09",
+  classTime: "10:00",
+  className: "מכשירים",
+  membershipTypeName: "trial",
+});
+assert.equal(pendingInsert.classification, "unknown");
+assert.equal(pendingInsert.classification_note, null);
 
 async function oneCallPerUser() {
   let calls = 0;

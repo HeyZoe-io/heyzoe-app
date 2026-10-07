@@ -90,6 +90,7 @@ export function unsentReason(input: {
   const err = String(input.lastError ?? "").trim().toLowerCase();
   if (status === "sent") return null;
   if (status === "pending" && !input.overdue) return null;
+  if (err.includes("class_unmarked")) return "אימון בלי סימון";
   if (err === "activation_seed" || status === "seeded") return "סומן בלי שליחה";
   if (err.includes("no_valid_name") || err.includes("invalid_name")) return "שם לא תקין";
   if (err.includes("not_trial")) return "לא ניסיון";
@@ -125,12 +126,14 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
   let history = 0;
   let cap = 0;
   let started = 0;
+  let unmarked = 0;
   for (const row of rows) {
     const expected =
       !row.future &&
       (row.reason === "סומן בלי שליחה" ||
         row.reason === "תקרת שימור יומית" ||
-        row.reason === "דילוג");
+        row.reason === "דילוג" ||
+        row.reason === "אימון בלי סימון");
     if (!expected) {
       const reason = row.metaError ? `${row.reason} ${row.metaError}` : row.reason;
       const key = `${row.business} · ${row.trigger} · ${reason}`;
@@ -139,12 +142,13 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
     }
     if (row.reason === "תקרת שימור יומית") cap += 1;
     else if (row.reason === "דילוג") started += 1;
+    else if (row.reason === "אימון בלי סימון") unmarked += 1;
     else history += 1;
   }
   const lines = [...attention.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "he"))
     .map(([key, count]) => squashParam(`${key} ${count}`));
-  const expectedLine = `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר), ${cap} דילוגי תקרת שימור, ${started} שיעורים שכבר התחילו`;
+  const expectedLine = `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${started} שיעורים שכבר התחילו`;
   const pointer = "הפירוט המלא ב-/admin/unsent";
   let kept = lines;
   const join = (items: string[]) => squashParam([...items, expectedLine].join(" | "));

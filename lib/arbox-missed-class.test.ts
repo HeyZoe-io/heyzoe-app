@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
   bookingsReportSharedLookbackWindow,
+  countSingleAttendeeUnmarkedClasses,
   isBookingCheckInNo,
   isMissedClassDatePast,
+  missedAttendanceDecision,
+  missedOccurrenceYesCount,
   normalizeMissedClassNamePk,
   normalizeMissedClassTimePk,
   parseMissedClassUserId,
@@ -36,6 +39,34 @@ import {
   assert.equal(isBookingCheckInNo(null), false);
   assert.equal(isBookingCheckedIn("Yes"), true);
   assert.equal(isBookingCheckedIn("No"), false);
+}
+
+/** Zero Yes in the class → nobody is a no-show. One Yes → only explicit No. A lone No is unmarked. */
+{
+  const rows = [
+    { check_in: "No", date: "2026-10-07", time: "20:00", class_name: "PEAK 360" },
+    { check_in: "No", date: "2026-10-07", time: "20:00", class_name: "PEAK 360" },
+    { check_in: "Yes", date: "2026-10-07", time: "18:00", class_name: "יוגה" },
+    { check_in: "No", date: "2026-10-07", time: "18:00", class_name: "יוגה" },
+    { check_in: "No", date: "2026-10-06", time: "16:00", class_name: "APEX KIDS" },
+  ];
+  const yes = missedOccurrenceYesCount(rows);
+  assert.equal(yes.get("2026-10-07|20:00|PEAK 360") ?? 0, 0);
+  assert.equal(
+    missedAttendanceDecision({ checkIn: "No", occurrenceYes: 0 }),
+    "class_unmarked"
+  );
+  assert.equal(yes.get("2026-10-07|18:00|יוגה"), 1);
+  assert.equal(
+    missedAttendanceDecision({ checkIn: "No", occurrenceYes: 1 }),
+    "send"
+  );
+  assert.equal(
+    missedAttendanceDecision({ checkIn: "Yes", occurrenceYes: 1 }),
+    "ignore"
+  );
+  assert.equal(countSingleAttendeeUnmarkedClasses(rows, "2026-10-08"), 1);
+  assert.equal(countSingleAttendeeUnmarkedClasses(rows, "2026-10-06"), 0);
 }
 
 /** Past date only (Israel YMD compare). */

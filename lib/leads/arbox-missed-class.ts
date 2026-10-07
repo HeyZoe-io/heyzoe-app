@@ -1,5 +1,7 @@
 /**
  * C3 missed_class (members) + C4 missed_trial (leads): bookingsReport past rows with check_in="No".
+ * "No" is Arbox's default before attendance is marked. A class with zero "Yes"
+ * is unmarked: seed class_unmarked and do not send.
  * Shares bookingsReport fetch with trial_attended (cron prefetch). Shared sync_log (no event_kind).
  */
 import {
@@ -94,6 +96,11 @@ export type MissedClassSyncSummary = {
   gated: number;
   no_phone: number;
   abandoned: number;
+  /** Bookings not sent because the class had zero check_in Yes. */
+  class_unmarked: number;
+  class_unmarked_classes: number;
+  /** Past 14 days: a class with exactly one booking, and that booking is No. */
+  single_attendee_unmarked_14d: number;
   errors: number;
   fetch_error?: string;
 };
@@ -123,6 +130,76 @@ export function parseMissedClassUserId(raw: unknown): number | null {
 export function isMissedClassDatePast(classDateYmd: string, now: Date = new Date()): boolean {
   const today = formatDateYmdIsrael(now);
   return classDateYmd < today;
+}
+
+export function missedClassOccurrenceKey(classDate: string, classTime: string, className: string): string {
+  return `${classDate}|${classTime}|${className}`;
+}
+
+/**
+ * Arbox writes check_in "No" before anyone marks attendance.
+ * A class occurrence is marked only when at least one booking in it is "Yes".
+ */
+export function missedOccurrenceYesCount(
+  rows: readonly Pick<ArboxBookingReportRow, "check_in" | "date" | "time" | "class_name">[]
+): Map<string, number> {
+  const yes = new Map<string, number>();
+  for (const row of rows) {
+    if (!isBookingCheckedIn(row.check_in)) continue;
+    const classDate = parseClassDateYmd(row.date);
+    const classTime = normalizeMissedClassTimePk(row.time);
+    const className = normalizeMissedClassNamePk(row.class_name);
+    if (!classDate || !classTime || !className) continue;
+    const key = missedClassOccurrenceKey(classDate, classTime, className);
+    yes.set(key, (yes.get(key) ?? 0) + 1);
+  }
+  return yes;
+}
+
+/** No Yes in the occurrence → do not send. One Yes → explicit No still sends. */
+export function missedAttendanceDecision(input: {
+  checkIn: unknown;
+  occurrenceYes: number;
+}): "ignore" | "send" | "class_unmarked" {
+  if (!isBookingCheckInNo(input.checkIn)) return "ignore";
+  return input.occurrenceYes > 0 ? "send" : "class_unmarked";
+}
+
+/** One booking, check_in No, class date in [today-14, today). */
+export function countSingleAttendeeUnmarkedClasses(
+  rows: readonly Pick<ArboxBookingReportRow, "check_in" | "date" | "time" | "class_name">[],
+  todayYmd: string
+): number {
+  const from = addCalendarDaysYmd(todayYmd, -14);
+  if (!from) return 0;
+  const counts = new Map<string, { total: number; no: number }>();
+  for (const row of rows) {
+    const classDate = parseClassDateYmd(row.date);
+    const classTime = normalizeMissedClassTimePk(row.time);
+    const className = normalizeMissedClassNamePk(row.class_name);
+    if (!classDate || !classTime || !className) continue;
+    if (classDate < from || classDate >= todayYmd) continue;
+    const key = missedClassOccurrenceKey(classDate, classTime, className);
+    const bucket = counts.get(key) ?? { total: 0, no: 0 };
+    bucket.total += 1;
+    if (isBookingCheckInNo(row.check_in)) bucket.no += 1;
+    counts.set(key, bucket);
+  }
+  let classes = 0;
+  for (const bucket of counts.values()) {
+    if (bucket.total === 1 && bucket.no === 1) classes += 1;
+  }
+  return classes;
+}
+
+function addCalendarDaysYmd(ymd: string, days: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return null;
+  const dt = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + days, 12, 0, 0));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function parseClassDateAsEventDate(classDateYmd: string): Date {
@@ -521,6 +598,9 @@ export async function syncArboxMissedClassForBusiness(input: {
     gated: 0,
     no_phone: 0,
     abandoned: 0,
+    class_unmarked: 0,
+    class_unmarked_classes: 0,
+    single_attendee_unmarked_14d: 0,
     errors: 0,
   };
 
@@ -616,6 +696,12 @@ export async function syncArboxMissedClassForBusiness(input: {
     rows = report.rows;
   }
   summary.fetched = rows.length;
+  const occurrenceYes = missedOccurrenceYesCount(rows);
+  summary.single_attendee_unmarked_14d = countSingleAttendeeUnmarkedClasses(
+    rows,
+    formatDateYmdIsrael(now)
+  );
+  const loggedUnmarked = new Set<string>();
 
   if (!input.missedClassSeeded) {
     for (const row of rows) {
@@ -830,6 +916,45 @@ export async function syncArboxMissedClassForBusiness(input: {
       );
       if (!pendingRules.length) {
         summary.already += 1;
+        continue;
+      }
+      const occurrenceKey = missedClassOccurrenceKey(classDateYmd, classTime, className);
+      if (
+        missedAttendanceDecision({
+          checkIn: row.check_in,
+          occurrenceYes: occurrenceYes.get(occurrenceKey) ?? 0,
+        }) === "class_unmarked"
+      ) {
+        let seededOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) seededOk = false;
+        }
+        if (!seededOk) summary.errors += 1;
+        summary.class_unmarked += 1;
+        if (!loggedUnmarked.has(occurrenceKey)) {
+          loggedUnmarked.add(occurrenceKey);
+          summary.class_unmarked_classes += 1;
+          console.info("[leads/arbox-missed-class] class_unmarked", {
+            businessId,
+            class_date: classDateYmd,
+            class_time: classTime,
+            class_name: className,
+            reason: "class_unmarked",
+          });
+        }
         continue;
       }
       let rulesToSend = pendingRules;
