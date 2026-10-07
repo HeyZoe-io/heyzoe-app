@@ -130,6 +130,7 @@ import {
   allowPreClaudeSends,
   enterPreClaudeZone,
   exitPreClaudeZone,
+  isWholeMessageHumanRequest,
   isWholeMessageOpeningTrigger,
   resolveSendBeforeClaudeReason,
   wholeMessageMatchesLabel,
@@ -8336,7 +8337,7 @@ async function processIncoming(
     !fastPathHint &&
     msg.type === "text" &&
     businessId &&
-    userRequestedHumanAgent(msg.text.trim())
+    isWholeMessageHumanRequest(msg.text)
   ) {
     fastPathHint = { matcher: "human_agent", category: "human_agent" };
   }

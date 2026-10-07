@@ -234,6 +234,9 @@ export function buildReplyRoutePromptBlock(): string {
 - "תקפיאי לי את המנוי" -> [[route:handoff]]
 - "תעשי לי הנחה" -> [[route:handoff]]
 - "אם אביא חברה אפשר מחיר לזוג?" -> [[route:handoff]]
+רצון להיות נציג, או מחמאה על נציג, אינה handoff.
+- "סיימתי קורס ואשמח להיות נציג" -> [[route:answer]]
+- "הנציג שלכם היה מעולה" -> [[route:answer]]
 דוגמאות policy_question:
 - "כמה זמן לפני ניתן לבטל שיעור?" -> [[route:policy_question]]
 - "מה כללי ההקפאה?" -> [[route:policy_question]]

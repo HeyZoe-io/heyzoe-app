@@ -1,4 +1,4 @@
-import { userRequestedHumanAgent } from "@/lib/notifications/detect-human-request";
+import { isWholeMessageHumanRequest } from "@/lib/wa-send-before-claude";
 import { isScheduleInquiryIntent } from "@/lib/wa-booking-lookup";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import { isDemotedClosedPlaybook, type FastPathHint } from "@/lib/wa-fast-path-hint";
@@ -38,7 +38,7 @@ export function collectPreClaudeHint(text: string): FastPathHint | null {
   if (isJoinSignupIntentText(raw)) {
     return { matcher: "signup", category: "signup" };
   }
-  if (userRequestedHumanAgent(raw)) {
+  if (isWholeMessageHumanRequest(raw)) {
     return { matcher: "human_agent", category: "human_agent" };
   }
   if (classifyInboundSpeechAct(raw) === "schedule_ask" || isScheduleIntent(raw)) {

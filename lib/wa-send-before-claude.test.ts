@@ -67,6 +67,8 @@ for (const text of HUMAN_MATCH) {
 assert.equal(isWholeMessageHumanRequest("סיימתי קורס ואשמח להיות נציג"), false);
 assert.equal(isWholeMessageHumanRequest("הנציג שלכם היה מעולה"), false);
 assert.equal(isWholeMessageHumanRequest("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), false);
+assert.equal(collectPreClaudeHint("סיימתי קורס ואשמח להיות נציג"), null);
+assert.equal(collectPreClaudeHint("נציג אנושי")?.category, "human_agent");
 assert.equal(reasonFor("סיימתי קורס ואשמח להיות נציג"), null);
 assert.equal(reasonFor("הנציג שלכם היה מעולה"), null);
 assert.equal(reasonFor("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), null);
