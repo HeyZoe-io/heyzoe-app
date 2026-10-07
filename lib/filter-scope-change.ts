@@ -511,35 +511,50 @@ async function runRules(input: {
   const needed = [...new Set([...input.previousIds, ...input.nextIds])];
   const missing = needed.filter((id) => !names.get(id));
   if (missing.length) {
-    console.error("[filter-scope] trial type names unresolved", { businessId, missing });
-    return { ok: false, error: "trial_type_names_unresolved" };
+    console.warn("[filter-scope] catalog has no name for some trial ids; matching those by id only", {
+      businessId,
+      missing,
+    });
   }
 
   const today = formatDateYmdIsrael(now);
-  const fromDate = addIsraelCalendarDays(today, -30);
-  const toDate = addIsraelCalendarDays(today, 14);
-  if (!fromDate || !toDate) return { ok: false, error: "bad_window" };
-  const report = await fetchArboxBookingsReport({
-    apiKey: input.apiKey,
-    fromDate,
-    toDate,
-    locationId: input.boxId,
-  });
-  if (!report.ok) {
-    console.error("[filter-scope] bookings report failed", { businessId, reason: report.error });
-    return { ok: false, error: report.error };
+  const pastFrom = addIsraelCalendarDays(today, -30);
+  const futureTo = addIsraelCalendarDays(today, 14);
+  if (!pastFrom || !futureTo) return { ok: false, error: "bad_window" };
+  const reportRows: ArboxBookingReportRow[] = [];
+  let pagesFetched = 0;
+  for (const [fromDate, toDate] of [
+    [pastFrom, today],
+    [today, futureTo],
+  ] as const) {
+    const report = await fetchArboxBookingsReport({
+      apiKey: input.apiKey,
+      fromDate,
+      toDate,
+      locationId: input.boxId,
+    });
+    pagesFetched += report.pagesFetched;
+    if (!report.ok) {
+      console.error("[filter-scope] bookings report failed", { businessId, fromDate, toDate, reason: report.error });
+      return { ok: false, error: report.error };
+    }
+    reportRows.push(...report.rows);
   }
 
   const previousScope = scopeNames(input.previousIds, names);
   const nextScope = scopeNames(input.nextIds, names);
   let failed = false;
+  const seen = new Set<string>();
 
-  for (const row of report.rows) {
+  for (const row of reportRows) {
     const userId = parseTrialReminderUserId(row.user_id);
     const classDateYmd = parseClassDateYmd(row.date);
     const classTime = normalizeTrialReminderClassTimePk(row.time);
     const className = normalizeTrialReminderClassNamePk(row.class_name);
     if (userId == null || !classDateYmd || !classTime || !className) continue;
+    const grain = `${userId}|${classDateYmd}|${classTime}|${className}`;
+    if (seen.has(grain)) continue;
+    seen.add(grain);
     const previouslyInScope = bookingMatchesTrialScope(row, previousScope);
     const nowInScope = bookingMatchesTrialScope(row, nextScope);
     if (!previouslyInScope && !nowInScope) continue;
@@ -606,8 +621,8 @@ async function runRules(input: {
     kept: counts.kept,
     pending_send: counts.pendingSend,
     stopped: counts.stopped,
-    bookings: report.rows.length,
-    pages: report.pagesFetched,
+    bookings: reportRows.length,
+    pages: pagesFetched,
   });
   return { ok: true, ...counts };
 }
