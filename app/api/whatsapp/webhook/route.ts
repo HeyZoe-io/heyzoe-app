@@ -701,6 +701,8 @@ import {
   courseHasCycleSchedulePickData,
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
+  formatDayNameForScheduleDatePlaceholder,
+  formatFreeTextScheduleDateForContact,
   formatYomForContactSlotDate,
   formatDayNameForScheduleDatePlaceholder,
   migrateLegacyCourseToCycles,
@@ -709,6 +711,7 @@ import {
   type CourseCycle,
   type WaSchedulePickSlot,
 } from "@/lib/product-schedule-slots";
+import { israelCalendarDatePlusDays } from "@/lib/israel-time";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
   loadTrialSignupNotice,
@@ -1718,32 +1721,26 @@ function parseScheduleTimeInput(text: string): string | null {
   return `${m[1]}:${m[2]}`;
 }
 
-function heDayOfWeekForDm(dm: string): string | null {
+function heDayOfWeekForDm(dm: string, now: Date = new Date()): string | null {
   const m = String(dm ?? "")
     .trim()
     .match(/^(\d{1,2})\.(\d{1,2})$/);
   if (!m) return null;
   const day = Number(m[1]);
   const month = Number(m[2]);
-  if (!Number.isInteger(day) || !Number.isInteger(month) || day < 1 || day > 31 || month < 1 || month > 12) return null;
-
-  const now = new Date();
-  const yearNow = now.getFullYear();
-  // If the picked date already passed this year (or is invalid for current year), treat it as next year's date.
-  const tryDate = (year: number) => new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  let d = tryDate(yearNow);
-  if (Number.isNaN(d.getTime()) || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
-  const nowUtc = new Date(Date.UTC(yearNow, now.getMonth(), now.getDate(), 12, 0, 0));
-  if (d.getTime() < nowUtc.getTime() - 2 * 24 * 60 * 60 * 1000) {
-    const d2 = tryDate(yearNow + 1);
-    if (!Number.isNaN(d2.getTime()) && d2.getUTCMonth() === month - 1 && d2.getUTCDate() === day) d = d2;
-  }
-
-  try {
-    return new Intl.DateTimeFormat("he-IL", { weekday: "long", timeZone: "Asia/Jerusalem" }).format(d);
-  } catch {
+  if (!Number.isInteger(day) || !Number.isInteger(month) || day < 1 || day > 31 || month < 1 || month > 12) {
     return null;
   }
+
+  // Next matching Israel calendar day (handles year rollover without UTC-server skew).
+  for (let i = 0; i < 400; i++) {
+    const cal = israelCalendarDatePlusDays(now, i);
+    if (cal.month === month && cal.day === day) {
+      const name = formatDayNameForScheduleDatePlaceholder(cal.letter);
+      return name ? `יום ${name}` : null;
+    }
+  }
+  return null;
 }
 
 function buildScheduleDateQuestion(knowledge: BusinessKnowledgePack, service: SfServiceRow | null): string {
@@ -11714,11 +11711,15 @@ async function processIncoming(
             return;
           }
         } else {
+          const dateForContact = formatFreeTextScheduleDateForContact(
+            parsedDate,
+            heDayOfWeekForDm(parsedDate)
+          );
           const { error } = await supabase
             .from("contacts")
             .update(
               withWarmupExtraAwaitingOff({
-                sf_requested_date: parsedDate,
+                sf_requested_date: dateForContact,
                 session_phase: "schedule_time",
                 flow_step: 0,
               })
@@ -11726,7 +11727,7 @@ async function processIncoming(
             .eq("business_id", businessId)
             .in("phone", contactPhoneLookupVariants(msg.from));
           if (error) console.warn("[WA Webhook] sf_requested_date update failed:", error.message);
-          contactScheduleRequestedDate = parsedDate;
+          contactScheduleRequestedDate = dateForContact;
           contactSessionPhase = "schedule_time";
           await sendScheduleSelectionTimeQuestion({
             selectedService,

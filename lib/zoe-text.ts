@@ -93,7 +93,9 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(/אם\s+תהיי\s+רוצה/gu, "אם תרצי")
     .replace(/(?<![\u0590-\u05FF])תהיי\s+רוצה(?![\u0590-\u05FF])/gu, "תרצי")
     .replace(/בואי\s+נתחילי/gu, "בואו נתחיל")
-    .replace(hebWord("נתחילי"), "נתחיל");
+    .replace(hebWord("נתחילי"), "נתחיל")
+    // תבנית «ביום {requested_date}» עם תאריך מספרי (5.10) → «בתאריך 5.10»
+    .replace(/ביום\s+(\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?)/gu, "בתאריך $1");
 }
 
 const LEAD_FRIENDLY_PLACEHOLDERS = ["(שם האימון)", "(שם המוצר)"];
