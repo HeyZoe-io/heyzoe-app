@@ -99,6 +99,14 @@ for (const opts of [NO_OWN_TRIGGERS, WITH_OWN_TRIGGERS]) {
   }
 }
 assert.equal(isWholeMessageOpeningTrigger("אשמח לפרטים על המחיר", NO_OWN_TRIGGERS), false);
+assert.equal(
+  isWholeMessageOpeningTrigger("שלום אפשר לקבל מידע נוסף על זה", NO_OWN_TRIGGERS),
+  true
+);
+assert.equal(
+  isWholeMessageOpeningTrigger("שלום אפשר לקבל מידע נוסף על זה", WITH_OWN_TRIGGERS),
+  false
+);
 assert.equal(reasonFor("אשמח לפרטים על המחיר"), null);
 assert.equal(
   resolveSendBeforeClaudeReason({

@@ -52,6 +52,20 @@ assert.equal(
   false
 );
 assert.equal(isSalesFlowStartTrigger("Hello! Can I get more info on this?"), false);
+assert.equal(
+  isSalesFlowStartTrigger("שלום אפשר לקבל מידע נוסף על זה", { slug: "sportykef-1589" }),
+  true
+);
+assert.equal(
+  isSalesFlowStartTrigger("שלום, אפשר לקבל מידע נוסף על זה?", { slug: "Sportykef-1589" }),
+  true
+);
+assert.equal(isSalesFlowStartTrigger("שלום", { slug: "sportykef-1589" }), false);
+assert.equal(
+  isSalesFlowStartTrigger("שלום אפשר לקבל מידע נוסף על זה", { slug: "omers-place" }),
+  false
+);
+assert.equal(isSalesFlowStartTrigger("שלום אפשר לקבל מידע נוסף על זה"), false);
 assert.equal(isSalesFlowStartTrigger("אשמח לפרטים"), true);
 assert.equal(isSalesFlowStartTrigger("הצטרפות למנוי"), true);
 assert.equal(isSalesFlowStartTrigger("אשמח לשמוע"), true);
@@ -339,6 +353,24 @@ assert.equal(
     opts: { slug: "omers-place" },
   }),
   true
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "שלום אפשר לקבל מידע נוסף על זה",
+    arboxIsMember: false,
+    salesFlowInProgress: false,
+    opts: { slug: "sportykef-1589" },
+  }),
+  true
+);
+assert.equal(
+  salesFlowOpeningMayStart({
+    text: "שלום אפשר לקבל מידע נוסף על זה",
+    arboxIsMember: true,
+    salesFlowInProgress: false,
+    opts: { slug: "sportykef-1589" },
+  }),
+  false
 );
 
 console.log("sales-flow-start-triggers.test.ts: ok");

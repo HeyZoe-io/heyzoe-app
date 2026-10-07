@@ -146,6 +146,21 @@ export function isOmersPlaceHebrewIcebreaker(text: string, slug?: string | null)
   });
 }
 
+/**
+ * SportyKef: משפט הפתיחה שמגיע מהקמפיין, בנוסף לטריגרים המשותפים.
+ * אחרי נרמול (בלי סימני פיסוק): שלום אפשר לקבל מידע נוסף על זה
+ */
+const SPORTYKEF_EXTRA_START_TRIGGERS = new Set(["שלום אפשר לקבל מידע נוסף על זה"]);
+
+function matchesSportykefExtraStartTrigger(
+  normalized: string,
+  opts?: SalesFlowStartTriggerOpts
+): boolean {
+  const slug = String(opts?.slug ?? "").trim().toLowerCase();
+  if (slug !== "sportykef-1589") return false;
+  return SPORTYKEF_EXTRA_START_TRIGGERS.has(normalized);
+}
+
 /** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
 export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
   return String(slug ?? "").trim().toLowerCase() === "pipman-team";
@@ -197,6 +212,7 @@ export function isSalesFlowStartTrigger(text: string, opts?: SalesFlowStartTrigg
   const normalized = normalizeSalesFlowGreetingToken(text);
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   if (matchesOmersPlaceExtraStartTrigger(normalized, opts)) return true;
+  if (matchesSportykefExtraStartTrigger(normalized, opts)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   if (withoutGreeting !== normalized && SALES_FLOW_START_TRIGGERS.has(withoutGreeting)) return true;
@@ -213,6 +229,7 @@ export function isWholeMessageSalesFlowStart(text: string, opts?: SalesFlowStart
   if (!normalized || normalized.length > 80) return false;
   if (SALES_FLOW_START_TRIGGERS.has(normalized)) return true;
   if (matchesOmersPlaceExtraStartTrigger(normalized, opts)) return true;
+  if (matchesSportykefExtraStartTrigger(normalized, opts)) return true;
   if (businessStartsSalesFlowOnHi(opts) && normalized === "היי") return true;
   const withoutGreeting = stripLeadingCasualGreeting(normalized);
   if (
