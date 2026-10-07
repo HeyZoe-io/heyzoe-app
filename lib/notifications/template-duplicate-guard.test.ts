@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  automatedTemplateSendStillCounts,
   messageMatchesAutomatedTemplate,
   templateStaticChunks,
 } from "./template-duplicate-guard";
@@ -38,6 +39,31 @@ assert.equal(
     params: ["Michal"],
   }),
   false
+);
+
+assert.equal(
+  automatedTemplateSendStillCounts({
+    errorCode: "131026",
+    createdAt: "2026-10-07T15:20:18.702Z",
+    revokeAts: [],
+  }),
+  false
+);
+assert.equal(
+  automatedTemplateSendStillCounts({
+    errorCode: null,
+    createdAt: "2026-10-07T15:20:18.702Z",
+    revokeAts: ["2026-10-07T15:33:19.359Z"],
+  }),
+  false
+);
+assert.equal(
+  automatedTemplateSendStillCounts({
+    errorCode: null,
+    createdAt: "2026-10-07T15:40:00.000Z",
+    revokeAts: ["2026-10-07T15:33:19.359Z"],
+  }),
+  true
 );
 
 console.log("template-duplicate-guard.test.ts ok");
