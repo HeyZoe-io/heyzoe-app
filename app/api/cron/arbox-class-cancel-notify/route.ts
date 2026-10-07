@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { maybeSendAdminDailyUnsentSummary } from "@/lib/admin-daily-unsent-summary";
+import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { syncArboxClassCancelledCustomerForBusiness } from "@/lib/leads/arbox-class-cancelled-customer";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -91,15 +92,19 @@ export async function GET(req: NextRequest) {
     if (!Number.isFinite(businessId) || businessId <= 0 || !slug || !apiKey || !boxId) continue;
 
     try {
-      const result = await syncArboxClassCancelledCustomerForBusiness({
-        admin,
-        businessId,
-        businessSlug: slug,
-        apiKey,
-        boxId,
-        now,
-        dryRun,
-      });
+      const result = await runWithArboxCallCount(
+        { cron: "arbox-class-cancel-notify", slug, emitIfEmpty: true },
+        () =>
+          syncArboxClassCancelledCustomerForBusiness({
+            admin,
+            businessId,
+            businessSlug: slug,
+            apiKey,
+            boxId,
+            now,
+            dryRun,
+          })
+      );
       businesses.push({
         business_id: businessId,
         slug,

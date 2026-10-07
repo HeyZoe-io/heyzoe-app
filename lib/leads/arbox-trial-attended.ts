@@ -283,7 +283,6 @@ export async function fetchArboxBookingsReport(input: {
     if (!res.ok) {
       console.error("[leads/arbox-trial-attended] bookingsReport fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return { ok: false, error: "arbox_bookings_report_fetch_failed", pagesFetched };

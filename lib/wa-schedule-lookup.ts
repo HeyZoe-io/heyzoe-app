@@ -354,8 +354,8 @@ export async function lookupArboxScheduleByPhone(input: {
         locationId,
         phone: lookupPhone,
       });
-    } catch (e) {
-      console.error("[schedule-lookup] searchUser failed", e instanceof Error ? e.message : String(e));
+    } catch {
+      console.error("[schedule-lookup] searchUser failed", { status: "network" });
       foundUserId = null;
     }
   }

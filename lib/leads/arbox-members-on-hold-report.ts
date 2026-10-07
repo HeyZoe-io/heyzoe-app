@@ -69,7 +69,6 @@ export async function fetchArboxMembersOnHoldReport(input: {
     if (!res.ok) {
       console.error("[leads/arbox-freeze] membersOnHoldReport fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
       });
       return {
         ok: false,

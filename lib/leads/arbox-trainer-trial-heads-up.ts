@@ -702,7 +702,6 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
         class_date: classDateYmd,
         class_time: classTime,
         class_name: className,
-        client: clientFullName,
         phone: maskPhoneForLog(trainerPhone),
         dispatch: send.dispatch,
       });

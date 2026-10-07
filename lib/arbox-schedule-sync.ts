@@ -312,7 +312,7 @@ export async function fetchPaginatedArboxList(input: {
     const path = buildArboxListPagePath(input.firstPath, page, limit);
     const res = await fetchPage(path, { apiKey: input.apiKey, method: "GET" });
     if (!res.ok) {
-      return { ok: false, status: res.status, body: res.rawText.slice(0, 400) };
+      return { ok: false, status: res.status, body: "http_error" };
     }
     const pageRows = extractRows(res.json);
     const added = appendNewRows(rows, seen, pageRows, idField);
@@ -527,7 +527,6 @@ export async function pullArboxWeeklyTimetable(input: {
   if (!cats.ok) {
     console.error("[arbox-schedule-sync] boxCategories fetch failed", {
       status: cats.status,
-      body: cats.body,
     });
     return { ok: false, error: "box_categories_fetch_failed", status: cats.status };
   }

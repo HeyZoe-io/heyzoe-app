@@ -1096,7 +1096,6 @@ export async function syncArboxLostLeadForBusiness(input: {
           console.info("[leads/arbox-lost-lead] dispatch", {
             ...logBase,
             phone: maskPhoneForLog(phone),
-            full_name: resolveReportFullName(row),
             dispatch: "skipped",
             reason: "retention_daily_cap",
           });
@@ -1167,7 +1166,6 @@ export async function syncArboxLostLeadForBusiness(input: {
           ...logBase,
           contact: resolved.contact?.id ?? null,
           phone: maskPhoneForLog(phone),
-          full_name: resolveReportFullName(row),
           dispatch: send.dispatch,
         });
 

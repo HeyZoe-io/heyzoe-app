@@ -7,6 +7,7 @@ import {
   runArboxDailyTriggersForBusiness,
 } from "@/lib/leads/arbox-daily-triggers-run";
 import { parseTrialReminderSlot } from "@/lib/leads/arbox-trial-reminder";
+import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
@@ -44,21 +45,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "unknown_arbox_business" }, { status: 400 });
     }
 
-    const result = await runArboxDailyContext(
-      {
-        businessId,
-        dryRun,
-        timeoutMs: ARBOX_REQUEST_TIMEOUT_MS,
-        arboxCalls: 0,
-        arboxReports: [],
-        membershipTypesByKey: new Map(),
-      },
+    const result = await runWithArboxCallCount(
+      { cron: "arbox-daily-triggers", slug: business.slug, emitIfEmpty: true },
       () =>
-        runArboxDailyTriggersForBusiness({
-          admin: dryRun ? dryRunSupabase(admin) : admin,
-          business,
-          slot,
-        })
+        runArboxDailyContext(
+          {
+            businessId,
+            dryRun,
+            timeoutMs: ARBOX_REQUEST_TIMEOUT_MS,
+            arboxCalls: 0,
+            arboxReports: [],
+            membershipTypesByKey: new Map(),
+          },
+          () =>
+            runArboxDailyTriggersForBusiness({
+              admin: dryRun ? dryRunSupabase(admin) : admin,
+              business,
+              slot,
+            })
+        )
     );
 
     return NextResponse.json({ ok: true, dry_run: dryRun, ...result });

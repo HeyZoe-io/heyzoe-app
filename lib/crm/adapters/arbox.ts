@@ -2,6 +2,7 @@ import { extractArboxProfileIdFromLink } from "@/lib/arbox-profile-url";
 import type { CrmEventKind } from "@/lib/crm/types";
 import { formatLeadPhoneDisplay } from "@/lib/notifications/owner-email-context";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
+import { logArboxPublicFailure, noteArboxCall } from "@/lib/crm/arbox-call-counter-bridge";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -213,6 +214,8 @@ export async function arboxPublicFetch(
   const url = pathOrUrl.startsWith("http")
     ? pathOrUrl
     : `${ARBOX_API_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
+  const started = Date.now();
+  noteArboxCall(pathOrUrl);
   const ctx = arboxDailyContext();
   if (ctx) {
     ctx.arboxCalls += 1;
@@ -235,12 +238,13 @@ export async function arboxPublicFetch(
   } catch (e) {
     const name = e instanceof Error ? e.name : "";
     const aborted = name === "AbortError" || name === "TimeoutError";
-    if (!aborted) throw e;
-    console.error("[cron/arbox-daily-triggers/business] report timeout", {
-      business_id: ctx?.businessId ?? null,
-      report: arboxReportName(pathOrUrl),
-      timeout_ms: timeoutMs ?? null,
+    logArboxPublicFailure({
+      pathOrUrl,
+      status: 0,
+      json: { message: aborted ? "timeout" : "network" },
+      durationMs: Date.now() - started,
     });
+    if (!aborted) throw e;
     return { ok: false, status: 0, json: null, rawText: "timeout" };
   }
   const rawText = await res.text();
@@ -249,6 +253,14 @@ export async function arboxPublicFetch(
     json = rawText ? JSON.parse(rawText) : null;
   } catch {
     json = null;
+  }
+  if (!res.ok) {
+    logArboxPublicFailure({
+      pathOrUrl,
+      status: res.status,
+      json,
+      durationMs: Date.now() - started,
+    });
   }
   return { ok: res.ok, status: res.status, json, rawText };
 }
@@ -304,7 +316,6 @@ async function fetchArboxLocations(apiKey: string): Promise<ArboxLocation[]> {
   if (!res.ok) {
     console.error("[crm/arbox] locations fetch failed", {
       status: res.status,
-      body: res.rawText.slice(0, 500),
     });
     return [];
   }
@@ -385,7 +396,6 @@ export async function lookupArboxUserByPhone(input: {
         status: res.status,
         phone: maskPhoneForLog(phoneDisplay),
         locationId: locationId ?? null,
-        body: res.rawText.slice(0, 500),
       });
       return empty;
     }
@@ -453,7 +463,6 @@ async function createArboxLead(input: {
     console.error("[crm/arbox] create lead failed", {
       status: res.status,
       phone: maskPhoneForLog(phoneDisplay),
-      body: res.rawText.slice(0, 500),
     });
     return { userId: null, leadId: null };
   }
@@ -463,7 +472,6 @@ async function createArboxLead(input: {
   if (!userId) {
     console.warn("[crm/arbox] create lead ok but no user_id in response", {
       phone: maskPhoneForLog(phoneDisplay),
-      body: res.rawText.slice(0, 500),
     });
   }
 
@@ -515,7 +523,6 @@ async function appendArboxNote(input: {
   console.warn("[crm/arbox] leads/createNote failed, trying users/createNote", {
     status: leadNoteRes.status,
     userId: input.userId,
-    body: leadNoteRes.rawText.slice(0, 500),
   });
 
   const userNoteRes = await arboxPublicFetch("/v3/users/createNote", {
@@ -528,7 +535,6 @@ async function appendArboxNote(input: {
   console.error("[crm/arbox] create note failed", {
     status: userNoteRes.status,
     userId: input.userId,
-    body: userNoteRes.rawText.slice(0, 500),
   });
   return false;
 }
@@ -566,7 +572,6 @@ async function createArboxTask(input: {
     status: res.status,
     userId: input.userId,
     taskTypeId: input.taskTypeId,
-    body: res.rawText.slice(0, 500),
   });
   return false;
 }

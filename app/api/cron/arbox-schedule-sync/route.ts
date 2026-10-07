@@ -5,6 +5,7 @@ import {
   persistCronArboxScheduleSync,
   pullArboxWeeklyTimetable,
 } from "@/lib/arbox-schedule-sync";
+import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -64,46 +65,48 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    const pulledTt = await pullArboxWeeklyTimetable({
-      apiKey,
-      locationId: locationId || undefined,
-    });
-    if (!pulledTt.ok) {
-      failed += 1;
-      console.error("[cron/arbox-schedule-sync] pull failed", {
-        slug,
-        error: pulledTt.error,
-        status: pulledTt.status ?? null,
+    await runWithArboxCallCount({ cron: "arbox-schedule-sync", slug, emitIfEmpty: true }, async () => {
+      const pulledTt = await pullArboxWeeklyTimetable({
+        apiKey,
+        locationId: locationId || undefined,
       });
-      summaries.push({ slug, ok: false, error: pulledTt.error });
-      continue;
-    }
+      if (!pulledTt.ok) {
+        failed += 1;
+        console.error("[cron/arbox-schedule-sync] pull failed", {
+          slug,
+          error: pulledTt.error,
+          status: pulledTt.status ?? null,
+        });
+        summaries.push({ slug, ok: false, error: pulledTt.error });
+        return;
+      }
 
-    try {
-      const result = await persistCronArboxScheduleSync({
-        admin,
-        businessId: id,
-        classes: pulledTt.classes,
-        catalog: pulledTt.catalog,
-        nowIso,
-      });
-      await markArboxScheduleSyncedAt(admin, id, nowIso);
-      pulled += 1;
-      updated += result.updated;
-      cleared += result.cleared;
-      notified += result.notified;
-      summaries.push({
-        slug,
-        ok: true,
-        classes: pulledTt.classes.length,
-        ...result,
-      });
-    } catch (e) {
-      failed += 1;
-      const message = e instanceof Error ? e.message : String(e);
-      console.error("[cron/arbox-schedule-sync] persist failed", { slug, error: message });
-      summaries.push({ slug, ok: false, error: "persist_failed" });
-    }
+      try {
+        const result = await persistCronArboxScheduleSync({
+          admin,
+          businessId: id,
+          classes: pulledTt.classes,
+          catalog: pulledTt.catalog,
+          nowIso,
+        });
+        await markArboxScheduleSyncedAt(admin, id, nowIso);
+        pulled += 1;
+        updated += result.updated;
+        cleared += result.cleared;
+        notified += result.notified;
+        summaries.push({
+          slug,
+          ok: true,
+          classes: pulledTt.classes.length,
+          ...result,
+        });
+      } catch (e) {
+        failed += 1;
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("[cron/arbox-schedule-sync] persist failed", { slug, error: message });
+        summaries.push({ slug, ok: false, error: "persist_failed" });
+      }
+    });
   }
 
   return NextResponse.json({

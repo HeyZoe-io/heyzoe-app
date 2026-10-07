@@ -56,7 +56,6 @@ export async function GET(req: NextRequest) {
     console.error("[api/dashboard/arbox-task-types] Arbox fetch failed", {
       slug,
       status: res.status,
-      body: res.rawText.slice(0, 500),
     });
     return NextResponse.json(
       {

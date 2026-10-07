@@ -66,22 +66,11 @@ export async function fetchOccurrenceRawData(
 }
 
 /**
- * Cache key is derived from these call arguments (Next's documented unstable_cache contract:
- * arguments + the static keyParts label form the key) — businessId and date are what vary per
- * lookup, so two different businesses or two different dates never share an entry. apiKey/boxId
- * are constant per business; if a key were ever rotated that would only split a cache entry
- * further, never merge two businesses' data. Verified empirically against a live dev server in
- * the prior investigation round (same-businessId call hit cache, different-businessId call did
- * not, and revalidate:60 was honored via stale-while-revalidate).
- */
-const getCachedOccurrenceRawData = unstable_cache(
-  (businessId: string, date: string, apiKey: string, boxId: string) =>
-    fetchOccurrenceRawData(businessId, date, apiKey, boxId),
-  ["arbox-occurrence-raw-v1"],
-  { revalidate: OCCURRENCE_CACHE_REVALIDATE_SECONDS }
-);
-
-/**
+ * Cache key is only businessId + date. The API key and box id are closed over, so they are
+ * not function arguments and not part of keyParts. businessId keeps businesses isolated.
+ * revalidate stays 60s. The key and box id are the values the caller already has — no extra
+ * database read.
+ *
  * unstable_cache depends on Next.js' request-scoped cache internals and is not usable from a
  * plain script/CLI context (e.g. a dry-run outside any Next.js server). Fall back to an uncached
  * fetch rather than let that break the caller — this is a runtime-availability fallback, not a
@@ -89,7 +78,12 @@ const getCachedOccurrenceRawData = unstable_cache(
  */
 async function getRawDataSafely(businessId: string, date: string, apiKey: string, boxId: string): Promise<ArboxOccurrenceRaw> {
   try {
-    return await getCachedOccurrenceRawData(businessId, date, apiKey, boxId);
+    const cached = unstable_cache(
+      () => fetchOccurrenceRawData(businessId, date, apiKey, boxId),
+      ["arbox-class-occurrence", businessId, date],
+      { revalidate: OCCURRENCE_CACHE_REVALIDATE_SECONDS }
+    );
+    return await cached();
   } catch (e) {
     console.warn("[arbox-occurrence-state] unstable_cache unavailable, fetching uncached", {
       businessId,

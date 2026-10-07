@@ -223,7 +223,6 @@ async function fetchExpiringMembershipRows(input: {
     if (!res.ok) {
       console.error("[leads/arbox-membership-expiring] report fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return { ok: false, error: "arbox_expiring_memberships_fetch_failed", pagesFetched };

@@ -115,7 +115,6 @@ async function fetchAllArboxMembershipTypesUncached(input: {
     if (!res.ok) {
       console.error(`[${input.logLabel}] membershipTypes fetch failed`, {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return {

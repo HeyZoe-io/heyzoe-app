@@ -240,7 +240,6 @@ export async function fetchArboxUserPhone(
     console.error("[leads/arbox-new-lead] user lookup failed", {
       user_id: userId,
       status: res.status,
-      body: res.rawText.slice(0, 300),
     });
     return { phone: null, fullName: null };
   }

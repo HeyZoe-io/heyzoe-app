@@ -1239,6 +1239,7 @@ function normalizeTraitsState(arr: string[]): string[] {
 import { AboutBusinessStepPanel } from "./steps/AboutBusinessStepPanel";
 import { FollowupStepPanel } from "./steps/FollowupStepPanel";
 import { LinksStepPanel } from "./steps/LinksStepPanel";
+import { isCrmApiKeyMaskOrEmpty } from "@/lib/crm/crm-api-key-mask";
 import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
 
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
@@ -1390,6 +1391,8 @@ export default function SlugSettingsPage({
   const [branchDirectionsKiryat, setBranchDirectionsKiryat] = useState("");
   const [crmType, setCrmType] = useState<CrmType>("");
   const [crmApiKey, setCrmApiKey] = useState("");
+  const [crmApiKeyConfigured, setCrmApiKeyConfigured] = useState(false);
+  const [crmApiKeyLast4, setCrmApiKeyLast4] = useState<string | null>(null);
   const [arboxScheduleScanBusy, setArboxScheduleScanBusy] = useState(false);
   const [arboxScheduleScanError, setArboxScheduleScanError] = useState("");
   const [focusProductUiId, setFocusProductUiId] = useState<string | null>(null);
@@ -1995,7 +1998,14 @@ export default function SlugSettingsPage({
           setBranchScheduleKiryat(branchUrls.kiryat_shmona);
         }
         setCrmType(normalizeCrmType((business as { crm_type?: unknown }).crm_type));
-        setCrmApiKey(String((business as { crm_api_key?: unknown }).crm_api_key ?? ""));
+        {
+          const configured = (business as { crmApiKeyConfigured?: unknown }).crmApiKeyConfigured === true;
+          const last4Raw = (business as { crmApiKeyLast4?: unknown }).crmApiKeyLast4;
+          const last4 = typeof last4Raw === "string" && last4Raw.trim() ? last4Raw.trim() : null;
+          setCrmApiKeyConfigured(configured);
+          setCrmApiKeyLast4(configured ? last4 : null);
+          setCrmApiKey("");
+        }
         setCrmBoxId(String((business as { crm_box_id?: unknown }).crm_box_id ?? ""));
         setCrmArboxSourceId(String((business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id ?? ""));
         setCrmArboxStatusId(String((business as { crm_arbox_status_id?: unknown }).crm_arbox_status_id ?? ""));
@@ -2125,7 +2135,7 @@ export default function SlugSettingsPage({
         warmup_session_enabled: warmupSessionEnabled,
         sales_flow_call_scheduling_enabled: salesFlowCallSchedulingEnabled,
         crm_type: crmType,
-        crm_api_key: crmApiKey.trim(),
+        ...(!isCrmApiKeyMaskOrEmpty(crmApiKey) ? { crm_api_key: crmApiKey.trim() } : {}),
         crm_box_id: crmBoxId.trim(),
         crm_arbox_source_id: crmArboxSourceId.trim(),
         crm_arbox_status_id: crmArboxStatusId.trim(),
@@ -3152,7 +3162,8 @@ export default function SlugSettingsPage({
   }
   function onDragEnd() { dragIdx.current = null; }
 
-  const arboxProgrammaticScan = crmType === "arbox" && Boolean(crmApiKey.trim());
+  const arboxProgrammaticScan =
+    crmType === "arbox" && (crmApiKeyConfigured || Boolean(crmApiKey.trim()));
   const pendingRemovedService = services.find(
     (s) =>
       s.schedule_removed_notice &&
@@ -3374,6 +3385,8 @@ export default function SlugSettingsPage({
               setCrmType={setCrmType}
               crmApiKey={crmApiKey}
               setCrmApiKey={setCrmApiKey}
+              crmApiKeyConfigured={crmApiKeyConfigured}
+              crmApiKeyLast4={crmApiKeyLast4}
               crmBoxId={crmBoxId}
               setCrmBoxId={setCrmBoxId}
               crmArboxSourceId={crmArboxSourceId}

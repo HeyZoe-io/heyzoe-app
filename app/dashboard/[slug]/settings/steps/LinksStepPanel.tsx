@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { crmApiKeyMaskLabel } from "@/lib/crm/crm-api-key-mask";
 import { CRM_TYPE_OPTIONS, type CrmType } from "@/lib/crm/types";
 import { dashboardDir, type DashboardLang } from "@/lib/dashboard-lang";
 import { dashboardSettingsT } from "@/lib/dashboard-settings-i18n";
@@ -53,6 +54,8 @@ export type LinksStepPanelProps = {
   setCrmType: (v: CrmType) => void;
   crmApiKey: string;
   setCrmApiKey: (v: string) => void;
+  crmApiKeyConfigured: boolean;
+  crmApiKeyLast4: string | null;
   crmBoxId: string;
   setCrmBoxId: (v: string) => void;
   crmArboxSourceId: string;
@@ -149,6 +152,8 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
     setCrmType,
     crmApiKey,
     setCrmApiKey,
+    crmApiKeyConfigured,
+    crmApiKeyLast4,
     crmBoxId,
     setCrmBoxId,
     crmArboxSourceId,
@@ -168,7 +173,9 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
   const dualBranch = isDualBranchBusiness(slug);
 
   const canLoadArboxMembershipTypes =
-    crmType === "arbox" && Boolean(crmApiKey.trim()) && Boolean(crmBoxId.trim());
+    crmType === "arbox" &&
+    (crmApiKeyConfigured || Boolean(crmApiKey.trim())) &&
+    Boolean(crmBoxId.trim());
 
   const [arboxMembershipTypes, setArboxMembershipTypes] = useState<ArboxMembershipTypeRow[]>([]);
   const [arboxMembershipTypesLoading, setArboxMembershipTypesLoading] = useState(false);
@@ -321,10 +328,10 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
           branchScheduleAmiad.trim() ||
           branchScheduleKiryat.trim()
       ),
-      crm: Boolean(crmType && crmApiKey.trim()),
+      crm: Boolean(crmType && (crmApiKeyConfigured || crmApiKey.trim())),
       social: Boolean(instagramUrl.trim()),
     }),
-    [websiteUrl, arboxLink, branchScheduleAmiad, branchScheduleKiryat, membershipsUrl, crmType, crmApiKey, crmBoxId, instagramUrl]
+    [websiteUrl, arboxLink, branchScheduleAmiad, branchScheduleKiryat, membershipsUrl, crmType, crmApiKey, crmApiKeyConfigured, crmBoxId, instagramUrl]
   );
 
   return (
@@ -570,9 +577,16 @@ export function LinksStepPanel(props: LinksStepPanelProps) {
                 autoComplete="off"
                 value={crmApiKey}
                 onChange={(e) => setCrmApiKey(e.target.value)}
-                placeholder={t.links.apiKeyPlaceholder}
+                placeholder={
+                  crmApiKeyConfigured
+                    ? crmApiKeyMaskLabel(crmApiKeyLast4) ?? t.links.apiKeyPlaceholder
+                    : t.links.apiKeyPlaceholder
+                }
                 className={cnInputLtr()}
               />
+              {crmApiKeyConfigured ? (
+                <p className="mt-1 text-[11px] leading-snug text-zinc-500">{t.links.apiKeySavedHint}</p>
+              ) : null}
             </div>
             {crmType === "arbox" ? (
               <div className="space-y-4">

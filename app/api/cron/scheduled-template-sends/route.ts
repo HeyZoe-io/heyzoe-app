@@ -17,6 +17,7 @@ import {
   NO_TEMPLATE_SKIPPED_ERROR,
   type ScheduledTemplateSendRow,
 } from "@/lib/scheduled-template-sends";
+import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
@@ -199,6 +200,8 @@ async function dispatchOneScheduledSend(
       .eq("id", row.trigger_id)
       .maybeSingle(),
   ]);
+
+  setArboxCallCounterSlug(String((bizRow as { slug?: unknown } | null)?.slug ?? ""));
 
   const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
     .trim()
@@ -546,7 +549,13 @@ export async function GET(req: NextRequest) {
     console.warn("[cron/scheduled-template-sends] unauthorized");
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  return runWithArboxCallCount(
+    { cron: "scheduled-template-sends", slug: "pending", emitIfEmpty: false },
+    () => drainScheduledTemplateSends()
+  );
+}
 
+async function drainScheduledTemplateSends() {
   const now = new Date();
   const ranAt = now.toISOString();
   activeProductCache.clear();

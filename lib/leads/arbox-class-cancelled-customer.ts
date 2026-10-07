@@ -16,7 +16,7 @@
  * active classes in the horizon, and the same retention delete. No Claude.
  * Businesses without an enabled rule: 0 Arbox calls.
  */
-import { ARBOX_API_BASE } from "@/lib/crm/adapters/arbox";
+import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { eventBeforeRuleActivation, ruleActivationMs } from "@/lib/rule-activation";
 import {
   decideScheduledDrainDispatch,
@@ -409,30 +409,10 @@ async function arboxGet(
   path: string,
   apiKey: string
 ): Promise<{ ok: boolean; status: number; json: unknown; rawText: string }> {
-  const url = path.startsWith("http")
-    ? path
-    : `${ARBOX_API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "api-key": apiKey,
-      },
-    });
-    const rawText = await res.text();
-    let json: unknown = null;
-    try {
-      json = rawText ? JSON.parse(rawText) : null;
-    } catch {
-      json = null;
-    }
-    return { ok: res.ok, status: res.status, json, rawText };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, status: 0, json: null, rawText: msg };
+    return await arboxPublicFetch(path, { apiKey, method: "GET", timeoutMs: PAGE_TIMEOUT_MS });
+  } catch {
+    return { ok: false, status: 0, json: null, rawText: "network" };
   }
 }
 

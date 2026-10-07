@@ -39,7 +39,6 @@ export async function fetchArboxPagedReportRows(input: {
     if (!res.ok) {
       console.error(`[${input.logLabel}] fetch failed`, {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return {

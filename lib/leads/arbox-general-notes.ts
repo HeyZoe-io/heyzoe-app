@@ -132,7 +132,6 @@ export async function fetchArboxGeneralNotesText(input: {
     console.error("[leads/arbox-general-notes] notes lookup failed", {
       user_id: userId,
       status: res.status,
-      body: res.rawText.slice(0, 300),
     });
     return TEMPLATE_GENERAL_NOTES_FALLBACK;
   }

@@ -22,6 +22,7 @@ import {
   normalizeProductIdList,
   sameProductIdList,
 } from "@/lib/filter-scope-change";
+import { crmApiKeyLast4, resolveStoredCrmApiKey } from "@/lib/crm/crm-api-key-mask";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -104,11 +105,15 @@ export async function GET(req: NextRequest) {
       .eq("business_id", business.id),
   ]);
 
-  const socialRaw = business.social_links;
+  const storedCrmApiKey = String((business as { crm_api_key?: unknown }).crm_api_key ?? "");
+  const businessWithoutKey = { ...business };
+  delete businessWithoutKey.crm_api_key;
+  const socialRaw = businessWithoutKey.social_links;
   const social =
     socialRaw && typeof socialRaw === "object" && !Array.isArray(socialRaw)
-      ? (socialRaw as Record<string, unknown>)
+      ? { ...(socialRaw as Record<string, unknown>) }
       : {};
+  if ("arbox_api_key" in social) delete social.arbox_api_key;
 
   const cancellationEffectiveAt =
     typeof (business as { cancellation_effective_at?: unknown }).cancellation_effective_at === "string"
@@ -125,7 +130,8 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     business: {
-      ...business,
+      ...businessWithoutKey,
+      social_links: socialRaw && typeof socialRaw === "object" ? social : socialRaw,
       cancellation_effective_at_preview: cancellationEffectiveAtPreview,
       plan: typeof (business as any).plan === "string" ? (business as any).plan : "basic",
       website_url: typeof social.website_url === "string" ? social.website_url : "",
@@ -158,7 +164,8 @@ export async function GET(req: NextRequest) {
         (business as { sales_flow_call_scheduling_enabled?: unknown }).sales_flow_call_scheduling_enabled ===
         true,
       crm_type: typeof (business as { crm_type?: unknown }).crm_type === "string" ? (business as { crm_type: string }).crm_type : "",
-      crm_api_key: typeof (business as { crm_api_key?: unknown }).crm_api_key === "string" ? (business as { crm_api_key: string }).crm_api_key : "",
+      crmApiKeyConfigured: Boolean(storedCrmApiKey.trim()),
+      crmApiKeyLast4: crmApiKeyLast4(storedCrmApiKey),
       crm_box_id: String((business as { crm_box_id?: unknown }).crm_box_id ?? "").trim(),
       crm_arbox_source_id: String(
         (business as { crm_arbox_source_id?: unknown }).crm_arbox_source_id ?? ""
@@ -281,12 +288,10 @@ export async function POST(req: NextRequest) {
       if (prev === "plan do" || prev === "plando") return "plan_do";
       return prev;
     })(),
-    crm_api_key: (() => {
-      const key = String(business.crm_api_key ?? "").trim();
-      if (key) return key;
-      const prev = String((existingForUser as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
-      return prev || null;
-    })(),
+    crm_api_key: resolveStoredCrmApiKey(
+      business.crm_api_key,
+      String((existingForUser as { crm_api_key?: unknown } | null)?.crm_api_key ?? "")
+    ),
     crm_box_id: (() => {
       const boxId = String(business.crm_box_id ?? "").trim();
       if (boxId) return boxId;

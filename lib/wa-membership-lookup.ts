@@ -191,7 +191,6 @@ export async function fetchArboxUserMemberships(input: {
     console.error("[membership-lookup] memberships fetch failed", {
       status: res.status,
       userId,
-      body: res.rawText.slice(0, 500),
     });
     return { ok: false, error: "memberships_fetch_failed", status: res.status };
   }
@@ -227,8 +226,8 @@ export async function lookupArboxMembershipByPhone(input: {
       locationId,
       phone: lookupPhone,
     });
-  } catch (e) {
-    console.error("[membership-lookup] searchUser failed", e instanceof Error ? e.message : String(e));
+  } catch {
+    console.error("[membership-lookup] searchUser failed", { status: "network" });
     return mapMembershipLookupReply("fetch_failed");
   }
 

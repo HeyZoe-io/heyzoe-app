@@ -59,7 +59,6 @@ export async function fetchCanceledMembershipsReportRows(input: {
     if (!res.ok) {
       console.error("[leads/arbox-membership-cancelled] canceledMembershipsReport fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return {

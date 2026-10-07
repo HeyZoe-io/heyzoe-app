@@ -5,6 +5,7 @@ import {
   loadArboxTrialSyncBusiness,
   runArboxTrialSyncForBusiness,
 } from "@/lib/leads/arbox-trial-sync-run";
+import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 /**
@@ -37,10 +38,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "unknown_arbox_business" }, { status: 400 });
     }
 
-    const result = await runArboxTrialSyncForBusiness({
-      admin: dryRun ? dryRunSupabase(admin) : admin,
-      business,
-    });
+    const result = await runWithArboxCallCount(
+      { cron: "arbox-trial-sync", slug: business.slug, emitIfEmpty: true },
+      () =>
+        runArboxTrialSyncForBusiness({
+          admin: dryRun ? dryRunSupabase(admin) : admin,
+          business,
+        })
+    );
 
     return NextResponse.json({
       ok: true,

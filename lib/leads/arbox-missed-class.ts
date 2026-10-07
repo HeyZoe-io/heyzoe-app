@@ -1256,7 +1256,6 @@ export async function syncArboxMissedClassForBusiness(input: {
         class_date: classDateYmd,
         class_time: classTime,
         class_name: className,
-        full_name: resolveReportFullName(row),
         contact: maskPhoneForLog(resolved.phone),
         templates: batch.length,
         dispatch: sendDispatch,

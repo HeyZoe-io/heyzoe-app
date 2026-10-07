@@ -272,7 +272,6 @@ async function fetchBirthdayReportRows(input: {
     if (!res.ok) {
       console.error("[leads/arbox-birthday] birthdayReport fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return { ok: false, error: "arbox_birthday_report_fetch_failed", pagesFetched };
@@ -817,8 +816,6 @@ export async function syncArboxBirthdaysForBusiness(input: {
         businessId,
         user_id: userId,
         audience: kind,
-        full_name: resolveReportFullName(row),
-        contact_name: sendContact.full_name ?? null,
         contact: sendPhone.slice(-4),
         dispatch: sendDispatch,
       });

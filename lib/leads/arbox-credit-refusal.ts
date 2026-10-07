@@ -216,7 +216,6 @@ async function fetchAllFailTransactionRows(input: {
     if (!res.ok) {
       console.error("[leads/arbox-credit-refusal] transactionsReport FAIL fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return { ok: false, error: "arbox_transactions_fail_fetch_failed", pagesFetched };
@@ -253,7 +252,6 @@ async function fetchArboxUserPhone(
     console.error("[leads/arbox-credit-refusal] user lookup failed", {
       user_id: userId,
       status: res.status,
-      body: res.rawText.slice(0, 300),
     });
     return { ok: false, phone: null, fullName: null };
   }

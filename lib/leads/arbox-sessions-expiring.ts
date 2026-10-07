@@ -201,7 +201,6 @@ async function fetchExpiringSessionRows(input: {
     if (!res.ok) {
       console.error("[leads/arbox-sessions-expiring] report fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return { ok: false, error: "arbox_expiring_sessions_fetch_failed", pagesFetched };

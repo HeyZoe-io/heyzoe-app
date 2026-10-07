@@ -77,7 +77,6 @@ export async function fetchAllSalesReportRows(input: {
     if (!res.ok) {
       console.error("[cron/arbox-trial-sync] Arbox salesReport fetch failed", {
         status: res.status,
-        body: res.rawText.slice(0, 500),
         page,
       });
       return {
