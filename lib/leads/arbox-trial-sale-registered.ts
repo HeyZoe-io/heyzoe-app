@@ -102,6 +102,7 @@ export type ArboxTrialSaleRegisteredResult =
         | "throttled_2d"
         | "template_not_configured"
         | "no_matching_rule"
+        | "collapsed_same_day"
         | "deferred"
         | "opted_out"
         | "skipped_zoe_confirm"
@@ -175,8 +176,101 @@ type OpeningTemplateResult =
   | { outcome: "skipped_trial_template"; dispatch: "no_rule" }
   | { outcome: "template_not_configured"; dispatch: OpeningTemplateDispatch }
   | { outcome: "no_matching_rule"; dispatch: "no_rule" }
+  | { outcome: "collapsed_same_day"; dispatch: "no_rule" }
   | { outcome: "deferred"; dispatch: "deferred" }
   | { outcome: "send_failed"; dispatch: OpeningTemplateDispatch };
+
+const PURCHASE_SAME_DAY_SENT_CHUNK = 100;
+
+/** `userId|YYYY-MM-DD|triggerId` — one purchase template per person per sale day per rule. */
+export function purchaseSameDaySentKey(input: {
+  userId: string;
+  saleDateYmd: string;
+  triggerId: string;
+}): string | null {
+  const userId = String(input.userId ?? "").trim();
+  const ymd = String(input.saleDateYmd ?? "").trim().slice(0, 10);
+  const triggerId = String(input.triggerId ?? "").trim();
+  if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !triggerId) return null;
+  if (triggerId === SALE_LOG_SENTINEL_TRIGGER_ID) return null;
+  return `${userId}|${ymd}|${triggerId}`;
+}
+
+export function saleDateYmdFromRaw(raw: unknown): string {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(raw ?? "").trim());
+  return match?.[1] ?? "";
+}
+
+export function purchaseTemplateCollapsedForSameDay(
+  keys: ReadonlySet<string> | undefined,
+  input: { userId: string; saleDateYmd: string; triggerId: string }
+): boolean {
+  const key = purchaseSameDaySentKey(input);
+  if (!key || !keys) return false;
+  return keys.has(key);
+}
+
+export function rememberPurchaseSameDaySend(
+  keys: Set<string> | undefined,
+  input: { userId: string; saleDateYmd: string; triggerId: string }
+): void {
+  const key = purchaseSameDaySentKey(input);
+  if (key && keys) keys.add(key);
+}
+
+/**
+ * Sales already logged for this trigger, grouped so a second line on the same
+ * user+day does not send again. One indexed read per 100 sibling sales, and
+ * only when the report actually has two sales for one person on one date.
+ * A lookup failure leaves the set empty (the old per-sale send).
+ */
+export async function loadPurchaseSameDaySentKeys(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  rows: ReadonlyArray<{ sale_id?: unknown; user_id?: unknown; date?: unknown }>;
+}): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const saleMeta = new Map<number, { userId: string; ymd: string }>();
+  const groupCount = new Map<string, number>();
+  for (const row of input.rows) {
+    const saleId = parseSaleId(row.sale_id);
+    const userId = String(row.user_id ?? "").trim();
+    const ymd = saleDateYmdFromRaw(row.date);
+    if (saleId == null || !userId || !ymd) continue;
+    saleMeta.set(saleId, { userId, ymd });
+    const group = `${userId}|${ymd}`;
+    groupCount.set(group, (groupCount.get(group) ?? 0) + 1);
+  }
+  const interesting = [...saleMeta.entries()]
+    .filter(([, meta]) => (groupCount.get(`${meta.userId}|${meta.ymd}`) ?? 0) > 1)
+    .map(([saleId]) => saleId);
+  if (!interesting.length) return keys;
+
+  for (let i = 0; i < interesting.length; i += PURCHASE_SAME_DAY_SENT_CHUNK) {
+    const chunk = interesting.slice(i, i + PURCHASE_SAME_DAY_SENT_CHUNK);
+    const { data, error } = await input.admin
+      .from("arbox_trial_sync_log")
+      .select("sale_id, trigger_id")
+      .eq("business_id", input.businessId)
+      .in("sale_id", chunk);
+    if (error) {
+      console.error("[leads/arbox-trial-sale-registered] same-day sent lookup failed:", error.message);
+      return keys;
+    }
+    for (const row of data ?? []) {
+      const saleId = parseSaleId((row as { sale_id?: unknown }).sale_id);
+      const meta = saleId == null ? undefined : saleMeta.get(saleId);
+      if (!meta) continue;
+      const key = purchaseSameDaySentKey({
+        userId: meta.userId,
+        saleDateYmd: meta.ymd,
+        triggerId: String((row as { trigger_id?: unknown }).trigger_id ?? ""),
+      });
+      if (key) keys.add(key);
+    }
+  }
+  return keys;
+}
 
 /**
  * Out-of-window path: resolve template_triggers purchase rule →
@@ -199,6 +293,9 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
   isTrialProduct?: boolean;
   /** Rules that already have a sync-log row for this sale. */
   skipTriggerIds?: ReadonlySet<string>;
+  arboxUserId?: string;
+  /** Shared across the cron batch. A hit means this rule already sent for this user today. */
+  purchaseSameDaySent?: Set<string>;
 }): Promise<OpeningTemplateResult> {
   if (input.isTrialProduct) {
     console.info("[leads/arbox-trial-sale-registered] trial purchase skips purchase template", {
@@ -222,8 +319,15 @@ async function sendOpeningTemplateAfterTrialSaleIfConfigured(input: {
 
   let result: OpeningTemplateResult = { outcome: "no_matching_rule", dispatch: "no_rule" };
   for (const matchedRule of matchedRules) {
-    result = await sendOnePurchaseTemplate({ ...input, matchedRule });
-    if (result.outcome === "send_failed") return result;
+    const one = await sendOnePurchaseTemplate({ ...input, matchedRule });
+    if (one.outcome === "send_failed") return one;
+    if (
+      one.outcome === "collapsed_same_day" &&
+      (result.outcome === "sent" || result.outcome === "deferred")
+    ) {
+      continue;
+    }
+    result = one;
   }
   return result;
 }
@@ -241,6 +345,8 @@ async function sendOnePurchaseTemplate(input: {
   fullName: string | null;
   sessionId: string | null;
   isTrialProduct?: boolean;
+  arboxUserId?: string;
+  purchaseSameDaySent?: Set<string>;
   matchedRule: PurchaseTemplateTriggerRule;
 }): Promise<OpeningTemplateResult> {
   const matchedRule = input.matchedRule;
@@ -257,6 +363,33 @@ async function sendOnePurchaseTemplate(input: {
       dispatch: "no_rule",
     });
     return { outcome: "no_matching_rule", dispatch: "no_rule" };
+  }
+
+  const sameDayIdentity = {
+    userId: String(input.arboxUserId ?? "").trim(),
+    saleDateYmd: saleDateYmdFromRaw(input.saleDate),
+    triggerId: matchedRule.id,
+  };
+  if (purchaseTemplateCollapsedForSameDay(input.purchaseSameDaySent, sameDayIdentity)) {
+    const seenMark = await markPurchaseSaleSeen({
+      admin: input.admin,
+      businessId: input.businessId,
+      saleId: input.saleId,
+      triggerId: matchedRule.id,
+      contactId: null,
+      nowIso: new Date().toISOString(),
+    });
+    if (!seenMark.ok) {
+      console.error("[leads/arbox-trial-sale-registered] same-day collapse seen failed:", seenMark.error);
+      return { outcome: "send_failed", dispatch: "immediate" };
+    }
+    console.info("[leads/arbox-trial-sale-registered] purchase template collapsed same day", {
+      businessId: input.businessId,
+      sale_id: input.saleId,
+      matched_rule_id: matchedRule.id,
+      template_name: templateName,
+    });
+    return { outcome: "collapsed_same_day", dispatch: "no_rule" };
   }
 
   if (matchedRule.delay_days > 0) {
@@ -296,16 +429,17 @@ async function sendOnePurchaseTemplate(input: {
     if (!enqueueResult.ok) {
       return { outcome: "send_failed", dispatch: "deferred" };
     }
-  await markPurchaseSaleSeen({
-    admin: input.admin,
-    businessId: input.businessId,
-    saleId: input.saleId,
-    triggerId: matchedRule.id,
-    contactId: null,
-    nowIso: new Date().toISOString(),
-  });
-  return { outcome: "deferred", dispatch };
-}
+    rememberPurchaseSameDaySend(input.purchaseSameDaySent, sameDayIdentity);
+    await markPurchaseSaleSeen({
+      admin: input.admin,
+      businessId: input.businessId,
+      saleId: input.saleId,
+      triggerId: matchedRule.id,
+      contactId: null,
+      nowIso: new Date().toISOString(),
+    });
+    return { outcome: "deferred", dispatch };
+  }
 
   const phoneNumberId = String(input.phoneNumberId ?? "").trim();
   if (!phoneNumberId) {
@@ -409,6 +543,7 @@ async function sendOnePurchaseTemplate(input: {
     });
   }
 
+  rememberPurchaseSameDaySend(input.purchaseSameDaySent, sameDayIdentity);
   await markPurchaseSaleSeen({
     admin: input.admin,
     businessId: input.businessId,
@@ -432,6 +567,7 @@ function isWithinTwoDayNotifyThrottle(lastNotifiedAtIso: string | null | undefin
  * טריגר רכישה נשלח על כל מכירה חדשה שתואמת את הכלל, גם אם האיש כבר רשום,
  * וגם אם הודעת ההרשמה של זואי כבר יצאה (שיעור נקבע לפני התשלום).
  * אותה מכירה לא נשלחת פעמיים (arbox_trial_sync_log לפי sale_id).
+ * שתי מכירות של אותו משתמש באותו תאריך מכירה, שמתאימות לאותו כלל, שולחות את הטמפלייט פעם אחת.
  * Arbox הוא מקור האמת — לא שולח חזרה ל-CRM.
  * מכירה עם חוב פתוח לא נחשבת רישום (לינק תשלום / חשבונית) — לא מסמנים seen, כדי שתשלום מאוחר יישלח.
  */
@@ -442,6 +578,8 @@ export async function handleArboxTrialSaleRegistered(input: {
   row: ArboxSalesReportRow;
   trialMembershipTypeIds?: readonly number[];
   purchaseMatch?: PurchaseMatchContext;
+  /** Shared for this cron batch. Second sale of the same user on the same date does not send again. */
+  purchaseSameDaySent?: Set<string>;
 }): Promise<ArboxTrialSaleRegisteredResult> {
   const businessId = Number(input.businessId);
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
@@ -603,8 +741,14 @@ export async function handleArboxTrialSaleRegistered(input: {
       match: input.purchaseMatch,
       isTrialProduct: false,
       skipTriggerIds: seenTriggerIds,
+      arboxUserId,
+      purchaseSameDaySent: input.purchaseSameDaySent,
     });
-    if (templateResult.outcome === "no_matching_rule" || templateResult.outcome === "skipped_trial_template") {
+    if (
+      templateResult.outcome === "no_matching_rule" ||
+      templateResult.outcome === "skipped_trial_template" ||
+      templateResult.outcome === "collapsed_same_day"
+    ) {
       return { ok: true, already: true };
     }
     return {
@@ -661,8 +805,10 @@ export async function handleArboxTrialSaleRegistered(input: {
       match: input.purchaseMatch,
       isTrialProduct: false,
       skipTriggerIds: seenTriggerIds,
+      arboxUserId,
+      purchaseSameDaySent: input.purchaseSameDaySent,
     });
-    if (templateResult.outcome === "no_matching_rule") {
+    if (templateResult.outcome === "no_matching_rule" || templateResult.outcome === "collapsed_same_day") {
       return { ok: true, already: true };
     }
     console.info("[leads/arbox-trial-sale-registered] repeat purchase template", {
@@ -802,6 +948,7 @@ export async function handleArboxTrialSaleRegistered(input: {
     | "send_failed"
     | "template_not_configured"
     | "no_matching_rule"
+    | "collapsed_same_day"
     | "deferred"
     | "opted_out"
     | "skipped_zoe_confirm"
@@ -929,6 +1076,8 @@ export async function handleArboxTrialSaleRegistered(input: {
       sessionId,
       match: input.purchaseMatch,
       isTrialProduct: false,
+      arboxUserId,
+      purchaseSameDaySent: input.purchaseSameDaySent,
     });
     whatsapp = templateResult.outcome;
     if (templateResult.outcome === "send_failed" && templateResult.dispatch === "gated") {

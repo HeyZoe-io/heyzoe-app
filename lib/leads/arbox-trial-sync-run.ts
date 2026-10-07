@@ -7,6 +7,7 @@ import {
 import {
   arboxSaleHasOutstandingDebt,
   handleArboxTrialSaleRegistered,
+  loadPurchaseSameDaySentKeys,
   type ArboxSalesReportRow,
 } from "@/lib/leads/arbox-trial-sale-registered";
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
@@ -586,6 +587,11 @@ export async function runArboxTrialSyncForBusiness(input: {
           summary.fetch_error = "sales_sync_seeded_flag_failed";
         }
       } else {
+        const purchaseSameDaySent = await loadPurchaseSameDaySentKeys({
+          admin,
+          businessId: business.id,
+          rows: relevantRows,
+        });
         for (const rawRow of relevantRows) {
           try {
             const result = await handleArboxTrialSaleRegistered({
@@ -595,6 +601,7 @@ export async function runArboxTrialSyncForBusiness(input: {
               row: rawRow as ArboxSalesReportRow,
               trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
               purchaseMatch,
+              purchaseSameDaySent,
             });
 
             if (!result.ok) {
