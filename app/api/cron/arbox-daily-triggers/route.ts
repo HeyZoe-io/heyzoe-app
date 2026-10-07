@@ -16,7 +16,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * ?dry_run=1 awaits the workers in this request and does not send or write.
  * ?slot=evening is the 20:30 Asia/Jerusalem job (cron-job.org). The slot is the
  * query param, not the clock hour. It runs trial reminders, trainer heads-up,
- * and nth_workout rules whose direction is before. It must finish before the 21:00 night hold.
+ * nth_workout rules whose direction is before, post-trial C5/C6 catch-up, and
+ * lead_status_changed. It must finish before the 21:00 night hold.
  * No param (or slot=morning) is the existing 09:00 job. Scheduling: cron-job.org.
  */
 export const runtime = "nodejs";
