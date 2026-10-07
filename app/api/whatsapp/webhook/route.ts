@@ -344,7 +344,9 @@ import {
   RENEWAL_HANDOFF_REPLY,
 } from "@/lib/wa-renewal-handoff";
 import {
+  ARRIVING_IN_MINUTES_ACK,
   buildRunningLateAck,
+  matchesArrivingInAFewMinutes,
   matchesRunningLateStatusUpdate,
 } from "@/lib/wa-running-late";
 import {
@@ -8927,6 +8929,33 @@ async function processIncoming(
       });
       return;
     }
+  }
+
+  // «כמה דק מגיע» — עדכון שהליד בדרך, לא שאלת זמן נסיעה
+  if (
+    msg.type === "text" &&
+    isSalesFlowFreeTextInbound(msg) &&
+    matchesArrivingInAFewMinutes(msg.text)
+  ) {
+    try {
+      await sendWhatsAppMessage(
+        msg.toNumber,
+        msg.from,
+        ARRIVING_IN_MINUTES_ACK,
+        accountSid,
+        authToken
+      );
+    } catch (e) {
+      console.error("[WA Webhook] Send arriving-in-minutes ack failed:", e);
+    }
+    await logMessage({
+      business_slug,
+      role: "assistant",
+      content: ARRIVING_IN_MINUTES_ACK,
+      model_used: "arriving_in_minutes_ack",
+      session_id: sessionId,
+    });
+    return;
   }
 
   // מאחרת / בדרך לשיעור — תבנית קבועה (אישור + אנחנו כאן + הד ETA), בלי Claude ובלי CTA
