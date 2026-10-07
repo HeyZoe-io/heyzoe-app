@@ -22,12 +22,15 @@ assert.equal(extractReplyRoute("שלום בלי תג").body, "שלום בלי ת
 assert.equal(extractReplyRoute("[[route:nope]]\nטקסט").tagStatus, "invalid");
 assert.equal(extractReplyRoute("[[route:nope]]\nטקסט").body, "טקסט");
 
+assert.equal(extractReplyRoute("[[route:schedule]]").tagStatus, "ok");
+assert.equal(extractReplyRoute("[[route:schedule]]").route, "schedule");
+assert.equal(extractReplyRoute("[[route:schedule]]").body, "");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").tagStatus, "ok");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").route, "schedule");
 assert.equal(extractReplyRoute("\u200f\u200e  [[route:schedule]]\nמה יש").body, "מה יש");
 assert.equal(
   extractReplyRoute("[[route:schedule]]\nלהלן לוח: יום ב בשעה 18:30").body,
-  "על איזה יום מדובר?"
+  "להלן לוח: יום ב בשעה 18:30"
 );
 
 assert.equal(

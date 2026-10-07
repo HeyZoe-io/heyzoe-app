@@ -12929,8 +12929,8 @@ async function processIncoming(
         },
         runGemini,
       });
-      if (modelReply.billing || !modelReply.ok) {
-        const errorType = modelReply.ok ? "billing" : modelReply.errorType;
+      if (!modelReply.ok) {
+        const errorType = modelReply.errorType;
         console.error(`[WA Webhook] model failure for ${business_slug}`, errorType);
         after(() => noteAiModelFailure({ admin: supabase, errorType }));
       }
@@ -13689,19 +13689,68 @@ async function processIncoming(
       });
       return;
     }
-    if (routeAction.kind === "timetable") {
-      console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });
-      await sendClassTimesAsScheduleImage({
-        knowledge,
-        msg,
-        accountSid,
-        authToken,
-        business_slug,
-        sessionId,
-        blockMedia: starterBlocksMedia,
-        modelUsed: appendRouteToModelUsed("sales_flow_schedule_board_on_ask", waReplyRoute, fastPathHint?.category),
+    if (
+      waReplyRoute.tagStatus === "ok" &&
+      waReplyRoute.route === "schedule" &&
+      contactSessionPhase !== "schedule_date" &&
+      contactSessionPhase !== "schedule_time"
+    ) {
+      const { resolveScheduleResponse } = await import("@/lib/wa-schedule-response");
+      const scheduleReply = resolveScheduleResponse({
+        slug: business_slug,
+        schedulePublicUrl: knowledge.schedulePublicUrl,
+        arboxLink: knowledge.arboxLink,
+        hasScheduleData: salesFlowServices.some((service) => (service.scheduleSlots ?? []).length > 0),
+        claudeBody: replyCoreClean,
       });
-      return;
+      if (scheduleReply.kind === "image") {
+        console.info("[WA Webhook] route schedule -> timetable image", { business_slug, sessionId });
+        await sendClassTimesAsScheduleImage({
+          knowledge,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          modelUsed: appendRouteToModelUsed("sales_flow_schedule_board_on_ask", waReplyRoute, fastPathHint?.category),
+        });
+        return;
+      }
+      if (scheduleReply.kind === "link" || scheduleReply.kind === "handoff") {
+        if (scheduleReply.kind === "handoff" && businessId) {
+          try {
+            const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+            await handleLeadHumanRequested({
+              supabase,
+              businessId: Number(businessId),
+              businessSlug: business_slug,
+              phone: msg.from,
+              nowIso,
+              sessionId,
+            });
+          } catch (e) {
+            console.error("[WA Webhook] schedule source handoff alert failed:", e);
+          }
+        }
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, scheduleReply.text, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] schedule source send failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: scheduleReply.text,
+          model_used: appendRouteToModelUsed(
+            scheduleReply.kind === "link" ? "sales_flow_schedule_board_on_ask" : "unknown_class_slot_team_handoff",
+            waReplyRoute,
+            fastPathHint?.category
+          ),
+          session_id: sessionId,
+        });
+        return;
+      }
     }
     if (
       waReplyRoute.tagStatus === "ok" &&
