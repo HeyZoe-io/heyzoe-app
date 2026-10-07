@@ -7,12 +7,17 @@ import {
   enterPreClaudeZone,
   exitPreClaudeZone,
   guardPreClaudeOutbound,
+  isWholeMessageHumanRequest,
+  isWholeMessageOpeningTrigger,
   isWholeMessageTimetableRequest,
   PreClaudeSendBlocked,
   resolveSendBeforeClaudeReason,
   SEND_BEFORE_CLAUDE_REASONS,
 } from "@/lib/wa-send-before-claude";
-import { isWholeMessageSalesFlowStart } from "@/lib/sales-flow-start-triggers";
+import {
+  isWholeMessageSalesFlowStart,
+  SALES_FLOW_START_TRIGGERS,
+} from "@/lib/sales-flow-start-triggers";
 
 const INCIDENT_MOVE = "היי יש סיכוי להחליף שעה היום אני רשומה לחמש וחצי ואני רוצה לבוא בשש וחצי";
 const INCIDENT_MOVE_2 = "אני רשומה אני רוצה להחליף";
@@ -39,6 +44,69 @@ assert.equal(isWholeMessageTimetableRequest(INCIDENT_WAITLIST), false);
 assert.equal(isWholeMessageSalesFlowStart("אשמח לפרטים"), true);
 assert.equal(isWholeMessageSalesFlowStart("היי אשמח לפרטים"), true);
 assert.equal(isWholeMessageSalesFlowStart("אשמח לפרטים על המחיר של הכרטיסייה"), false);
+
+const HUMAN_MATCH = [
+  "נציג",
+  "נציג?",
+  "היי נציג",
+  "נציג אנושי",
+  "היי, נציג אנושי!",
+  "נציגה",
+  "אפשר נציג",
+  "אפשר לדבר עם נציג",
+  "אשמח לדבר עם נציג",
+  "אני רוצה לדבר עם נציג",
+  "אפשר לדבר עם בן אדם",
+  "אני רוצה לדבר עם בן אדם",
+  "לדבר עם נציג",
+];
+for (const text of HUMAN_MATCH) {
+  assert.equal(isWholeMessageHumanRequest(text), true, text);
+  assert.equal(reasonFor(text), "explicit_human_request", text);
+}
+assert.equal(isWholeMessageHumanRequest("סיימתי קורס ואשמח להיות נציג"), false);
+assert.equal(isWholeMessageHumanRequest("הנציג שלכם היה מעולה"), false);
+assert.equal(isWholeMessageHumanRequest("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), false);
+assert.equal(reasonFor("סיימתי קורס ואשמח להיות נציג"), null);
+assert.equal(reasonFor("הנציג שלכם היה מעולה"), null);
+assert.equal(reasonFor("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), null);
+
+const NO_OWN_TRIGGERS = { slug: "sportykef-1589" };
+const WITH_OWN_TRIGGERS = { slug: "omers-place" };
+const OPENING_SAMPLES = [
+  "אשמח לפרטים",
+  "אשמח לפרטים!",
+  "היי אשמח לפרטים",
+  "בואו נתחיל",
+  "בואו נתחיל 🙂",
+  ...SALES_FLOW_START_TRIGGERS,
+];
+for (const opts of [NO_OWN_TRIGGERS, WITH_OWN_TRIGGERS]) {
+  for (const text of OPENING_SAMPLES) {
+    assert.equal(isWholeMessageOpeningTrigger(text, opts), true, `${opts.slug} ${text}`);
+    assert.equal(
+      resolveSendBeforeClaudeReason({
+        text,
+        openingTrigger: isWholeMessageOpeningTrigger(text, opts),
+        matchesMenuLabel: false,
+        warmupOption: false,
+      }),
+      "configured_opening_trigger",
+      `${opts.slug} ${text}`
+    );
+  }
+}
+assert.equal(isWholeMessageOpeningTrigger("אשמח לפרטים על המחיר", NO_OWN_TRIGGERS), false);
+assert.equal(reasonFor("אשמח לפרטים על המחיר"), null);
+assert.equal(
+  resolveSendBeforeClaudeReason({
+    text: "קלאס בוקר",
+    openingTrigger: false,
+    matchesMenuLabel: true,
+    warmupOption: false,
+  }),
+  "interactive_reply"
+);
 
 assert.equal(reasonFor("שלחי לי את מערכת השעות"), "explicit_timetable_request");
 assert.equal(reasonFor("אשמח לפרטים"), "configured_opening_trigger");

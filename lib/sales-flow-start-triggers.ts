@@ -9,8 +9,10 @@ export function normalizeSalesFlowGreetingToken(s: string): string {
   return s
     .trim()
     .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, " ")
     .replace(/[!.,?;:~'"`\-]+/g, "")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**

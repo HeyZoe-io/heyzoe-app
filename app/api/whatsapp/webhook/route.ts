@@ -7567,6 +7567,37 @@ async function processIncoming(
         break customerPreClaude;
       }
 
+      if (preClaudeReason === "explicit_human_request" && msg.type === "text") {
+        if (businessId) {
+          try {
+            const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+            await handleLeadHumanRequested({
+              supabase,
+              businessId: Number(businessId),
+              businessSlug: business_slug,
+              phone: msg.from,
+              nowIso,
+              sessionId,
+            });
+          } catch (e) {
+            console.error("[WA Webhook] explicit human request notify failed:", e);
+          }
+        }
+        if (knowledge) {
+          await trySendSalesFlowHumanAgentHandoff({
+            inboundText: msg.text.trim(),
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            business_slug,
+            sessionId,
+            modelUsed: "sales_flow_human_agent_handoff",
+          });
+        }
+        return;
+      }
+
   // בקשת נציג — הודעת «אין בעיה» פעם אחת. זואי ממשיכה לענות על שאלות;
   // מילת פתיחה («אשמח לפרטים») מפעילה מחדש את פלואו המכירה.
   if (

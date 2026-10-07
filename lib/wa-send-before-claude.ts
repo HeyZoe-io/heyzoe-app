@@ -13,6 +13,7 @@ export const SEND_BEFORE_CLAUDE_REASONS = [
   "interactive_reply",
   "opt_out",
   "explicit_timetable_request",
+  "explicit_human_request",
   "configured_opening_trigger",
   "warmup_guard",
   "test_environment_guard",
@@ -144,6 +145,26 @@ export function isWholeMessageTimetableRequest(raw: string): boolean {
   return stripped !== text && TIMETABLE_WHOLE.has(stripped);
 }
 
+const HUMAN_REQUEST_WHOLE = new Set([
+  "נציג",
+  "נציג אנושי",
+  "נציגה",
+  "אפשר נציג",
+  "אפשר לדבר עם נציג",
+  "אשמח לדבר עם נציג",
+  "אני רוצה לדבר עם נציג",
+  "אפשר לדבר עם בן אדם",
+  "אני רוצה לדבר עם בן אדם",
+  "לדבר עם נציג",
+]);
+
+/** Whole message only. A mention of a representative inside a sentence stays with Claude. */
+export function isWholeMessageHumanRequest(raw: string): boolean {
+  const text = normalizeWholeOutboundMessage(raw);
+  if (!text || text.length > 80) return false;
+  return HUMAN_REQUEST_WHOLE.has(text);
+}
+
 export function isWholeMessageOpeningTrigger(
   raw: string,
   opts?: SalesFlowStartTriggerOpts
@@ -172,6 +193,7 @@ export function resolveSendBeforeClaudeReason(input: {
   if (input.warmupOption) return "warmup_guard";
   if (input.matchesMenuLabel) return "interactive_reply";
   if (isWholeMessageTimetableRequest(input.text)) return "explicit_timetable_request";
+  if (isWholeMessageHumanRequest(input.text)) return "explicit_human_request";
   if (input.openingTrigger) return "configured_opening_trigger";
   return null;
 }
