@@ -12,7 +12,7 @@
  *   1. NEXT_PUBLIC_SUPABASE_ANON_KEY
  *   2. SUPABASE_ANON_KEY
  *
- * Supabase service role — רק לשרת, לעולם לא ל-Client; לא נדרש ל-bootstrap של /api/business.
+ * Supabase service role — רק לשרת, לעולם לא ל-Client. נתיבי /api/business קוראים איתו בשרת.
  */
 
 export function resolveClaudeApiKey(): string {

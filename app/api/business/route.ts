@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCachedBusinessBySlug } from "@/lib/business-cache";
+import { buildConfiguredPublicBusinessResponse } from "@/lib/public-business-response";
 import { getPublicBusinessBySlug } from "@/lib/business-settings";
 
 export async function GET(req: Request) {
@@ -12,25 +13,9 @@ export async function GET(req: Request) {
   try {
     const configured = await getPublicBusinessBySlug(slug);
     if (configured) {
-      return NextResponse.json({
-        slug,
-        name: configured.name || "העסק שלנו",
-        logo_url: configured.logo_url || null,
-        service_name: configured.service_name,
-        address: configured.address || "",
-        trial_class: configured.trial_class || "",
-        cta_text: configured.cta_text || null,
-        cta_link: configured.cta_link || null,
-        welcome: configured.welcome_message,
-        followups:
-          configured.opening_chips.length > 0
-            ? configured.opening_chips
-            : ["מה המחיר?", "איפה אתם נמצאים?", "איך נרשמים?", "למי זה מתאים?"],
-        tone: null,
-        bot_name: configured.bot_name,
-        primary_color: configured.primary_color,
-        secondary_color: configured.secondary_color,
-      });
+      return NextResponse.json(
+        buildConfiguredPublicBusinessResponse(configured, { variant: "full", requestSlug: slug })
+      );
     }
 
     const business = await getCachedBusinessBySlug(slug);

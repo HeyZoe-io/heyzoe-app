@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCachedBusinessBySlug } from "@/lib/business-cache";
+import { buildConfiguredPublicBusinessResponse } from "@/lib/public-business-response";
 import { getPublicBusinessBySlug } from "@/lib/business-settings";
 
 /**
@@ -17,21 +18,7 @@ export async function GET(req: Request) {
     const configured = await getPublicBusinessBySlug(slug);
     if (configured) {
       return NextResponse.json(
-        {
-          slug: configured.slug,
-          name: configured.name || "העסק שלנו",
-          logo_url: configured.logo_url || null,
-          service_name: configured.service_name,
-          address: configured.address,
-          trial_class: configured.trial_class,
-          cta_text: configured.cta_text,
-          cta_link: configured.cta_link,
-          welcome: configured.welcome_message,
-          followups: configured.opening_chips,
-          bot_name: configured.bot_name,
-          primary_color: configured.primary_color,
-          secondary_color: configured.secondary_color,
-        },
+        buildConfiguredPublicBusinessResponse(configured, { variant: "quick", requestSlug: slug }),
         {
           headers: {
             "Cache-Control": "private, max-age=45, stale-while-revalidate=120",

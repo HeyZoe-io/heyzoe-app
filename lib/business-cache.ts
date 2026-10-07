@@ -1,5 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
-import { resolveSupabaseAnonKey, resolveSupabaseUrl } from "@/lib/server-env";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 export type BusinessInfoRow = {
   name: string | null;
@@ -11,25 +10,21 @@ export type BusinessInfoRow = {
 };
 
 /**
- * שליפת שורת עסק לפי slug מ-Supabase.
+ * שליפת שורת עסק לפי slug מטבלת "Business Info".
  * (הוסר unstable_cache — ב-API Routes + Turbopack זה עלול לזרוק ולשבור את /api/business.)
  */
 export async function getCachedBusinessBySlug(slug: string): Promise<BusinessInfoRow | null> {
-  const supabaseUrl = resolveSupabaseUrl();
-  const supabaseAnonKey = resolveSupabaseAnonKey();
-  if (!supabaseUrl || !supabaseAnonKey) return null;
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  const { data, error } = await supabase
+  const admin = createSupabaseAdminClient();
+  const { data, error } = await admin
     .from("Business Info")
     .select("name, cta_text, cta_link, service_name, address, trial_class")
     .eq("slug", slug)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Supabase (business):", error.message, { slug });
     return null;
   }
 
-  return data as BusinessInfoRow;
+  return data as BusinessInfoRow | null;
 }
