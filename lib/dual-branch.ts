@@ -11,6 +11,9 @@ export const DUAL_BRANCH_SLUG = "tshelgine-8774";
 
 export const HEYZOE_SF_BRANCH_PREFIX = "[heyzoe:sf_branch]";
 
+/** אחרי בקשת מערכת שעות — מחכים לבחירת סניף ואז שולחים את הלוח של הסניף. */
+export const HEYZOE_PENDING_SCHEDULE_BRANCH_PREFIX = "[heyzoe:pending_schedule_branch]";
+
 export const DUAL_BRANCHES = [
   { id: "amiad", label: "עמיעד" },
   { id: "kiryat_shmona", label: "קריית שמונה" },
@@ -235,6 +238,23 @@ export function matchDualBranchChoice(text: string, metaInteractiveReplyId?: str
   return null;
 }
 
+export function parsePendingScheduleBranchPhase(content: string): string | null {
+  const raw = String(content ?? "").trim();
+  if (!raw.startsWith(HEYZOE_PENDING_SCHEDULE_BRANCH_PREFIX)) return null;
+  return raw.slice(HEYZOE_PENDING_SCHEDULE_BRANCH_PREFIX.length).trim() || "opening";
+}
+
+/** שורות אירועים מהחדש לישן. בחירת סניף שכבר נשמרה מבטלת בקשה ממתינה ישנה יותר. */
+export function pendingScheduleBranchPhaseFromEvents(rows: { content?: string | null }[]): string | null {
+  for (const row of rows) {
+    const content = String(row.content ?? "").trim();
+    if (content.startsWith(HEYZOE_SF_BRANCH_PREFIX)) return null;
+    const phase = parsePendingScheduleBranchPhase(content);
+    if (phase) return phase;
+  }
+  return null;
+}
+
 export function dualBranchPickMenu(lang: "he" | "en" | "ru" = "he"): { question: string; labels: string[] } {
   const labels = DUAL_BRANCHES.map((b) => b.label);
   const question =
@@ -244,6 +264,12 @@ export function dualBranchPickMenu(lang: "he" | "en" | "ru" = "he"): { question:
         ? "Какой филиал вам удобен?"
         : "באיזה סניף נוח לך?";
   return { question, labels };
+}
+
+export function dualBranchScheduleQuestion(lang: "he" | "en" | "ru" = "he"): string {
+  if (lang === "en") return "Which branch's schedule should I send?";
+  if (lang === "ru") return "Расписание какого филиала отправить?";
+  return "לאיזה סניף לשלוח את מערכת השעות?";
 }
 
 function withBranchLabel(text: string, branch: DualBranchId): string {
@@ -441,6 +467,46 @@ export async function fetchLastDualBranchId(input: {
     return null;
   } catch (e) {
     console.error("[dual-branch] fetchLastDualBranchId failed:", e);
+    return null;
+  }
+}
+
+/** שלב השיחה שנשמר כשמחכים לסניף בשביל מערכת שעות. null אם אין בקשה פתוחה. */
+export async function fetchPendingScheduleBranchPhase(input: {
+  business_slug: string;
+  session_id?: string;
+  session_ids?: string[];
+}): Promise<string | null> {
+  if (!isDualBranchBusiness(input.business_slug)) return null;
+  const sessionIds = [...(input.session_id ? [input.session_id] : []), ...(input.session_ids ?? [])]
+    .map((id) => String(id ?? "").trim())
+    .filter(Boolean);
+  const unique = [...new Set(sessionIds)];
+  if (!unique.length) return null;
+
+  try {
+    const supabase = createSupabaseAdminClient();
+    let resetAt: string | null = null;
+    if (unique.length === 1) {
+      resetAt = await fetchLastSalesFlowGreetingResetAt({
+        business_slug: input.business_slug,
+        session_id: unique[0]!,
+      });
+    }
+    let q = supabase
+      .from("messages")
+      .select("content, created_at")
+      .eq("business_slug", input.business_slug)
+      .eq("role", "event")
+      .order("created_at", { ascending: false })
+      .limit(24);
+    q = unique.length === 1 ? q.eq("session_id", unique[0]!) : q.in("session_id", unique);
+    if (resetAt) q = q.gt("created_at", resetAt);
+    const { data, error } = await q;
+    if (error || !data?.length) return null;
+    return pendingScheduleBranchPhaseFromEvents(data);
+  } catch (e) {
+    console.error("[dual-branch] fetchPendingScheduleBranchPhase failed:", e);
     return null;
   }
 }

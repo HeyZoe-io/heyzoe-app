@@ -7,6 +7,7 @@ import {
   matchDualBranchChoice,
   parseBranchOffers,
   parseBranchScheduleUrls,
+  pendingScheduleBranchPhaseFromEvents,
   scheduleImageForBranch,
 } from "@/lib/dual-branch";
 import type { SfServiceRow } from "@/lib/sf-service-rows";
@@ -211,5 +212,26 @@ const kiryatWithoutImage = applyDualBranchToKnowledge(
 assert.equal(kiryatWithoutImage.activeBranchScheduleImage, "");
 assert.equal(kiryatWithoutImage.scheduleScanImageUrl, "");
 assert.equal(kiryatWithoutImage.salesFlowConfig?.cta_buttons?.[0]?.schedule_cta_image_url, "");
+
+assert.equal(
+  pendingScheduleBranchPhaseFromEvents([{ content: "[heyzoe:pending_schedule_branch]opening" }]),
+  "opening"
+);
+assert.equal(
+  pendingScheduleBranchPhaseFromEvents([
+    { content: "[heyzoe:sf_branch]amiad" },
+    { content: "[heyzoe:pending_schedule_branch]warmup" },
+  ]),
+  null
+);
+assert.equal(
+  pendingScheduleBranchPhaseFromEvents([
+    { content: "[heyzoe:pending_schedule_branch]warmup" },
+    { content: "[heyzoe:sf_branch]amiad" },
+  ]),
+  "warmup"
+);
+assert.equal(pendingScheduleBranchPhaseFromEvents([{ content: "[heyzoe:pending_schedule_branch]" }]), "opening");
+assert.equal(pendingScheduleBranchPhaseFromEvents([{ content: "שלום" }]), null);
 
 console.log("dual-branch: ok");

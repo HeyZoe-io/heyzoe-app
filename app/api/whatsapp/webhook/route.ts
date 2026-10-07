@@ -655,10 +655,14 @@ import {
   addressForSelectedBranch,
   applyDualBranchToKnowledge,
   dualBranchPickMenu,
+  dualBranchScheduleQuestion,
   fetchLastDualBranchId,
+  fetchPendingScheduleBranchPhase,
+  HEYZOE_PENDING_SCHEDULE_BRANCH_PREFIX,
   HEYZOE_SF_BRANCH_PREFIX,
   isDualBranchBusiness,
   matchDualBranchChoice,
+  type DualBranchId,
 } from "@/lib/dual-branch";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
@@ -2535,10 +2539,12 @@ async function sendDualBranchPickMenu(input: {
   businessId: string;
   business_slug: string;
   sessionId: string;
+  question?: string;
 }): Promise<void> {
   const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const menuLang = lang === "en" || lang === "ru" ? lang : "he";
-  const { question, labels } = dualBranchPickMenu(menuLang);
+  const { question: defaultQuestion, labels } = dualBranchPickMenu(menuLang);
+  const question = String(input.question ?? "").trim() || defaultQuestion;
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   await sendWhatsAppTextOrMenu(
     input.msg.toNumber,
@@ -2561,6 +2567,98 @@ async function sendDualBranchPickMenu(input: {
     businessId: input.businessId,
     phone: input.msg.from,
     phase: "branch_pick",
+  });
+}
+
+async function rememberDualBranchChoice(input: {
+  business_slug: string;
+  sessionId: string;
+  branch: DualBranchId;
+}): Promise<void> {
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "event",
+    content: `${HEYZOE_SF_BRANCH_PREFIX}${input.branch}`,
+    model_used: "sf_branch_pick",
+    session_id: input.sessionId,
+  });
+}
+
+async function sendScheduleBoardForSelectedBranch(input: {
+  knowledge: BusinessKnowledgePack;
+  branch: DualBranchId;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  business_slug: string;
+  sessionId: string;
+  blockMedia: boolean;
+}): Promise<{ delivery: ScheduleBoardDelivery; applied: BusinessKnowledgePack }> {
+  const applied = applyDualBranchToKnowledge(input.knowledge, input.branch);
+  const assets = scheduleBoardAssetsFromKnowledge(applied, input.blockMedia, input.business_slug);
+  const delivery = await sendScheduleBoardAfterOpening({
+    assets,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    modelUsed: "sales_flow_schedule_board_on_ask",
+    salesFlowConfig: applied.salesFlowConfig,
+  });
+  if (delivery === "none") {
+    console.error("[WA Webhook] dual-branch schedule board missing for selected branch", {
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+      branch: input.branch,
+    });
+    const missing = "אין לי כרגע את מערכת השעות של הסניף הזה.";
+    try {
+      await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, missing, input.accountSid, input.authToken);
+    } catch (e) {
+      console.error("[WA Webhook] dual-branch missing schedule notice failed:", e);
+    }
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: missing,
+      model_used: "sales_flow_schedule_board_on_ask",
+      session_id: input.sessionId,
+    });
+  }
+  return { delivery, applied };
+}
+
+async function askBranchBeforeSchedule(input: {
+  knowledge: BusinessKnowledgePack;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  phase: HeyzoeSessionPhase;
+}): Promise<void> {
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "event",
+    content: `${HEYZOE_PENDING_SCHEDULE_BRANCH_PREFIX}${input.phase}`,
+    model_used: "sf_pending_schedule_branch",
+    session_id: input.sessionId,
+  });
+  const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
+  const menuLang = lang === "en" || lang === "ru" ? lang : "he";
+  await sendDualBranchPickMenu({
+    knowledge: input.knowledge,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    question: dualBranchScheduleQuestion(menuLang),
   });
 }
 
@@ -10179,6 +10277,67 @@ async function processIncoming(
   }
 
   // בקשת מערכת שעות — התמונה/הלינק נשלחים בכל שלב, בלי לחכות ל-CTA או לקלוד.
+  // שני סניפים: קודם שואלים סניף, ובהודעה הבאה נשלחת המערכת של הסניף שנבחר.
+  if (
+    isWaInboundTextMessage(msg) &&
+    knowledge &&
+    businessId &&
+    isDualBranchBusiness(business_slug) &&
+    isExplicitTimetableRequest(msg.text)
+  ) {
+    const namedBranch = matchDualBranchChoice(msg.text, msg.metaInteractiveReplyId);
+    if (namedBranch) {
+      await rememberDualBranchChoice({ business_slug, sessionId, branch: namedBranch });
+      const sent = await sendScheduleBoardForSelectedBranch({
+        knowledge,
+        branch: namedBranch,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: scheduleTimesReplyUsesImage(business_slug) ? false : starterBlocksMedia,
+      });
+      if (sent.delivery !== "none" && sent.applied.salesFlowConfig && salesFlowStarted) {
+        await resendUnansweredSalesFlowPrompt({
+          phase: contactSessionPhase,
+          contact: { flow_step: contactFlowStep },
+          knowledge: sent.applied,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          salesFlowServices: sent.applied.salesFlowServices,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          inboundText: msg.text,
+          flowStarted: true,
+          arboxApiKey: crmApiKey,
+          arboxBoxId: crmBoxId,
+          now: new Date(nowIso),
+        });
+      }
+      return;
+    }
+    await askBranchBeforeSchedule({
+      knowledge,
+      msg,
+      accountSid,
+      authToken,
+      supabase,
+      businessId,
+      business_slug,
+      sessionId,
+      phase: contactSessionPhase,
+    });
+    return;
+  }
   if (isWaInboundTextMessage(msg) && knowledge && businessId) {
     const askedScheduleAssets = scheduleBoardAssetsFromKnowledge(
       knowledge,
@@ -10858,8 +11017,14 @@ async function processIncoming(
     knowledge?.salesFlowConfig &&
     businessId
   ) {
+    const pendingSchedulePhase = await fetchPendingScheduleBranchPhase({
+      business_slug,
+      session_id: sessionId,
+    });
     const branch = matchDualBranchChoice(msg.text, msg.metaInteractiveReplyId);
     if (!branch) {
+      const lang = resolveBusinessContentLanguageFromKnowledge(knowledge);
+      const menuLang = lang === "en" || lang === "ru" ? lang : "he";
       await sendDualBranchPickMenu({
         knowledge,
         msg,
@@ -10869,16 +11034,75 @@ async function processIncoming(
         businessId,
         business_slug,
         sessionId,
+        question: pendingSchedulePhase ? dualBranchScheduleQuestion(menuLang) : undefined,
       });
       return;
     }
-    await logMessage({
-      business_slug,
-      role: "event",
-      content: `${HEYZOE_SF_BRANCH_PREFIX}${branch}`,
-      model_used: "sf_branch_pick",
-      session_id: sessionId,
-    });
+    await rememberDualBranchChoice({ business_slug, sessionId, branch });
+    if (pendingSchedulePhase) {
+      const sent = await sendScheduleBoardForSelectedBranch({
+        knowledge,
+        branch,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: starterBlocksMedia,
+      });
+      const resumePhase = normalizeSessionPhase(pendingSchedulePhase);
+      if (resumePhase === "branch_pick") {
+        await advanceAfterWarmupSessionComplete({
+          knowledge: sent.applied,
+          salesFlowServices: sent.applied.salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          blockTrialPickMedia: starterBlocksMedia,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+        });
+      } else {
+        await updateContactSessionPhase({
+          supabase,
+          businessId,
+          phone: msg.from,
+          phase: resumePhase,
+        });
+        if (sent.delivery !== "none" && sent.applied.salesFlowConfig && salesFlowStarted) {
+          await resendUnansweredSalesFlowPrompt({
+            phase: resumePhase,
+            contact: { flow_step: contactFlowStep },
+            knowledge: sent.applied,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            salesFlowServices: sent.applied.salesFlowServices,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            blockTrialPickMedia: starterBlocksMedia,
+            sfConsumedKinds: sfClickedCtaKinds,
+            instagramFollowPromptSent: contactInstagramFollowPromptSent,
+            inboundText: msg.text,
+            flowStarted: true,
+            arboxApiKey: crmApiKey,
+            arboxBoxId: crmBoxId,
+            now: new Date(nowIso),
+          });
+        }
+      }
+      return;
+    }
     const applied = applyDualBranchToKnowledge(knowledge, branch);
     await advanceAfterWarmupSessionComplete({
       knowledge: applied,
@@ -12212,6 +12436,61 @@ async function processIncoming(
           });
           contactSessionPhase = "opening";
           contactFlowStep = 0;
+          return;
+        }
+
+        if (wantsSchedule && isDualBranchBusiness(business_slug)) {
+          const namedBranch = matchDualBranchChoice(incomingResolved, msg.metaInteractiveReplyId);
+          if (namedBranch) {
+            await rememberDualBranchChoice({ business_slug, sessionId, branch: namedBranch });
+            const sent = await sendScheduleBoardForSelectedBranch({
+              knowledge,
+              branch: namedBranch,
+              msg,
+              accountSid,
+              authToken,
+              business_slug,
+              sessionId,
+              blockMedia: starterBlocksMedia,
+            });
+            if (sent.delivery !== "none" && sent.applied.salesFlowConfig && salesFlowStarted) {
+              await resendUnansweredSalesFlowPrompt({
+                phase: contactSessionPhase,
+                contact: { flow_step: contactFlowStep },
+                knowledge: sent.applied,
+                msg,
+                accountSid,
+                authToken,
+                supabase,
+                businessId,
+                business_slug,
+                sessionId,
+                salesFlowServices: sent.applied.salesFlowServices,
+                trialRegistered: contactTrialRegistered,
+                allowTrialCta: allowTrialCtaThisSession,
+                blockTrialPickMedia: starterBlocksMedia,
+                sfConsumedKinds: sfClickedCtaKinds,
+                instagramFollowPromptSent: contactInstagramFollowPromptSent,
+                inboundText: incomingResolved,
+                flowStarted: true,
+                arboxApiKey: crmApiKey,
+                arboxBoxId: crmBoxId,
+                now: new Date(nowIso),
+              });
+            }
+            return;
+          }
+          await askBranchBeforeSchedule({
+            knowledge,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            phase: contactSessionPhase,
+          });
           return;
         }
 
