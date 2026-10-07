@@ -27,17 +27,23 @@ import {
 } from "@/lib/lead-template";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
-import { eventBeforeRuleActivation, ruleActivationMs, type ActivationRule } from "@/lib/rule-activation";
-import { computeDueAt, enqueueScheduledTemplateSend } from "@/lib/scheduled-template-sends";
+import { addCalendarDaysYmd, eventBeforeRuleActivation, ruleActivationMs, type ActivationRule } from "@/lib/rule-activation";
+import { type LeadStatusSendSlot } from "@/lib/trigger-catalog";
+import {
+  cancelPendingScheduledTemplateSendByDedupKey,
+  computeDueAt,
+  enqueueScheduledTemplateSend,
+} from "@/lib/scheduled-template-sends";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 export const LEAD_STATUS_CHANGED_TYPE = "lead_status_changed";
+/** Longer than a once-a-day slot, so an evening-only rule scanned every 24h does not reseed. */
 export const LEAD_STATUS_STALE_MS = 36 * 60 * 60 * 1000;
-export const LEAD_STATUS_MASS_COUNT = 20;
-export const LEAD_STATUS_MASS_RATIO = 0.25;
+export const LEAD_STATUS_DROP_RATIO = 0.7;
+const INTEGRITY_LEAD_ID = "__pull_integrity__";
 const SYNC_TABLE = "arbox_lead_status_change_sync_log";
 const SNAPSHOT_TABLE = "arbox_lead_status_snapshot";
 const KNOWN_TABLE = "arbox_lead_known_statuses";
@@ -49,6 +55,7 @@ export type LeadStatusRule = ActivationRule & {
   delay_direction: string;
   template_name: string | null;
   target_status: string;
+  send_slot: LeadStatusSendSlot;
 };
 
 export type LeadStatusPerson = {
@@ -76,8 +83,11 @@ export type LeadStatusSyncSummary = {
   notified: number;
   deferred: number;
   already: number;
-  skipped_mass: number;
+  skipped_integrity: number;
   skipped_unknown_status: number;
+  skipped_status: number;
+  expired: number;
+  pending_held: number;
   skipped_cap: number;
   skipped_opt_out: number;
   gated: number;
@@ -101,7 +111,10 @@ function logMissingSchema(businessId: number, detail: string): void {
   });
 }
 
-/** Delay of a day or more is Stage C. Delay 0 sends in the run that saw the transition. */
+/**
+ * Legacy path only, when due_date is not migrated yet.
+ * Delay of a day or more is Stage C. Delay 0 sends in the detecting run.
+ */
 export function leadStatusSendIsQueued(delayDays: number, now: Date): boolean {
   const dueAt = computeDueAt(
     { delay_days: Math.max(0, Math.trunc(delayDays) || 0), delay_direction: "after" },
@@ -110,10 +123,54 @@ export function leadStatusSendIsQueued(delayDays: number, now: Date): boolean {
   return dueAt.getTime() > now.getTime() + 15_000;
 }
 
-export function leadStatusMassChangeBlocked(transitions: number, openLeads: number): boolean {
-  if (transitions > LEAD_STATUS_MASS_COUNT) return true;
-  if (openLeads > 0 && transitions / openLeads > LEAD_STATUS_MASS_RATIO) return true;
-  return false;
+export function leadStatusNormalizeSlot(raw: unknown): LeadStatusSendSlot {
+  return raw === "morning" || raw === "evening" ? raw : "next_run";
+}
+
+export function leadStatusSlotMatches(
+  ruleSlot: string | null | undefined,
+  runSlot: "morning" | "evening"
+): boolean {
+  const slot = leadStatusNormalizeSlot(ruleSlot);
+  return slot === "next_run" || slot === runSlot;
+}
+
+/** Skip the scan only when every enabled rule is pinned to the other slot. */
+export function leadStatusShouldSkipScan(
+  slots: readonly string[],
+  runSlot: "morning" | "evening"
+): boolean {
+  if (!slots.length) return false;
+  const normalized = slots.map((slot) => leadStatusNormalizeSlot(slot));
+  if (normalized.some((slot) => slot === "next_run")) return false;
+  return normalized.every((slot) => slot !== runSlot);
+}
+
+export function leadStatusDueYmd(now: Date, delayDays: number): string {
+  const today = formatDateYmdIsrael(now);
+  return addCalendarDaysYmd(today, Math.max(0, Math.trunc(delayDays) || 0)) ?? today;
+}
+
+/** True once today is after due_date + 2 days. */
+export function leadStatusPendingExpired(dueYmd: string, todayYmd: string): boolean {
+  const limit = addCalendarDaysYmd(dueYmd, 2);
+  if (!limit) return false;
+  return todayYmd > limit;
+}
+
+/**
+ * A failed page, a page cap, or an open-lead drop of more than 30% blocks the run.
+ * Exactly 30% remaining (current == previous * 0.7) is still a usable pull.
+ */
+export function leadStatusPullIntegrityBlocked(input: {
+  fetchOk: boolean;
+  hitPageCap: boolean;
+  previousOpenLeads: number;
+  currentOpenLeads: number;
+}): boolean {
+  if (!input.fetchOk || input.hitPageCap) return true;
+  if (input.previousOpenLeads <= 0) return false;
+  return input.currentOpenLeads < input.previousOpenLeads * LEAD_STATUS_DROP_RATIO;
 }
 
 /** Reseed (no sends) when there is no baseline, the last scan is stale, or it predates every live rule. */
@@ -200,8 +257,8 @@ export async function fetchLeadsInProcessReportRows(input: {
   locationId: string;
   now?: Date;
 }): Promise<
-  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number }
-  | { ok: false; error: string; pagesFetched: number }
+  | { ok: true; rows: Record<string, unknown>[]; pagesFetched: number; hitPageCap?: boolean }
+  | { ok: false; error: string; pagesFetched: number; hitPageCap?: boolean }
 > {
   const day = formatDateYmdIsrael(input.now ?? new Date());
   const report = await fetchArboxPagedReportRows({
@@ -216,8 +273,42 @@ export async function fetchLeadsInProcessReportRows(input: {
         page,
       }),
   });
-  if (!report.ok) return { ok: false, error: report.error, pagesFetched: report.pagesFetched };
-  return { ok: true, rows: report.rows, pagesFetched: report.pagesFetched };
+  if (!report.ok) {
+    return { ok: false, error: report.error, pagesFetched: report.pagesFetched, hitPageCap: report.hitPageCap };
+  }
+  return { ok: true, rows: report.rows, pagesFetched: report.pagesFetched, hitPageCap: report.hitPageCap };
+}
+
+/** Blank lead_status never becomes a transition and never replaces the stored status. */
+export function indexLeadStatusReport(input: {
+  rows: Record<string, unknown>[];
+  previous: ReadonlyMap<string, string>;
+}): { people: Map<string, LeadStatusPerson>; openLeadCount: number } {
+  const seen = new Set<string>();
+  const people = new Map<string, LeadStatusPerson>();
+  for (const raw of input.rows) {
+    const leadId = String(raw.user_id ?? raw.lead_id ?? "").trim();
+    if (!leadId || seen.has(leadId)) continue;
+    seen.add(leadId);
+    const status = String(raw.lead_status ?? "").trim();
+    if (!status) {
+      const kept = input.previous.get(leadId);
+      if (!kept) continue;
+      people.set(leadId, {
+        leadId,
+        status: kept,
+        phone: normalizePhone(raw.phone) ?? normalizePhone(raw.additional_phone),
+        fullName:
+          String(raw.full_name ?? "").trim() ||
+          [String(raw.first_name ?? "").trim(), String(raw.last_name ?? "").trim()].filter(Boolean).join(" ") ||
+          null,
+      });
+      continue;
+    }
+    const person = parseLeadStatusPerson(raw);
+    if (person) people.set(person.leadId, person);
+  }
+  return { people, openLeadCount: seen.size };
 }
 
 function emptySummary(): LeadStatusSyncSummary {
@@ -231,8 +322,11 @@ function emptySummary(): LeadStatusSyncSummary {
     notified: 0,
     deferred: 0,
     already: 0,
-    skipped_mass: 0,
+    skipped_integrity: 0,
     skipped_unknown_status: 0,
+    skipped_status: 0,
+    expired: 0,
+    pending_held: 0,
     skipped_cap: 0,
     skipped_opt_out: 0,
     gated: 0,
@@ -242,7 +336,7 @@ function emptySummary(): LeadStatusSyncSummary {
 }
 
 async function loadRules(admin: Admin, businessId: number): Promise<
-  | { ok: true; rules: LeadStatusRule[] }
+  | { ok: true; rules: LeadStatusRule[]; sendSlotColumn: boolean }
   | { ok: false; missing: boolean; error: string }
 > {
   const base = await admin
@@ -256,14 +350,28 @@ async function loadRules(admin: Admin, businessId: number): Promise<
   const enabled = (base.data ?? []).filter((row) =>
     String((row as { template_name?: unknown }).template_name ?? "").trim()
   );
-  if (!enabled.length) return { ok: true, rules: [] };
+  if (!enabled.length) return { ok: true, rules: [], sendSlotColumn: true };
   const ids = enabled.map((row) => String((row as { id?: unknown }).id ?? ""));
   const withStatus = await admin
     .from("template_triggers")
-    .select("id, target_status")
+    .select("id, target_status, send_slot")
     .in("id", ids)
     .limit(40);
-  if (withStatus.error) {
+  type StatusSlotRow = { id?: unknown; target_status?: unknown; send_slot?: unknown };
+  let statusRows = (withStatus.data ?? null) as StatusSlotRow[] | null;
+  let sendSlotColumn = true;
+  if (withStatus.error && /send_slot/i.test(withStatus.error.message)) {
+    sendSlotColumn = false;
+    const fallback = await admin.from("template_triggers").select("id, target_status").in("id", ids).limit(40);
+    if (fallback.error) {
+      return {
+        ok: false,
+        missing: isMissingLeadStatusSchema(fallback.error.message),
+        error: fallback.error.message,
+      };
+    }
+    statusRows = (fallback.data ?? null) as StatusSlotRow[] | null;
+  } else if (withStatus.error) {
     return {
       ok: false,
       missing: isMissingLeadStatusSchema(withStatus.error.message),
@@ -271,9 +379,15 @@ async function loadRules(admin: Admin, businessId: number): Promise<
     };
   }
   const targets = new Map(
-    (withStatus.data ?? []).map((row) => [
+    (statusRows ?? []).map((row) => [
       String((row as { id?: unknown }).id ?? ""),
       String((row as { target_status?: unknown }).target_status ?? "").trim(),
+    ])
+  );
+  const slots = new Map(
+    (statusRows ?? []).map((row) => [
+      String((row as { id?: unknown }).id ?? ""),
+      leadStatusNormalizeSlot((row as { send_slot?: unknown }).send_slot),
     ])
   );
   return {
@@ -289,8 +403,10 @@ async function loadRules(admin: Admin, businessId: number): Promise<
         created_at: String(record.created_at ?? ""),
         updated_at: record.updated_at != null ? String(record.updated_at) : null,
         target_status: targets.get(id) ?? "",
+        send_slot: slots.get(id) ?? "next_run",
       };
     }),
+    sendSlotColumn,
   };
 }
 
@@ -407,9 +523,11 @@ async function upsertSync(input: {
   status: CancellationSyncLogStatus;
   attempts: number;
   reason: string | null;
-}): Promise<{ ok: boolean }> {
+  dueDate?: string | null;
+  sendSlot?: string | null;
+}): Promise<{ ok: boolean; missingColumn?: boolean }> {
   if (isArboxDailyDryRun()) return { ok: true };
-  const row = {
+  const row: Record<string, unknown> = {
     business_id: input.businessId,
     trigger_id: input.triggerId,
     lead_id: input.leadId,
@@ -421,10 +539,15 @@ async function upsertSync(input: {
     attempts: input.attempts,
     reason: input.reason,
   };
+  if (input.dueDate) row.due_date = input.dueDate;
+  if (input.sendSlot) row.send_slot = input.sendSlot;
   const { error } = await input.admin.from(SYNC_TABLE).upsert(row, {
     onConflict: "business_id,trigger_id,lead_id,lead_status,entered_at",
   });
   if (error) {
+    if (/due_date|send_slot|schema cache|PGRST204|could not find/i.test(error.message)) {
+      return { ok: false, missingColumn: true };
+    }
     console.error("[leads/arbox-lead-status] sync_log upsert failed", error.message);
     return { ok: false };
   }
@@ -441,10 +564,12 @@ async function dispatchLeadStatusTemplate(input: {
   rule: LeadStatusRule;
   now: Date;
   dedupKey: string;
+  /** False once the pending log owns the delay. Stage C stays for every other trigger. */
+  queueDelay?: boolean;
 }): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
-  if (leadStatusSendIsQueued(input.rule.delay_days, input.now)) {
+  if (input.queueDelay !== false && leadStatusSendIsQueued(input.rule.delay_days, input.now)) {
     const dueAt = computeDueAt(
       { delay_days: Math.max(0, Math.trunc(input.rule.delay_days) || 0), delay_direction: "after" },
       input.now
@@ -593,6 +718,200 @@ async function rememberContact(input: {
   return ((data ?? [])[0] as ContactHit | undefined) ?? null;
 }
 
+export function parseLeadStatusScheduledDedupKey(key: string): {
+  triggerId: string;
+  leadId: string;
+  leadStatus: string;
+  enteredAt: string;
+} | null {
+  const match = /^lead_status_changed:\d+:([^:]+):([^:]+):(.*):(\d{4}-\d{2}-\d{2}T[\d:.]+Z)$/.exec(key);
+  if (!match) return null;
+  return { triggerId: match[1], leadId: match[2], leadStatus: match[3], enteredAt: match[4] };
+}
+
+async function probePendingColumns(admin: Admin): Promise<boolean> {
+  const { error } = await admin.from(SYNC_TABLE).select("due_date").limit(1);
+  if (!error) return true;
+  if (/due_date|schema cache|PGRST204|could not find|does not exist/i.test(error.message)) return false;
+  console.error("[leads/arbox-lead-status] pending column probe failed", error.message);
+  return false;
+}
+
+async function insertPendingEpisode(input: {
+  admin: Admin;
+  businessId: number;
+  triggerId: string;
+  leadId: string;
+  leadStatus: string;
+  enteredAt: string;
+  nowIso: string;
+  dueDate: string;
+  sendSlot: string;
+}): Promise<"won" | "lost" | "legacy" | "error"> {
+  if (isArboxDailyDryRun()) return "won";
+  const { error } = await input.admin.from(SYNC_TABLE).insert({
+    business_id: input.businessId,
+    trigger_id: input.triggerId,
+    lead_id: input.leadId,
+    lead_status: input.leadStatus,
+    entered_at: input.enteredAt,
+    contact_id: null,
+    processed_at: input.nowIso,
+    status: "pending",
+    attempts: 0,
+    reason: null,
+    created_at: input.nowIso,
+    due_date: input.dueDate,
+    send_slot: input.sendSlot,
+  });
+  if (!error) return "won";
+  const message = String(error.message ?? "");
+  if (String(error.code ?? "") === "23505" || /duplicate/i.test(message)) return "lost";
+  if (/due_date|send_slot|schema cache|PGRST204|could not find/i.test(message)) return "legacy";
+  console.error("[leads/arbox-lead-status] pending insert failed", message);
+  return "error";
+}
+
+async function convertLeadStatusStageC(input: {
+  admin: Admin;
+  businessId: number;
+  rules: LeadStatusRule[];
+  now: Date;
+  nowIso: string;
+}): Promise<void> {
+  const { data, error } = await input.admin
+    .from("scheduled_template_sends")
+    .select("dedup_key, due_at, status, trigger_id")
+    .eq("business_id", input.businessId)
+    .eq("status", "pending")
+    .limit(200);
+  if (error) {
+    if (!/does not exist|42P01/i.test(error.message)) {
+      console.error("[leads/arbox-lead-status] stage C read failed", error.message);
+    }
+    return;
+  }
+  for (const row of data ?? []) {
+    const key = String((row as { dedup_key?: unknown }).dedup_key ?? "");
+    const parsed = parseLeadStatusScheduledDedupKey(key);
+    if (!parsed) continue;
+    const rule = input.rules.find((item) => item.id === parsed.triggerId);
+    const dueAt = new Date(String((row as { due_at?: unknown }).due_at ?? ""));
+    const dueDate = Number.isNaN(dueAt.getTime())
+      ? formatDateYmdIsrael(input.now)
+      : formatDateYmdIsrael(dueAt);
+    const claimed = await insertPendingEpisode({
+      admin: input.admin,
+      businessId: input.businessId,
+      triggerId: parsed.triggerId,
+      leadId: parsed.leadId,
+      leadStatus: parsed.leadStatus,
+      enteredAt: parsed.enteredAt,
+      nowIso: input.nowIso,
+      dueDate,
+      sendSlot: rule?.send_slot ?? "next_run",
+    });
+    if (claimed === "error" || claimed === "legacy") continue;
+    await cancelPendingScheduledTemplateSendByDedupKey({
+      admin: input.admin,
+      dedupKey: key,
+      reason: "moved_to_lead_status_pending",
+    });
+  }
+}
+
+async function drainLeadStatusPending(input: {
+  admin: Admin;
+  businessId: number;
+  businessSlug: string;
+  apiKey: string;
+  rules: LeadStatusRule[];
+  current: Map<string, LeadStatusPerson>;
+  runSlot: "morning" | "evening";
+  todayYmd: string;
+  now: Date;
+  nowIso: string;
+  summary: LeadStatusSyncSummary;
+  fetchProfile: typeof fetchArboxUserPhone;
+  dispatchTemplate?: typeof dispatchLeadStatusTemplate;
+}): Promise<void> {
+  const { data, error } = await input.admin
+    .from(SYNC_TABLE)
+    .select("trigger_id, lead_id, lead_status, entered_at, due_date, send_slot, attempts, contact_id, status")
+    .eq("business_id", input.businessId)
+    .eq("status", "pending")
+    .limit(500);
+  if (error) {
+    if (!/due_date|send_slot|schema cache|PGRST204|could not find/i.test(error.message)) {
+      console.error("[leads/arbox-lead-status] pending read failed", error.message);
+      input.summary.errors += 1;
+    }
+    return;
+  }
+  for (const raw of data ?? []) {
+    const row = raw as Record<string, unknown>;
+    const leadId = String(row.lead_id ?? "");
+    const leadStatus = String(row.lead_status ?? "");
+    const enteredAt = String(row.entered_at ?? "");
+    const due = String(row.due_date ?? "").slice(0, 10);
+    const triggerId = String(row.trigger_id ?? "");
+    if (!leadId || leadId === INTEGRITY_LEAD_ID || !enteredAt) continue;
+    const close = async (reason: string) => {
+      const marked = await upsertSync({
+        admin: input.admin,
+        businessId: input.businessId,
+        triggerId,
+        leadId,
+        leadStatus,
+        enteredAt,
+        contactId: row.contact_id != null ? String(row.contact_id) : null,
+        nowIso: input.nowIso,
+        status: "skipped",
+        attempts: parseCancellationSyncAttempts(row.attempts),
+        reason,
+        dueDate: due || null,
+        sendSlot: row.send_slot != null ? String(row.send_slot) : null,
+      });
+      if (!marked.ok) input.summary.errors += 1;
+    };
+    if (due && leadStatusPendingExpired(due, input.todayYmd)) {
+      await close("expired");
+      input.summary.expired += 1;
+      continue;
+    }
+    if (!leadStatusSlotMatches(String(row.send_slot ?? ""), input.runSlot) || (due && due > input.todayYmd)) {
+      input.summary.pending_held += 1;
+      continue;
+    }
+    const person = input.current.get(leadId);
+    if (!person || person.status !== leadStatus) {
+      await close("status_changed_before_send");
+      input.summary.skipped_status += 1;
+      continue;
+    }
+    const rule = input.rules.find((item) => item.id === triggerId);
+    if (!rule || !leadStatusRuleCanSend(rule, enteredAt, input.now)) {
+      await close("activation_cutoff");
+      continue;
+    }
+    await sendOne({
+      admin: input.admin,
+      businessId: input.businessId,
+      businessSlug: input.businessSlug,
+      apiKey: input.apiKey,
+      person,
+      rule,
+      enteredAt,
+      now: input.now,
+      nowIso: input.nowIso,
+      summary: input.summary,
+      fetchProfile: input.fetchProfile,
+      dispatchTemplate: input.dispatchTemplate,
+      queueDelay: false,
+    });
+  }
+}
+
 export async function syncArboxLeadStatusForBusiness(input: {
   admin: Admin;
   businessId: number;
@@ -600,6 +919,10 @@ export async function syncArboxLeadStatusForBusiness(input: {
   apiKey: string;
   boxId: string;
   now?: Date;
+  /** 09:00 morning or 20:30 evening. Defaults to morning for callers that omit it. */
+  slot?: "morning" | "evening";
+  /** Test hook. Production probes the due_date column. */
+  pendingColumns?: boolean;
   fetchLeads?: typeof fetchLeadsInProcessReportRows;
   fetchProfile?: typeof fetchArboxUserPhone;
   /** Test hook. Production uses the APPROVED template gate and Stage C. */
@@ -624,6 +947,19 @@ export async function syncArboxLeadStatusForBusiness(input: {
   if (!rulesResult.rules.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
+    return summary;
+  }
+
+  const runSlot = input.slot === "evening" ? "evening" : "morning";
+  if (
+    rulesResult.sendSlotColumn &&
+    leadStatusShouldSkipScan(
+      rulesResult.rules.map((rule) => rule.send_slot),
+      runSlot
+    )
+  ) {
+    summary.skipped = true;
+    summary.skip_reason = "scan_slot";
     return summary;
   }
 
@@ -664,6 +1000,10 @@ export async function syncArboxLeadStatusForBusiness(input: {
     return summary;
   }
 
+  let pendingColumns =
+    input.pendingColumns ??
+    (await probePendingColumns(input.admin));
+
   const fetchLeads = input.fetchLeads ?? fetchLeadsInProcessReportRows;
   const report = await fetchLeads({
     apiKey: input.apiKey,
@@ -671,18 +1011,50 @@ export async function syncArboxLeadStatusForBusiness(input: {
     now,
   });
   summary.pages_fetched = report.pagesFetched;
-  if (!report.ok) {
-    summary.errors += 1;
-    summary.fetch_error = report.error;
+  const indexed = report.ok
+    ? indexLeadStatusReport({ rows: report.rows, previous: snapshot.rows })
+    : { people: new Map<string, LeadStatusPerson>(), openLeadCount: 0 };
+  if (
+    leadStatusPullIntegrityBlocked({
+      fetchOk: report.ok,
+      hitPageCap: Boolean(report.hitPageCap),
+      previousOpenLeads: snapshot.rows.size,
+      currentOpenLeads: indexed.openLeadCount,
+    })
+  ) {
+    console.error("[leads/arbox-lead-status] pull integrity - no send, snapshot unchanged", {
+      businessId,
+      fetchOk: report.ok,
+      hitPageCap: Boolean(report.hitPageCap),
+      previousOpenLeads: snapshot.rows.size,
+      currentOpenLeads: indexed.openLeadCount,
+    });
+    summary.skipped = true;
+    summary.skip_reason = "pull_integrity";
+    summary.skipped_integrity += 1;
+    summary.fetch_error = report.ok ? "pull_integrity" : report.error;
+    const rule = rulesResult.rules[0];
+    if (rule) {
+      const marked = await upsertSync({
+        admin: input.admin,
+        businessId,
+        triggerId: rule.id,
+        leadId: INTEGRITY_LEAD_ID,
+        leadStatus: "pull_integrity",
+        enteredAt: `${formatDateYmdIsrael(now)}T00:00:00.000Z`,
+        contactId: null,
+        nowIso,
+        status: "skipped",
+        attempts: 0,
+        reason: "pull_integrity",
+      });
+      if (!marked.ok) summary.errors += 1;
+    }
     return summary;
   }
 
-  const current = new Map<string, LeadStatusPerson>();
-  for (const raw of report.rows) {
-    const person = parseLeadStatusPerson(raw);
-    if (person) current.set(person.leadId, person);
-  }
-  summary.open_leads = current.size;
+  const current = indexed.people;
+  summary.open_leads = indexed.openLeadCount;
   const currentStatus = new Map([...current].map(([id, person]) => [id, person.status]));
   const diff = diffLeadStatuses(snapshot.rows, currentStatus);
   summary.transitions = diff.transitions.length;
@@ -695,9 +1067,9 @@ export async function syncArboxLeadStatusForBusiness(input: {
     now,
     ruleActivationMs: rulesResult.rules.map((rule) => ruleActivationMs(rule)),
   });
-  const mass = !reseed && leadStatusMassChangeBlocked(diff.transitions.length, current.size);
   const enteredAt = scanned.at ?? nowIso;
   const knownBefore = known.statuses;
+  const todayYmd = formatDateYmdIsrael(now);
 
   if (!reseed) {
     for (const change of diff.transitions) {
@@ -708,42 +1080,89 @@ export async function syncArboxLeadStatusForBusiness(input: {
       for (const rule of rulesResult.rules) {
         if (rule.target_status !== change.to) continue;
         if (!leadStatusRuleCanSend(rule, enteredAt, now)) continue;
-        if (mass) {
-          const marked = await upsertSync({
+        const person = current.get(change.leadId);
+        if (!person) continue;
+        if (!pendingColumns) {
+          await sendOne({
             admin: input.admin,
             businessId,
-            triggerId: rule.id,
-            leadId: change.leadId,
-            leadStatus: change.to,
+            businessSlug: input.businessSlug,
+            apiKey: input.apiKey,
+            person,
+            rule,
             enteredAt,
-            contactId: null,
+            now,
             nowIso,
-            status: "skipped",
-            attempts: 0,
-            reason: "mass_change",
+            summary,
+            fetchProfile: input.fetchProfile ?? fetchArboxUserPhone,
+            dispatchTemplate: input.dispatchTemplate,
+            queueDelay: true,
           });
-          if (!marked.ok) summary.errors += 1;
-          else summary.skipped_mass += 1;
           continue;
         }
-        await sendOne({
+        const dueDate = leadStatusDueYmd(now, rule.delay_days);
+        const claimed = await insertPendingEpisode({
           admin: input.admin,
           businessId,
-          businessSlug: input.businessSlug,
-          apiKey: input.apiKey,
-          person: current.get(change.leadId)!,
-          rule,
+          triggerId: rule.id,
+          leadId: change.leadId,
+          leadStatus: change.to,
           enteredAt,
-          now,
           nowIso,
-          summary,
-          fetchProfile: input.fetchProfile ?? fetchArboxUserPhone,
-          dispatchTemplate: input.dispatchTemplate,
+          dueDate,
+          sendSlot: rule.send_slot,
         });
+        if (claimed === "lost") {
+          summary.already += 1;
+        } else if (claimed === "legacy") {
+          pendingColumns = false;
+          await sendOne({
+            admin: input.admin,
+            businessId,
+            businessSlug: input.businessSlug,
+            apiKey: input.apiKey,
+            person,
+            rule,
+            enteredAt,
+            now,
+            nowIso,
+            summary,
+            fetchProfile: input.fetchProfile ?? fetchArboxUserPhone,
+            dispatchTemplate: input.dispatchTemplate,
+            queueDelay: true,
+          });
+        } else if (claimed === "error") {
+          summary.errors += 1;
+        }
       }
     }
   } else {
     summary.seeded = true;
+  }
+
+  if (pendingColumns) {
+    await convertLeadStatusStageC({
+      admin: input.admin,
+      businessId,
+      rules: rulesResult.rules,
+      now,
+      nowIso,
+    });
+    await drainLeadStatusPending({
+      admin: input.admin,
+      businessId,
+      businessSlug: input.businessSlug,
+      apiKey: input.apiKey,
+      rules: rulesResult.rules,
+      current,
+      runSlot,
+      todayYmd,
+      now,
+      nowIso,
+      summary,
+      fetchProfile: input.fetchProfile ?? fetchArboxUserPhone,
+      dispatchTemplate: input.dispatchTemplate,
+    });
   }
 
   const seenAt = nowIso;
@@ -807,6 +1226,7 @@ async function sendOne(input: {
   summary: LeadStatusSyncSummary;
   fetchProfile: typeof fetchArboxUserPhone;
   dispatchTemplate?: typeof dispatchLeadStatusTemplate;
+  queueDelay: boolean;
 }): Promise<void> {
   const { person, rule, summary } = input;
   const { data: existing, error: existingErr } = await input.admin
@@ -966,6 +1386,7 @@ async function sendOne(input: {
     rule,
     now: input.now,
     dedupKey: scheduledKey(input.businessId, rule.id, person.leadId, person.status, input.enteredAt),
+    queueDelay: input.queueDelay,
   });
   if (send.dispatch === "immediate" || send.dispatch === "deferred") {
     markRetentionSent(input.businessId, phone, input.now);

@@ -22,6 +22,7 @@ import {
 } from "@/lib/template-trigger-types";
 import { applyProductFilterScopeChange, normalizeProductIdList } from "@/lib/filter-scope-change";
 import { productFilterChanged, ruleActivationResets, type RuleActivationSnapshot } from "@/lib/rule-activation";
+import { parseSendSlotForTrigger } from "@/lib/trigger-catalog";
 
 /** incoming_lead (and legacy) / no_response / arbox_new_lead: force after + no product_filter. */
 function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -55,6 +56,7 @@ type TriggerRow = {
   enabled: boolean;
   created_at: string;
   target_status?: string | null;
+  send_slot?: "morning" | "evening" | null;
 };
 
 async function requireTriggersAccess(slug: string) {
@@ -212,11 +214,17 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
       row.target_status != null && String(row.target_status).trim()
         ? String(row.target_status).trim()
         : null,
+    send_slot:
+      row.send_slot === "morning" || row.send_slot === "evening" ? row.send_slot : null,
   };
 }
 
 function missingTargetStatusColumn(message: string): boolean {
   return /target_status|schema cache|PGRST204|could not find the/i.test(message);
+}
+
+function missingSendSlotColumn(message: string): boolean {
+  return /send_slot|schema cache|PGRST204|could not find the/i.test(message);
 }
 
 const TRIGGER_SELECT =
@@ -233,11 +241,20 @@ export async function GET(_req: NextRequest, ctx: RouteContext) {
 
   const listed = await admin
     .from("template_triggers")
-    .select(`${TRIGGER_SELECT}, target_status`)
+    .select(`${TRIGGER_SELECT}, target_status, send_slot`)
     .eq("business_id", business.id)
     .order("created_at", { ascending: true });
   let data = listed.data as Record<string, unknown>[] | null;
   let error = listed.error;
+  if (error && missingSendSlotColumn(error.message) && !/target_status/i.test(error.message)) {
+    const withoutSlot = await admin
+      .from("template_triggers")
+      .select(`${TRIGGER_SELECT}, target_status`)
+      .eq("business_id", business.id)
+      .order("created_at", { ascending: true });
+    data = (withoutSlot.data ?? null) as Record<string, unknown>[] | null;
+    error = withoutSlot.error;
+  }
   if (error && missingTargetStatusColumn(error.message)) {
     const fallback = await admin
       .from("template_triggers")
@@ -370,7 +387,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: "invalid_lookback_days" }, { status: 400 });
   }
 
-  const insertRow = {
+  const insertRow: Record<string, unknown> = {
     business_id: business.id,
     trigger_type: triggerType,
     product_filter: productFilter,
@@ -390,6 +407,13 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
         }
       : {}),
   };
+  if (body.send_slot !== undefined) {
+    const parsedSlot = parseSendSlotForTrigger(triggerType, body.send_slot);
+    if (!parsedSlot.ok) {
+      return NextResponse.json({ error: parsedSlot.error }, { status: 400 });
+    }
+    if (parsedSlot.slot) insertRow.send_slot = parsedSlot.slot;
+  }
 
   const { data: created, error: insertErr } = await admin
     .from("template_triggers")
@@ -399,15 +423,20 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   if (insertErr) {
     console.error("[api/triggers] insert failed:", insertErr.message);
+    if (/send_slot/i.test(insertErr.message)) {
+      return NextResponse.json({ error: "send_slot_schema_missing" }, { status: 503 });
+    }
     if (missingTargetStatusColumn(insertErr.message)) {
       return NextResponse.json({ error: "lead_status_schema_missing" }, { status: 503 });
     }
     return NextResponse.json({ error: "trigger_create_failed" }, { status: 500 });
   }
 
-  return NextResponse.json({
-    trigger: normalizeTriggerRow((created ?? insertRow) as Record<string, unknown>),
-  });
+  const createdTrigger = normalizeTriggerRow((created ?? insertRow) as Record<string, unknown>);
+  if (insertRow.send_slot === "morning" || insertRow.send_slot === "evening") {
+    createdTrigger.send_slot = insertRow.send_slot;
+  }
+  return NextResponse.json({ trigger: createdTrigger });
 }
 
 /**
@@ -594,6 +623,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.enabled = Boolean(body.enabled);
   }
 
+  if (body.send_slot !== undefined) {
+    let typeForSlot = patch.trigger_type != null ? String(patch.trigger_type) : null;
+    if (typeForSlot == null) {
+      const { data: existingForSlot } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .eq("id", id)
+        .eq("business_id", business.id)
+        .maybeSingle();
+      typeForSlot = String((existingForSlot as { trigger_type?: unknown } | null)?.trigger_type ?? "");
+    }
+    const parsedSlot = parseSendSlotForTrigger(typeForSlot, body.send_slot);
+    if (!parsedSlot.ok) {
+      return NextResponse.json({ error: parsedSlot.error }, { status: 400 });
+    }
+    patch.send_slot = parsedSlot.slot;
+  }
+
   if (body.target_status !== undefined) {
     const status =
       body.target_status == null || String(body.target_status).trim() === ""
@@ -685,15 +732,20 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 
   if (updErr) {
     console.error("[api/triggers] update failed:", updErr.message);
+    if (/send_slot/i.test(updErr.message)) {
+      return NextResponse.json({ error: "send_slot_schema_missing" }, { status: 503 });
+    }
     return NextResponse.json({ error: "trigger_update_failed" }, { status: 500 });
   }
   if (!updated) {
     return NextResponse.json({ error: "trigger_not_found" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    trigger: normalizeTriggerRow(updated as Record<string, unknown>),
-  });
+  const updatedTrigger = normalizeTriggerRow(updated as Record<string, unknown>);
+  if (patch.send_slot === "morning" || patch.send_slot === "evening" || patch.send_slot === null) {
+    updatedTrigger.send_slot = patch.send_slot;
+  }
+  return NextResponse.json({ trigger: updatedTrigger });
 }
 
 /**

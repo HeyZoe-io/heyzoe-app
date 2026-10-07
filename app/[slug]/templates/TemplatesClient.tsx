@@ -67,6 +67,8 @@ import {
   showsItemTypeFilter,
   showsProductFilter,
   TRIGGER_TYPE_OPTIONS,
+  allowedSendSlots,
+  sendSlotLabelHe,
   triggerCatalogEntry,
   triggerSendScheduleHintHe,
   triggerTypeLabel,
@@ -120,6 +122,7 @@ export type TriggerRow = {
   enabled: boolean;
   created_at: string;
   target_status?: string | null;
+  send_slot?: string | null;
 };
 
 type KnownLeadStatus = { status: string; last_seen_at: string };
@@ -392,6 +395,31 @@ function LeadStatusPicker(props: {
   );
 }
 
+function SendSlotPicker(props: {
+  type: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const slots = allowedSendSlots(props.type);
+  if (!slots.length) return null;
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium text-zinc-800">מתי לשלוח</label>
+      <select
+        value={props.value || "next_run"}
+        onChange={(e) => props.onChange(e.target.value)}
+        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+      >
+        {slots.map((slot) => (
+          <option key={slot} value={slot}>
+            {sendSlotLabelHe(slot)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export default function TemplatesClient({
   slug,
   initialTemplates,
@@ -440,6 +468,7 @@ export default function TemplatesClient({
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [editDelayDays, setEditDelayDays] = useState(0);
   const [editTargetStatus, setEditTargetStatus] = useState("");
+  const [editSendSlot, setEditSendSlot] = useState("next_run");
   const [knownLeadStatuses, setKnownLeadStatuses] = useState<KnownLeadStatus[]>([]);
   const [leadStatusScannedAt, setLeadStatusScannedAt] = useState<string | null>(null);
   const [editDelayDirection, setEditDelayDirection] = useState<DelayDirection>("after");
@@ -468,6 +497,7 @@ export default function TemplatesClient({
   >({ plan: "", session: "", service: "" });
   const [newDelayDays, setNewDelayDays] = useState(0);
   const [newTargetStatus, setNewTargetStatus] = useState("");
+  const [newSendSlot, setNewSendSlot] = useState("next_run");
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
@@ -775,7 +805,7 @@ export default function TemplatesClient({
         template_name: input.template_name,
         enabled: input.enabled,
         ...(input.trigger_type === "lead_status_changed"
-          ? { target_status: newTargetStatus.trim() || null }
+          ? { target_status: newTargetStatus.trim() || null, send_slot: newSendSlot }
           : {}),
       }),
     });
@@ -1017,6 +1047,7 @@ export default function TemplatesClient({
     );
     setEditTemplateName(trigger.template_name ?? "");
     setEditTargetStatus(trigger.target_status ?? "");
+    setEditSendSlot(trigger.send_slot || "next_run");
   }
 
   async function onSaveTriggerEdit(trigger: TriggerRow) {
@@ -1039,6 +1070,7 @@ export default function TemplatesClient({
       }
       if (trigger.trigger_type === "lead_status_changed") {
         body.target_status = editTargetStatus.trim() || null;
+        body.send_slot = editSendSlot;
       }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
         method: "PATCH",
@@ -1826,6 +1858,9 @@ export default function TemplatesClient({
                       {trigger.trigger_type === "lead_status_changed" && trigger.target_status ? (
                         <p className="text-xs text-zinc-600">סטטוס: {trigger.target_status}</p>
                       ) : null}
+                      {allowedSendSlots(trigger.trigger_type).length > 0 ? (
+                        <p className="text-xs text-zinc-600">{sendSlotLabelHe(trigger.send_slot)}</p>
+                      ) : null}
                       {trigger.trigger_type === "lead_status_changed" &&
                       leadStatusNotInLatestScan(
                         trigger.target_status,
@@ -1884,12 +1919,19 @@ export default function TemplatesClient({
                       {editingTriggerId === trigger.id ? (
                         <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                           {trigger.trigger_type === "lead_status_changed" ? (
-                            <LeadStatusPicker
-                              value={editTargetStatus}
-                              statuses={knownLeadStatuses}
-                              scannedAt={leadStatusScannedAt}
-                              onChange={setEditTargetStatus}
-                            />
+                            <>
+                              <LeadStatusPicker
+                                value={editTargetStatus}
+                                statuses={knownLeadStatuses}
+                                scannedAt={leadStatusScannedAt}
+                                onChange={setEditTargetStatus}
+                              />
+                              <SendSlotPicker
+                                type={trigger.trigger_type}
+                                value={editSendSlot}
+                                onChange={setEditSendSlot}
+                              />
+                            </>
                           ) : null}
                           {isImmediateDelayTrigger(trigger.trigger_type) ? (
                             <p className="text-xs text-zinc-600">נשלח מיד עם האירוע.</p>
@@ -2285,12 +2327,19 @@ export default function TemplatesClient({
                         ) : null}
 
                         {newTriggerType === "lead_status_changed" ? (
-                          <LeadStatusPicker
-                            value={newTargetStatus}
-                            statuses={knownLeadStatuses}
-                            scannedAt={leadStatusScannedAt}
-                            onChange={setNewTargetStatus}
-                          />
+                          <>
+                            <LeadStatusPicker
+                              value={newTargetStatus}
+                              statuses={knownLeadStatuses}
+                              scannedAt={leadStatusScannedAt}
+                              onChange={setNewTargetStatus}
+                            />
+                            <SendSlotPicker
+                              type={newTriggerType}
+                              value={newSendSlot}
+                              onChange={setNewSendSlot}
+                            />
+                          </>
                         ) : null}
                         {isNewImmediateDelay ? (
                           <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">

@@ -2,14 +2,23 @@ import assert from "node:assert/strict";
 import {
   diffLeadStatuses,
   isMissingLeadStatusSchema,
-  leadStatusMassChangeBlocked,
+  leadStatusPendingExpired,
+  leadStatusPullIntegrityBlocked,
   leadStatusRuleCanSend,
   leadStatusSendIsQueued,
   leadStatusShouldReseed,
+  leadStatusShouldSkipScan,
   syncArboxLeadStatusForBusiness,
   type LeadStatusRule,
 } from "@/lib/leads/arbox-lead-status-change";
-import { minDelayDaysForTrigger, defaultDelayDays, formatDelayLabel } from "@/lib/trigger-catalog";
+import {
+  allowedSendSlots,
+  defaultDelayDays,
+  formatDelayLabel,
+  minDelayDaysForTrigger,
+  parseSendSlotForTrigger,
+} from "@/lib/trigger-catalog";
+import { ruleActivationResets } from "@/lib/rule-activation";
 import { retentionRank } from "@/lib/leads/retention-daily-cap";
 import { markRetentionSent } from "@/lib/leads/retention-daily-cap";
 
@@ -23,9 +32,55 @@ assert.equal(leadStatusSendIsQueued(0, now), false);
 assert.equal(leadStatusSendIsQueued(1, now), true);
 assert.ok(retentionRank("lost_lead") < retentionRank("lead_status_changed"));
 assert.equal(isMissingLeadStatusSchema("relation does not exist"), true);
-assert.equal(leadStatusMassChangeBlocked(21, 100), true);
-assert.equal(leadStatusMassChangeBlocked(3, 10), true);
-assert.equal(leadStatusMassChangeBlocked(2, 10), false);
+assert.equal(
+  leadStatusPullIntegrityBlocked({
+    fetchOk: false,
+    hitPageCap: false,
+    previousOpenLeads: 10,
+    currentOpenLeads: 10,
+  }),
+  true
+);
+assert.equal(
+  leadStatusPullIntegrityBlocked({
+    fetchOk: true,
+    hitPageCap: true,
+    previousOpenLeads: 10,
+    currentOpenLeads: 10,
+  }),
+  true
+);
+assert.equal(
+  leadStatusPullIntegrityBlocked({
+    fetchOk: true,
+    hitPageCap: false,
+    previousOpenLeads: 10,
+    currentOpenLeads: 6,
+  }),
+  true
+);
+assert.equal(
+  leadStatusPullIntegrityBlocked({
+    fetchOk: true,
+    hitPageCap: false,
+    previousOpenLeads: 10,
+    currentOpenLeads: 7,
+  }),
+  false
+);
+assert.equal(leadStatusShouldSkipScan(["evening"], "morning"), true);
+assert.equal(leadStatusShouldSkipScan(["morning"], "evening"), true);
+assert.equal(leadStatusShouldSkipScan(["evening", "next_run"], "morning"), false);
+assert.equal(leadStatusPendingExpired("2026-10-01", "2026-10-07"), true);
+assert.equal(leadStatusPendingExpired("2026-10-07", "2026-10-09"), false);
+assert.equal(allowedSendSlots("purchase").length, 0);
+assert.deepEqual([...allowedSendSlots("lead_status_changed")], ["next_run", "morning", "evening"]);
+assert.equal(parseSendSlotForTrigger("lost_lead", "morning").ok, false);
+assert.equal(parseSendSlotForTrigger("lead_status_changed", "evening").ok, true);
+assert.equal(
+  ruleActivationResets({ enabled: true, delay_days: 0 }, { delay_days: 0 }),
+  false
+);
 
 {
   const previous = new Map([
@@ -66,6 +121,15 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  leadStatusShouldReseed({
+    snapshotCount: 2,
+    lastScannedAt: new Date(now.getTime() - 24 * 3600_000).toISOString(),
+    now,
+    ruleActivationMs: [1],
+  }),
+  false
+);
 
 const rule = (delay: number, updated = "2026-10-01T00:00:00.000Z"): LeadStatusRule => ({
   id: "rule-1",
@@ -75,6 +139,7 @@ const rule = (delay: number, updated = "2026-10-01T00:00:00.000Z"): LeadStatusRu
   created_at: "2026-10-01T00:00:00.000Z",
   updated_at: updated,
   target_status: "ללא מענה 1",
+  send_slot: "next_run",
 });
 
 assert.equal(leadStatusRuleCanSend(rule(0), scanned, now), true);
@@ -161,8 +226,9 @@ function memoryAdmin(seed: Record<string, Row[]>) {
           return { error: null, data: [] };
         }
         if (op === "update") {
-          for (const row of rows().filter(matches)) Object.assign(row, batch[0] ?? {});
-          return { error: null, data: rows().filter(matches) };
+          const matched = rows().filter(matches);
+          for (const row of matched) Object.assign(row, batch[0] ?? {});
+          return { error: null, data: matched };
         }
         for (const row of batch) {
           if (op === "insert" && table === "arbox_lead_status_change_sync_log") {
@@ -250,11 +316,13 @@ function baseTables(extra?: Record<string, Row[]>): Record<string, Row[]> {
 
 async function run(
   tables: Record<string, Row[]>,
-  rows: Record<string, unknown>[],
+  rows: Record<string, unknown>[] | { ok: false; error: string },
   delay = 0,
-  when = now
+  when = now,
+  slot: "morning" | "evening" = "morning",
+  pendingColumns?: boolean
 ) {
-  tables.template_triggers = [{ ...tables.template_triggers[0], delay_days: delay }];
+  tables.template_triggers = tables.template_triggers.map((row) => ({ ...row, delay_days: delay }));
   const admin = memoryAdmin(tables);
   let fetches = 0;
   let sends = 0;
@@ -265,8 +333,11 @@ async function run(
     apiKey: "key",
     boxId: "1",
     now: when,
+    slot,
+    pendingColumns,
     fetchLeads: async () => {
       fetches += 1;
+      if (!Array.isArray(rows)) return { ok: false, error: rows.error, pagesFetched: 1 };
       return { ok: true, rows, pagesFetched: 1 };
     },
     dispatchTemplate: async () => {
@@ -348,7 +419,7 @@ async function cases() {
     baseTables({
       businesses: [{ id: 3646, arbox_lead_status_last_scanned_at: "2026-10-05T00:00:00.000Z" }],
     }),
-    [lead("10", "ללא מענה 1")]
+    withCrowd(lead("10", "ללא מענה 1"))
   );
   assert.equal(stale.summary.seeded, true);
   assert.equal(stale.sends, 0);
@@ -376,9 +447,8 @@ async function cases() {
 
   const fresh = await run(
     baseTables({ arbox_lead_known_statuses: [{ business_id: 3646, status: "בטיפול" }] }),
-    [
-    lead("10", "ללא מענה 1"),
-  ]);
+    withCrowd(lead("10", "ללא מענה 1"))
+  );
   assert.equal(fresh.sends, 0);
   assert.equal(fresh.summary.skipped_unknown_status, 1);
 
@@ -409,20 +479,19 @@ async function cases() {
   assert.equal(back.sends, 1);
   assert.equal(back.summary.notified, 1);
 
-  const many = Array.from({ length: 21 }, (_, index) => lead(String(index + 1), "ללא מענה 1"));
-  const massTables = baseTables({
+  const many = Array.from({ length: 30 }, (_, index) =>
+    lead(String(index + 1), "ללא מענה 1", `97250112${String(1000 + index)}`)
+  );
+  const manyTables = baseTables({
     arbox_lead_status_snapshot: many.map((row) => ({
       business_id: 3646,
       lead_id: row.user_id,
       status: "בטיפול",
     })),
   });
-  const mass = await run(massTables, many);
-  assert.equal(mass.sends, 0);
-  assert.equal(mass.summary.skipped_mass, 21);
-  assert.ok(
-    mass.admin.tables.arbox_lead_status_change_sync_log.every((row) => row.reason === "mass_change")
-  );
+  const burst = await run(manyTables, many);
+  assert.equal(burst.sends, 30);
+  assert.equal(burst.summary.notified, 30);
 
   const lateRule = baseTables();
   lateRule.template_triggers[0].updated_at = "2026-10-07T04:00:00.000Z";
@@ -435,9 +504,208 @@ async function cases() {
   assert.equal(capped.summary.skipped_cap, 1);
 
   const queued = await run(baseTables(), withCrowd(lead("10", "ללא מענה 1", "972501110088")), 2);
-  assert.equal(queued.sends, 1);
-  assert.equal(queued.summary.deferred, 1);
-  assert.equal(queued.summary.notified, 0);
+  assert.equal(queued.sends, 0);
+  assert.equal(queued.summary.pending_held, 1);
+  const due = await run(
+    queued.admin.tables,
+    withCrowd(lead("10", "ללא מענה 1", "972501110088")),
+    2,
+    new Date("2026-10-09T06:00:00.000Z")
+  );
+  assert.equal(due.sends, 1);
+
+  const legacy = await run(
+    baseTables(),
+    withCrowd(lead("10", "ללא מענה 1", "972501110089")),
+    2,
+    now,
+    "morning",
+    false
+  );
+  assert.equal(legacy.sends, 1);
+  assert.equal(legacy.summary.deferred, 1);
+
+  const failed = await run(baseTables(), { ok: false, error: "arbox_report_fetch_failed" });
+  assert.equal(failed.sends, 0);
+  assert.equal(failed.summary.skip_reason, "pull_integrity");
+  assert.equal(failed.admin.tables.arbox_lead_status_snapshot.length, 10);
+  assert.equal(failed.admin.tables.businesses[0].arbox_lead_status_last_scanned_at, scanned);
+
+  const dropped = await run(baseTables(), withCrowd(lead("10", "ללא מענה 1", "972501110090")).slice(0, 6));
+  assert.equal(dropped.sends, 0);
+  assert.equal(dropped.summary.skip_reason, "pull_integrity");
+  assert.equal(dropped.admin.tables.arbox_lead_status_snapshot.length, 10);
+
+  const blank = await run(baseTables(), [
+    { user_id: "10", lead_status: "", phone: "972501110010", full_name: "דנה כהן" },
+    ...withCrowd(lead("99", "בטיפול")).slice(1),
+  ]);
+  assert.equal(blank.sends, 0);
+  assert.equal(blank.summary.transitions, 0);
+  assert.equal(
+    blank.admin.tables.arbox_lead_status_snapshot.find((row) => row.lead_id === "10")?.status,
+    "בטיפול"
+  );
+
+  const eveningRule = baseTables();
+  eveningRule.template_triggers[0].send_slot = "evening";
+  eveningRule.template_triggers.push({
+    ...eveningRule.template_triggers[0],
+    id: "rule-keep-scan",
+    target_status: "אין כזה",
+    send_slot: "next_run",
+  });
+  const seenMorning = await run(
+    eveningRule,
+    withCrowd(lead("10", "ללא מענה 1", "972501110031")),
+    0,
+    now,
+    "morning"
+  );
+  assert.equal(seenMorning.sends, 0);
+  assert.equal(seenMorning.summary.pending_held, 1);
+  const seenEvening = await run(
+    seenMorning.admin.tables,
+    withCrowd(lead("10", "ללא מענה 1", "972501110031")),
+    0,
+    now,
+    "evening"
+  );
+  assert.equal(seenEvening.sends, 1);
+
+  const leftRule = baseTables();
+  leftRule.template_triggers[0].send_slot = "evening";
+  leftRule.template_triggers.push({
+    ...leftRule.template_triggers[0],
+    id: "rule-keep-scan",
+    target_status: "אין כזה",
+    send_slot: "next_run",
+  });
+  const leftStatus = await run(
+    leftRule,
+    withCrowd(lead("10", "ללא מענה 1", "972501110032")),
+    0,
+    now,
+    "morning"
+  );
+  const changedBefore = await run(
+    leftStatus.admin.tables,
+    withCrowd(lead("10", "בטיפול", "972501110032")),
+    0,
+    now,
+    "evening"
+  );
+  assert.equal(changedBefore.sends, 0);
+  assert.equal(changedBefore.summary.skipped_status, 1);
+
+  const morningRule = baseTables();
+  morningRule.template_triggers[0].send_slot = "morning";
+  const seenAtEvening = await run(
+    morningRule,
+    withCrowd(lead("10", "ללא מענה 1", "972501110033")),
+    0,
+    now,
+    "evening"
+  );
+  assert.equal(seenAtEvening.sends, 0);
+  const nextMorning = await run(
+    seenAtEvening.admin.tables,
+    withCrowd(lead("10", "ללא מענה 1", "972501110033")),
+    0,
+    new Date("2026-10-08T06:00:00.000Z"),
+    "morning"
+  );
+  assert.equal(nextMorning.sends, 1);
+
+  const skipMorning = baseTables();
+  skipMorning.template_triggers[0].send_slot = "evening";
+  const noMorningScan = await run(skipMorning, withCrowd(lead("10", "ללא מענה 1")), 0, now, "morning");
+  assert.equal(noMorningScan.fetches, 0);
+  assert.equal(noMorningScan.summary.skip_reason, "scan_slot");
+
+  const oldPending = baseTables();
+  oldPending.arbox_lead_status_change_sync_log = [
+    {
+      business_id: 3646,
+      trigger_id: "rule-1",
+      lead_id: "10",
+      lead_status: "ללא מענה 1",
+      entered_at: "2026-10-01T03:00:00.000Z",
+      due_date: "2026-10-01",
+      send_slot: "next_run",
+      status: "pending",
+      attempts: 0,
+    },
+  ];
+  const expired = await run(oldPending, withCrowd(lead("10", "בטיפול")));
+  assert.equal(expired.sends, 0);
+  assert.equal(expired.summary.expired, 1);
+
+  const historical = baseTables();
+  historical.arbox_lead_status_change_sync_log = [
+    {
+      business_id: 3646,
+      trigger_id: "rule-1",
+      lead_id: "10",
+      lead_status: "ללא מענה 1",
+      entered_at: scanned,
+      status: "skipped",
+      reason: "mass_change",
+    },
+  ];
+  const keptMass = await run(historical, withCrowd(lead("10", "ללא מענה 1", "972501110044")));
+  assert.equal(keptMass.sends, 0);
+  const massRow = keptMass.admin.tables.arbox_lead_status_change_sync_log.find(
+    (row) => row.reason === "mass_change"
+  );
+  assert.equal(massRow?.status, "skipped");
+
+  const both = baseTables();
+  both.template_triggers[0].target_status = "בטיפול";
+  both.template_triggers[0].send_slot = "evening";
+  both.template_triggers.push({
+    ...both.template_triggers[0],
+    id: "rule-y",
+    target_status: "ללא מענה 1",
+    send_slot: "evening",
+  });
+  both.arbox_lead_status_change_sync_log = [
+    {
+      business_id: 3646,
+      trigger_id: "rule-1",
+      lead_id: "10",
+      lead_status: "בטיפול",
+      entered_at: "2026-10-06T15:00:00.000Z",
+      due_date: "2026-10-07",
+      send_slot: "evening",
+      status: "pending",
+      attempts: 0,
+    },
+  ];
+  const moved = await run(both, withCrowd(lead("10", "ללא מענה 1", "972501110055")), 0, now, "evening");
+  assert.equal(moved.sends, 1);
+  const xRow = moved.admin.tables.arbox_lead_status_change_sync_log.find(
+    (row) => row.trigger_id === "rule-1" && row.lead_status === "בטיפול"
+  );
+  assert.equal(xRow?.status, "skipped");
+  assert.equal(xRow?.reason, "status_changed_before_send");
+  const yRow = moved.admin.tables.arbox_lead_status_change_sync_log.find((row) => row.trigger_id === "rule-y");
+  assert.equal(yRow?.status, "sent");
+
+  const staged = baseTables();
+  staged.scheduled_template_sends = [
+    {
+      business_id: 3646,
+      trigger_id: "rule-1",
+      status: "pending",
+      dedup_key: `lead_status_changed:3646:rule-1:10:ללא מענה 1:${scanned}`,
+      due_at: now.toISOString(),
+      contact_phone: "972501110066",
+    },
+  ];
+  const converted = await run(staged, withCrowd(lead("10", "ללא מענה 1", "972501110066")));
+  assert.equal(converted.sends, 1);
+  assert.equal(converted.admin.tables.scheduled_template_sends[0].status, "canceled");
 
   const opted = baseTables({
     contacts: [

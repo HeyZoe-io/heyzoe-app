@@ -25,6 +25,18 @@ assert.equal(
   "שינוי סטטוס המוני"
 );
 assert.equal(
+  unsentReason({ status: "skipped", lastError: "status_changed_before_send", overdue: false }),
+  null
+);
+assert.equal(
+  unsentReason({ status: "skipped", lastError: "pull_integrity", overdue: false }),
+  "סריקת ארבוקס לא שלמה"
+);
+assert.equal(
+  unsentReason({ status: "skipped", lastError: "expired", overdue: false }),
+  "פג תוקף כי הסריקה נכשלה"
+);
+assert.equal(
   unsentReason({ status: "canceled", lastError: "retention_daily_cap", overdue: false }),
   "תקרת שימור יומית"
 );

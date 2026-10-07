@@ -282,6 +282,7 @@ async function runLeadStatusChangedStep(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
   now: Date;
+  slot: "morning" | "evening";
   timings: ArboxDailyStepTiming[];
   entry: { [step: string]: unknown };
 }): Promise<void> {
@@ -294,6 +295,7 @@ async function runLeadStatusChangedStep(input: {
         apiKey: input.business.crm_api_key,
         boxId: input.business.crm_box_id,
         now: input.now,
+        slot: input.slot,
       })
     );
   } catch (e) {
@@ -406,7 +408,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
         fetch_error: message,
       };
     }
-    await runLeadStatusChangedStep({ admin, business, now, timings, entry });
+    await runLeadStatusChangedStep({ admin, business, now, slot: "evening", timings, entry });
     const ctx = arboxDailyContext();
     return {
       business_id: business.id,
@@ -1275,7 +1277,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
 
-  await runLeadStatusChangedStep({ admin, business, now, timings, entry });
+  await runLeadStatusChangedStep({ admin, business, now, slot, timings, entry });
 
   const ctx = arboxDailyContext();
   return {

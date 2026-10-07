@@ -176,9 +176,9 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     button_text: "אשמח לפרטים",
   },
   lead_status_changed: {
-    name: "lead_status_changed",
+    name: "lead_status_no_answer",
     category: "MARKETING",
-    body: "היי {{1}}",
+    body: "היי {{1}}, ניסינו להשיג אותך ולא הצלחנו. אפשר לכתוב לנו כאן ונמצא זמן שנוח לך.",
   },
   trial_reminder: {
     name: "trial_reminder",

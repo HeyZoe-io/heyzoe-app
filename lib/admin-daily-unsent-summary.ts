@@ -101,6 +101,9 @@ export function unsentReason(input: {
   if (status === "no_phone" || err.includes("no_phone")) return "אין טלפון";
   if (err.includes("retention_daily_cap")) return "תקרת שימור יומית";
   if (err === "before_activation" || err === "activation_cutoff") return null;
+  if (err === "status_changed_before_send") return null;
+  if (err.includes("pull_integrity")) return "סריקת ארבוקס לא שלמה";
+  if (err === "expired") return "פג תוקף כי הסריקה נכשלה";
   if (err.includes("mass_change")) return "שינוי סטטוס המוני";
   if (status === "canceled" || status === "cancelled") return "בוטל";
   if (status === "skipped") return "דילוג";

@@ -28,6 +28,11 @@ type TriggerCatalogEntryShape = {
   presetKey: string;
   uiOrder: number;
   sendHintHe: string;
+  /**
+   * Empty means no slot selector and the historical send time.
+   * Only lead_status_changed sets this.
+   */
+  allowedSendSlots?: readonly ("next_run" | "morning" | "evening")[];
   /** Only for activation=manual + implemented — maps to M1 audience_type. */
   manualAudienceType?: ManualBulkAudienceType;
 };
@@ -38,7 +43,7 @@ const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון י
 const SEND_HINT_LOST_LEAD_HE =
   "דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-09:00 ביום היעד (שעון ישראל).";
 const SEND_HINT_LEAD_STATUS_HE =
-  "נבדק ב-09:00 וב-20:30 (שעון ישראל). דיליי 0 נשלח בריצה שזיהתה את המעבר. דיליי של יום ומעלה יוצא ביום היעד.";
+  "נבדק ב-09:00 וב-20:30 (שעון ישראל). אפשר לבחור בריצה הקרובה, רק ב-09:00, או רק ב-20:30. דיליי של יום ומעלה יוצא ביום היעד, בחלון שנבחר, ורק אם הליד עדיין בסטטוס.";
 const SEND_HINT_TRIAL_CLASS_HE =
   "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:30 בערב שלפני.";
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
@@ -425,6 +430,7 @@ export const TRIGGER_CATALOG = [
     presetKey: "lead_status_changed",
     uiOrder: 31,
     sendHintHe: SEND_HINT_LEAD_STATUS_HE,
+    allowedSendSlots: ["next_run", "morning", "evening"],
   },
   {
     type: "trial_reminder",
@@ -585,6 +591,47 @@ export type TriggerType = Extract<
   TriggerCatalogEntry,
   { activation: "automatic"; implemented: true }
 >["type"];
+
+export const LEAD_STATUS_SEND_SLOTS = ["next_run", "morning", "evening"] as const;
+export type LeadStatusSendSlot = (typeof LEAD_STATUS_SEND_SLOTS)[number];
+
+const SEND_SLOT_LABELS_HE: Record<LeadStatusSendSlot, string> = {
+  next_run: "בריצה הקרובה (09:00 או 20:30)",
+  morning: "רק ב-09:00",
+  evening: "רק ב-20:30",
+};
+
+/** No slots means the trigger has no selector and keeps its historical send time. */
+export function allowedSendSlots(type: string): readonly LeadStatusSendSlot[] {
+  const canonical = canonicalizeTriggerType(type);
+  const entry = TRIGGER_CATALOG.find((row) => row.type === canonical) as
+    | { allowedSendSlots?: readonly LeadStatusSendSlot[] }
+    | undefined;
+  return entry?.allowedSendSlots ?? [];
+}
+
+export function sendSlotLabelHe(slot: string | null | undefined): string {
+  if (slot === "morning" || slot === "evening" || slot === "next_run") return SEND_SLOT_LABELS_HE[slot];
+  return SEND_SLOT_LABELS_HE.next_run;
+}
+
+/**
+ * Null and omitted values mean next_run. A concrete slot on a type with no
+ * selector is rejected. Changing the slot does not reset rule activation.
+ */
+export function parseSendSlotForTrigger(
+  type: string,
+  raw: unknown
+): { ok: true; slot: LeadStatusSendSlot | null } | { ok: false; error: "send_slot_not_allowed" | "invalid_send_slot" } {
+  if (raw == null || String(raw).trim() === "" || String(raw).trim() === "next_run") {
+    return { ok: true, slot: null };
+  }
+  const value = String(raw).trim();
+  const allowed = allowedSendSlots(type);
+  if (!allowed.length) return { ok: false, error: "send_slot_not_allowed" };
+  if (value !== "morning" && value !== "evening") return { ok: false, error: "invalid_send_slot" };
+  return { ok: true, slot: value };
+}
 
 export const ARBOX_TRIGGER_TYPES = TRIGGER_CATALOG.filter(
   (e) => e.arboxOnly && e.activation === "automatic" && e.implemented
