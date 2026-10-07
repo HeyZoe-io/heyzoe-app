@@ -1,0 +1,13 @@
+---
+description: Outside production, WhatsApp Graph sends only to the test phone
+alwaysApply: true
+---
+
+# שליחת וואטסאפ מחוץ לפרודקשן
+
+כל קריאה ל־Graph `/messages` עוברת ב־`postWhatsAppGraphMessage`.
+
+- כש־`VERCEL_ENV` אינו `production`, מותר לשלוח רק אל `972508318162`.
+- כל נמען אחר נעצר לפני ה־HTTP, נרשם `non_prod_send_blocked`, וחוזר ככישלון. אסור לרשום אותו כ־sent.
+- זה לא תלוי ב־dry_run, בשעון, או בסקריפט.
+- התראות Zoe Admin אל `972508318162` ממשיכות לעבוד.

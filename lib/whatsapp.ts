@@ -22,6 +22,11 @@ import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { stripModelThoughtLeak, type ThoughtStripLog } from "@/lib/wa-model-thought-strip";
 import { applyStudioPurpleHeartPolicy, applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { isSendsHoldError, outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
+import { isNonProdSendBlocked, postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
+
+function stopOutboundRetry(error: unknown): boolean {
+  return isSendsHoldError(error) || isNonProdSendBlocked(error);
+}
 
 function noteWaOutboundSent(content: string): void {
   const t = String(content ?? "").trim();
@@ -919,7 +924,7 @@ export async function sendWhatsAppIdleFollowupMessage(
           noteWaTextSent(bodyText);
           return;
         } catch (e) {
-          if (isSendsHoldError(e)) throw e;
+          if (stopOutboundRetry(e)) throw e;
           console.warn("[WhatsApp idle followup] reply button send failed, falling back to plain text:", e);
         }
     }
@@ -949,7 +954,7 @@ export async function sendWhatsAppIdleFollowupMessage(
       noteWaTextSent(bodyText);
       return;
     } catch (e) {
-      if (isSendsHoldError(e)) throw e;
+      if (stopOutboundRetry(e)) throw e;
       console.warn("[WhatsApp idle followup] cta_url send failed, falling back to plain text:", e);
     }
   }
@@ -1009,7 +1014,6 @@ export async function sendMetaWhatsAppMessage(
   if (!metaToken) {
     throw new Error("[Meta WA send] missing META_ACCESS_TOKEN / WHATSAPP_SYSTEM_TOKEN");
   }
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const to = toE164.replace(/^\+/, "");
   const prepared = outgoingAfterThoughtStrip(
     applyStudioPurpleHeartPolicyDeep(outgoing, { fromNumber: phoneNumberId })
@@ -1038,13 +1042,11 @@ export async function sendMetaWhatsAppMessage(
     body.interactive = sanitizeZoeOutboundDeep(prepared.interactive);
   }
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+  const res = await postWhatsAppGraphMessage({
+    phoneNumberId,
+    to,
+    token: metaToken,
+    body,
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -1092,7 +1094,7 @@ export async function sendWhatsAppTextOrMenu(
           noteWaTextSent(withFooterPlain(baseBody));
           return;
         } catch (e) {
-          if (isSendsHoldError(e)) throw e;
+          if (stopOutboundRetry(e)) throw e;
           // Meta interactive can fail if body text is too long (common with AI answers).
           // Retry once with a minimal body so the user still gets buttons.
           console.warn("[Meta WA] interactive send failed, retrying with minimal body:", e);
@@ -1105,7 +1107,7 @@ export async function sendWhatsAppTextOrMenu(
               return;
             }
           } catch (e2) {
-            if (isSendsHoldError(e2)) throw e2;
+            if (stopOutboundRetry(e2)) throw e2;
             console.warn("[Meta WA] interactive retry failed, falling back to plain text:", e2);
           }
         }
@@ -1233,7 +1235,6 @@ async function postMetaWhatsAppAudio(
   toDigits: string,
   audio: Record<string, unknown>
 ): Promise<void> {
-  const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -1241,13 +1242,11 @@ async function postMetaWhatsAppAudio(
     type: "audio",
     audio,
   };
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const res = await postWhatsAppGraphMessage({
+    phoneNumberId,
+    to: toDigits,
+    token: metaToken,
+    body: payload,
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -1266,7 +1265,7 @@ async function sendMetaAudioPayload(
   try {
     await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, withVoice);
   } catch (e) {
-    if (!voice || isSendsHoldError(e)) throw e;
+    if (!voice || stopOutboundRetry(e)) throw e;
     console.warn("[Meta WA audio] voice note send failed, retrying as audio file:", e);
     await postMetaWhatsAppAudio(phoneNumberId, metaToken, toDigits, audio);
   }
@@ -1359,7 +1358,7 @@ async function sendWhatsAppAudioMessage(
         noteWaMediaSent(mediaUrl, caption);
         return;
       } catch (linkErr) {
-        if (isSendsHoldError(linkErr)) throw linkErr;
+        if (stopOutboundRetry(linkErr)) throw linkErr;
         console.warn("[Meta WA audio] link send failed, trying upload:", linkErr);
       }
     }
@@ -1398,7 +1397,6 @@ async function sendMetaWhatsAppMediaByLink(
   isVideo: boolean,
   caption?: string
 ): Promise<void> {
-  const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const cap = caption?.trim()
     ? formatWhatsAppRtlBody(applyStudioPurpleHeartPolicy(caption, { fromNumber: phoneNumberId }).trim())
     : undefined;
@@ -1413,13 +1411,11 @@ async function sendMetaWhatsAppMediaByLink(
   } else {
     payload.image = cap ? { link: mediaUrl, caption: cap } : { link: mediaUrl };
   }
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const res = await postWhatsAppGraphMessage({
+    phoneNumberId,
+    to: toDigits,
+    token: metaToken,
+    body: payload,
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -1478,7 +1474,6 @@ async function sendMetaWhatsAppMediaByUpload(
   const mediaId = String(uploaded.id ?? "").trim();
   if (!mediaId) throw new Error("[Meta WA upload media] missing media id");
 
-  const apiUrl = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId.trim())}/messages`;
   const cap = caption?.trim()
     ? formatWhatsAppRtlBody(applyStudioPurpleHeartPolicy(caption, { fromNumber: phoneNumberId }).trim())
     : undefined;
@@ -1493,13 +1488,11 @@ async function sendMetaWhatsAppMediaByUpload(
   } else {
     payload.image = cap ? { id: mediaId, caption: cap } : { id: mediaId };
   }
-  const res = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${metaToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const res = await postWhatsAppGraphMessage({
+    phoneNumberId,
+    to: toDigits,
+    token: metaToken,
+    body: payload,
   });
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -1564,7 +1557,7 @@ export async function sendWhatsAppMediaMessage(
         noteWaMediaSent(cleanUrl, caption);
         return;
       } catch (linkErr) {
-        if (isSendsHoldError(linkErr)) throw linkErr;
+        if (stopOutboundRetry(linkErr)) throw linkErr;
         console.warn("[Meta WA media] link send failed, trying upload:", linkErr);
       }
     }

@@ -6,6 +6,7 @@ import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 import { outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
+import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
 
 export const runtime = "nodejs";
 
@@ -46,21 +47,18 @@ export async function sendMetaWhatsAppText(params: {
   ) {
     throw new SendsHoldError();
   }
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(params.phoneNumberId)}/messages`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const res = await postWhatsAppGraphMessage({
+    phoneNumberId: params.phoneNumberId,
+    to: params.to,
+    token: params.accessToken,
+    body: {
       messaging_product: "whatsapp",
       to: params.to,
       type: "text",
       text: {
         body: applyStudioPurpleHeartPolicy(params.body, { fromNumber: params.phoneNumberId }),
       },
-    }),
+    },
   });
 
   if (!res.ok) {

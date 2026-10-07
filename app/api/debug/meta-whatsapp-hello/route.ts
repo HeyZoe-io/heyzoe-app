@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isNonProdSendBlocked, postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
 
 export const runtime = "nodejs";
 
@@ -22,11 +23,10 @@ export async function GET() {
   }
 
   const phoneNumberId = "1032443923294518";
-  const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
-
+  const to = "972508318162";
   const body = {
     messaging_product: "whatsapp",
-    to: "972508318162",
+    to,
     type: "template",
     template: {
       name: "hello_world",
@@ -34,14 +34,15 @@ export async function GET() {
     },
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await postWhatsAppGraphMessage({ phoneNumberId, to, token, body });
+  } catch (error) {
+    if (isNonProdSendBlocked(error)) {
+      return NextResponse.json({ error: "non_prod_send_blocked" }, { status: 403 });
+    }
+    throw error;
+  }
 
   const raw = await res.text();
   let parsed: unknown;

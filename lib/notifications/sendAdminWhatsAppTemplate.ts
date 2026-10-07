@@ -1,5 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
+import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 
 export const ADMIN_SUPPORT_ALERT_WHATSAPP =
@@ -23,7 +24,6 @@ export async function sendAdminWhatsAppTemplate(input: {
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
 
-  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}/messages`;
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -42,14 +42,7 @@ export async function sendAdminWhatsAppTemplate(input: {
   };
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    const res = await postWhatsAppGraphMessage({ phoneNumberId, to, token, body });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error("[sendAdminWhatsAppTemplate] Meta error:", res.status, errText);
