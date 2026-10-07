@@ -1,5 +1,6 @@
 import { NextRequest, after } from "next/server";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
@@ -4347,14 +4348,14 @@ async function resolveArboxCredsForSlotPick(input: {
   try {
     const { data, error } = await input.supabase
       .from("businesses")
-      .select("crm_api_key, crm_box_id")
+      .select("id, crm_api_key, crm_api_key_enc, crm_box_id")
       .eq("id", input.businessId)
       .maybeSingle();
     if (error) {
       console.error("[WA Webhook] Arbox creds lookup for slot pick failed:", error.message);
       return { arboxApiKey, arboxBoxId };
     }
-    if (!arboxApiKey) arboxApiKey = String((data as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    if (!arboxApiKey) arboxApiKey = getArboxApiKey(data as Record<string, unknown> | null);
     if (!arboxBoxId) arboxBoxId = String((data as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
   } catch (e) {
     console.error("[WA Webhook] Arbox creds lookup for slot pick failed:", e instanceof Error ? e.message : String(e));
@@ -7100,7 +7101,7 @@ async function processIncoming(
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
-      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated, crm_api_key, crm_box_id")
+      .select("id, is_active, social_links, cancellation_effective_at, zoe_activated, crm_api_key, crm_api_key_enc, crm_box_id")
       .eq("slug", business_slug)
       .maybeSingle();
     if (bizErr || !biz) {
@@ -7112,7 +7113,7 @@ async function processIncoming(
       businessId = resolvedId != null ? String(resolvedId) : null;
     }
     zoeActivated = (biz as { zoe_activated?: boolean | null }).zoe_activated === true;
-    crmApiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+    crmApiKey = getArboxApiKey(biz as Record<string, unknown>);
     crmBoxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
     if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {

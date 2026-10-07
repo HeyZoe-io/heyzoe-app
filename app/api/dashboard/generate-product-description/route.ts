@@ -9,6 +9,7 @@ import {
   pickBusinessBySlug,
 } from "@/lib/dashboard-business-access";
 import { generateProductDescriptionFromContext } from "@/lib/fetch-site-scan";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -38,9 +39,8 @@ async function resolveClassSourceFromArbox(input: {
     adminAll: isAdminAllowedEmail(input.email),
   });
   const biz = pickBusinessBySlug(accessible, slug);
-  if (!biz || !businessQualifiesForArboxScheduleSync(biz)) return input.stored;
-
-  const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const apiKey = biz ? getArboxApiKey(biz) : "";
+  if (!biz || !businessQualifiesForArboxScheduleSync(biz, apiKey)) return input.stored;
   if (!apiKey) return input.stored;
 
   const pulled = await fetchArboxClassDescriptionForProduct({

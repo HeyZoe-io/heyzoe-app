@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
   } | null = null;
 
   // 1) Per-business token first (header OR ?token= / ?secret= for Elementor).
+  // One equality lookup on the plaintext column. No decrypt and no extra query.
+  // Dual-write keeps that column filled, so accept/reject is unchanged when
+  // FIELD_ENCRYPTION_KEY is missing.
   if (providedSecret) {
     const { data: tokenRows, error: tokenLookupErr } = await admin
       .from("businesses")

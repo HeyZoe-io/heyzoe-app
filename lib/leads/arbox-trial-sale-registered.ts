@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { HEYZOE_SF_REGISTERED, logMessage } from "@/lib/analytics";
 import {
   formatLeadTemplateMessageContent,
@@ -925,7 +926,7 @@ export async function handleArboxTrialSaleRegistered(input: {
   // A non-trial purchase sends its purchase templates.
   const { data: business } = await input.admin
     .from("businesses")
-    .select("plan, arbox_trial_membership_type_ids, social_links, crm_api_key, crm_box_id")
+    .select("id, plan, arbox_trial_membership_type_ids, social_links, crm_api_key, crm_api_key_enc, crm_box_id")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -973,7 +974,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         year: "numeric",
       }).format(new Date());
       const taskOk = await createArboxCrmTask({
-        apiKey: String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? ""),
+        apiKey: getArboxApiKey(business),
         boxId: String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? ""),
         taskTypeId: taskTypeNum,
         userId: arboxUserId,

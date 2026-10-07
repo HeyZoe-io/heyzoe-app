@@ -22,7 +22,8 @@ import {
   normalizeProductIdList,
   sameProductIdList,
 } from "@/lib/filter-scope-change";
-import { crmApiKeyLast4, resolveStoredCrmApiKey } from "@/lib/crm/crm-api-key-mask";
+import { crmApiKeyLast4 } from "@/lib/crm/crm-api-key-mask";
+import { getArboxApiKey, omitBusinessSecrets, settingsSecretPatch } from "@/lib/business-secrets";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -105,9 +106,8 @@ export async function GET(req: NextRequest) {
       .eq("business_id", business.id),
   ]);
 
-  const storedCrmApiKey = String((business as { crm_api_key?: unknown }).crm_api_key ?? "");
-  const businessWithoutKey = { ...business };
-  delete businessWithoutKey.crm_api_key;
+  const storedCrmApiKey = getArboxApiKey(business);
+  const businessWithoutKey = omitBusinessSecrets({ ...business });
   const socialRaw = businessWithoutKey.social_links;
   const social =
     socialRaw && typeof socialRaw === "object" && !Array.isArray(socialRaw)
@@ -157,7 +157,6 @@ export async function GET(req: NextRequest) {
       vibe: Array.isArray(social.vibe) ? social.vibe : [],
       schedule_text: typeof social.schedule_text === "string" ? social.schedule_text : "",
       facebook_pixel_id: typeof business.facebook_pixel_id === "string" ? business.facebook_pixel_id : "",
-      conversions_api_token: typeof business.conversions_api_token === "string" ? business.conversions_api_token : "",
       schedule_direct_registration: business.schedule_direct_registration !== false,
       warmup_session_enabled: business.warmup_session_enabled !== false,
       sales_flow_call_scheduling_enabled:
@@ -273,7 +272,7 @@ export async function POST(req: NextRequest) {
     cta_text: String(firstServiceWithCta?.cta_text ?? business.cta_text ?? ""),
     cta_link: String(firstServiceWithCta?.cta_link ?? business.cta_link ?? ""),
     facebook_pixel_id: String(business.facebook_pixel_id ?? ""),
-    conversions_api_token: String(business.conversions_api_token ?? ""),
+    ...settingsSecretPatch(business, existingForUser),
     schedule_direct_registration: business.schedule_direct_registration !== false,
     warmup_session_enabled: business.warmup_session_enabled !== false,
     sales_flow_call_scheduling_enabled: business.sales_flow_call_scheduling_enabled === true,
@@ -288,10 +287,6 @@ export async function POST(req: NextRequest) {
       if (prev === "plan do" || prev === "plando") return "plan_do";
       return prev;
     })(),
-    crm_api_key: resolveStoredCrmApiKey(
-      business.crm_api_key,
-      String((existingForUser as { crm_api_key?: unknown } | null)?.crm_api_key ?? "")
-    ),
     crm_box_id: (() => {
       const boxId = String(business.crm_box_id ?? "").trim();
       if (boxId) return boxId;
@@ -382,6 +377,22 @@ export async function POST(req: NextRequest) {
     .select("id, slug, updated_at")
     .single();
   if (bizErr || !savedBiz) return NextResponse.json({ error: bizErr?.message ?? "business_save_failed" }, { status: 400 });
+
+  if (!existingForUser) {
+    const encPatch = settingsSecretPatch(business, { id: savedBiz.id });
+    const encOnly: Record<string, string | null> = {};
+    if (encPatch.crm_api_key_enc) encOnly.crm_api_key_enc = encPatch.crm_api_key_enc;
+    if (encPatch.conversions_api_token_enc) encOnly.conversions_api_token_enc = encPatch.conversions_api_token_enc;
+    if (Object.keys(encOnly).length) {
+      const { error: encErr } = await admin.from("businesses").update(encOnly).eq("id", savedBiz.id);
+      if (encErr) {
+        console.error("[api/dashboard/settings] secret enc write failed", {
+          row_id: savedBiz.id,
+          error: encErr.message,
+        });
+      }
+    }
+  }
 
   invalidateBusinessKnowledgePackCache(String(savedBiz.slug ?? canonicalSlug));
 

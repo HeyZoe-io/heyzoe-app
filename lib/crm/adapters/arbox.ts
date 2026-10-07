@@ -1,6 +1,6 @@
 import { extractArboxProfileIdFromLink } from "@/lib/arbox-profile-url";
 import type { CrmEventKind } from "@/lib/crm/types";
-import { formatLeadPhoneDisplay } from "@/lib/notifications/owner-email-context";
+import { formatLeadPhoneDisplay } from "@/lib/lead-phone-display";
 import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { logArboxPublicFailure, noteArboxCall } from "@/lib/crm/arbox-call-counter-bridge";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";

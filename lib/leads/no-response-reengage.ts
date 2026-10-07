@@ -3,6 +3,7 @@
  * (min 2 days). Reuses waNoResponseEligible + shared message helpers from
  * the within-24h follow-up layer.
  */
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -553,7 +554,7 @@ export async function syncNoResponseReengageForBusiness(input: {
   if ((rows ?? []).length) {
     const { data: bizRow, error: bizErr } = await input.admin
       .from("businesses")
-      .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+      .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
       .eq("id", input.businessId)
       .maybeSingle();
     if (bizErr) {
@@ -561,9 +562,9 @@ export async function syncNoResponseReengageForBusiness(input: {
         businessId: input.businessId,
       });
     }
-    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const apiKey = getArboxApiKey({ ...(bizRow ?? {}), id: input.businessId });
     const boxId = String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
-    if (canUseArboxScheduleLookup(bizRow) && apiKey && boxId) {
+    if (canUseArboxScheduleLookup(bizRow, apiKey) && apiKey && boxId) {
       const fetched = await fetchArboxActiveProductKeys({
         apiKey,
         boxId,

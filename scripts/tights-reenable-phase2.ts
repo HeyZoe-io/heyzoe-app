@@ -113,7 +113,7 @@ async function main() {
   const admin = createSupabaseAdminClient();
   const { data: biz, error } = await admin
     .from("businesses")
-    .select("crm_api_key, crm_box_id, social_links, zoe_activated")
+    .select("id, crm_api_key, crm_api_key_enc, crm_box_id, social_links, zoe_activated")
     .eq("id", BUSINESS_ID)
     .single();
   if (error || !biz) throw error ?? new Error("missing business");
@@ -132,7 +132,7 @@ async function main() {
     admin,
     businessId: BUSINESS_ID,
     businessSlug: "tights",
-    apiKey: String(biz.crm_api_key ?? ""),
+    apiKey: (await import("@/lib/business-secret-read")).getArboxApiKey(biz),
     boxId: String(biz.crm_box_id ?? ""),
     now: new Date(),
     dryRun: false,

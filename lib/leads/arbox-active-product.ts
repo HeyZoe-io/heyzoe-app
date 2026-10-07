@@ -8,6 +8,7 @@
  * +1 membershipTypes GET only when the business has trial product ids.
  * Not per lead.
  */
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { sharedFutureBookingsWindow } from "@/lib/leads/arbox-attendance-gap";
@@ -264,12 +265,12 @@ export async function loadBusinessActiveProductKeys(input: {
 > {
   const { data, error } = await input.admin
     .from("businesses")
-    .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+    .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
     .eq("id", input.businessId)
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
-  if (!canUseArboxScheduleLookup(data)) return { ok: true, keys: null };
-  const apiKey = String((data as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const apiKey = getArboxApiKey({ ...(data ?? {}), id: input.businessId });
+  if (!canUseArboxScheduleLookup(data, apiKey)) return { ok: true, keys: null };
   const boxId = String((data as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
   const fetched = await fetchArboxActiveProductKeys({
     apiKey,

@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import {
   fetchAllArboxMembershipTypes,
   type ArboxMembershipTypeRow,
@@ -416,17 +417,17 @@ export async function buildManualBulkAudience(input: {
   if (input.audienceType === "membership") {
     const { data: biz, error: bizErr } = await input.admin
       .from("businesses")
-      .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+      .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
       .eq("id", input.businessId)
       .maybeSingle();
     if (bizErr) {
       console.error("[manual-bulk] business crm lookup failed:", bizErr.message);
       throw new Error("business_lookup_failed");
     }
-    if (!businessHasArboxConnection(biz)) {
+    const apiKey = getArboxApiKey({ ...(biz ?? {}), id: input.businessId });
+    if (!businessHasArboxConnection(biz, apiKey)) {
       throw new Error("audience_membership_requires_arbox");
     }
-    const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
     const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (!apiKey || !boxId) throw new Error("missing_crm_credentials");
 
@@ -515,13 +516,14 @@ export async function buildManualBulkAudience(input: {
 
   const { data: biz } = await input.admin
     .from("businesses")
-    .select("crm_type, crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+    .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
     .eq("id", input.businessId)
     .maybeSingle();
   let activeKeys: ActiveProductKeys | null = null;
   const customerPages = 0;
-  if (businessHasArboxConnection(biz)) {
-    const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const resolvedApiKey = getArboxApiKey({ ...(biz ?? {}), id: input.businessId });
+  if (businessHasArboxConnection(biz, resolvedApiKey)) {
+    const apiKey = resolvedApiKey;
     const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (apiKey && boxId) {
       const customers = await fetchArboxActiveProductKeys({

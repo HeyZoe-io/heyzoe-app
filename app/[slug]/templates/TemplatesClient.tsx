@@ -38,7 +38,7 @@ import {
   type TemplateDraftValue,
 } from "@/app/[slug]/templates/TemplateDraftFields";
 import { leadStatusPickerAfterRefresh } from "@/lib/leads/lead-status-picker";
-import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
+import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/marketing-template";
 import type { UtilityRecategoryNotice as CategoryNotice } from "@/lib/template-category-notice";
 import UtilityRecategoryNotice from "@/app/[slug]/templates/UtilityRecategoryNotice";
 import {
@@ -664,7 +664,7 @@ export default function TemplatesClient({
   );
 
   const incomingLeadWebhookUrl = useMemo(() => {
-    const token = leadsWebhookSecret || "<leads_webhook_secret>";
+    const token = leadsWebhookSecret || "<token>";
     return `https://heyzoe.io/api/leads/incoming?token=${encodeURIComponent(token)}`;
   }, [leadsWebhookSecret]);
 
@@ -1361,7 +1361,7 @@ export default function TemplatesClient({
     []
   );
   const curlExample = useMemo(() => {
-    const secret = leadsWebhookSecret || "<leads_webhook_secret>";
+    const secret = leadsWebhookSecret || "<token>";
     return [
       `curl -X POST ${incomingUrl} \\`,
       `  -H "Content-Type: application/json" \\`,

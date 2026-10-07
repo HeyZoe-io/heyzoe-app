@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
 import { refreshArboxLeadStatusCatalog } from "@/lib/leads/arbox-lead-status-change";
 import { leadStatusRefreshArboxError } from "@/lib/leads/lead-status-picker";
@@ -34,21 +35,22 @@ export async function POST(_req: NextRequest, ctx: RouteContext) {
 
   const { data: business, error: businessErr } = await admin
     .from("businesses")
-    .select("crm_type, crm_api_key, crm_box_id")
+    .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
     .eq("id", access.business.id)
     .maybeSingle();
   if (businessErr) {
     console.error("[api/arbox-lead-statuses] business lookup failed:", businessErr.message);
     return NextResponse.json({ error: "business_lookup_failed", statuses: [] }, { status: 500 });
   }
-  if (leadStatusRefreshArboxError(business)) {
+  const apiKey = getArboxApiKey(business);
+  if (leadStatusRefreshArboxError(business, apiKey)) {
     return NextResponse.json({ error: "arbox_not_connected", statuses: [] }, { status: 400 });
   }
 
   const result = await refreshArboxLeadStatusCatalog({
     admin,
     businessId: access.business.id,
-    apiKey: String(business?.crm_api_key ?? ""),
+    apiKey,
     boxId: String(business?.crm_box_id ?? ""),
   });
   if (!result.ok) {

@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES } from "@/lib/business-zoe-platform-defaults";
@@ -245,7 +246,7 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
     const { data: business } = await admin
       .from("businesses")
       .select(
-        "id, name, niche, cta_text, cta_link, social_links, bot_name, schedule_direct_registration, warmup_session_enabled, sales_flow_call_scheduling_enabled, crm_type, crm_api_key"
+        "id, name, niche, cta_text, cta_link, social_links, bot_name, schedule_direct_registration, warmup_session_enabled, sales_flow_call_scheduling_enabled, crm_type, crm_api_key, crm_api_key_enc"
       )
       .eq("slug", slug)
       .maybeSingle();
@@ -480,7 +481,8 @@ export async function getBusinessKnowledgePack(slug: string): Promise<BusinessKn
       customerServicePhone,
       arboxLink,
       hasArboxConnection: businessHasArboxConnection(
-        business as { crm_type?: unknown; crm_api_key?: unknown }
+        business as { crm_type?: unknown },
+        getArboxApiKey(business)
       ),
       schedulePublicUrl,
       scheduleScanImageUrl,

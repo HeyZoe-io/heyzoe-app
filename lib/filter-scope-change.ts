@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import {
   bookingMatchesTrialScope,
@@ -346,7 +347,7 @@ export async function applyProductFilterScopeChange(input: {
 
   const { data: biz, error: bizErr } = await input.admin
     .from("businesses")
-    .select("crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+    .select("id, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
     .eq("id", businessId)
     .maybeSingle();
   if (bizErr || !biz) {
@@ -356,7 +357,7 @@ export async function applyProductFilterScopeChange(input: {
   const businessIds = normalizeProductIdList(
     (biz as { arbox_trial_membership_type_ids?: unknown }).arbox_trial_membership_type_ids
   );
-  const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const apiKey = getArboxApiKey(biz);
   const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
 
   let rules: ScopeRule[] = [];

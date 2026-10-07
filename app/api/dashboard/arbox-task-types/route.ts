@@ -5,6 +5,7 @@ import {
   normDashboardSlug,
   pickBusinessBySlug,
 } from "@/lib/dashboard-business-access";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -17,7 +18,7 @@ async function requireUser() {
   return data.user ?? null;
 }
 
-/** GET ?slug= — lists Arbox task types using stored crm_api_key (dashboard settings). */
+/** GET ?slug= — lists Arbox task types using the stored Arbox API key. */
 export async function GET(req: NextRequest) {
   const user = await requireUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "crm_not_arbox" }, { status: 400 });
   }
 
-  const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const apiKey = getArboxApiKey(biz);
   const boxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
   if (!apiKey || !boxId) {
     return NextResponse.json({ error: "missing_crm_credentials" }, { status: 400 });

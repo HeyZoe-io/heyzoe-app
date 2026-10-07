@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { submitArboxCrmEvent } from "@/lib/crm/adapters/arbox";
 import { submitPlanDoLeadEvent } from "@/lib/crm/adapters/plan-do";
 import {
@@ -56,7 +57,7 @@ async function resolveLeadFullName(input: {
 }
 
 /**
- * שולח אירוע CRM לפי הגדרות העסק (crm_type + crm_api_key [+ crm_box_id ל-Arbox]).
+ * שולח אירוע CRM לפי הגדרות העסק (crm_type + מפתח API [+ crm_box_id ל-Arbox]).
  * לא זורק — רושם שגיאות ללוג.
  */
 export async function dispatchCrmEvent(input: {
@@ -79,7 +80,7 @@ export async function dispatchCrmEvent(input: {
     const { data: business, error } = await admin
       .from("businesses")
       .select(
-        "crm_type, crm_api_key, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled"
+        "id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled"
       )
       .eq("id", businessId)
       .maybeSingle();
@@ -90,7 +91,7 @@ export async function dispatchCrmEvent(input: {
     }
 
     const crmType = normalizeCrmType((business as { crm_type?: unknown } | null)?.crm_type);
-    const apiKey = String((business as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const apiKey = getArboxApiKey(business);
     const boxId = String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
     const arboxSourceId = String(
       (business as { crm_arbox_source_id?: unknown } | null)?.crm_arbox_source_id ?? ""

@@ -187,10 +187,10 @@ function memoryAdmin(seed: Record<string, Record<string, unknown>[]>) {
 }
 
 {
-  assert.equal(leadStatusRefreshArboxError({ crm_type: "plan_do", crm_api_key: "x", crm_box_id: "1" }), "arbox_not_connected");
-  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_api_key: "", crm_box_id: "1" }), "arbox_not_connected");
-  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_api_key: "key", crm_box_id: "" }), "arbox_not_connected");
-  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_api_key: "key", crm_box_id: "9" }), null);
+  assert.equal(leadStatusRefreshArboxError({ crm_type: "plan_do", crm_box_id: "1" }, "x"), "arbox_not_connected");
+  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_box_id: "1" }, ""), "arbox_not_connected");
+  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_box_id: "" }, "key"), "arbox_not_connected");
+  assert.equal(leadStatusRefreshArboxError({ crm_type: "arbox", crm_box_id: "9" }, "key"), null);
 }
 
 console.log("lead-status-picker.test.ts: ok");

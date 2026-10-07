@@ -50,9 +50,10 @@ export function leadStatusPickerAfterRefresh(input: {
 }
 
 export function leadStatusRefreshArboxError(
-  row: { crm_type?: unknown; crm_api_key?: unknown; crm_box_id?: unknown } | null | undefined
+  row: { crm_type?: unknown; crm_box_id?: unknown } | null | undefined,
+  apiKey?: unknown
 ): "arbox_not_connected" | null {
-  if (!businessHasArboxConnection(row)) return "arbox_not_connected";
+  if (!businessHasArboxConnection(row, apiKey)) return "arbox_not_connected";
   if (!String(row?.crm_box_id ?? "").trim()) return "arbox_not_connected";
   return null;
 }

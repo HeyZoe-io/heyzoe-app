@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { assertBusinessAccess } from "@/lib/dashboard-business-access";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import {
   canonicalizeTriggerType,
@@ -92,14 +93,14 @@ async function loadBusinessHasArbox(
 ): Promise<boolean> {
   const { data, error } = await admin
     .from("businesses")
-    .select("crm_type, crm_api_key")
+    .select("id, crm_type, crm_api_key, crm_api_key_enc")
     .eq("id", businessId)
     .maybeSingle();
   if (error) {
     console.error("[api/triggers] crm lookup failed:", error.message);
     return false;
   }
-  return businessHasArboxConnection(data);
+  return businessHasArboxConnection(data, getArboxApiKey(data));
 }
 
 function isDelayDirection(value: string): value is DelayDirection {

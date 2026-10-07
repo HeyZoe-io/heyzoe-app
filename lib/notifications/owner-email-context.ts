@@ -1,9 +1,12 @@
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { formatDateDdMmYyyy } from "@/lib/email";
 import { fetchLastSfServiceEventName } from "@/lib/analytics";
+import { formatLeadPhoneDisplay } from "@/lib/lead-phone-display";
 import { formatScheduleForOwnerNotification } from "@/lib/notifications/owner-template-params";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { normalizePhone } from "@/lib/phone-normalize";
+import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+
+export { formatLeadPhoneDisplay } from "@/lib/lead-phone-display";
 
 const NO_RESPONSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -11,12 +14,6 @@ export type IdleLeadRow = {
   full_name: string | null;
   phone: string;
 };
-
-export function formatLeadPhoneDisplay(phone: string): string {
-  const d = normalizePhone(phone) ?? phone.replace(/\D/g, "");
-  if (d.startsWith("972") && d.length >= 12) return `0${d.slice(3)}`;
-  return phone.trim() || "—";
-}
 
 /** שם + טלפון, או טלפון בלבד אם אין שם */
 export function formatLeadIdentityLine(fullName: string | null | undefined, phone: string): string {

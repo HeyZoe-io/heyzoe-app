@@ -40,10 +40,10 @@ import type { ArboxBookingReportRow } from "@/lib/leads/arbox-trial-attended";
 
 /** CRM gate: Arbox only; Boostapp / no-CRM cannot enter lookup (never 4d). */
 {
-  assert.equal(canUseArboxScheduleLookup({ crm_type: "arbox", crm_api_key: "k", crm_box_id: "1" }), true);
-  assert.equal(canUseArboxScheduleLookup({ crm_type: "arbox", crm_api_key: "k", crm_box_id: "" }), false);
-  assert.equal(canUseArboxScheduleLookup({ crm_type: "boostapp", crm_api_key: "k", crm_box_id: "1" }), false);
-  assert.equal(canUseArboxScheduleLookup({ crm_type: "", crm_api_key: "", crm_box_id: "" }), false);
+  assert.equal(canUseArboxScheduleLookup({ crm_type: "arbox", crm_box_id: "1" }, "k"), true);
+  assert.equal(canUseArboxScheduleLookup({ crm_type: "arbox", crm_box_id: "" }, "k"), false);
+  assert.equal(canUseArboxScheduleLookup({ crm_type: "boostapp", crm_box_id: "1" }, "k"), false);
+  assert.equal(canUseArboxScheduleLookup({ crm_type: "", crm_box_id: "" }, ""), false);
   assert.equal(canUseArboxScheduleLookup(null), false);
 }
 

@@ -16,7 +16,7 @@ function sha256Hex(input: string): string {
 
 /**
  * שולח אירוע ל-Meta Conversions API של HeyZoe עצמה (META_MARKETING_PIXEL_ID) — לא קשור
- * לפיקסלים הפר-עסקיים (businesses.facebook_pixel_id / conversions_api_token).
+ * לפיקסלים הפר-עסקיים.
  * action_source ברירת מחדל "business_messaging" (וואטסאפ שיווקי); אפשר גם "website"
  * (fbp/fbc מהאתר) עבור אירועי InitiateCheckout/Purchase שמגיעים דרך עמוד הנחיתה/onboarding.
  */

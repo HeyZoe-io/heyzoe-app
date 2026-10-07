@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import {
   sharedFutureBookingsWindow,
   syncArboxAttendanceGapForBusiness,
@@ -59,12 +60,12 @@ import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-context";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const BUSINESS_SELECT =
-  "id, slug, crm_type, crm_api_key, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded, arbox_trial_reminder_seeded, arbox_days_in_club_seeded, arbox_nth_workout_seeded, arbox_trial_membership_type_ids";
+  "id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, arbox_cancellation_seeded, arbox_missed_class_seeded, arbox_attendance_gap_seeded, arbox_post_trial_followup_seeded, arbox_freeze_seeded, arbox_lost_lead_seeded, arbox_trial_reminder_seeded, arbox_days_in_club_seeded, arbox_nth_workout_seeded, arbox_trial_membership_type_ids";
 
 export type ArboxDailyBusiness = {
   id: number;
   slug: string;
-  crm_api_key: string;
+  apiKey: string;
   crm_box_id: string;
   arbox_cancellation_seeded: boolean;
   arbox_missed_class_seeded: boolean;
@@ -176,18 +177,18 @@ function flag(row: Record<string, unknown>, key: string): boolean {
   return row[key] === true;
 }
 
-export function parseArboxDailyBusiness(row: Record<string, unknown>): ArboxDailyBusiness | null {
+export function parseArboxDailyBusiness(row: Record<string, unknown>, apiKey: string): ArboxDailyBusiness | null {
   const id = Number(row.id);
   const slug = String(row.slug ?? "").trim().toLowerCase();
-  const apiKey = String(row.crm_api_key ?? "").trim();
+  const key = apiKey.trim();
   const boxId = String(row.crm_box_id ?? "").trim();
   const crmType = String(row.crm_type ?? "").trim().toLowerCase();
   if (crmType !== "arbox") return null;
-  if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) return null;
+  if (!Number.isFinite(id) || id <= 0 || !slug || !key || !boxId) return null;
   return {
     id,
     slug,
-    crm_api_key: apiKey,
+    apiKey: key,
     crm_box_id: boxId,
     arbox_cancellation_seeded: flag(row, "arbox_cancellation_seeded"),
     arbox_missed_class_seeded: flag(row, "arbox_missed_class_seeded"),
@@ -209,18 +210,21 @@ export async function listArboxDailyBusinessIds(
 ): Promise<{ ok: true; ids: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_type, crm_api_key, crm_box_id")
+    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
     .eq("crm_type", "arbox")
-    .not("crm_api_key", "is", null)
+    .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
   if (bizErr) return { ok: false, error: bizErr.message };
 
   const eligible: number[] = [];
   for (const row of businessRows ?? []) {
-    const parsed = parseArboxDailyBusiness({
-      ...(row as Record<string, unknown>),
-      crm_type: "arbox",
-    });
+    const parsed = parseArboxDailyBusiness(
+      {
+        ...(row as Record<string, unknown>),
+        crm_type: "arbox",
+      },
+      getArboxApiKey(row)
+    );
     if (parsed) eligible.push(parsed.id);
   }
   if (!eligible.length) return { ok: true, ids: [] };
@@ -271,7 +275,7 @@ export async function loadArboxDailyBusiness(
     .eq("id", businessId)
     .maybeSingle();
   if (error || !data) return null;
-  return parseArboxDailyBusiness(data as Record<string, unknown>);
+  return parseArboxDailyBusiness(data as Record<string, unknown>, getArboxApiKey(data));
 }
 
 export type ArboxDailyBusinessRun = {
@@ -303,7 +307,7 @@ async function runLeadStatusChangedStep(input: {
         admin: input.admin,
         businessId: input.business.id,
         businessSlug: input.business.slug,
-        apiKey: input.business.crm_api_key,
+        apiKey: input.business.apiKey,
         boxId: input.business.crm_box_id,
         now: input.now,
         slot: input.slot,
@@ -343,7 +347,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
   let morningRosterPages = 0;
   if (slot === "morning") {
     const roster = await fetchArboxStaffMembers({
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
     });
     if (roster.ok) {
@@ -368,7 +372,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          apiKey: business.crm_api_key,
+          apiKey: business.apiKey,
           boxId: business.crm_box_id,
           trialReminderSeeded: business.arbox_trial_reminder_seeded,
           businessTrialIds: business.arbox_trial_membership_type_ids,
@@ -390,7 +394,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          apiKey: business.crm_api_key,
+          apiKey: business.apiKey,
           boxId: business.crm_box_id,
           businessTrialIds: business.arbox_trial_membership_type_ids,
           now,
@@ -411,7 +415,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          apiKey: business.crm_api_key,
+          apiKey: business.apiKey,
           boxId: business.crm_box_id,
           nthWorkoutSeeded: business.arbox_nth_workout_seeded,
           now,
@@ -475,7 +479,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     ]);
     if (needsBirthday || needsDaysInClub || needsNthWorkout) {
       const memberships = await fetchArboxActiveMembershipsReport({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         now,
       });
@@ -571,7 +575,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     const futureWindow = sharedFutureBookingsWindow(now, { includeToday: futureIncludeToday });
     try {
       const futureReport = await fetchArboxBookingsReport({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         fromDate: futureWindow.fromDate,
         toDate: futureWindow.toDate,
         locationId: business.crm_box_id,
@@ -630,7 +634,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     const productStarted = Date.now();
     try {
       const products = await fetchArboxActiveProductKeys({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         now,
         trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
@@ -716,7 +720,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       lookbackFrom = window.fromDate;
       lookbackTo = window.toDate;
       const report = await fetchArboxBookingsReport({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         fromDate: window.fromDate,
         toDate: window.toDate,
         locationId: business.crm_box_id,
@@ -802,7 +806,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       now,
       ...(prefetchedMembershipRows
@@ -844,7 +848,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       daysInClubSeeded: business.arbox_days_in_club_seeded,
       now,
@@ -900,7 +904,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
     }
     if (needsExpiryIndex && expiryActiveRows === undefined) {
       const memberships = await fetchArboxActiveMembershipsReport({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         now,
       });
@@ -925,7 +929,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       now,
       activeMembershipRows: expiryActiveRows,
@@ -960,7 +964,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       postTrialFollowupSeeded: business.arbox_post_trial_followup_seeded,
       now,
@@ -1006,7 +1010,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       missedClassSeeded: business.arbox_missed_class_seeded,
       now,
@@ -1050,7 +1054,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       attendanceGapSeeded: business.arbox_attendance_gap_seeded,
       now,
@@ -1114,7 +1118,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       nthWorkoutSeeded: business.arbox_nth_workout_seeded,
       now,
@@ -1165,7 +1169,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       freezeSeeded: business.arbox_freeze_seeded,
       part: "ending",
@@ -1210,7 +1214,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       trialReminderSeeded: business.arbox_trial_reminder_seeded,
       businessTrialIds: business.arbox_trial_membership_type_ids,
@@ -1256,7 +1260,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       businessTrialIds: business.arbox_trial_membership_type_ids,
       now,
@@ -1297,7 +1301,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       now,
     }));
@@ -1328,7 +1332,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       now,
       activeMembershipRows: expiryActiveRows,
@@ -1367,7 +1371,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       admin,
       businessId: business.id,
       businessSlug: business.slug,
-      apiKey: business.crm_api_key,
+      apiKey: business.apiKey,
       boxId: business.crm_box_id,
       lostLeadSeeded: business.arbox_lost_lead_seeded,
       lane: "daily",

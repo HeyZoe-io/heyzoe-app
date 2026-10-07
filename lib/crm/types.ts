@@ -21,22 +21,21 @@ export function normalizeCrmType(raw: unknown): CrmType {
   return (CRM_TYPES as readonly string[]).includes(t) ? (t as CrmType) : "";
 }
 
-/** Arbox CRM connected: crm_type = arbox and a non-empty crm_api_key on businesses. */
+/** Arbox CRM connected: crm_type = arbox and a non-empty resolved API key. */
 export function businessHasArboxConnection(
-  row: { crm_type?: unknown; crm_api_key?: unknown } | null | undefined
+  row: { crm_type?: unknown } | null | undefined,
+  apiKey?: unknown
 ): boolean {
   if (!row) return false;
-  return (
-    normalizeCrmType(row.crm_type) === "arbox" &&
-    Boolean(String(row.crm_api_key ?? "").trim())
-  );
+  return normalizeCrmType(row.crm_type) === "arbox" && Boolean(String(apiKey ?? "").trim());
 }
 
 /** Schedule lookup needs Arbox + location (box) id. Boostapp / no-CRM → false. */
 export function canUseArboxScheduleLookup(
-  row: { crm_type?: unknown; crm_api_key?: unknown; crm_box_id?: unknown } | null | undefined
+  row: { crm_type?: unknown; crm_box_id?: unknown } | null | undefined,
+  apiKey?: unknown
 ): boolean {
-  if (!businessHasArboxConnection(row)) return false;
+  if (!businessHasArboxConnection(row, apiKey)) return false;
   return Boolean(String(row?.crm_box_id ?? "").trim());
 }
 

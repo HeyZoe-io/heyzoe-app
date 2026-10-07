@@ -1,3 +1,4 @@
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
 import {
@@ -56,7 +57,7 @@ const ISRAEL_TZ = "Asia/Jerusalem";
 export type BusinessRow = {
   id: number;
   slug: string;
-  crm_api_key: string;
+  apiKey: string;
   crm_box_id: string;
   arbox_last_sync_at: string | null;
   arbox_trial_membership_type_ids: number[];
@@ -310,19 +311,19 @@ export const ARBOX_TRIAL_SYNC_TRIGGER_TYPES = [
 ] as const;
 
 const BUSINESS_SELECT =
-  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded, arbox_lost_lead_seeded";
+  "id, slug, crm_api_key, crm_api_key_enc, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded, arbox_lost_lead_seeded";
 
-function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
+function parseBusinessRow(row: Record<string, unknown>, apiKey: string): BusinessRow | null {
   const id = Number(row.id);
   const slug = String(row.slug ?? "").trim().toLowerCase();
-  const apiKey = String(row.crm_api_key ?? "").trim();
+  const key = apiKey.trim();
   const boxId = String(row.crm_box_id ?? "").trim();
-  if (!Number.isFinite(id) || id <= 0 || !slug || !apiKey || !boxId) return null;
+  if (!Number.isFinite(id) || id <= 0 || !slug || !key || !boxId) return null;
   if (String(row.crm_type ?? "arbox") !== "arbox") return null;
   return {
     id,
     slug,
-    crm_api_key: apiKey,
+    apiKey: key,
     crm_box_id: boxId,
     arbox_last_sync_at: (row.arbox_last_sync_at as string | null) ?? null,
     arbox_trial_membership_type_ids: parseTrialMembershipTypeIds(row.arbox_trial_membership_type_ids),
@@ -363,13 +364,16 @@ export async function listArboxTrialSyncBusinessIds(
     .from("businesses")
     .select(`crm_type, ${BUSINESS_SELECT}`)
     .eq("crm_type", "arbox")
-    .not("crm_api_key", "is", null)
+    .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
   if (bizErr) return { ok: false, error: bizErr.message };
 
   const businesses: BusinessRow[] = [];
   for (const row of businessRows ?? []) {
-    const parsed = parseBusinessRow({ ...(row as Record<string, unknown>), crm_type: "arbox" });
+    const parsed = parseBusinessRow(
+      { ...(row as Record<string, unknown>), crm_type: "arbox" },
+      getArboxApiKey(row)
+    );
     if (parsed) businesses.push(parsed);
   }
   if (!businesses.length) return { ok: true, ids: [] };
@@ -428,7 +432,10 @@ export async function loadArboxTrialSyncBusiness(
     .eq("crm_type", "arbox")
     .maybeSingle();
   if (error || !data) return null;
-  return parseBusinessRow({ ...(data as Record<string, unknown>), crm_type: "arbox" });
+  return parseBusinessRow(
+    { ...(data as Record<string, unknown>), crm_type: "arbox" },
+    getArboxApiKey(data)
+  );
 }
 
 export async function runArboxTrialSyncForBusiness(input: {
@@ -482,7 +489,7 @@ export async function runArboxTrialSyncForBusiness(input: {
       // One GET /v3/membershipTypes per business per run, only when a purchase rule
       // picked specific products inside a class. 10 studios ≈ 10 extra GETs / 15 min.
       const types = await fetchAllArboxMembershipTypes({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         logLabel: "cron/arbox-trial-sync",
       });
       if (types.ok) {
@@ -531,7 +538,7 @@ export async function runArboxTrialSyncForBusiness(input: {
       });
 
       const report = await fetchAllSalesReportRows({
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         fromDate,
         toDate,
         locationId: business.crm_box_id,
@@ -548,7 +555,7 @@ export async function runArboxTrialSyncForBusiness(input: {
             admin,
             businessId: business.id,
             businessSlug: business.slug,
-            apiKey: business.crm_api_key,
+            apiKey: business.apiKey,
             boxId: business.crm_box_id,
             trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
             salesRows: report.rows,
@@ -673,7 +680,7 @@ export async function runArboxTrialSyncForBusiness(input: {
             admin,
             businessId: business.id,
             businessSlug: business.slug,
-            apiKey: business.crm_api_key,
+            apiKey: business.apiKey,
             boxId: business.crm_box_id,
             postTrialFollowupSeeded: true,
             now,
@@ -707,7 +714,7 @@ export async function runArboxTrialSyncForBusiness(input: {
         admin,
         businessId: business.id,
         businessSlug: business.slug,
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         arboxLastSyncAt: business.arbox_last_sync_at,
         creditRefusalSeeded: business.arbox_credit_refusal_seeded,
@@ -740,7 +747,7 @@ export async function runArboxTrialSyncForBusiness(input: {
         admin,
         businessId: business.id,
         businessSlug: business.slug,
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         arboxLastSyncAt: business.arbox_last_sync_at,
         leadsSeeded: business.arbox_leads_seeded,
@@ -779,7 +786,7 @@ export async function runArboxTrialSyncForBusiness(input: {
           admin,
           businessId: business.id,
           businessSlug: business.slug,
-          apiKey: business.crm_api_key,
+          apiKey: business.apiKey,
           boxId: business.crm_box_id,
           trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
           hasTrialBookedRule: trialBookedBusinessIds.has(business.id),
@@ -813,7 +820,7 @@ export async function runArboxTrialSyncForBusiness(input: {
         admin,
         businessId: business.id,
         businessSlug: business.slug,
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         cancellationSeeded: business.arbox_cancellation_seeded,
         now,
@@ -846,7 +853,7 @@ export async function runArboxTrialSyncForBusiness(input: {
         admin,
         businessId: business.id,
         businessSlug: business.slug,
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         lostLeadSeeded: business.arbox_lost_lead_seeded,
         lane: "immediate",
@@ -881,7 +888,7 @@ export async function runArboxTrialSyncForBusiness(input: {
         admin,
         businessId: business.id,
         businessSlug: business.slug,
-        apiKey: business.crm_api_key,
+        apiKey: business.apiKey,
         boxId: business.crm_box_id,
         freezeSeeded: business.arbox_freeze_seeded,
         part: "created",

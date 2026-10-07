@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { requireDashboardSlugAccess } from "@/lib/dashboard-slug-guard";
+import { getArboxApiKey, getLeadsWebhookSecret } from "@/lib/business-secrets";
 import { businessHasArboxConnection } from "@/lib/crm/types";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import { isAdminAllowedEmail } from "@/lib/server-env";
@@ -41,7 +42,7 @@ export default async function TemplatesPage({ params }: Props) {
     admin
       .from("businesses")
       .select(
-        "lead_template_name, leads_webhook_secret, waba_id, crm_type, crm_api_key, arbox_trial_membership_type_ids"
+        "id, lead_template_name, leads_webhook_secret, leads_webhook_secret_enc, waba_id, crm_type, crm_api_key, crm_api_key_enc, arbox_trial_membership_type_ids"
       )
       .eq("id", businessId)
       .maybeSingle(),
@@ -68,16 +69,15 @@ export default async function TemplatesPage({ params }: Props) {
   const leadTemplateName = String(
     (biz as { lead_template_name?: unknown } | null)?.lead_template_name ?? ""
   ).trim();
-  const leadsWebhookSecret = String(
-    (biz as { leads_webhook_secret?: unknown } | null)?.leads_webhook_secret ?? ""
-  ).trim();
+  const leadsWebhookSecret = getLeadsWebhookSecret(biz as Record<string, unknown> | null);
   const hasWaba = Boolean(
     String((biz as { waba_id?: unknown } | null)?.waba_id ?? "")
       .trim()
       .replace(/\s+/g, "")
   );
   const hasArbox = businessHasArboxConnection(
-    biz as { crm_type?: unknown; crm_api_key?: unknown } | null
+    biz as { crm_type?: unknown } | null,
+    getArboxApiKey(biz as Record<string, unknown> | null)
   );
   const trialMembershipTypeIds = (() => {
     const raw = (biz as { arbox_trial_membership_type_ids?: unknown } | null)

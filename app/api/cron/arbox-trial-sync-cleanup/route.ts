@@ -7,6 +7,7 @@ import {
   retentionCutoffIso,
   type SyncLogRetentionTarget,
 } from "@/lib/leads/arbox-sync-log-retention";
+import { backfillBusinessSecrets, emptySecretBackfillSummary } from "@/lib/business-secret-backfill";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -114,10 +115,18 @@ export async function GET(req: NextRequest) {
     }
 
     const deletedCount = tables.reduce((sum, row) => sum + row.deleted, 0);
+    let secrets = emptySecretBackfillSummary(true);
+    try {
+      secrets = await backfillBusinessSecrets(admin);
+      console.info("[cron/arbox-trial-sync-cleanup] secret_backfill", secrets);
+    } catch (backfillErr) {
+      const message = backfillErr instanceof Error ? backfillErr.message : String(backfillErr);
+      console.error("[cron/arbox-trial-sync-cleanup] secret_backfill_failed", { error: message });
+    }
     const failed = tables.filter((row) => row.error);
     if (failed.length) {
       return NextResponse.json(
-        { ok: false, deleted_count: deletedCount, tables, ran_at: ranAt },
+        { ok: false, deleted_count: deletedCount, tables, secrets, ran_at: ranAt },
         { status: 500 }
       );
     }
@@ -126,6 +135,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       deleted_count: deletedCount,
       tables,
+      secrets,
       ran_at: ranAt,
     });
   } catch (e) {

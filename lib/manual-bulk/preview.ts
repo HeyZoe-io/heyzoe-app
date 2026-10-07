@@ -1,5 +1,6 @@
 import { firstNameFromFullName, renderLeadTemplateMessageContent } from "@/lib/lead-template";
 import { buildManualBulkAudience } from "@/lib/manual-bulk/audience";
+import { isApprovedMarketingTemplate } from "@/lib/manual-bulk/marketing-template";
 import {
   clampManualBulkWeeks,
   MANUAL_BULK_DRAIN_INTERVAL_MINUTES,
@@ -10,17 +11,7 @@ import { templateSendPayload } from "@/lib/template-send-params";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveManualBulkSchedule, scheduleSummaryJson } from "@/lib/manual-bulk/schedule";
 
-export function isApprovedMarketingTemplate(row: {
-  status?: unknown;
-  category?: unknown;
-  disabled?: unknown;
-  name?: unknown;
-}): boolean {
-  if (String(row.name ?? "").trim() === "") return false;
-  if (row.disabled === true) return false;
-  if (String(row.status ?? "").trim().toUpperCase() !== "APPROVED") return false;
-  return String(row.category ?? "").trim().toUpperCase() === "MARKETING";
-}
+export { isApprovedMarketingTemplate };
 
 export async function loadApprovedMarketingTemplate(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;

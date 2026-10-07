@@ -816,11 +816,8 @@ export async function dismissArboxRemovedNotice(input: {
 }
 
 export function businessQualifiesForArboxScheduleSync(
-  row:
-    | { crm_type?: unknown; crm_api_key?: unknown }
-    | Record<string, unknown>
-    | null
-    | undefined
+  row: { crm_type?: unknown } | Record<string, unknown> | null | undefined,
+  apiKey?: unknown
 ): boolean {
-  return businessHasArboxConnection(row as { crm_type?: unknown; crm_api_key?: unknown } | null | undefined);
+  return businessHasArboxConnection(row, apiKey);
 }

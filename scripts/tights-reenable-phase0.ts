@@ -93,11 +93,12 @@ async function main() {
 
   const { data: biz, error: bizErr } = await admin
     .from("businesses")
-    .select("crm_api_key, crm_box_id, arbox_trial_membership_type_ids")
+    .select("id, crm_api_key, crm_api_key_enc, crm_box_id, arbox_trial_membership_type_ids")
     .eq("id", BUSINESS_ID)
     .maybeSingle();
   if (bizErr || !biz) throw bizErr ?? new Error("missing business");
-  const apiKey = String(biz.crm_api_key ?? "").trim();
+  const { getArboxApiKey } = await import("@/lib/business-secret-read");
+  const apiKey = getArboxApiKey(biz);
   const boxId = String(biz.crm_box_id ?? "").trim();
   const trialTypeIds = Array.isArray(biz.arbox_trial_membership_type_ids)
     ? biz.arbox_trial_membership_type_ids.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)

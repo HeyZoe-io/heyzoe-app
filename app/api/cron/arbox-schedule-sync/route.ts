@@ -6,6 +6,7 @@ import {
   pullArboxWeeklyTimetable,
 } from "@/lib/arbox-schedule-sync";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -40,9 +41,9 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_type, crm_api_key, crm_box_id")
+    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
     .eq("crm_type", "arbox")
-    .not("crm_api_key", "is", null);
+    .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null");
 
   if (bizErr) {
     console.error("[cron/arbox-schedule-sync] businesses query failed:", bizErr.message);
@@ -59,9 +60,9 @@ export async function GET(req: NextRequest) {
   for (const row of businessRows ?? []) {
     const id = Number((row as { id?: unknown }).id);
     const slug = String((row as { slug?: unknown }).slug ?? "").trim().toLowerCase();
-    const apiKey = String((row as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+    const apiKey = getArboxApiKey(row as Record<string, unknown>);
     const locationId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
-    if (!Number.isFinite(id) || id <= 0 || !slug || !businessQualifiesForArboxScheduleSync(row)) {
+    if (!Number.isFinite(id) || id <= 0 || !slug || !businessQualifiesForArboxScheduleSync(row, apiKey)) {
       continue;
     }
 

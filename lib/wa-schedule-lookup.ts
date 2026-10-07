@@ -9,6 +9,7 @@
  * explicitly asks about their bookings (never per inbound message).
  */
 
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
 import { guardPreClaudeOutbound } from "@/lib/wa-pre-claude-guard";
 import { canUseArboxScheduleLookup } from "@/lib/crm/types";
@@ -244,15 +245,15 @@ export async function loadArboxScheduleLookupConnection(input: {
   if (!Number.isFinite(businessId) || businessId <= 0) return null;
   const { data, error } = await input.supabase
     .from("businesses")
-    .select("crm_type, crm_api_key, crm_box_id")
+    .select("id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
     .eq("id", businessId)
     .maybeSingle();
   if (error) {
     console.error("[schedule-lookup] CRM load failed", { businessId, error: error.message });
     return null;
   }
-  if (!canUseArboxScheduleLookup(data)) return null;
-  const apiKey = String((data as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
+  const apiKey = getArboxApiKey(data);
+  if (!canUseArboxScheduleLookup(data, apiKey)) return null;
   const boxId = String((data as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
   return { apiKey, boxId };
 }

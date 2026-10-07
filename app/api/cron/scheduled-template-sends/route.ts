@@ -18,6 +18,7 @@ import {
   type ScheduledTemplateSendRow,
 } from "@/lib/scheduled-template-sends";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
@@ -182,7 +183,7 @@ async function dispatchOneScheduledSend(
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
     admin
       .from("businesses")
-      .select("slug, waba_id, name, crm_api_key, crm_box_id")
+      .select("id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id")
       .eq("id", businessId)
       .maybeSingle(),
     admin
@@ -238,7 +239,7 @@ async function dispatchOneScheduledSend(
   }
 
   if (triggerType === "sessions_expiring" || triggerType === "membership_expiring") {
-    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const apiKey = getArboxApiKey(bizRow as Record<string, unknown> | null);
     const boxId = String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
     const expiryGate = await decideScheduledExpirySuppression({
       apiKey,
@@ -345,7 +346,7 @@ async function dispatchOneScheduledSend(
   let clientGeneralNotes: string | undefined;
   if (templateBodyUsesSlot(triggerType, storedComponents, "client_general_notes")) {
     const notesUserId = userIdFromTrainerTrialHeadsUpDedupKey(row.dedup_key);
-    const apiKey = String((bizRow as { crm_api_key?: unknown } | null)?.crm_api_key ?? "").trim();
+    const apiKey = getArboxApiKey(bizRow as Record<string, unknown> | null);
     if (apiKey && notesUserId) {
       clientGeneralNotes = await fetchArboxGeneralNotesText({
         apiKey,

@@ -11,6 +11,7 @@ import {
   normDashboardSlug,
   pickBusinessBySlug,
 } from "@/lib/dashboard-business-access";
+import { getArboxApiKey } from "@/lib/business-secrets";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -64,10 +65,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  if (!businessQualifiesForArboxScheduleSync(biz)) {
+  const apiKey = getArboxApiKey(biz);
+  if (!businessQualifiesForArboxScheduleSync(biz, apiKey)) {
     return NextResponse.json({ error: "crm_not_arbox" }, { status: 400 });
   }
-  const apiKey = String((biz as { crm_api_key?: unknown }).crm_api_key ?? "").trim();
   const locationId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
   if (!apiKey) return NextResponse.json({ error: "missing_crm_credentials" }, { status: 400 });
 
