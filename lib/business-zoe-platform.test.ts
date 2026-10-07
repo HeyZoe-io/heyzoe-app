@@ -28,6 +28,11 @@ assert.ok(defaultLegal.some((l) => l.includes("לא רק לחידוש")));
 assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך")));
 assert.ok(defaultLegal.some((l) => l.includes("בינתיים תתאפרי") && l.includes("נשמח לראותך בשיעור")));
 assert.ok(defaultLegal.some((l) => l.includes("נראה אותך בעוד X דקות") && l.includes("אין בעיה בכלל")));
+assert.ok(
+  defaultLegal.some(
+    (l) => l.includes("סטודיו אחר") && l.includes("אל תפנה") && l.includes("מעבירה את הבקשה לצוות")
+  )
+);
 
 const defaultVoiceExamples =
   DEFAULT_BUSINESS_ZOE_PLATFORM_GUIDELINES.categories
@@ -85,6 +90,7 @@ assert.ok(mergedLegal.some((l) => l.includes(WORD_PRECISION)));
 assert.ok(mergedLegal.some((l) => l.includes("כשהמשתמש כותב בעברית") && l.includes("באנגלית או ברוסית")));
 assert.equal(mergedLegal.filter((l) => l.includes("עברית בלבד — כתבי בכתב עברי בלבד.")).length, 0);
 assert.ok(mergedLegal.some((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")));
+assert.ok(mergedLegal.some((l) => l.includes("סטודיו אחר") && l.includes("אל תפנה")));
 assert.ok(mergedLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
 assert.equal(
   mergedLegal.filter((l) => l.includes("עיסוי זה לא ספא") && l.includes("אל תמציאי סוג מקום")).length,

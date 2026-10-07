@@ -25,6 +25,8 @@ import {
 import { stripExpiredDatedStatusFromReply } from "@/lib/wa-expired-knowledge-dates";
 import { rewriteFalseSingleWeeklySlotClaim } from "@/lib/wa-relative-day-class-slots";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
+import { assistantReplyRecommendsAnotherStudio } from "@/lib/wa-no-other-studio";
+import { pickKnowledgeGapNoDetailsReply } from "@/lib/analytics-knowledge-gaps";
 import { applyLeadAgeBandToReply, type LeadAgeBand } from "@/lib/wa-lead-audience";
 import { formatLongReplySpacing } from "@/lib/wa-reply-spacing";
 
@@ -634,8 +636,12 @@ export function applyKnownAssistantReplyFixes(
   text: string,
   input: ApplyAssistantReplyFixesInput
 ): string {
+  const raw = String(text ?? "").trim();
+  if (assistantReplyRecommendsAnotherStudio(raw, input.knowledge?.businessName ?? "")) {
+    return pickKnowledgeGapNoDetailsReply(resolveReplyFixLanguage(input));
+  }
   const serviceNames = collectServiceNamesFromKnowledge(input.knowledge);
-  let s = sanitizeZoeOutboundLanguage(String(text ?? "").trim());
+  let s = sanitizeZoeOutboundLanguage(raw);
   s = applyServiceLexiconFixes(s, serviceNames);
   s = applyLocationFarClosingFix(s);
   s = applyIllnessPhilosophyFix(s);

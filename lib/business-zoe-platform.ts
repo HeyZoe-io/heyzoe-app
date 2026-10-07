@@ -468,6 +468,21 @@ function upgradeMassageNotSpaToneGuidelineLines(lines: string[]): string[] {
   });
 }
 
+/** בלי הפניה לסטודיו אחר — מזריקים לחוקיות בלי שמירה מחדש באדמין. */
+function ensureNoOtherStudioReferralGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("סטודיו אחר") && l.includes("אל תפנה"))) return lines;
+  const rule = allDefaultGuidelineLines().find(
+    (l) => l.includes("סטודיו אחר") && l.includes("אל תפנה")
+  );
+  if (!rule) return lines;
+  const idx = lines.findIndex((l) => l.includes("אל תמציאי מחירים"));
+  const fallback = lines.findIndex((l) => l.includes("לעולם אל תשתמשי במקף"));
+  const names = lines.findIndex((l) => l.includes("שמות שיעורים/אימונים"));
+  const at = idx >= 0 ? idx : fallback >= 0 ? fallback : names;
+  if (at < 0) return lines;
+  return [...lines.slice(0, at + 1), rule, ...lines.slice(at + 1)];
+}
+
 /** עיסוי ≠ ספא — מזריקים לחוקיות בלי שמירה מחדש באדמין. */
 function ensureNoInventedVenueGuidelineLines(lines: string[]): string[] {
   if (lines.some((l) => l.includes("עיסוי זה לא ספא"))) return lines;
@@ -522,16 +537,18 @@ function upgradeGuidelineLines(lines: string[]): string[] {
         ensureBirtzonchaDefaultGuidelineLines(
           ensureNeutralCancelHowToGuidelineLines(
             ensureWantConjugationGuidelineLines(
-              ensureNoInventedVenueGuidelineLines(
-                upgradeMassageNotSpaToneGuidelineLines(
-                  ensureWordPrecisionGuidelineLines(
-                    upgradeGenderNeutralVerbGuidelineLines(
-                      ensureBookingLookupGuidelineLines(
-                        upgradeCsPhoneHandoffGuidelineLines(
-                          upgradeLegalCsExampleLines(
-                            upgradeClassRescheduleGuidelineLines(
-                              upgradeQuotedFactsGuidelineLines(
-                                upgradeHebrewOnlyLanguageGuidelineLines(lines)
+              ensureNoOtherStudioReferralGuidelineLines(
+                ensureNoInventedVenueGuidelineLines(
+                  upgradeMassageNotSpaToneGuidelineLines(
+                    ensureWordPrecisionGuidelineLines(
+                      upgradeGenderNeutralVerbGuidelineLines(
+                        ensureBookingLookupGuidelineLines(
+                          upgradeCsPhoneHandoffGuidelineLines(
+                            upgradeLegalCsExampleLines(
+                              upgradeClassRescheduleGuidelineLines(
+                                upgradeQuotedFactsGuidelineLines(
+                                  upgradeHebrewOnlyLanguageGuidelineLines(lines)
+                                )
                               )
                             )
                           )
