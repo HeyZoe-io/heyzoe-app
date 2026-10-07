@@ -305,6 +305,16 @@ import {
 import { getOccurrenceState } from "@/lib/arbox-occurrence-state";
 import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
+  buildLeadDayTrialOfferReply,
+  classifyLeadDayTrialFollowup,
+  LEAD_DAY_TRIAL_DECLINE_REPLY,
+  LEAD_DAY_TRIAL_DECLINED_MODEL,
+  LEAD_DAY_TRIAL_OFFER_MODEL,
+  pendingLeadDayFromRecentMessages,
+  resolveLeadDayTrialAsk,
+  upcomingSlotsOnDay,
+} from "@/lib/wa-lead-day-trial";
+import {
   annotateScheduleSlotsByOccurrenceState,
   buildIsraelNowSchedulePromptBlock,
   buildScheduleSlotPickMenuLabels,
@@ -680,6 +690,7 @@ import {
   formatCourseCycleStartButtonLabel,
   formatCycleDateShort,
   formatYomForContactSlotDate,
+  formatDayNameForScheduleDatePlaceholder,
   migrateLegacyCourseToCycles,
   resolveWaSchedulePickSlotsFromMeta,
   syncCourseLegacyDatesFromCycles,
@@ -3740,6 +3751,316 @@ async function applyAssistantRecommendedCatalogRedirect(input: {
   return nextPhase;
 }
 
+async function openPickedScheduleSlot(input: {
+  knowledge: BusinessKnowledgePack;
+  selectedService: SfServiceRow | null;
+  salesFlowServices: SfServiceRow[];
+  dateTxt: string;
+  timeTxt: string;
+  flowStep?: number;
+  msg: Pick<WaIncomingMessage, "toNumber" | "from">;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: string;
+  business_slug: string;
+  sessionId: string;
+  trialRegistered: boolean | null;
+  allowTrialCta: boolean;
+  sfConsumedKinds?: string[];
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
+  now: Date;
+}): Promise<void> {
+  const phoneVariants = contactPhoneLookupVariants(input.msg.from);
+  const nextPhase = phaseAfterSchedulePickComplete();
+  const { error } = await input.supabase
+    .from("contacts")
+    .update(
+      withWarmupExtraAwaitingOff({
+        sf_requested_date: input.dateTxt,
+        sf_requested_time: input.timeTxt,
+        session_phase: nextPhase,
+        flow_step: input.flowStep ?? 0,
+      })
+    )
+    .eq("business_id", input.businessId)
+    .in("phone", phoneVariants.length ? phoneVariants : [input.msg.from]);
+  if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
+  const schedOfferKind = input.selectedService?.offerKind ?? "trial";
+  const schedServiceFallback =
+    schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
+  const rawTpl = resolveAfterScheduleSelectionTemplate(input.knowledge.salesFlowConfig, schedOfferKind);
+  const afterScheduleText = fillAfterScheduleSelectionTemplate(
+    rawTpl,
+    input.selectedService?.name?.trim() || schedServiceFallback,
+    input.dateTxt,
+    input.timeTxt
+  );
+  await sendWhatsAppMessage(
+    input.msg.toNumber,
+    input.msg.from,
+    afterScheduleText,
+    input.accountSid,
+    input.authToken
+  ).catch((e) => console.error("[WA Webhook] Send after schedule selection failed:", e));
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: afterScheduleText,
+    model_used: "sales_flow_after_schedule_selection",
+    session_id: input.sessionId,
+  });
+  await sendSalesFlowCtaMenuWithPhaseUpdate({
+    knowledge: input.knowledge,
+    msg: input.msg,
+    accountSid: input.accountSid,
+    authToken: input.authToken,
+    supabase: input.supabase,
+    businessId: input.businessId,
+    business_slug: input.business_slug,
+    sessionId: input.sessionId,
+    salesFlowServices: input.salesFlowServices,
+    trialRegistered: input.trialRegistered,
+    allowTrialCta: input.allowTrialCta,
+    sfConsumedKinds: input.sfConsumedKinds,
+    modelUsed: "sales_flow_cta",
+    arboxApiKey: input.arboxApiKey,
+    arboxBoxId: input.arboxBoxId,
+    now: input.now,
+  });
+}
+
+/** ליד שמבקשת ניסיון ביום מסוים — רשימת היום, ואחרי מוצר אישור של המועדים ביום הזה. */
+async function maybeHandleLeadDayTrialTurn(input: {
+  msg: WaIncomingMessage;
+  knowledge: BusinessKnowledgePack | null;
+  salesFlowServices: SfServiceRow[];
+  contactArboxIsMember: boolean | null;
+  contactTrialRegistered: boolean | null;
+  contactSessionPhase: HeyzoeSessionPhase;
+  businessId: string | null;
+  business_slug: string;
+  sessionId: string;
+  accountSid: string;
+  authToken: string;
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  now: Date;
+  blockTrialPickMedia: boolean;
+  allowTrialCta: boolean;
+  sfConsumedKinds: string[];
+  instagramFollowPromptSent: boolean;
+  arboxApiKey?: string | null;
+  arboxBoxId?: string | null;
+}): Promise<boolean> {
+  if (input.msg.type !== "text" || !input.businessId || !input.knowledge?.salesFlowConfig) return false;
+  if (input.contactSessionPhase === "registered") return false;
+  const text = String(input.msg.text ?? "").trim();
+  if (!text) return false;
+  const knowledge = input.knowledge;
+  const businessId = input.businessId;
+
+  const lastModel = modelUsedBase(
+    await fetchLastAssistantModelUsed({
+      business_slug: input.business_slug,
+      session_id: input.sessionId,
+    })
+  );
+
+  if (lastModel === SCHEDULE_SLOT_PICK_MENU_MODEL && classifyLeadDayTrialFollowup(text) === "yes") {
+    const pendingDay = await fetchPendingLeadDayTrialDay({
+      supabase: input.supabase,
+      business_slug: input.business_slug,
+      sessionId: input.sessionId,
+    });
+    if (pendingDay) {
+      const selectedName =
+        input.salesFlowServices.length === 1
+          ? input.salesFlowServices[0]!.name
+          : (await fetchLastSfServiceEventName({
+              business_slug: input.business_slug,
+              session_id: input.sessionId,
+            })) ?? "";
+      const selected = input.salesFlowServices.find((service) => service.name === selectedName) ?? null;
+      const daySlots = upcomingSlotsOnDay(selected?.scheduleSlots ?? [], pendingDay, input.now);
+      if (daySlots.length === 1 && selected) {
+        const slot = daySlots[0]!;
+        await openPickedScheduleSlot({
+          knowledge,
+          selectedService: selected,
+          salesFlowServices: input.salesFlowServices,
+          dateTxt: formatDayNameForScheduleDatePlaceholder(slot.day),
+          timeTxt: String(slot.time ?? "").trim(),
+          msg: input.msg,
+          accountSid: input.accountSid,
+          authToken: input.authToken,
+          supabase: input.supabase,
+          businessId,
+          business_slug: input.business_slug,
+          sessionId: input.sessionId,
+          trialRegistered: input.contactTrialRegistered,
+          allowTrialCta: input.allowTrialCta,
+          sfConsumedKinds: input.sfConsumedKinds,
+          arboxApiKey: input.arboxApiKey,
+          arboxBoxId: input.arboxBoxId,
+          now: input.now,
+        });
+        return true;
+      }
+      if (daySlots.length > 1 && selected) {
+        await sendScheduleSlotPickMenu({
+          knowledge,
+          selectedService: selected,
+          msg: input.msg,
+          accountSid: input.accountSid,
+          authToken: input.authToken,
+          supabase: input.supabase,
+          businessId,
+          business_slug: input.business_slug,
+          sessionId: input.sessionId,
+          arboxApiKey: input.arboxApiKey,
+          arboxBoxId: input.arboxBoxId,
+          now: input.now,
+        });
+        return true;
+      }
+    }
+  }
+
+  if (lastModel === LEAD_DAY_TRIAL_OFFER_MODEL) {
+    const follow = classifyLeadDayTrialFollowup(text);
+    if (follow === "no") {
+      try {
+        await sendWhatsAppMessage(
+          input.msg.toNumber,
+          input.msg.from,
+          LEAD_DAY_TRIAL_DECLINE_REPLY,
+          input.accountSid,
+          input.authToken
+        );
+      } catch (e) {
+        console.error("[WA Webhook] lead day trial decline send failed:", e);
+      }
+      await logMessage({
+        business_slug: input.business_slug,
+        role: "assistant",
+        content: LEAD_DAY_TRIAL_DECLINE_REPLY,
+        model_used: LEAD_DAY_TRIAL_DECLINED_MODEL,
+        session_id: input.sessionId,
+      });
+      return true;
+    }
+    if (follow === "yes") {
+      await beginSalesFlowAtProductPick({
+        entryModel: LEAD_DAY_TRIAL_OFFER_MODEL,
+        entryContent: "[heyzoe:lead_day_trial]",
+        knowledge,
+        salesFlowServices: input.salesFlowServices,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        resetState: true,
+        logEntry: false,
+        allowTrialCta: input.allowTrialCta,
+        sfConsumedKinds: input.sfConsumedKinds,
+        instagramFollowPromptSent: input.instagramFollowPromptSent,
+      });
+      return true;
+    }
+    const named = matchCatalogServicesFromFreeText(text, input.salesFlowServices);
+    if (named.length === 1) {
+      const phase = await commitImplicitServiceSwitch({
+        knowledge,
+        salesFlowServices: input.salesFlowServices,
+        serviceName: named[0]!,
+        msg: input.msg,
+        supabase: input.supabase,
+        businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        logModelUsed: "sf_service_pick",
+      });
+      await continueSalesFlowAfterCommittedServiceSwitch({
+        knowledge,
+        salesFlowServices: input.salesFlowServices,
+        phase,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        trialRegistered: input.contactTrialRegistered,
+        allowTrialCta: input.allowTrialCta,
+        blockTrialPickMedia: input.blockTrialPickMedia,
+        sfConsumedKinds: input.sfConsumedKinds,
+        instagramFollowPromptSent: input.instagramFollowPromptSent,
+        arboxApiKey: input.arboxApiKey,
+        arboxBoxId: input.arboxBoxId,
+        now: input.now,
+      });
+      return true;
+    }
+  }
+
+  const day = resolveLeadDayTrialAsk({
+    text,
+    arboxIsMember: input.contactArboxIsMember,
+    trialRegistered: input.contactTrialRegistered,
+    now: input.now,
+  });
+  if (!day) return false;
+  const reply = buildLeadDayTrialOfferReply({
+    day,
+    services: input.salesFlowServices,
+    now: input.now,
+  });
+  if (!reply) return false;
+  try {
+    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, reply, input.accountSid, input.authToken);
+  } catch (e) {
+    console.error("[WA Webhook] lead day trial offer send failed:", e);
+  }
+  await logMessage({
+    business_slug: input.business_slug,
+    role: "assistant",
+    content: reply,
+    model_used: LEAD_DAY_TRIAL_OFFER_MODEL,
+    session_id: input.sessionId,
+  });
+  return true;
+}
+
+async function fetchPendingLeadDayTrialDay(input: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  business_slug: string;
+  sessionId: string;
+}): Promise<ReturnType<typeof pendingLeadDayFromRecentMessages>> {
+  try {
+    const { data, error } = await input.supabase
+      .from("messages")
+      .select("role, content, model_used")
+      .eq("business_slug", input.business_slug)
+      .eq("session_id", input.sessionId)
+      .order("created_at", { ascending: false })
+      .limit(40);
+    if (error) {
+      console.error("[WA Webhook] lead day trial lookup failed:", error.message);
+      return null;
+    }
+    return pendingLeadDayFromRecentMessages(data ?? []);
+  } catch (e) {
+    console.error("[WA Webhook] lead day trial lookup failed:", e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
+
 async function sendScheduleSlotPickMenu(input: {
   knowledge: BusinessKnowledgePack;
   selectedService: SfServiceRow | null;
@@ -3757,7 +4078,48 @@ async function sendScheduleSlotPickMenu(input: {
   now: Date;
 }): Promise<void> {
   const creds = await resolveArboxCredsForSlotPick(input);
-  const rawSlots = input.selectedService?.scheduleSlots ?? [];
+  let rawSlots = input.selectedService?.scheduleSlots ?? [];
+  let confirmDayBody: string | null = null;
+  const pendingDay = await fetchPendingLeadDayTrialDay(input);
+  if (pendingDay) {
+    const daySlots = upcomingSlotsOnDay(rawSlots, pendingDay, input.now);
+    if (daySlots.length) {
+      rawSlots = daySlots;
+      confirmDayBody = buildLeadDayTrialOfferReply({
+        day: pendingDay,
+        services: [{ name: input.selectedService?.name ?? "", scheduleSlots: daySlots }],
+        now: input.now,
+      });
+    } else {
+      const miss = buildLeadDayTrialOfferReply({
+        day: pendingDay,
+        services: input.knowledge.salesFlowServices ?? [],
+        now: input.now,
+        missingServiceName: input.selectedService?.name,
+      });
+      if (miss) {
+        try {
+          await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, miss, input.accountSid, input.authToken);
+        } catch (e) {
+          console.error("[WA Webhook] lead day trial miss send failed:", e);
+        }
+        await logMessage({
+          business_slug: input.business_slug,
+          role: "assistant",
+          content: miss,
+          model_used: LEAD_DAY_TRIAL_OFFER_MODEL,
+          session_id: input.sessionId,
+        });
+        await updateContactSessionPhase({
+          supabase: input.supabase,
+          businessId: input.businessId,
+          phone: input.msg.from,
+          phase: "opening",
+        });
+        return;
+      }
+    }
+  }
   const annotated = await annotateScheduleSlotsByOccurrenceState(rawSlots, input.selectedService?.arboxClassName ?? "", {
     businessId: input.businessId,
     arboxApiKey: creds.arboxApiKey,
@@ -3795,7 +4157,9 @@ async function sendScheduleSlotPickMenu(input: {
   const lang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const fallbackName = lang === "en" ? "the class" : lang === "ru" ? "тренировку" : "האימון";
   const serviceName = input.selectedService?.name?.trim() || fallbackName;
-  const body = stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName, lang));
+  const body =
+    confirmDayBody ??
+    stripTrailingNumberedChoiceLines(buildScheduleSlotPickQuestion(serviceName, lang));
 
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
@@ -10853,7 +11217,16 @@ async function processIncoming(
           return;
         }
       } else {
-        const rawSlots = selectedService?.scheduleSlots ?? [];
+        let rawSlots = selectedService?.scheduleSlots ?? [];
+        const pendingLeadDay = await fetchPendingLeadDayTrialDay({
+          supabase,
+          business_slug,
+          sessionId,
+        });
+        if (pendingLeadDay) {
+          const daySlots = upcomingSlotsOnDay(rawSlots, pendingLeadDay, new Date(nowIso));
+          if (daySlots.length) rawSlots = daySlots;
+        }
         const ignoreClassFullness = businessIgnoresClassFullness(business_slug);
         const annotatedSlots = await annotateScheduleSlotsByOccurrenceState(
           rawSlots,
@@ -10995,46 +11368,13 @@ async function processIncoming(
           }
           if (tap.kind === "open") {
             const { dateTxt, timeTxt, contactPatch } = tap;
-            const phoneVariants = contactPhoneLookupVariants(msg.from);
-            const nextPhase = phaseAfterSchedulePickComplete();
-            const { error } = await supabase
-              .from("contacts")
-              .update(
-                withWarmupExtraAwaitingOff({
-                  sf_requested_date: contactPatch.sf_requested_date,
-                  sf_requested_time: contactPatch.sf_requested_time,
-                  session_phase: nextPhase,
-                  flow_step: contactPatch.flow_step,
-                })
-              )
-              .eq("business_id", businessId)
-              .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
-            if (error) console.warn("[WA Webhook] schedule slot pick update failed:", error.message);
-            contactScheduleRequestedDate = dateTxt;
-            contactScheduleRequestedTime = timeTxt;
-            contactSessionPhase = nextPhase;
-            const schedOfferKind = selectedService?.offerKind ?? "trial";
-            const schedServiceFallback =
-              schedOfferKind === "workshop" ? "הסדנה" : schedOfferKind === "course" ? "הקורס" : "האימון";
-            const rawTpl = resolveAfterScheduleSelectionTemplate(knowledge.salesFlowConfig, schedOfferKind);
-            const afterScheduleText = fillAfterScheduleSelectionTemplate(
-              rawTpl,
-              selectedService?.name?.trim() || schedServiceFallback,
-              dateTxt,
-              timeTxt
-            );
-            await sendWhatsAppMessage(msg.toNumber, msg.from, afterScheduleText, accountSid, authToken).catch((e) =>
-              console.error("[WA Webhook] Send after schedule selection failed:", e)
-            );
-            await logMessage({
-              business_slug,
-              role: "assistant",
-              content: afterScheduleText,
-              model_used: "sales_flow_after_schedule_selection",
-              session_id: sessionId,
-            });
-            await sendSalesFlowCtaMenuWithPhaseUpdate({
+            await openPickedScheduleSlot({
               knowledge,
+              selectedService,
+              salesFlowServices,
+              dateTxt,
+              timeTxt,
+              flowStep: contactPatch.flow_step,
               msg,
               accountSid,
               authToken,
@@ -11042,15 +11382,16 @@ async function processIncoming(
               businessId,
               business_slug,
               sessionId,
-              salesFlowServices,
               trialRegistered: contactTrialRegistered,
               allowTrialCta: allowTrialCtaThisSession,
               sfConsumedKinds: sfClickedCtaKinds,
-              modelUsed: "sales_flow_cta",
               arboxApiKey: crmApiKey,
               arboxBoxId: crmBoxId,
               now: new Date(nowIso),
             });
+            contactScheduleRequestedDate = dateTxt;
+            contactScheduleRequestedTime = timeTxt;
+            contactSessionPhase = phaseAfterSchedulePickComplete();
             return;
           }
           if (inSchedulePickContext && shouldResendDeterministicMenuOnUnrecognizedPick(msg)) {
@@ -12338,6 +12679,32 @@ async function processIncoming(
   } finally {
     releasePreClaude?.();
     exitPreClaudeZone();
+  }
+
+  if (
+    await maybeHandleLeadDayTrialTurn({
+      msg,
+      knowledge,
+      salesFlowServices,
+      contactArboxIsMember,
+      contactTrialRegistered,
+      contactSessionPhase,
+      businessId,
+      business_slug,
+      sessionId,
+      accountSid,
+      authToken,
+      supabase,
+      now: new Date(nowIso),
+      blockTrialPickMedia: starterBlocksMedia,
+      allowTrialCta: allowTrialCtaThisSession,
+      sfConsumedKinds: sfClickedCtaKinds,
+      instagramFollowPromptSent: contactInstagramFollowPromptSent,
+      arboxApiKey: crmApiKey,
+      arboxBoxId: crmBoxId,
+    })
+  ) {
+    return;
   }
 
   // ── Quick-reply vs. "other question" routing ────────────────────────────────
