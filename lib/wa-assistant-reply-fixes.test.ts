@@ -201,6 +201,13 @@ assert.equal(
 );
 assert.doesNotMatch(limitlessRecovering, /תתאפרי|בינתיים/);
 
+const quietWait = applyKnownAssistantReplyFixes(
+  "סבבה, אין בעיה בכלל! 🙂 מחכים לך בשקט. אנחנו כאן 💜",
+  { knowledge }
+);
+assert.equal(quietWait, "סבבה, אין בעיה בכלל! 🙂 מחכים לך. אנחנו כאן 💜");
+assert.doesNotMatch(quietWait, /בשקט/);
+
 const meanwhilePamperOnly = applyKnownAssistantReplyFixes(
   "סבבה, אנחנו כאן כשתרצי 💜 בינתיים תתפנקי!",
   { knowledge }
