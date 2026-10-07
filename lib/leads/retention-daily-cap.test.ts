@@ -24,27 +24,47 @@ assert.equal(retentionMarkedThisProcess(3445, "972501234670", nextMorning), fals
 assert.equal(isCancellationSyncLogTerminal("skipped"), true);
 assert.equal(isCancellationSyncLogTerminal("pending"), false);
 
-const admin = {
-  from() {
-    return {
-      select() {
-        return this;
-      },
-      eq() {
-        return this;
-      },
-      gte() {
-        return this;
-      },
-      limit() {
-        return Promise.resolve({ data: [], error: null });
-      },
-      in() {
-        return Promise.resolve({ data: [], error: null });
-      },
-    };
-  },
-};
+function retentionAdmin(sentTable: string | null) {
+  return {
+    from(table: string) {
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        gte() {
+          return builder;
+        },
+        in() {
+          return builder;
+        },
+        limit() {
+          if (table === "contacts") {
+            return Promise.resolve({
+              data: [{ id: "contact-1", arbox_user_id: "88001" }],
+              error: null,
+            });
+          }
+          if (table === "scheduled_template_sends") {
+            return Promise.resolve({ data: [], error: null });
+          }
+          if (sentTable && table === sentTable) {
+            return Promise.resolve({ data: [{ status: "sent" }], error: null });
+          }
+          return Promise.resolve({ data: [], error: null });
+        },
+        then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) {
+          return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+        },
+      };
+      return builder;
+    },
+  };
+}
+
+const admin = retentionAdmin(null);
 
 async function alreadySentFromThisProcess() {
   const seen = await retentionAlreadySentToday(
@@ -54,6 +74,36 @@ async function alreadySentFromThisProcess() {
     morning
   );
   assert.equal(seen, true);
+
+  const phone = "972501110099";
+  const blockedByLostLead = await retentionAlreadySentToday(
+    retentionAdmin("arbox_lost_lead_sync_log") as never,
+    3646,
+    phone,
+    morning
+  );
+  assert.equal(blockedByLostLead, true);
+  const blockedByGap = await retentionAlreadySentToday(
+    retentionAdmin("arbox_attendance_gap_sync_log") as never,
+    3646,
+    phone,
+    morning
+  );
+  assert.equal(blockedByGap, true);
+  const blockedByMissed = await retentionAlreadySentToday(
+    retentionAdmin("arbox_missed_class_sync_log") as never,
+    3646,
+    phone,
+    morning
+  );
+  assert.equal(blockedByMissed, true);
+  const clear = await retentionAlreadySentToday(
+    retentionAdmin(null) as never,
+    3646,
+    phone,
+    morning
+  );
+  assert.equal(clear, false);
 }
 
 alreadySentFromThisProcess().then(

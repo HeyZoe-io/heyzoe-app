@@ -35,6 +35,21 @@ assert.equal(
   }),
   true
 );
+assert.equal(
+  trialSyncBusinessNeedsWorker({
+    trialMembershipTypeIds: [],
+    enabledTriggerTypes: ["lost_lead"],
+  }),
+  false
+);
+assert.equal(
+  trialSyncBusinessNeedsWorker({
+    trialMembershipTypeIds: [],
+    enabledTriggerTypes: [],
+    hasImmediateLostLead: true,
+  }),
+  true
+);
 
 const prev = process.env.NEXT_PUBLIC_SITE_URL;
 process.env.NEXT_PUBLIC_SITE_URL = "https://heyzoe.io";

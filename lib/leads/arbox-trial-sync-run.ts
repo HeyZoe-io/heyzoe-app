@@ -12,6 +12,7 @@ import {
 } from "@/lib/leads/arbox-trial-sale-registered";
 import { syncArboxCreditRefusalsForBusiness } from "@/lib/leads/arbox-credit-refusal";
 import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
+import { syncArboxLostLeadForBusiness } from "@/lib/leads/arbox-lost-lead";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { isCrmNightHold } from "@/lib/leads/crm-night-hold";
 import { syncArboxFreezeForBusiness } from "@/lib/leads/arbox-freeze";
@@ -65,6 +66,7 @@ export type BusinessRow = {
   arbox_cancellation_seeded: boolean;
   arbox_freeze_seeded: boolean;
   arbox_post_trial_followup_seeded: boolean;
+  arbox_lost_lead_seeded: boolean;
 };
 
 export type BusinessSummary = {
@@ -89,6 +91,7 @@ export type BusinessSummary = {
   membership_cancelled?: Awaited<ReturnType<typeof syncArboxMembershipCancelledForBusiness>>;
   freeze_created?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
   registered_after_trial?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
+  lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
 };
 
 function formatDateYmdIsrael(d: Date): string {
@@ -307,7 +310,7 @@ export const ARBOX_TRIAL_SYNC_TRIGGER_TYPES = [
 ] as const;
 
 const BUSINESS_SELECT =
-  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded";
+  "id, slug, crm_api_key, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded, arbox_lost_lead_seeded";
 
 function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
   const id = Number(row.id);
@@ -329,6 +332,7 @@ function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
     arbox_cancellation_seeded: row.arbox_cancellation_seeded === true,
     arbox_freeze_seeded: row.arbox_freeze_seeded === true,
     arbox_post_trial_followup_seeded: row.arbox_post_trial_followup_seeded === true,
+    arbox_lost_lead_seeded: row.arbox_lost_lead_seeded === true,
   };
 }
 
@@ -336,7 +340,10 @@ function parseBusinessRow(row: Record<string, unknown>): BusinessRow | null {
 export function trialSyncBusinessNeedsWorker(input: {
   trialMembershipTypeIds: readonly number[];
   enabledTriggerTypes: readonly string[];
+  /** Enabled lost_lead with delay_days = 0. Delay >= 1 stays on the 09:00 cron. */
+  hasImmediateLostLead?: boolean;
 }): boolean {
+  if (input.hasImmediateLostLead) return true;
   if (input.trialMembershipTypeIds.length > 0) return true;
   return input.enabledTriggerTypes.some((type) =>
     (ARBOX_TRIAL_SYNC_TRIGGER_TYPES as readonly string[]).includes(type)
@@ -369,21 +376,28 @@ export async function listArboxTrialSyncBusinessIds(
 
   const { data: rules, error: ruleErr } = await admin
     .from("template_triggers")
-    .select("business_id, trigger_type, template_name")
+    .select("business_id, trigger_type, template_name, delay_days")
     .in(
       "business_id",
       businesses.map((b) => b.id)
     )
     .eq("enabled", true)
-    .in("trigger_type", [...ARBOX_TRIAL_SYNC_TRIGGER_TYPES]);
+    .in("trigger_type", [...ARBOX_TRIAL_SYNC_TRIGGER_TYPES, "lost_lead"]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
 
   const typesByBusiness = new Map<number, string[]>();
+  const immediateLostLead = new Set<number>();
   for (const row of rules ?? []) {
     if (!String((row as { template_name?: unknown }).template_name ?? "").trim()) continue;
     const id = Number((row as { business_id?: unknown }).business_id);
     const type = String((row as { trigger_type?: unknown }).trigger_type ?? "");
     if (!Number.isFinite(id) || !type) continue;
+    if (type === "lost_lead") {
+      if (Math.trunc(Number((row as { delay_days?: unknown }).delay_days) || 0) === 0) {
+        immediateLostLead.add(id);
+      }
+      continue;
+    }
     const list = typesByBusiness.get(id) ?? [];
     list.push(type);
     typesByBusiness.set(id, list);
@@ -396,6 +410,7 @@ export async function listArboxTrialSyncBusinessIds(
         trialSyncBusinessNeedsWorker({
           trialMembershipTypeIds: b.arbox_trial_membership_type_ids,
           enabledTriggerTypes: typesByBusiness.get(b.id) ?? [],
+          hasImmediateLostLead: immediateLostLead.has(b.id),
         })
       )
       .map((b) => b.id),
@@ -816,6 +831,41 @@ export async function runArboxTrialSyncForBusiness(input: {
         already: 0,
         skipped_filter: 0,
         skipped_rejoined: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 1,
+        fetch_error: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    try {
+      summary.lost_lead = await syncArboxLostLeadForBusiness({
+        admin,
+        businessId: business.id,
+        businessSlug: business.slug,
+        apiKey: business.crm_api_key,
+        boxId: business.crm_box_id,
+        lostLeadSeeded: business.arbox_lost_lead_seeded,
+        lane: "immediate",
+        now,
+      });
+    } catch (e) {
+      console.error("[cron/arbox-trial-sync] lost_lead step threw", {
+        slug: business.slug,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      summary.lost_lead = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        skipped_active: 0,
+        skipped_recent_checkin: 0,
         notified: 0,
         deferred: 0,
         gated: 0,

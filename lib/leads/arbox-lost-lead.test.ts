@@ -1,21 +1,30 @@
 import assert from "node:assert/strict";
 import {
   buildLostLeadRecentCheckInIndex,
+  distinctLostLeadDailyDelays,
+  isLostLeadImmediateDue,
   LOST_LEAD_LOOKBACK_DAYS,
   LOST_LEAD_RECENT_CHECKIN_DAYS,
   LOST_LEAD_SEED_SPAN_DAYS,
+  lostLeadImmediateWindow,
   lostLeadNeedsSoftSeed,
   lostLeadRecentCheckInYmd,
   lostLeadReportDateRange,
+  lostLeadRulesForLane,
+  lostLeadShouldFetchRecentCheckIns,
+  lostLeadTargetYmd,
   normalizeLostDatePk,
   parseLostEventDate,
   parseLostLeadId,
   seedLostLeadReportDateRange,
+  syncArboxLostLeadForBusiness,
 } from "@/lib/leads/arbox-lost-lead";
 import {
   isExactDaysAfterEvent,
   lookbackDaysForSequenceDelays,
+  shouldRetryCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
+import { eventBeforeRuleActivation } from "@/lib/rule-activation";
 import { SALES_FLOW_START_TRIGGERS } from "@/lib/sales-flow-start-triggers";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import { TEMPLATE_PRESETS } from "@/lib/template-presets";
@@ -101,8 +110,9 @@ import {
 }
 
 {
-  assert.equal(minDelayDaysForTrigger("lost_lead"), 1);
+  assert.equal(minDelayDaysForTrigger("lost_lead"), 0);
   assert.equal(defaultDelayDays("lost_lead"), 1);
+  assert.equal(formatDelayLabel("lost_lead", 0, "after"), "מיידי");
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
   assert.equal(isUniquePerBusinessTriggerType("lost_lead"), false);
   assert.equal(uniqueCreateModeFor("lost_lead"), undefined);
@@ -155,4 +165,211 @@ import {
   assert.equal(lostLeadRecentCheckInYmd({ index: null, userId: 11448880, phone: "972584239185" }), null);
 }
 
-console.log("arbox-lost-lead.test.ts: ok");
+{
+  const today = "2026-10-07";
+  assert.equal(isLostLeadImmediateDue(today, today), true);
+  assert.equal(isLostLeadImmediateDue("2026-10-06", today), true);
+  assert.equal(isLostLeadImmediateDue("2026-10-05", today), false);
+  assert.deepEqual(lostLeadImmediateWindow(new Date("2026-10-07T06:00:00.000Z")), {
+    fromDate: "2026-10-06",
+    toDate: "2026-10-07",
+  });
+  assert.deepEqual(distinctLostLeadDailyDelays([0, 1, 45, 1]), [1, 45]);
+  assert.equal(lostLeadTargetYmd(today, 45), "2026-08-23");
+  assert.equal(lostLeadTargetYmd(today, 30), "2026-09-07");
+  assert.deepEqual(
+    lostLeadRulesForLane([{ delay_days: 0 }, { delay_days: 1 }, { delay_days: 45 }], "daily").map(
+      (rule) => rule.delay_days
+    ),
+    [1, 45]
+  );
+  assert.deepEqual(
+    lostLeadRulesForLane([{ delay_days: 0 }, { delay_days: 30 }], "immediate").map((rule) => rule.delay_days),
+    [0]
+  );
+  assert.equal(
+    lostLeadShouldFetchRecentCheckIns({
+      lane: "immediate",
+      openDueCandidates: 0,
+      bookingsAlreadyProvided: false,
+    }),
+    false
+  );
+  assert.equal(
+    lostLeadShouldFetchRecentCheckIns({
+      lane: "immediate",
+      openDueCandidates: 1,
+      bookingsAlreadyProvided: false,
+    }),
+    true
+  );
+  assert.equal(shouldRetryCancellationSyncLog("sent"), false);
+  assert.equal(shouldRetryCancellationSyncLog("pending"), true);
+  assert.equal(
+    eventBeforeRuleActivation(new Date("2026-10-06T00:00:00+03:00"), {
+      id: "rule",
+      created_at: "2026-10-01T00:00:00.000Z",
+      updated_at: "2026-10-07T07:00:00.000Z",
+    }),
+    true
+  );
+  assert.equal(
+    eventBeforeRuleActivation(new Date("2026-10-08T00:00:00+03:00"), {
+      id: "rule",
+      created_at: "2026-10-01T00:00:00.000Z",
+      updated_at: "2026-10-07T07:00:00.000Z",
+    }),
+    false
+  );
+}
+
+function lostLeadRule(id: string, delayDays: number) {
+  return {
+    id,
+    business_id: 1,
+    trigger_type: "lost_lead",
+    delay_days: delayDays,
+    delay_direction: "after",
+    template_name: "lost_lead",
+    enabled: true,
+    created_at: "2026-09-01T00:00:00.000Z",
+    updated_at: "2026-09-01T00:00:00.000Z",
+  };
+}
+
+function lostLeadAdmin(rules: ReturnType<typeof lostLeadRule>[]) {
+  const writes: string[] = [];
+  const admin = {
+    from(table: string) {
+      const builder = {
+        select() {
+          return builder;
+        },
+        eq() {
+          return builder;
+        },
+        gte() {
+          return builder;
+        },
+        in() {
+          return builder;
+        },
+        limit() {
+          return Promise.resolve(payload(table));
+        },
+        maybeSingle() {
+          return Promise.resolve({ data: null, error: null });
+        },
+        insert() {
+          writes.push(`${table}:insert`);
+          return Promise.resolve({ error: null, data: null });
+        },
+        upsert() {
+          writes.push(`${table}:upsert`);
+          return Promise.resolve({ error: null });
+        },
+        update() {
+          writes.push(`${table}:update`);
+          return builder;
+        },
+        then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) {
+          return Promise.resolve(payload(table)).then(resolve, reject);
+        },
+      };
+      return builder;
+    },
+  };
+  function payload(table: string) {
+    if (table === "template_triggers") return { data: rules, error: null };
+    if (table === "arbox_lost_lead_sync_log") return { data: null, error: null, count: 1 };
+    return { data: [], error: null };
+  }
+  return { admin, writes };
+}
+
+async function runLaneCases() {
+  const now = new Date("2026-10-07T06:00:00.000Z");
+  const base = {
+    businessId: 1,
+    businessSlug: "studio",
+    apiKey: "key",
+    boxId: "9",
+    lostLeadSeeded: true,
+    now,
+  };
+
+  const empty = lostLeadAdmin([lostLeadRule("delay-0", 0)]);
+  let bookingsCalls = 0;
+  const emptySummary = await syncArboxLostLeadForBusiness({
+    ...base,
+    admin: empty.admin as never,
+    lane: "immediate",
+    fetchLostLeads: async () => ({ ok: true, rows: [], pagesFetched: 1, hitPageCap: false }),
+    fetchBookings: async () => {
+      bookingsCalls += 1;
+      return { ok: true, rows: [], pagesFetched: 1 };
+    },
+  });
+  assert.equal(bookingsCalls, 0);
+  assert.equal(emptySummary.notified, 0);
+  assert.equal(empty.writes.length, 0);
+
+  const failed = lostLeadAdmin([lostLeadRule("delay-0", 0)]);
+  let failedBookings = 0;
+  const failedSummary = await syncArboxLostLeadForBusiness({
+    ...base,
+    admin: failed.admin as never,
+    lane: "immediate",
+    fetchLostLeads: async () => ({
+      ok: true,
+      rows: [{ lead_id: 44, lost_date: "2026-10-07", phone: "0501234567", full_name: "דנה" }],
+      pagesFetched: 1,
+      hitPageCap: false,
+    }),
+    fetchBookings: async () => {
+      failedBookings += 1;
+      return { ok: false, error: "bookings_down", pagesFetched: 0 };
+    },
+  });
+  assert.equal(failedBookings, 1);
+  assert.equal(failedSummary.notified, 0);
+  assert.equal(failedSummary.fetch_error, "bookings_down");
+  assert.equal(failed.writes.length, 0);
+
+  const dailyOnly = lostLeadAdmin([lostLeadRule("delay-0", 0)]);
+  let dailyFetches = 0;
+  const dailySkip = await syncArboxLostLeadForBusiness({
+    ...base,
+    admin: dailyOnly.admin as never,
+    lane: "daily",
+    fetchLostLeads: async () => {
+      dailyFetches += 1;
+      return { ok: true, rows: [], pagesFetched: 1, hitPageCap: false };
+    },
+  });
+  assert.equal(dailyFetches, 0);
+  assert.equal(dailySkip.skip_reason, "no_rule");
+
+  const targets: string[] = [];
+  const daily = lostLeadAdmin([lostLeadRule("d1", 1), lostLeadRule("d45", 45)]);
+  const dailySummary = await syncArboxLostLeadForBusiness({
+    ...base,
+    admin: daily.admin as never,
+    lane: "daily",
+    fetchLostLeads: async (input) => {
+      targets.push(`${input.fromDate}=${input.toDate}`);
+      return { ok: true, rows: [], pagesFetched: 1, hitPageCap: false };
+    },
+  });
+  assert.deepEqual(targets.sort(), ["2026-08-23=2026-08-23", "2026-10-06=2026-10-06"]);
+  assert.equal(dailySummary.notified, 0);
+  assert.equal(daily.writes.length, 0);
+}
+
+runLaneCases().then(
+  () => console.log("arbox-lost-lead.test.ts: ok"),
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  }
+);

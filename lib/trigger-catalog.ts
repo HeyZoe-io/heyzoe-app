@@ -35,6 +35,8 @@ type TriggerCatalogEntryShape = {
 const SEND_HINT_FREQUENT_HE =
   "נשלח עד כ־15 דקות אחרי האירוע, בכל שעות היום";
 const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
+const SEND_HINT_LOST_LEAD_HE =
+  "דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-09:00 ביום היעד (שעון ישראל).";
 const SEND_HINT_TRIAL_CLASS_HE =
   "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:30 בערב שלפני.";
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
@@ -400,11 +402,11 @@ export const TRIGGER_CATALOG = [
     delay: "after",
     showProductFilter: false,
     uniquePerBusiness: false,
-    minDelayDays: 1,
+    minDelayDays: 0,
     recipient: "customer",
     presetKey: "lost_lead",
     uiOrder: 30,
-    sendHintHe: SEND_HINT_DAILY_HE,
+    sendHintHe: SEND_HINT_LOST_LEAD_HE,
   },
   {
     type: "trial_reminder",
@@ -881,6 +883,7 @@ export function defaultDelayDays(triggerType: string): number {
   if (isPostTrialFollowupTriggerType(triggerType)) return 3;
   if (isFreezeEndingTriggerType(triggerType)) return 3;
   if (triggerType === "trial_reminder" || triggerType === "trainer_trial_heads_up") return 1;
+  if (triggerType === "lost_lead") return 1;
   if (triggerType === "milestones") return 90;
   if (isNthWorkoutTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
@@ -919,6 +922,7 @@ const FORCE_AFTER_NO_PRODUCT_FILTER = new Set([
   "trial_booked",
   "class_cancelled_staff",
   "class_cancelled_customer",
+  "lost_lead",
 ]);
 
 export function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -989,7 +993,7 @@ export function formatDelayLabel(
     return `${Math.max(2, days)} ימי שתיקה`;
   }
   if (type === "lost_lead") {
-    return `${Math.max(1, days)} ימים אחרי אובדן הליד`;
+    return days === 0 ? "מיידי" : `${days} ימים אחרי אובדן הליד`;
   }
   if (type === "milestones") {
     return `${Math.max(1, days)} ימים מההצטרפות`;

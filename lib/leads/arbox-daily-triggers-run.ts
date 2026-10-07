@@ -1214,6 +1214,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       apiKey: business.crm_api_key,
       boxId: business.crm_box_id,
       lostLeadSeeded: business.arbox_lost_lead_seeded,
+      lane: "daily",
       now,
       ...(sharedActiveKeys ? { activeProductKeys: sharedActiveKeys } : {}),
       ...(prefetchedRows ? { recentCheckInRows: prefetchedRows } : {}),

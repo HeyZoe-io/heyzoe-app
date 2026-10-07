@@ -94,6 +94,7 @@ export function unsentReason(input: {
   }
   if (err.includes("waba") || err.includes("no_channel")) return "חסר וואטסאפ";
   if (status === "no_phone" || err.includes("no_phone")) return "אין טלפון";
+  if (err.includes("retention_daily_cap")) return "תקרת שימור יומית";
   if (status === "canceled" || status === "cancelled") return "בוטל";
   if (status === "skipped") return "דילוג";
   if (status === "pending") return "ממתין אחרי 09:00";

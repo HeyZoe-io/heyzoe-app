@@ -1,11 +1,13 @@
 /**
  * At most one retention message per contact per Israel calendar day.
- * Priority when several are still unsent: missed_class / missed_trial, then
- * attendance_gap, then lost_lead, then no_response. A skipped event is closed
- * for that same event (status skipped / retention_daily_cap), not moved to tomorrow.
+ * Inside one run the in-memory set keeps missed_class / missed_trial ahead of
+ * attendance_gap ahead of lost_lead. Across crons the first send of the day
+ * wins: scheduled_template_sends status=sent, or a sync-log row status=sent
+ * whose processed_at is today. A skipped event is closed for that same event
+ * (status skipped / retention_daily_cap), not moved to tomorrow.
  */
 import { formatDateYmdIsrael } from "@/lib/leads/arbox-trial-attended";
-import { normalizePhone } from "@/lib/phone-normalize";
+import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
@@ -62,6 +64,69 @@ function israelDayStartIso(now: Date): string {
   return new Date(`${ymd}T00:00:00${sign}${hh}:${mm}`).toISOString();
 }
 
+const RETENTION_SYNC_LOGS = [
+  { table: "arbox_missed_class_sync_log", idColumn: "user_id" },
+  { table: "arbox_attendance_gap_sync_log", idColumn: "user_id" },
+  { table: "arbox_lost_lead_sync_log", idColumn: "lead_id" },
+] as const;
+
+async function retentionSyncLogSentToday(
+  admin: Admin,
+  businessId: number,
+  phone: string,
+  now: Date
+): Promise<boolean> {
+  const variants = [...new Set(contactPhoneLookupVariants(phone))];
+  if (!variants.length) return false;
+  const { data: contacts, error: contactErr } = await admin
+    .from("contacts")
+    .select("id, arbox_user_id")
+    .eq("business_id", businessId)
+    .in("phone", variants)
+    .limit(8);
+  if (contactErr || !contacts?.length) return false;
+  const contactIds = [
+    ...new Set(
+      contacts
+        .map((row) => String((row as { id?: unknown }).id ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  const userIds = [
+    ...new Set(
+      contacts
+        .map((row) => Number((row as { arbox_user_id?: unknown }).arbox_user_id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    ),
+  ];
+  const since = israelDayStartIso(now);
+  for (const source of RETENTION_SYNC_LOGS) {
+    if (contactIds.length) {
+      const { data, error } = await admin
+        .from(source.table)
+        .select("status")
+        .eq("business_id", businessId)
+        .eq("status", "sent")
+        .gte("processed_at", since)
+        .in("contact_id", contactIds)
+        .limit(1);
+      if (!error && data?.length) return true;
+    }
+    if (userIds.length) {
+      const { data, error } = await admin
+        .from(source.table)
+        .select("status")
+        .eq("business_id", businessId)
+        .eq("status", "sent")
+        .gte("processed_at", since)
+        .in(source.idColumn, userIds)
+        .limit(1);
+      if (!error && data?.length) return true;
+    }
+  }
+  return false;
+}
+
 export async function retentionAlreadySentToday(
   admin: Admin,
   businessId: number,
@@ -79,17 +144,25 @@ export async function retentionAlreadySentToday(
     .eq("status", "sent")
     .gte("updated_at", israelDayStartIso(now))
     .limit(20);
-  if (error || !data?.length) return false;
-  const ids = [...new Set(data.map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "")).filter(Boolean))];
-  if (!ids.length) return false;
-  const { data: rules, error: ruleErr } = await admin
-    .from("template_triggers")
-    .select("trigger_type")
-    .in("id", ids);
-  if (ruleErr) return false;
-  return (rules ?? []).some((row) =>
-    (RETENTION_TRIGGER_TYPES as readonly string[]).includes(String((row as { trigger_type?: unknown }).trigger_type ?? ""))
-  );
+  if (!error && data?.length) {
+    const ids = [...new Set(data.map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? "")).filter(Boolean))];
+    if (ids.length) {
+      const { data: rules, error: ruleErr } = await admin
+        .from("template_triggers")
+        .select("trigger_type")
+        .in("id", ids)
+        .limit(20);
+      if (!ruleErr) {
+        const hit = (rules ?? []).some((row) =>
+          (RETENTION_TRIGGER_TYPES as readonly string[]).includes(
+            String((row as { trigger_type?: unknown }).trigger_type ?? "")
+          )
+        );
+        if (hit) return true;
+      }
+    }
+  }
+  return retentionSyncLogSentToday(admin, businessId, normalized, now);
 }
 
 /** Close this event so the same row does not send tomorrow. No-op while dry-run. */

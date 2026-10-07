@@ -1,10 +1,12 @@
 /**
- * A7 lost_lead win-back: lostLeadsReport → MARKETING template on the exact due day
- * (delay_days after lost_date). Multiple rules (day 1 / 7 / 21) replace a D3 state machine.
- * Re-fetch each cron run: if the lead left the report (came back / joined), later steps do not send.
- * A check-in=Yes within LOST_LEAD_RECENT_CHECKIN_DAYS on the shared bookingsReport prefetch
- * belongs to attendance_gap — lost_lead writes a terminal skip and does not send.
- * Seed 30d without WhatsApp; after seed lookback = max(3, max delay) capped at 30.
+ * A7 lost_lead win-back: lostLeadsReport → MARKETING template.
+ * delay_days = 0 runs on arbox-trial-sync (about 15 min, night-held 21:00-08:00).
+ * Due when lost_date is today or yesterday (grace for a mark during the hold).
+ * delay_days >= 1 stays on the 09:00 daily path: one lostLeadsReport per distinct
+ * delay, fromDate = toDate = today minus N, so N > 30 still fires.
+ * A check-in=Yes within LOST_LEAD_RECENT_CHECKIN_DAYS belongs to attendance_gap.
+ * Delay 0 fetches that bookingsReport only when a due row is still open in the log.
+ * Seed 30d without WhatsApp.
  */
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
@@ -19,8 +21,8 @@ import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
   formatDateYmdIsrael,
   isExactDaysAfterEvent,
-  lookbackDaysForSequenceDelays,
   nextCancellationSyncLogAfterDispatch,
+  shouldRetryCancellationSyncLog,
   parseCancellationSyncAttempts,
   parseCancelledEventDate,
   reportTimestampToYmd,
@@ -33,8 +35,10 @@ import {
   type ActiveProductKeys,
 } from "@/lib/leads/arbox-active-product";
 import { ymdDiffDays } from "@/lib/leads/arbox-attendance-gap";
+import { bookingsReportSharedLookbackWindow } from "@/lib/leads/arbox-missed-class";
 import { fetchLostLeadsReportRows } from "@/lib/leads/arbox-lost-leads-report";
 import {
+  fetchArboxBookingsReport,
   isBookingCheckedIn,
   parseClassDateYmd,
   type ArboxBookingReportRow,
@@ -228,6 +232,59 @@ export function lostLeadReportDateRange(input: {
   );
   const fromDate = formatDateYmdIsrael(new Date(input.now.getTime() - days * MS_PER_DAY));
   return { fromDate, toDate };
+}
+
+export type LostLeadLane = "daily" | "immediate";
+
+/** Calendar shift on a YYYY-MM-DD string. Noon UTC avoids a DST day slip. */
+export function shiftLostLeadYmd(ymd: string, deltaDays: number): string {
+  const [year, month, day] = ymd.split("-").map((part) => Number(part));
+  const shifted = new Date(Date.UTC(year!, (month ?? 1) - 1, (day ?? 1) + deltaDays, 12));
+  return shifted.toISOString().slice(0, 10);
+}
+
+/** Delay 0 on the 15-min cron. Delay >= 1 stays on the 09:00 cron. */
+export function lostLeadRulesForLane<T extends { delay_days: number }>(
+  rules: readonly T[],
+  lane: LostLeadLane
+): T[] {
+  return rules.filter((rule) => {
+    const days = Math.trunc(Number(rule.delay_days) || 0);
+    return lane === "immediate" ? days === 0 : days >= 1;
+  });
+}
+
+/** Yesterday through today. A 22:00 mark (lost_date = that day) is still due at 08:00 next morning. */
+export function lostLeadImmediateWindow(now: Date): { fromDate: string; toDate: string } {
+  const toDate = formatDateYmdIsrael(now);
+  return { fromDate: shiftLostLeadYmd(toDate, -1), toDate };
+}
+
+export function isLostLeadImmediateDue(eventYmd: string, todayYmd: string): boolean {
+  return eventYmd === todayYmd || eventYmd === shiftLostLeadYmd(todayYmd, -1);
+}
+
+/** One lostLeadsReport day per distinct delay: fromDate = toDate = today - N. */
+export function distinctLostLeadDailyDelays(delayDays: readonly number[]): number[] {
+  const delays = new Set<number>();
+  for (const raw of delayDays) {
+    const days = Math.trunc(Number(raw) || 0);
+    if (days >= 1) delays.add(days);
+  }
+  return [...delays].sort((a, b) => a - b);
+}
+
+export function lostLeadTargetYmd(todayYmd: string, delayDays: number): string {
+  return shiftLostLeadYmd(todayYmd, -Math.max(1, Math.trunc(delayDays)));
+}
+
+/** Bookings for the 30-day check-in gate: only a delay-0 run with an open due row, and no rows already in hand. */
+export function lostLeadShouldFetchRecentCheckIns(input: {
+  lane: LostLeadLane;
+  openDueCandidates: number;
+  bookingsAlreadyProvided: boolean;
+}): boolean {
+  return input.lane === "immediate" && !input.bookingsAlreadyProvided && input.openDueCandidates > 0;
 }
 
 /** Flag already true + empty log → soft-seed (rule added later) instead of blasting. */
@@ -442,18 +499,16 @@ async function dispatchLostLeadTemplate(input: {
 }
 
 /**
- * Daily lost_lead step for one Arbox business.
+ * lost_lead step for one Arbox business.
  *
- * IO (10 businesses): 1 lostLeadsReport GET each when an enabled rule with
- * template_name exists (paginated; typically 1 page after seed). Recent check-in
- * uses bookingsReport rows the daily cron already fetched (0 extra Arbox calls).
- * When a row is due to send: +1 activeMemberships, +1 sessions, +1 future bookings
- * (and membershipTypes only if trial product ids are set) — once per business, not
- * per lead. WhatsApp/Meta: one immediate send per matching rule on its due day.
- * A recent check-in skips before that active-product fetch when keys are not shared.
+ * lane "daily" (09:00): delay >= 1. One lostLeadsReport per distinct delay, that
+ * exact Israel day. Check-in rows come from the daily prefetch when it ran.
+ * lane "immediate" (15 min): delay 0 only. Window is yesterday+today. Bookings
+ * for the 30-day check-in gate are fetched only when a due row is still open.
+ * A failed bookings fetch returns without claiming, so the next tick retries.
  *
  * Seed (arbox_lost_lead_seeded=false): mark the 30-day window seen, no WhatsApp.
- * Soft-seed: flag true + empty log for that trigger_id → same 30-day mark, no WhatsApp.
+ * Soft-seed: flag true + empty log for that trigger_id → mark the fetched rows, no WhatsApp.
  */
 export async function syncArboxLostLeadForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -463,13 +518,20 @@ export async function syncArboxLostLeadForBusiness(input: {
   boxId: string;
   lostLeadSeeded: boolean;
   now?: Date;
+  /** daily = delay >= 1 at 09:00. immediate = delay 0 on the 15-min cron. */
+  lane?: LostLeadLane;
   /** Shared daily-cron read. When set, this step does not fetch again. */
   activeProductKeys?: ActiveProductKeys;
   /**
    * bookingsReport rows already pulled this run (past window, ≤31 days).
-   * Absent → no check-in gate (same as before this skip existed).
+   * Absent on the daily lane → no check-in gate.
+   * Absent on the immediate lane → fetched lazily when a due row is still open.
    */
   recentCheckInRows?: readonly Pick<ArboxBookingReportRow, "user_id" | "phone" | "date" | "check_in">[];
+  /** Test hook. Production uses lostLeadsReport. */
+  fetchLostLeads?: typeof fetchLostLeadsReportRows;
+  /** Test hook. Production uses the shared 30-day bookings window. */
+  fetchBookings?: typeof fetchArboxBookingsReport;
 }): Promise<LostLeadSyncSummary> {
   const summary: LostLeadSyncSummary = {
     fetched: 0,
@@ -501,44 +563,87 @@ export async function syncArboxLostLeadForBusiness(input: {
     return summary;
   }
 
-  const rules = await loadEnabledLostLeadTemplateTriggers(input.admin, businessId);
-  const rulesWithTemplate = orderAllRulesWithCompanion(rules);
+  const lane: LostLeadLane = input.lane === "immediate" ? "immediate" : "daily";
+  const fetchLostLeads = input.fetchLostLeads ?? fetchLostLeadsReportRows;
+  const fetchBookings = input.fetchBookings ?? fetchArboxBookingsReport;
+  const allRules = orderAllRulesWithCompanion(
+    await loadEnabledLostLeadTemplateTriggers(input.admin, businessId)
+  );
+  const rulesWithTemplate = lostLeadRulesForLane(allRules, lane);
   if (!rulesWithTemplate.length) {
     summary.skipped = true;
     summary.skip_reason = "no_rule";
     console.info("[leads/arbox-lost-lead] skip — no enabled lost_lead rule", {
       businessId,
       businessSlug,
+      lane,
     });
     return summary;
   }
 
-  const lookbackDays = lookbackDaysForSequenceDelays(
-    rulesWithTemplate.map((r) => r.delay_days),
-    LOST_LEAD_LOOKBACK_DAYS
-  );
   const needsFullSeed = !input.lostLeadSeeded;
-  const { fromDate, toDate } = lostLeadReportDateRange({
-    seeded: !needsFullSeed,
-    now,
-    lookbackDays,
-  });
-
-  const report = await fetchLostLeadsReportRows({
-    apiKey,
-    fromDate,
-    toDate,
-    locationId: boxId,
-  });
-  summary.pages_fetched = report.pagesFetched;
-  if (!report.ok) {
-    summary.fetch_error = report.error;
-    summary.errors += 1;
-    return summary;
-  }
-  summary.fetched = report.rows.length;
-  const reportRows = report.rows;
   const todayYmd = formatDateYmdIsrael(now);
+
+  const fetchedRows: Record<string, unknown>[] = [];
+  if (needsFullSeed) {
+    const range = seedLostLeadReportDateRange(now);
+    const report = await fetchLostLeads({
+      apiKey,
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += report.pagesFetched;
+    if (!report.ok) {
+      summary.fetch_error = report.error;
+      summary.errors += 1;
+      return summary;
+    }
+    fetchedRows.push(...report.rows);
+  } else if (lane === "immediate") {
+    const range = lostLeadImmediateWindow(now);
+    const report = await fetchLostLeads({
+      apiKey,
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += report.pagesFetched;
+    if (!report.ok) {
+      summary.fetch_error = report.error;
+      summary.errors += 1;
+      return summary;
+    }
+    fetchedRows.push(...report.rows);
+  } else {
+    const seen = new Set<string>();
+    for (const delayDays of distinctLostLeadDailyDelays(rulesWithTemplate.map((rule) => rule.delay_days))) {
+      const targetYmd = lostLeadTargetYmd(todayYmd, delayDays);
+      const report = await fetchLostLeads({
+        apiKey,
+        fromDate: targetYmd,
+        toDate: targetYmd,
+        locationId: boxId,
+      });
+      summary.pages_fetched += report.pagesFetched;
+      if (!report.ok) {
+        summary.fetch_error = report.error;
+        summary.errors += 1;
+        return summary;
+      }
+      for (const raw of report.rows) {
+        const row = raw as ArboxLostLeadRow;
+        const leadId = parseLostLeadId(row);
+        const lostDate = normalizeLostDatePk(row.lost_date);
+        const key = leadId != null && lostDate ? `${leadId}|${lostDate}` : "";
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        fetchedRows.push(raw);
+      }
+    }
+  }
+  summary.fetched = fetchedRows.length;
+  const reportRows = fetchedRows;
 
   type ActiveProductState = { kind: "ready"; keys: ActiveProductKeys } | { kind: "failed" };
   let activeProductState: ActiveProductState | undefined;
@@ -633,7 +738,7 @@ export async function syncArboxLostLeadForBusiness(input: {
   }
 
   if (needsFullSeed) {
-    for (const rule of rulesWithTemplate) {
+    for (const rule of allRules) {
       await seedRuleRows(rule, "seeded");
     }
     const { error: flagErr } = await input.admin
@@ -653,7 +758,7 @@ export async function syncArboxLostLeadForBusiness(input: {
     return summary;
   }
 
-  const recentCheckInIndex = input.recentCheckInRows
+  let recentCheckInIndex = input.recentCheckInRows
     ? buildLostLeadRecentCheckInIndex({
         rows: input.recentCheckInRows,
         todayYmd,
@@ -676,6 +781,74 @@ export async function syncArboxLostLeadForBusiness(input: {
     seededThisRun.add(rule.id);
   }
 
+  const rowIsDue = (eventYmd: string | null, delayDays: number): boolean => {
+    if (!eventYmd) return false;
+    if (lane === "immediate") return isLostLeadImmediateDue(eventYmd, todayYmd);
+    return isExactDaysAfterEvent({ eventYmd, todayYmd, delayDays });
+  };
+
+  let openDueCandidates = 0;
+  if (lane === "immediate" && !input.recentCheckInRows) {
+    for (const raw of reportRows) {
+      const row = raw as ArboxLostLeadRow;
+      const leadId = parseLostLeadId(row);
+      const lostDate = normalizeLostDatePk(row.lost_date);
+      const eventYmd = reportTimestampToYmd(lostDate);
+      if (leadId == null || !lostDate || leadId === LOST_LEAD_SOFT_SEED_SENTINEL_LEAD_ID) continue;
+      for (const rule of rulesWithTemplate) {
+        if (seededThisRun.has(rule.id) || !rowIsDue(eventYmd, rule.delay_days)) continue;
+        const { data: existing, error: existingErr } = await input.admin
+          .from("arbox_lost_lead_sync_log")
+          .select("status")
+          .eq("business_id", businessId)
+          .eq("trigger_id", rule.id)
+          .eq("lead_id", leadId)
+          .eq("lost_date", lostDate)
+          .maybeSingle();
+        if (existingErr) continue;
+        const status = String((existing as { status?: unknown } | null)?.status ?? "");
+        if (!shouldRetryCancellationSyncLog(status)) continue;
+        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) continue;
+        openDueCandidates += 1;
+      }
+    }
+  }
+
+  if (
+    lostLeadShouldFetchRecentCheckIns({
+      lane,
+      openDueCandidates,
+      bookingsAlreadyProvided: Boolean(input.recentCheckInRows),
+    })
+  ) {
+    const window = bookingsReportSharedLookbackWindow({
+      now,
+      missedNeedsSeed: false,
+      forceWidePast: true,
+    });
+    const bookings = await fetchBookings({
+      apiKey,
+      fromDate: window.fromDate,
+      toDate: window.toDate,
+      locationId: boxId,
+    });
+    summary.pages_fetched += bookings.pagesFetched;
+    if (!bookings.ok) {
+      summary.fetch_error = bookings.error;
+      summary.errors += 1;
+      console.error("[leads/arbox-lost-lead] recent check-in fetch failed — leave unclaimed", {
+        businessId,
+        businessSlug,
+        error: bookings.error,
+      });
+      return summary;
+    }
+    recentCheckInIndex = buildLostLeadRecentCheckInIndex({
+      rows: bookings.rows,
+      todayYmd,
+    });
+  }
+
   for (const raw of reportRows) {
     const row = raw as ArboxLostLeadRow;
     const leadId = parseLostLeadId(row);
@@ -692,14 +865,7 @@ export async function syncArboxLostLeadForBusiness(input: {
 
     for (const rule of rulesWithTemplate) {
       if (seededThisRun.has(rule.id)) continue;
-      if (
-        !eventYmd ||
-        !isExactDaysAfterEvent({
-          eventYmd,
-          todayYmd,
-          delayDays: rule.delay_days,
-        })
-      ) {
+      if (!rowIsDue(eventYmd, rule.delay_days)) {
         continue;
       }
 
@@ -741,6 +907,22 @@ export async function syncArboxLostLeadForBusiness(input: {
             ...logBase,
             dispatch: "already" satisfies LostLeadDispatch,
           });
+          continue;
+        }
+
+        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: null,
+            nowIso,
+            status: "skipped",
+            attempts: existingAttempts,
+          });
+          if (!marked.ok) summary.errors += 1;
           continue;
         }
 
@@ -840,22 +1022,6 @@ export async function syncArboxLostLeadForBusiness(input: {
             phone: maskPhoneForLog(phone),
             dispatch: "skipped_active" satisfies LostLeadDispatch,
           });
-          continue;
-        }
-
-        if (eventBeforeRuleActivation(parseReportEventInstant(lostDate), rule)) {
-          const marked = await upsertLostLeadSyncLog({
-            admin: input.admin,
-            businessId,
-            triggerId: rule.id,
-            leadId,
-            lostDate,
-            contactId: resolved.contact?.id ?? null,
-            nowIso,
-            status: "skipped",
-            attempts: existingAttempts,
-          });
-          if (!marked.ok) summary.errors += 1;
           continue;
         }
 

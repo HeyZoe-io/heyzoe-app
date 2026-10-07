@@ -558,8 +558,9 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("attendance_gap", 7, "after"), "7 ימי היעדרות");
   assert.equal(formatDelayLabel("attendance_gap", 21, "after"), "21 ימי היעדרות");
   assert.equal(minDelayDaysForTrigger("attendance_gap"), 7);
+  assert.equal(formatDelayLabel("lost_lead", 0, "after"), "מיידי");
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
-  assert.equal(minDelayDaysForTrigger("lost_lead"), 1);
+  assert.equal(minDelayDaysForTrigger("lost_lead"), 0);
   assert.equal(defaultDelayDays("lost_lead"), 1);
   assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "בוקר האימון");
   assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
@@ -664,6 +665,8 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("freeze_created"), /08:00/);
   assert.match(triggerSendScheduleHintHe("freeze_created"), /21:00/);
   assert.match(triggerSendScheduleHintHe("lost_lead"), /09:00/);
+  assert.match(triggerSendScheduleHintHe("lost_lead"), /15 דקות/);
+  assert.match(triggerSendScheduleHintHe("lost_lead"), /08:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /20:30/);
   assert.doesNotMatch(triggerSendScheduleHintHe("trial_reminder"), /20:00/);
