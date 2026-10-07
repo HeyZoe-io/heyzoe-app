@@ -160,6 +160,8 @@ export async function fetchArboxActiveProductKeys(input: {
       keys: ActiveProductKeys;
       membershipRows: Record<string, unknown>[];
       membershipsHitPageCap: boolean;
+      sessionRows: Record<string, unknown>[];
+      sessionsHitPageCap: boolean;
     }
   | { ok: false; error: string }
 > {
@@ -234,6 +236,8 @@ export async function fetchArboxActiveProductKeys(input: {
     ok: true,
     membershipRows,
     membershipsHitPageCap,
+    sessionRows: sessions.rows,
+    sessionsHitPageCap: sessions.hitPageCap,
     keys: collectActiveProductKeys({
       membershipRows,
       sessionRows: sessions.rows,

@@ -5,6 +5,8 @@ import {
   ATTENDANCE_GAP_SYNC_VARIANT,
   attendanceGapDecideFreeze,
   attendanceGapFreezeReportWindows,
+  attendanceGapMemberDecision,
+  attendanceGapMembershipIsStaff,
   attendanceGapFutureWindow,
   attendanceGapPastWindow,
   attendanceGapLookbackCoversDelays,
@@ -372,6 +374,104 @@ assert.equal(ymdDiffDays("2026-09-06", "2026-08-30"), 7);
   assert.equal(split[0]?.fromDate, "2026-08-24");
   assert.ok(split.length >= 2, "a delay past the 30-day cap splits into more than one call");
   assert.equal(split[split.length - 1]?.toDate, today);
+}
+
+/** Active paid or punch card sends. Expired, cancelled, trial-only, none, and staff do not. */
+{
+  assert.equal(attendanceGapMembershipIsStaff("מנוי צוות"), true);
+  assert.equal(attendanceGapMembershipIsStaff("staff pass"), true);
+  assert.equal(attendanceGapMembershipIsStaff("BOXFIT X 9"), false);
+
+  const paid = {
+    user_id: 1,
+    status: "active",
+    type: "plan",
+    membership_type_name: "BOXFIT ללא הגבלה",
+  };
+  assert.equal(
+    attendanceGapMemberDecision({ userId: 1, membershipRows: [paid], sessionRows: [] }),
+    "send",
+    "active paid"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 1,
+      membershipRows: [{ ...paid, status: "activeMemberWithFutureCancel" }],
+      sessionRows: [],
+    }),
+    "send",
+    "future cancellation is still active"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 2,
+      membershipRows: [],
+      sessionRows: [{ user_id: 2, status: "active", type: "session", name: "כרטיסיית אימונים 24+1" }],
+    }),
+    "send",
+    "valid punch card"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 2,
+      membershipRows: [{ user_id: 2, status: "active", type: "session", membership_type_name: "כרטיסיית 12+1" }],
+      sessionRows: [],
+    }),
+    "send",
+    "punch card on the membership report"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({ userId: 3, membershipRows: [], sessionRows: [] }),
+    "not_active_member",
+    "no membership"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 3,
+      membershipRows: [{ user_id: 3, status: "cancelled", type: "plan", membership_type_name: "GOLD" }],
+      sessionRows: [],
+    }),
+    "not_active_member",
+    "cancelled"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 3,
+      membershipRows: [{ user_id: 3, status: "expired", type: "plan", membership_type_name: "GOLD" }],
+      sessionRows: [],
+    }),
+    "not_active_member",
+    "expired"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 4,
+      membershipRows: [{ user_id: 4, status: "active", type: "trial", membership_type_name: "פילאטיס ניסיון" }],
+      sessionRows: [],
+    }),
+    "not_active_member",
+    "trial only"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 5,
+      membershipRows: [{ user_id: 5, status: "active", type: "plan", membership_type_name: "מנוי צוות" }],
+      sessionRows: [],
+    }),
+    "staff"
+  );
+  assert.equal(
+    attendanceGapMemberDecision({
+      userId: 5,
+      membershipRows: [
+        { user_id: 5, status: "active", type: "plan", membership_type_name: "מנוי צוות" },
+        { ...paid, user_id: 5 },
+      ],
+      sessionRows: [],
+    }),
+    "send",
+    "a paid plan beside a staff plan still sends"
+  );
 }
 
 console.log("arbox-attendance-gap.test.ts: ok");

@@ -34,9 +34,14 @@ import {
   type ArboxMembersOnHoldRow,
 } from "@/lib/leads/arbox-members-on-hold-report";
 import {
+  isArboxActiveCustomerMembershipStatus,
+  isArboxActiveCustomerSessionStatus,
+} from "@/lib/leads/arbox-customer-set";
+import {
   fetchArboxBookingsReport,
   formatDateYmdIsrael,
   isBookingCheckedIn,
+  membershipTypeNameLooksLikeTrial,
   parseClassDateYmd,
   type ArboxBookingReportRow,
 } from "@/lib/leads/arbox-trial-attended";
@@ -111,6 +116,12 @@ export type AttendanceGapSyncSummary = {
   freeze_report_calls: number;
   /** Candidates left pending because the freeze report failed. */
   freeze_unavailable: number;
+  /** Sends skipped because there is no active paid membership or punch card. */
+  not_active_member: number;
+  /** Sends skipped because the only active product is a staff membership. */
+  staff: number;
+  /** Candidates left pending because this run had no complete membership report. */
+  member_unavailable: number;
   /** delay_days of the enabled rules. */
   gap_delays: number[];
   /** True when the fetched past span reaches the longest delay. */
@@ -438,6 +449,109 @@ function attendanceGapHoldsFromRows(rows: readonly ArboxMembersOnHoldRow[]): Att
   return holds;
 }
 
+/**
+ * Arbox membership type is plan | session | service | trial. There is no staff flag.
+ * ציפורה's live product is type plan, name "מנוי צוות".
+ */
+export function attendanceGapMembershipIsStaff(name: unknown): boolean {
+  return /צוות|\bstaff\b/i.test(String(name ?? ""));
+}
+
+export type AttendanceGapMemberDecision = "send" | "staff" | "not_active_member";
+
+function attendanceGapProductName(row: Record<string, unknown>): string {
+  return String(row.membership_type_name ?? row.name ?? row.item_name ?? "").trim();
+}
+
+function attendanceGapProductType(row: Record<string, unknown>): string {
+  return String(row.type ?? row.membership_type ?? row.item_type ?? "").trim().toLowerCase();
+}
+
+function attendanceGapTrialTypeIds(raw: readonly number[] | undefined): number[] {
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw.map((id) => Math.trunc(Number(id))).filter((id) => Number.isFinite(id) && id > 0)
+    ),
+  ];
+}
+
+function attendanceGapRowIsTrial(row: Record<string, unknown>, trialTypeIds: readonly number[]): boolean {
+  const type = attendanceGapProductType(row);
+  if (type === "trial") return true;
+  if (membershipTypeNameLooksLikeTrial(attendanceGapProductName(row))) return true;
+  const id = Number(row.membership_type_id);
+  return Number.isFinite(id) && id > 0 && trialTypeIds.includes(Math.trunc(id));
+}
+
+/** Active paid plan, punch card, or staff. Trial and service do not qualify. */
+function attendanceGapActiveProductHit(
+  row: Record<string, unknown>,
+  source: "membership" | "session",
+  trialTypeIds: readonly number[]
+): "paid" | "punch" | "staff" | null {
+  const active =
+    source === "membership"
+      ? isArboxActiveCustomerMembershipStatus(row.status)
+      : isArboxActiveCustomerSessionStatus(row.status);
+  if (!active) return null;
+  if (attendanceGapMembershipIsStaff(attendanceGapProductName(row))) return "staff";
+  if (attendanceGapRowIsTrial(row, trialTypeIds)) return null;
+  const type = attendanceGapProductType(row);
+  if (source === "session" || type === "session") return "punch";
+  if (type === "service") return null;
+  return "paid";
+}
+
+/**
+ * Send only for an active paid plan or a valid punch card.
+ * Staff alone does not send. A paid plan beside a staff plan still sends.
+ * Anyone else in these active rows (trial only, or absent) does not send.
+ */
+export function attendanceGapMemberDecision(input: {
+  userId: number;
+  membershipRows: readonly Record<string, unknown>[];
+  sessionRows: readonly Record<string, unknown>[];
+  trialTypeIds?: readonly number[];
+}): AttendanceGapMemberDecision {
+  const trialTypeIds = attendanceGapTrialTypeIds(input.trialTypeIds);
+  let staff = false;
+  let send = false;
+  const visit = (row: Record<string, unknown>, source: "membership" | "session") => {
+    if (parseAttendanceGapUserId(row.user_id) !== input.userId) return;
+    const hit = attendanceGapActiveProductHit(row, source, trialTypeIds);
+    if (hit === "paid" || hit === "punch") send = true;
+    else if (hit === "staff") staff = true;
+  };
+  for (const row of input.membershipRows) visit(row, "membership");
+  for (const row of input.sessionRows) visit(row, "session");
+  if (send) return "send";
+  if (staff) return "staff";
+  return "not_active_member";
+}
+
+export function attendanceGapStaffProducts(input: {
+  membershipRows: readonly Record<string, unknown>[];
+  sessionRows: readonly Record<string, unknown>[];
+}): { userId: number; name: string; source: "membership" | "session" }[] {
+  const out: { userId: number; name: string; source: "membership" | "session" }[] = [];
+  const visit = (row: Record<string, unknown>, source: "membership" | "session") => {
+    const active =
+      source === "membership"
+        ? isArboxActiveCustomerMembershipStatus(row.status)
+        : isArboxActiveCustomerSessionStatus(row.status);
+    if (!active) return;
+    const name = attendanceGapProductName(row);
+    if (!attendanceGapMembershipIsStaff(name)) return;
+    const userId = parseAttendanceGapUserId(row.user_id);
+    if (userId == null) return;
+    out.push({ userId, name, source });
+  };
+  for (const row of input.membershipRows) visit(row, "membership");
+  for (const row of input.sessionRows) visit(row, "session");
+  return out;
+}
+
 function resolveReportFullName(row: ArboxBookingReportRow): string | null {
   const full = String(row.full_name ?? "").trim();
   if (full) return full;
@@ -726,6 +840,16 @@ export async function syncArboxAttendanceGapForBusiness(input: {
   prefetchedPastPages?: number;
   lookbackFrom?: string;
   lookbackTo?: string;
+  /**
+   * activeMembershipsReport from this same run. Undefined means it was not loaded.
+   * A complete empty array means nobody is active.
+   */
+  activeMembershipRows?: Record<string, unknown>[];
+  activeMembershipsComplete?: boolean;
+  /** sessionsReport from this same run (punch cards). Undefined means it was not loaded. */
+  activeSessionRows?: Record<string, unknown>[];
+  activeSessionsComplete?: boolean;
+  trialMembershipTypeIds?: readonly number[];
 }): Promise<AttendanceGapSyncSummary> {
   const summary: AttendanceGapSyncSummary = {
     fetched_past: 0,
@@ -744,6 +868,9 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     frozen: 0,
     freeze_report_calls: 0,
     freeze_unavailable: 0,
+    not_active_member: 0,
+    staff: 0,
+    member_unavailable: 0,
     gap_delays: [],
     lookback_covers_delays: false,
     errors: 0,
@@ -922,6 +1049,23 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     pendingRules: PurchaseTemplateTriggerRule[];
     existingRows: GapExistingRow[];
   };
+  const staffProducts = attendanceGapStaffProducts({
+    membershipRows: input.activeMembershipRows ?? [],
+    sessionRows: input.activeSessionRows ?? [],
+  });
+  console.info("[leads/arbox-attendance-gap] staff_memberships", {
+    businessId,
+    detection: "name_contains_צוות_or_staff",
+    memberships_complete: input.activeMembershipsComplete === true,
+    sessions_complete: input.activeSessionsComplete === true,
+    count: staffProducts.length,
+    products: staffProducts.map((product) => ({
+      user_id: product.userId,
+      name: product.name,
+      source: product.source,
+    })),
+  });
+
   const gapSendQueue: GapSendCandidate[] = [];
 
   for (const state of states) {
@@ -1137,6 +1281,81 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           freeze_start: blocking.startYmd,
           freeze_end: blocking.endYmd,
           reason: "frozen",
+        });
+        continue;
+      }
+
+      const membershipsReady = input.activeMembershipsComplete === true && input.activeMembershipRows != null;
+      const sessionsReady = input.activeSessionsComplete === true && input.activeSessionRows != null;
+      const memberDecision = membershipsReady
+        ? attendanceGapMemberDecision({
+            userId: state.userId,
+            membershipRows: input.activeMembershipRows ?? [],
+            sessionRows: sessionsReady ? (input.activeSessionRows ?? []) : [],
+            trialTypeIds: input.trialMembershipTypeIds,
+          })
+        : null;
+      if (!membershipsReady || (memberDecision === "not_active_member" && !sessionsReady)) {
+        let wroteOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "pending",
+            nowIso,
+          });
+          if (!up.ok) wroteOk = false;
+        }
+        if (!wroteOk) summary.errors += 1;
+        summary.member_unavailable += 1;
+        console.info("[leads/arbox-attendance-gap] member_unavailable", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          memberships_ready: membershipsReady,
+          sessions_ready: sessionsReady,
+          status: "pending",
+          reason: "member_report_unavailable",
+        });
+        continue;
+      }
+      if (memberDecision !== "send") {
+        let seededOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertGapSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId: state.userId,
+            gapStartDate: state.lastYesYmd,
+            tier,
+            contactId: null,
+            attempts: 0,
+            status: "seeded",
+            nowIso,
+          });
+          if (!up.ok) seededOk = false;
+        }
+        if (!seededOk) summary.errors += 1;
+        if (memberDecision === "staff") summary.staff += 1;
+        else summary.not_active_member += 1;
+        console.info("[leads/arbox-attendance-gap] member", {
+          businessId,
+          tier,
+          user_id: state.userId,
+          full_name: resolveReportFullName(state.sampleRow),
+          contact: maskPhoneForLog(String(state.sampleRow.phone ?? "")),
+          last_yes: state.lastYesYmd,
+          reason: memberDecision,
         });
         continue;
       }

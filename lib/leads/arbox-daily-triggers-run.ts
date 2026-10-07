@@ -425,6 +425,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   let prefetchedMembershipRows: Record<string, unknown>[] | undefined;
   let prefetchedMembershipPages = 0;
   let prefetchedMembershipsHitPageCap = false;
+  let prefetchedSessionRows: Record<string, unknown>[] | undefined;
+  let prefetchedSessionsHitPageCap = false;
+  let sessionsLoaded = false;
   let membershipFlagReport: {
     ok: boolean;
     hitPageCap: boolean;
@@ -609,6 +612,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
           hitPageCap: products.membershipsHitPageCap,
           rows: products.membershipRows,
         };
+        prefetchedSessionRows = products.sessionRows;
+        prefetchedSessionsHitPageCap = products.sessionsHitPageCap;
+        sessionsLoaded = true;
       } else {
         if (!membershipFlagReport?.ok) {
           membershipFlagReport = { ok: false, hitPageCap: false, rows: [] };
@@ -963,6 +969,15 @@ export async function runArboxDailyTriggersForBusiness(input: {
             lookbackTo,
           }
         : {}),
+      activeMembershipRows: membershipFlagReport?.rows,
+      activeMembershipsComplete: memberFlagReportIsComplete(membershipFlagReport),
+      activeSessionRows: prefetchedSessionRows,
+      activeSessionsComplete: sessionsLoaded && !prefetchedSessionsHitPageCap,
+      trialMembershipTypeIds: Array.isArray(business.arbox_trial_membership_type_ids)
+        ? business.arbox_trial_membership_type_ids.filter(
+            (id): id is number => typeof id === "number" && Number.isFinite(id)
+          )
+        : [],
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -987,6 +1002,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
       frozen: 0,
       freeze_report_calls: 0,
       freeze_unavailable: 0,
+      not_active_member: 0,
+      staff: 0,
+      member_unavailable: 0,
       gap_delays: [],
       lookback_covers_delays: false,
       errors: 1,
