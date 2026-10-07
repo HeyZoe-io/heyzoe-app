@@ -19,6 +19,7 @@ import {
   paramSlotsForTriggerType,
   parseDashboardTemplateComponents,
   presetExampleForSlot,
+  nthWorkoutMetaExampleValues,
   presetVarHint,
   trialReminderMetaExampleValues,
   trainerHeadsUpMetaExampleValues,
@@ -683,11 +684,10 @@ export default function TemplatesClient({
     return `${label}: ${formatProductFilterLabel(ofClass)}`;
   }
 
-  function applyInlinePresetForType(type: TriggerType) {
-    const draft = buildInlineTemplateDraft(
-      type,
-      templates.map((t) => t.name)
-    );
+  function applyInlinePresetForType(type: TriggerType, direction?: string) {
+    const draft = buildInlineTemplateDraft(type, templates.map((t) => t.name), {
+      delayDirection: direction,
+    });
     setInlineDraft(draft ?? EMPTY_TEMPLATE_DRAFT);
   }
 
@@ -792,6 +792,7 @@ export default function TemplatesClient({
           (newTriggerType === "trainer_trial_heads_up"
             ? trainerHeadsUpMetaExampleValues(inlineCount)
             : null) ??
+          (newTriggerType === "nth_workout" ? nthWorkoutMetaExampleValues(inlineCount) : null) ??
           paramSlotsForTriggerType(newTriggerType).map(presetExampleForSlot);
         const components = buildMetaComponents({
           body: inlineDraft.body,
@@ -1328,6 +1329,7 @@ export default function TemplatesClient({
           (purposeTrigger === "trainer_trial_heads_up"
             ? trainerHeadsUpMetaExampleValues(purposeCount)
             : null) ??
+          (purposeTrigger === "nth_workout" ? nthWorkoutMetaExampleValues(purposeCount) : null) ??
           paramSlotsForTriggerType(purposeTrigger).map(presetExampleForSlot))
         : isEditing && editExampleValues.length > 0
           ? editExampleValues
@@ -1421,7 +1423,7 @@ export default function TemplatesClient({
       setNewProductFilterQuery("");
     }
     setCreateFormOpenFor(type);
-    applyInlinePresetForType(type);
+    applyInlinePresetForType(type, defaultDelayDirection(type));
     const mode = defaultTriggerTemplateMode({
       preferExistingName: opts?.preferExistingName,
       hasApprovedTemplate: approvedSelectableTemplates.length > 0,
@@ -2247,7 +2249,16 @@ export default function TemplatesClient({
                                 <label className="text-sm font-medium text-zinc-800">כיוון</label>
                                 <select
                                   value={newDelayDirection}
-                                  onChange={(e) => setNewDelayDirection(e.target.value as DelayDirection)}
+                                  onChange={(e) => {
+                                    const next = e.target.value as DelayDirection;
+                                    setNewDelayDirection(next);
+                                    if (
+                                      newTemplateMode === "create_new" &&
+                                      isNthWorkoutTriggerType(newTriggerType)
+                                    ) {
+                                      applyInlinePresetForType(newTriggerType, next);
+                                    }
+                                  }}
                                   className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
                                 >
                                   {newDirectionOptions.map((option) => (
@@ -2302,7 +2313,7 @@ export default function TemplatesClient({
                               <TemplateDraftFields
                                 value={inlineDraft}
                                 onChange={setInlineDraft}
-                                bodyHint={`אפשר להשתמש ב־{{1}}, {{2}} וכו׳. ${presetVarHint(newTriggerType)}.`}
+                                bodyHint={`אפשר להשתמש ב־{{1}}, {{2}} וכו׳. ${presetVarHint(newTriggerType, { delayDirection: newDelayDirection })}.`}
                               />
                               <p className="text-xs text-zinc-500 leading-relaxed">
                                 יישלח לאישור Meta. הטריגר יופעל אוטומטית אחרי האישור (בלי צורך

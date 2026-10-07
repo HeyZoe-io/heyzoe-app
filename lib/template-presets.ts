@@ -599,6 +599,34 @@ export function paramSlotsForTriggerType(triggerType: string): TemplateParamSlot
   return ["first_name"];
 }
 
+/** After-workout body stays on TEMPLATE_PRESETS.nth_workout. Before uses day and time. */
+export const NTH_WORKOUT_BEFORE_BODY = [
+  "היי {{1}}❤️",
+  "",
+  "עוד רגע נפגשות ב{{2}} בשעה {{3}} לאימון הראשון שלך במנוי 😊",
+  "תבואי כמו שאת, אנחנו כאן כדי לעזור לך להרגיש בבית.",
+  "מחכות לך!",
+].join("\n");
+
+export function nthWorkoutPresetForDirection(direction: string | null | undefined): TemplatePreset {
+  if (String(direction ?? "").trim().toLowerCase() === "before") {
+    return {
+      name: "nth_workout_before",
+      category: "UTILITY",
+      body: NTH_WORKOUT_BEFORE_BODY,
+    };
+  }
+  return TEMPLATE_PRESETS.nth_workout;
+}
+
+/** 1 → name. 2 → name + workout number (after). 3 → name + day + time (before). */
+export function nthWorkoutMetaExampleValues(varCount: number): string[] | null {
+  if (varCount === 1) return ["דנה"];
+  if (varCount === 2) return ["דנה", "3"];
+  if (varCount === 3) return ["דנה", "יום שלישי 7.10", "18:00"];
+  return null;
+}
+
 export function presetExampleForSlot(slot: TemplateParamSlot): string {
   if (slot === "first_name") return "דנה";
   if (slot === "business_name") return "הסטודיו";
@@ -630,7 +658,19 @@ export function trainerHeadsUpMetaExampleValues(varCount: number): string[] | nu
   return null;
 }
 
-export function presetVarHint(triggerType: TriggerType): string {
+export function presetVarHint(
+  triggerType: TriggerType,
+  options?: { delayDirection?: string | null }
+): string {
+  if (triggerType === "nth_workout") {
+    const after = "{{1}} = שם פרטי · {{2}} = מספר האימון";
+    const before =
+      '{{1}} = שם פרטי · {{2}} = יום ותאריך (למשל "יום שלישי 7.10") · {{3}} = שעת השיעור';
+    const direction = String(options?.delayDirection ?? "").trim().toLowerCase();
+    if (direction === "before") return `לפני האימון: ${before}`;
+    if (direction === "after") return `אחרי האימון: ${after}`;
+    return `אחרי האימון: ${after}. לפני האימון: ${before}`;
+  }
   if (triggerType === "trainer_trial_heads_up") {
     return [
       "{{1}} = שם השיעור",

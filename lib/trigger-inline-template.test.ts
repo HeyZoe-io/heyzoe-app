@@ -36,6 +36,17 @@ assert.equal(
 }
 
 {
+  const after = buildInlineTemplateDraft("nth_workout", [], { delayDirection: "after" });
+  assert.equal(after?.body, TEMPLATE_PRESETS.nth_workout.body);
+  assert.equal(after?.category, "MARKETING");
+  assert.equal(after?.name, "nth_workout");
+  const before = buildInlineTemplateDraft("nth_workout", [], { delayDirection: "before" });
+  assert.equal(before?.category, "UTILITY");
+  assert.equal(before?.name, "nth_workout_before");
+  assert.match(before?.body ?? "", /\{\{3\}\}/);
+}
+
+{
   const draft = buildInlineTemplateDraft("attendance_gap", []);
   assert.ok(draft);
   assert.equal(draft!.category, "MARKETING");

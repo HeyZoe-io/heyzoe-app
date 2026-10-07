@@ -3,6 +3,7 @@
  * Runtime gated/PENDING behavior is unchanged — these only drive UI defaults and status display.
  */
 import {
+  nthWorkoutPresetForDirection,
   TEMPLATE_PRESETS,
   uniqueTemplateName,
 } from "@/lib/template-presets";
@@ -30,9 +31,13 @@ export function defaultTriggerTemplateMode(input: {
 /** Full Meta template draft from TEMPLATE_PRESETS — same shape as the standalone creator. */
 export function buildInlineTemplateDraft(
   triggerType: TriggerType,
-  existingTemplateNames: readonly string[]
+  existingTemplateNames: readonly string[],
+  options?: { delayDirection?: string | null }
 ): TemplateDraftValue | null {
-  const preset = TEMPLATE_PRESETS[triggerType];
+  const preset =
+    triggerType === "nth_workout"
+      ? nthWorkoutPresetForDirection(options?.delayDirection)
+      : TEMPLATE_PRESETS[triggerType];
   if (!preset) return null;
   return {
     name: uniqueTemplateName(

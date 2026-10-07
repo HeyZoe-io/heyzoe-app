@@ -5,6 +5,9 @@ import {
   isMetaTemplateContentEditable,
   isPresetAvailable,
   paramSlotsForTriggerType,
+  nthWorkoutMetaExampleValues,
+  nthWorkoutPresetForDirection,
+  NTH_WORKOUT_BEFORE_BODY,
   presetVarHint,
   trialReminderMetaExampleValues,
   trainerHeadsUpMetaExampleValues,
@@ -138,6 +141,19 @@ assert.equal(
 );
 assert.deepEqual(paramSlotsForTriggerType("nth_workout"), ["first_name", "workout_n"]);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.nth_workout.body), 2);
+assert.equal(nthWorkoutPresetForDirection("after").body, TEMPLATE_PRESETS.nth_workout.body);
+assert.equal(nthWorkoutPresetForDirection("before").category, "UTILITY");
+assert.equal(nthWorkoutPresetForDirection("before").body, NTH_WORKOUT_BEFORE_BODY);
+assert.equal(extractBodyVarCount(NTH_WORKOUT_BEFORE_BODY), 3);
+assert.equal(
+  presetVarHint("nth_workout", { delayDirection: "after" }),
+  "אחרי האימון: {{1}} = שם פרטי · {{2}} = מספר האימון"
+);
+assert.match(presetVarHint("nth_workout", { delayDirection: "before" }), /יום ותאריך/);
+assert.match(presetVarHint("nth_workout"), /אחרי האימון/);
+assert.match(presetVarHint("nth_workout"), /לפני האימון/);
+assert.deepEqual(nthWorkoutMetaExampleValues(2), ["דנה", "3"]);
+assert.deepEqual(nthWorkoutMetaExampleValues(3), ["דנה", "יום שלישי 7.10", "18:00"]);
 assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.category, "UTILITY");
 assert.equal(TEMPLATE_PRESETS.trainer_trial_heads_up.button_text, undefined);
 assert.equal(
