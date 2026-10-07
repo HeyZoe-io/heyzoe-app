@@ -1,4 +1,5 @@
-import { firstNameFromFullName } from "@/lib/lead-template";
+import { firstNameFromFullName, isRejectedTemplateNameToken } from "@/lib/lead-template";
+import { extractPersonFirstName, isRejectedFirstNameToken, TRIAL_REMINDER_NAME_FALLBACK } from "@/lib/template-first-name";
 import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import {
   bodyTextFromTemplateComponents,
@@ -477,6 +478,17 @@ export function trialReminderBodyPlaceholderIndexes(components: unknown): number
  * 4 → [first name, class name, "יום שלישי 7.10", HH:MM].
  * Any other count is a skip: do not send a mismatched array to Meta.
  */
+/** trial_reminder only. Saved name, else 🙂. The shared "שלום" fallback does not apply. */
+function trialReminderNameParam(raw: string | null | undefined): string {
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed === TRIAL_REMINDER_NAME_FALLBACK) return TRIAL_REMINDER_NAME_FALLBACK;
+  const first = extractPersonFirstName(trimmed);
+  if (!first || isRejectedFirstNameToken(first) || isRejectedTemplateNameToken(first)) {
+    return TRIAL_REMINDER_NAME_FALLBACK;
+  }
+  return first;
+}
+
 export function trialReminderTemplateParamValues(input: {
   storedComponents: unknown;
   firstName: string | null;
@@ -493,7 +505,7 @@ export function trialReminderTemplateParamValues(input: {
   if (count !== 3 && count !== 4) {
     return { ok: false, reason: "trial_reminder_param_count", varCount: count };
   }
-  const first = firstNameFromFullName(String(input.firstName ?? "").trim()) || TEMPLATE_NAME_FALLBACK;
+  const first = trialReminderNameParam(input.firstName);
   const className = String(input.className ?? "").trim() || "השיעור";
   if (count === 3) {
     const classTime = String(input.classTime ?? "").trim() || TEMPLATE_CLASS_TIME_FALLBACK;

@@ -20,6 +20,7 @@ const eyla = {
 
 assert.equal(bookingMatchesTrialScope(eyla, chairScope), true);
 assert.equal(bookingMatchesTrialScope(eyla, chairScope, "not_trial"), false);
+const today = "2026-10-07";
 assert.equal(
   classifyTrialBooking({
     memberships: [
@@ -29,15 +30,78 @@ assert.equal(
     trialTypeIds: chairScope.trialTypeIds,
     role: "client",
     firstWorkout: false,
+    todayYmd: today,
   }).classification,
   "trial"
 );
 assert.equal(
   classifyTrialBooking({
-    memberships: [{ id: 800, type: "plan", name: "מנוי 8", inForce: true }],
+    memberships: [
+      { id: 501966, type: "service", name: "Chair Pilates", inForce: false, endedOn: "2026-09-20" },
+      { id: 501480, type: "plan", name: "מנוי 8 +1 כניסות בחודש", inForce: true },
+    ],
     trialTypeIds: chairScope.trialTypeIds,
     role: "client",
     firstWorkout: false,
+    todayYmd: today,
+  }).reason,
+  "active_paid_or_service"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [
+      {
+        id: 586475,
+        type: "session",
+        name: "2 אימוני היכרות פילאטיס מכשירים",
+        inForce: false,
+        endedOn: "2026-10-13",
+      },
+    ],
+    trialTypeIds: chairScope.trialTypeIds,
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).reason,
+  "recent_trial_product"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 361094, type: "trial", name: "APEX Flex", inForce: false, endedOn: "2026-10-06" }],
+    trialTypeIds: [622016, 442268],
+    role: "lead",
+    firstWorkout: true,
+    todayYmd: today,
+  }).reason,
+  "recent_trial_product"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 100, type: "plan", name: "מנוי שנתי", inForce: false, endedOn: "2026-08-01" }],
+    trialTypeIds: [622016],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).reason,
+  "former_member"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 628345, type: "item", name: "שיעור הכרות סטודיו טייטס", inForce: false, endedOn: null }],
+    trialTypeIds: [628345],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
+  }).reason,
+  "recent_trial_product"
+);
+assert.equal(
+  classifyTrialBooking({
+    memberships: [{ id: 586475, type: "session", name: "2 אימוני היכרות", inForce: false, endedOn: "2026-09-06" }],
+    trialTypeIds: [586475],
+    role: "client",
+    firstWorkout: false,
+    todayYmd: today,
   }).classification,
   "not_trial"
 );
@@ -54,6 +118,7 @@ assert.equal(
     trialTypeIds: [628345],
     role: "lead",
     firstWorkout: true,
+    todayYmd: "2026-10-07",
   }).classification,
   "trial"
 );
@@ -83,6 +148,7 @@ assert.equal(
     trialTypeIds: [1],
     role: "lead",
     firstWorkout: true,
+    todayYmd: "2026-10-07",
   }).classification,
   "unknown"
 );

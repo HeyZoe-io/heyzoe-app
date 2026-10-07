@@ -376,6 +376,28 @@ import {
     classTime: "07:00",
   });
   assert.deepEqual(shown, { ok: true, values: ["דנה", "יוגה", "יום רביעי 7.10", "07:00"] });
+  assert.deepEqual(
+    trialReminderTemplateParamValues({
+      storedComponents: [{ type: "BODY", text: "היי {{1}}, לאימון {{2}} ב{{3}} בשעה {{4}}." }],
+      firstName: "",
+      className: "ייעוץ למנויות הסטודיו",
+      classDateYmd: "2026-10-06",
+      classTime: "12:00",
+    }),
+    { ok: true, values: ["🙂", "ייעוץ למנויות הסטודיו", "יום שלישי 6.10", "12:00"] }
+  );
+  assert.equal(
+    (
+      trialReminderTemplateParamValues({
+        storedComponents: [{ type: "BODY", text: "היי {{1}}, לאימון {{2}} ב{{3}} בשעה {{4}}." }],
+        firstName: "🙂",
+        className: "יוגה",
+        classDateYmd: "2026-10-07",
+        classTime: "18:00",
+      }) as { values: string[] }
+    ).values[0],
+    "🙂"
+  );
   assert.equal(String((shown as { values: string[] }).values[2]).includes("6.10"), false);
   assert.deepEqual(
     trialReminderTemplateParamValues({

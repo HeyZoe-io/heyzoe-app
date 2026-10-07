@@ -15,6 +15,7 @@ import {
   trialBookingIdentityKey,
 } from "@/lib/leads/arbox-trial-booking-identity";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { parseEndDateYmd } from "@/lib/leads/arbox-membership-expiring";
 import {
   buildArboxUserMembershipsPath,
   isInForceMembership,
@@ -34,7 +35,12 @@ export type MembershipSnap = {
   type: string;
   name: string;
   inForce: boolean;
+  /** YYYY-MM-DD when Arbox sent an end date. */
+  endedOn?: string | null;
+  startedOn?: string | null;
 };
+
+const RECENT_TRIAL_DAYS = 30;
 
 let classificationColumn: boolean | null = null;
 
@@ -44,30 +50,58 @@ function columnMissing(error: { code?: string; message?: string } | null): boole
   return /classification/i.test(String(error.message ?? ""));
 }
 
+function addCalendarDays(ymd: string, days: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function isTrialType(type: string): boolean {
+  return type.trim().toLowerCase() === "trial";
+}
+
+/** End date is still ahead, today, or within the previous `days` calendar days. */
+export function trialProductEndedRecently(endedOn: string | null | undefined, todayYmd: string, days = RECENT_TRIAL_DAYS): boolean {
+  if (!endedOn || !/^\d{4}-\d{2}-\d{2}$/.test(endedOn) || !/^\d{4}-\d{2}-\d{2}$/.test(todayYmd)) return false;
+  const cutoff = addCalendarDays(todayYmd, -days);
+  return Boolean(cutoff && endedOn >= cutoff);
+}
+
+/**
+ * a. Active product id in the trial filter -> trial.
+ * b. Any other active product that is not Arbox type "trial" -> not_trial.
+ * c. No active product, but a filter id or type "trial" has no end date, a future end date, or ended within 30 days -> trial.
+ * d. No memberships at all -> trial.
+ * e. Only older or regular expired products -> not_trial.
+ */
 export function classifyTrialBooking(input: {
   memberships: MembershipSnap[] | null;
   trialTypeIds: readonly number[];
   role: string | null;
   firstWorkout: boolean;
+  todayYmd: string;
 }): { classification: TrialBookingClass; reason: string } {
   if (input.memberships == null) return { classification: "unknown", reason: "memberships_api_error" };
   const ids = new Set(input.trialTypeIds.map((id) => Math.trunc(id)).filter((id) => id > 0));
   const inForce = input.memberships.filter((row) => row.inForce);
-  // An in-force id from the trial filter is a trial even when the type is service or plan,
-  // and even when another active product sits beside it.
-  const trialProduct = inForce.some((row) => row.id != null && ids.has(row.id));
-  if (trialProduct) return { classification: "trial", reason: "active_trial_product" };
-  if (inForce.length > 0) return { classification: "not_trial", reason: "active_paid_or_service" };
-  const role = String(input.role ?? "").trim().toLowerCase();
-  const isLead = role === "lead" || role === "ליד";
-  const isMember = role === "client" || role === "member" || role === "user";
-  if (isLead || (input.firstWorkout && !isMember)) {
-    return { classification: "trial", reason: "lead_no_membership" };
+  const inFilter = (row: MembershipSnap) => row.id != null && ids.has(row.id);
+  if (inForce.some(inFilter)) return { classification: "trial", reason: "active_trial_product" };
+  if (inForce.some((row) => !inFilter(row) && !isTrialType(row.type))) {
+    return { classification: "not_trial", reason: "active_paid_or_service" };
   }
-  if (!role && input.memberships.length === 0) {
-    return { classification: "unknown", reason: "no_membership_no_role" };
+  if (inForce.some((row) => isTrialType(row.type))) {
+    return { classification: "trial", reason: "active_trial_product" };
   }
-  return { classification: "not_trial", reason: "no_trial_membership" };
+  const recentTrial = input.memberships.some((row) => {
+    if (!(inFilter(row) || isTrialType(row.type))) return false;
+    if (!row.endedOn) return true;
+    return trialProductEndedRecently(row.endedOn, input.todayYmd);
+  });
+  if (recentTrial) return { classification: "trial", reason: "recent_trial_product" };
+  if (input.memberships.length === 0) return { classification: "trial", reason: "lead_no_membership" };
+  return { classification: "not_trial", reason: "former_member" };
 }
 
 /**
@@ -128,6 +162,8 @@ function snapFromRecord(row: ArboxUserMembershipRecord, todayYmd: string): Membe
     type: String(row.type ?? "").trim(),
     name: String(row.membership_type_name ?? "").trim(),
     inForce: isInForceMembership(row, todayYmd),
+    endedOn: parseEndDateYmd(row.end_time),
+    startedOn: parseEndDateYmd(row.start_time),
   };
 }
 
@@ -310,6 +346,7 @@ export async function prepareTrialBookingClasses(input: {
       trialTypeIds: input.trialTypeIds,
       role: bookingRole(row),
       firstWorkout: bookingFirstWorkout(row),
+      todayYmd: input.todayYmd,
     });
     const next = classificationForPhase({
       phase: input.phase,
@@ -365,6 +402,7 @@ export async function prepareTrialBookingClasses(input: {
         trialTypeIds: input.trialTypeIds,
         role: row.role,
         firstWorkout: row.firstWorkout,
+        todayYmd: input.todayYmd,
       });
       if (fresh.classification === "unknown") {
         console.info(LOG, "pre-send unknown, skip this run", {

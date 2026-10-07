@@ -4,7 +4,7 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
-import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { resolveTemplateFirstName, resolveTrialReminderFirstName } from "@/lib/template-first-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
@@ -315,9 +315,12 @@ async function dispatchOneScheduledSend(
   const fullName = isStaffRecipient ? null : await lookupContactFullName(admin, businessId, phone);
   const firstName = isStaffRecipient
     ? firstNameFromFullName(String(staffClientFirst || fullName || ""))
-    : resolveTemplateFirstName({ full_name: fullName });
+    : triggerType === "trial_reminder"
+      ? resolveTrialReminderFirstName({ full_name: fullName })
+      : resolveTemplateFirstName({ full_name: fullName });
   if (
     !isStaffRecipient &&
+    triggerType !== "trial_reminder" &&
     !firstName &&
     templateBodyUsesFirstNameSlot(triggerType, (approvedTpl as { components?: unknown } | null)?.components)
   ) {
