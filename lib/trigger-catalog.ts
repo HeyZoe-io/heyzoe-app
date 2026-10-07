@@ -37,6 +37,8 @@ const SEND_HINT_FREQUENT_HE =
 const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
 const SEND_HINT_LOST_LEAD_HE =
   "דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-09:00 ביום היעד (שעון ישראל).";
+const SEND_HINT_LEAD_STATUS_HE =
+  "נבדק ב-09:00 וב-20:30 (שעון ישראל). דיליי 0 נשלח בריצה שזיהתה את המעבר. דיליי של יום ומעלה יוצא ביום היעד.";
 const SEND_HINT_TRIAL_CLASS_HE =
   "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:30 בערב שלפני.";
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
@@ -407,6 +409,22 @@ export const TRIGGER_CATALOG = [
     presetKey: "lost_lead",
     uiOrder: 30,
     sendHintHe: SEND_HINT_LOST_LEAD_HE,
+  },
+  {
+    type: "lead_status_changed",
+    labelHe: "שינוי סטטוס ליד (ארבוקס)",
+    activation: "automatic",
+    audience: "leads",
+    implemented: true,
+    arboxOnly: true,
+    delay: "after",
+    showProductFilter: false,
+    uniquePerBusiness: false,
+    minDelayDays: 0,
+    recipient: "customer",
+    presetKey: "lead_status_changed",
+    uiOrder: 31,
+    sendHintHe: SEND_HINT_LEAD_STATUS_HE,
   },
   {
     type: "trial_reminder",
@@ -884,6 +902,7 @@ export function defaultDelayDays(triggerType: string): number {
   if (isFreezeEndingTriggerType(triggerType)) return 3;
   if (triggerType === "trial_reminder" || triggerType === "trainer_trial_heads_up") return 1;
   if (triggerType === "lost_lead") return 1;
+  if (triggerType === "lead_status_changed") return 0;
   if (triggerType === "milestones") return 90;
   if (isNthWorkoutTriggerType(triggerType)) return 3;
   return minDelayDaysForTrigger(triggerType);
@@ -923,6 +942,7 @@ const FORCE_AFTER_NO_PRODUCT_FILTER = new Set([
   "class_cancelled_staff",
   "class_cancelled_customer",
   "lost_lead",
+  "lead_status_changed",
 ]);
 
 export function forcesAfterNoProductFilter(triggerType: string): boolean {
@@ -994,6 +1014,9 @@ export function formatDelayLabel(
   }
   if (type === "lost_lead") {
     return days === 0 ? "מיידי" : `${days} ימים אחרי אובדן הליד`;
+  }
+  if (type === "lead_status_changed") {
+    return days === 0 ? "בריצה הקרובה (09:00 או 20:30)" : `${days} ימים אחרי השינוי`;
   }
   if (type === "milestones") {
     return `${Math.max(1, days)} ימים מההצטרפות`;

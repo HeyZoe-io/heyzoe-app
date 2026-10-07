@@ -444,8 +444,12 @@ GET** per business when enabled (+ pages). WhatsApp/Meta cost = new matching
 events after seed, not the seed window. **Freeze A8/C14/C15:** +1
 `membersOnHoldReport` GET when any freeze rule is live; future bookings GET only
 when freeze ending needs it (not when only attendance_gap is live). **A7
-lost_lead:** +1 `lostLeadsReport` GET when an enabled A7 rule is live.
+lost_lead:** one call per distinct delay >= 1 at 09:00; 15-min calls only for delay 0.
 **trial_reminder:** 0 extra bookingsReport GETs when freeze ending already
 fetches the shared future window; +1 GET when only this rule is live (and
 trial product ids are set). +1 `/v3/membershipTypes` when trial ids need
 name resolution (same as C4).
+
+## lead_status_changed
+
+Arbox `leadsInProcessReport` ignores `fromDate` / `toDate` and returns every open lead (page size 200, no status id, `updated_at` is a date). Detection is a full pull plus a diff against `arbox_lead_status_snapshot`. A status string is stored in `arbox_lead_known_statuses` the first time it appears and does not send until a later scan sees a transition into it. A lead leaving the report is not a transition. The step runs on the existing 09:00 and 20:30 daily workers only when an enabled rule exists, so a business with no rule makes zero Arbox calls. Cost scales with the open-lead count: one page per 200 leads, twice a day. A scan with no snapshot, a scan older than 36 hours, or a scan that predates every enabled rule rewrites the snapshot and sends nothing. More than 20 transitions, or more than 25% of open leads, is logged as `mass_change` and sends nothing.

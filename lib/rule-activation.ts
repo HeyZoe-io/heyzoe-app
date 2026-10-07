@@ -113,6 +113,7 @@ export type RuleActivationSnapshot = {
   delay_direction?: unknown;
   lookback_days?: unknown;
   template_name?: unknown;
+  target_status?: unknown;
 };
 
 function idListKey(raw: unknown): string {
@@ -187,6 +188,12 @@ export function ruleActivationResets(
   if (
     patch.item_type_filter !== undefined &&
     idListKey(patch.item_type_filter) !== idListKey(previous.item_type_filter)
+  ) {
+    return true;
+  }
+  if (
+    patch.target_status !== undefined &&
+    String(patch.target_status ?? "").trim() !== String(previous.target_status ?? "").trim()
   ) {
     return true;
   }

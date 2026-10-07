@@ -17,6 +17,14 @@ assert.equal(unsentReason({ status: "seeded", overdue: false }), "סומן בל�
 assert.equal(unsentReason({ status: "no_phone", overdue: false }), "אין טלפון");
 assert.equal(unsentReason({ status: "skipped", overdue: false }), "דילוג");
 assert.equal(
+  unsentReason({ status: "skipped", lastError: "before_activation", overdue: false }),
+  null
+);
+assert.equal(
+  unsentReason({ status: "skipped", lastError: "mass_change", overdue: false }),
+  "שינוי סטטוס המוני"
+);
+assert.equal(
   unsentReason({ status: "canceled", lastError: "retention_daily_cap", overdue: false }),
   "תקרת שימור יומית"
 );

@@ -28,6 +28,8 @@ export type UnsentRow = {
   contact: string;
   reason: string;
   at: string;
+  future?: boolean;
+  metaError?: string;
 };
 
 const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
@@ -35,6 +37,7 @@ const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
   { table: "arbox_trial_reminder_sync_log", trigger: "trial_reminder" },
   { table: "arbox_missed_class_sync_log", trigger: "missed_class" },
   { table: "arbox_lost_lead_sync_log", trigger: "lost_lead" },
+  { table: "arbox_lead_status_change_sync_log", trigger: "lead_status_changed" },
   { table: "arbox_attendance_gap_sync_log", trigger: "attendance_gap" },
   { table: "arbox_freeze_created_sync_log", trigger: "freeze_created" },
   { table: "arbox_freeze_ending_sync_log", trigger: "freeze_ending" },
@@ -46,6 +49,8 @@ const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
 ];
 
 const LOG_SELECTS = [
+  "business_id, status, processed_at, user_id, lead_id, trigger_id, contact_id, reason, class_date, class_time",
+  "business_id, status, processed_at, user_id, lead_id, trigger_id, contact_id, reason",
   "business_id, status, processed_at, user_id, trigger_id, contact_id, channel",
   "business_id, status, processed_at, user_id, trigger_id, contact_id",
   "business_id, status, processed_at, user_id, contact_id",
@@ -95,6 +100,8 @@ export function unsentReason(input: {
   if (err.includes("waba") || err.includes("no_channel")) return "חסר וואטסאפ";
   if (status === "no_phone" || err.includes("no_phone")) return "אין טלפון";
   if (err.includes("retention_daily_cap")) return "תקרת שימור יומית";
+  if (err === "before_activation" || err === "activation_cutoff") return null;
+  if (err.includes("mass_change")) return "שינוי סטטוס המוני";
   if (status === "canceled" || status === "cancelled") return "בוטל";
   if (status === "skipped") return "דילוג";
   if (status === "pending") return "ממתין אחרי 09:00";
@@ -172,11 +179,15 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
     for (const row of rows) {
       const at = String(row.processed_at ?? "");
       const overdue = String(row.status ?? "") === "pending" && at <= overdueBefore;
-      const reason = unsentReason({ status: String(row.status ?? ""), overdue });
+      const reason = unsentReason({
+        status: String(row.status ?? ""),
+        lastError: String(row.reason ?? ""),
+        overdue,
+      });
       if (!reason) continue;
       const businessId = Number(row.business_id);
       if (!Number.isFinite(businessId)) continue;
-      const userId = String(row.user_id ?? row.contact_id ?? "").trim();
+      const userId = String(row.user_id ?? row.lead_id ?? row.contact_id ?? "").trim();
       raw.push({
         businessId,
         triggerId: String(row.trigger_id ?? ""),
@@ -268,6 +279,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       at: israelStamp(row.at),
     });
   }
+
   out.sort((a, b) => a.business.localeCompare(b.business, "he") || a.trigger.localeCompare(b.trigger));
   return out;
 }

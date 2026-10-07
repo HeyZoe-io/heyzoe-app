@@ -14,6 +14,7 @@ assert.equal(retentionRank("missed_class"), retentionRank("missed_trial"));
 assert.ok(retentionRank("missed_class") < retentionRank("attendance_gap"));
 assert.ok(retentionRank("attendance_gap") < retentionRank("lost_lead"));
 assert.ok(retentionRank("lost_lead") < retentionRank("no_response"));
+assert.ok(retentionRank("no_response") < retentionRank("lead_status_changed"));
 
 assert.equal(retentionMarkedThisProcess(3445, "972501234670", morning), false);
 markRetentionSent(3445, "972501234670", morning);

@@ -19,6 +19,7 @@ import {
   businessNeedsFreezeSync,
   syncArboxFreezeForBusiness,
 } from "@/lib/leads/arbox-freeze";
+import { syncArboxLeadStatusForBusiness } from "@/lib/leads/arbox-lead-status-change";
 import { syncArboxLostLeadForBusiness } from "@/lib/leads/arbox-lost-lead";
 import { syncArboxMembershipExpiringForBusiness } from "@/lib/leads/arbox-membership-expiring";
 import {
@@ -228,6 +229,7 @@ export async function listArboxDailyBusinessIds(
         "trial_reminder",
         "trainer_trial_heads_up",
         "nth_workout",
+        "lead_status_changed",
       ])
     : await ruleQuery.in("trigger_type", [...ARBOX_DAILY_TRIGGER_TYPES]);
   if (ruleErr) return { ok: false, error: ruleErr.message };
@@ -276,6 +278,34 @@ export type ArboxDailyBusinessRun = {
  * Future bookingsReport is fetched at most once (widest window) and reused.
  * Active-product keys are fetched only when a suppress step is enabled.
  */
+async function runLeadStatusChangedStep(input: {
+  admin: Admin;
+  business: ArboxDailyBusiness;
+  now: Date;
+  timings: ArboxDailyStepTiming[];
+  entry: { [step: string]: unknown };
+}): Promise<void> {
+  try {
+    input.entry.lead_status_changed = await timeStep(input.timings, input.business.id, "lead_status_changed", () =>
+      syncArboxLeadStatusForBusiness({
+        admin: input.admin,
+        businessId: input.business.id,
+        businessSlug: input.business.slug,
+        apiKey: input.business.crm_api_key,
+        boxId: input.business.crm_box_id,
+        now: input.now,
+      })
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[cron/arbox-daily-triggers] lead_status_changed step threw", {
+      slug: input.business.slug,
+      error: message,
+    });
+    input.entry.lead_status_changed = { errors: 1, fetch_error: message, notified: 0 };
+  }
+}
+
 export async function runArboxDailyTriggersForBusiness(input: {
   admin: Admin;
   business: ArboxDailyBusiness;
@@ -376,6 +406,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
         fetch_error: message,
       };
     }
+    await runLeadStatusChangedStep({ admin, business, now, timings, entry });
     const ctx = arboxDailyContext();
     return {
       business_id: business.id,
@@ -1243,6 +1274,8 @@ export async function runArboxDailyTriggersForBusiness(input: {
       fetch_error: message,
     };
   }
+
+  await runLeadStatusChangedStep({ admin, business, now, timings, entry });
 
   const ctx = arboxDailyContext();
   return {

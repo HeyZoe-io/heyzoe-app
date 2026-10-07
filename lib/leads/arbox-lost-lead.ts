@@ -394,20 +394,28 @@ async function upsertLostLeadSyncLog(input: {
   nowIso: string;
   status: CancellationSyncLogStatus;
   attempts: number;
+  reason?: string | null;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(
-    {
-      business_id: input.businessId,
-      trigger_id: input.triggerId,
-      lead_id: input.leadId,
-      lost_date: input.lostDate,
-      contact_id: input.contactId,
-      processed_at: input.nowIso,
-      status: input.status,
-      attempts: input.attempts,
-    },
-    { onConflict: "business_id,trigger_id,lead_id,lost_date" }
-  );
+  const row: Record<string, unknown> = {
+    business_id: input.businessId,
+    trigger_id: input.triggerId,
+    lead_id: input.leadId,
+    lost_date: input.lostDate,
+    contact_id: input.contactId,
+    processed_at: input.nowIso,
+    status: input.status,
+    attempts: input.attempts,
+  };
+  if (input.reason) row.reason = input.reason;
+  let { error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
+    onConflict: "business_id,trigger_id,lead_id,lost_date",
+  });
+  if (error && input.reason && /reason|schema cache|PGRST204|could not find/i.test(error.message)) {
+    delete row.reason;
+    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
+      onConflict: "business_id,trigger_id,lead_id,lost_date",
+    }));
+  }
   if (error) {
     console.error("[leads/arbox-lost-lead] sync_log upsert failed:", error.message);
     return { ok: false };
@@ -921,6 +929,7 @@ export async function syncArboxLostLeadForBusiness(input: {
             nowIso,
             status: "skipped",
             attempts: existingAttempts,
+            reason: "before_activation",
           });
           if (!marked.ok) summary.errors += 1;
           continue;

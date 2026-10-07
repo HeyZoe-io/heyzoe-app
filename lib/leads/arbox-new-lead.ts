@@ -228,7 +228,7 @@ function parseCreatedEventDate(raw: unknown): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
-async function fetchArboxUserPhone(
+export async function fetchArboxUserPhone(
   apiKey: string,
   userId: string
 ): Promise<{ phone: string | null; fullName: string | null }> {

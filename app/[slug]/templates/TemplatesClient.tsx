@@ -119,7 +119,25 @@ export type TriggerRow = {
   template_name: string | null;
   enabled: boolean;
   created_at: string;
+  target_status?: string | null;
 };
+
+type KnownLeadStatus = { status: string; last_seen_at: string };
+
+function leadStatusNotInLatestScan(
+  target: string | null | undefined,
+  statuses: readonly KnownLeadStatus[],
+  scannedAt: string | null
+): boolean {
+  const name = String(target ?? "").trim();
+  if (!name || !scannedAt) return false;
+  const row = statuses.find((item) => item.status === name);
+  if (!row?.last_seen_at) return true;
+  const seen = Date.parse(row.last_seen_at);
+  const scanned = Date.parse(scannedAt);
+  if (!Number.isFinite(seen) || !Number.isFinite(scanned)) return true;
+  return seen + 2000 < scanned;
+}
 
 function nthWorkoutTimingHint(direction: string): string {
   return direction === "before"
@@ -344,6 +362,36 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
   );
 }
 
+function LeadStatusPicker(props: {
+  value: string;
+  statuses: readonly KnownLeadStatus[];
+  scannedAt: string | null;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium text-zinc-800">סטטוס בארבוקס</label>
+      <select
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+      >
+        <option value="">בחרו סטטוס</option>
+        {props.statuses.map((row) => (
+          <option key={row.status} value={row.status}>
+            {row.status}
+          </option>
+        ))}
+      </select>
+      {!props.scannedAt ? (
+        <p className="text-xs text-zinc-500">
+          הרשימה תתמלא אחרי הסריקה הראשונה, בריצה הבאה (09:00 או 20:30) אחרי שהכלל פעיל.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function TemplatesClient({
   slug,
   initialTemplates,
@@ -391,6 +439,9 @@ export default function TemplatesClient({
   const [triggerDeletingId, setTriggerDeletingId] = useState<string | null>(null);
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [editDelayDays, setEditDelayDays] = useState(0);
+  const [editTargetStatus, setEditTargetStatus] = useState("");
+  const [knownLeadStatuses, setKnownLeadStatuses] = useState<KnownLeadStatus[]>([]);
+  const [leadStatusScannedAt, setLeadStatusScannedAt] = useState<string | null>(null);
   const [editDelayDirection, setEditDelayDirection] = useState<DelayDirection>("after");
   const [editTemplateName, setEditTemplateName] = useState("");
   const [triggerEditSaving, setTriggerEditSaving] = useState(false);
@@ -416,6 +467,7 @@ export default function TemplatesClient({
     Record<"plan" | "session" | "service", string>
   >({ plan: "", session: "", service: "" });
   const [newDelayDays, setNewDelayDays] = useState(0);
+  const [newTargetStatus, setNewTargetStatus] = useState("");
   const [newDelayDirection, setNewDelayDirection] = useState<DelayDirection>("after");
   const [newTemplateName, setNewTemplateName] = useState("");
   const [newTriggerEnabled, setNewTriggerEnabled] = useState(true);
@@ -595,12 +647,16 @@ export default function TemplatesClient({
     const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, { cache: "no-store" });
     const j = (await res.json().catch(() => ({}))) as {
       triggers?: TriggerRow[];
+      lead_statuses?: KnownLeadStatus[];
+      lead_status_last_scanned_at?: string | null;
       error?: string;
     };
     if (!res.ok) {
       throw new Error(j.error || `http_${res.status}`);
     }
     setTriggers(Array.isArray(j.triggers) ? j.triggers : []);
+    setKnownLeadStatuses(Array.isArray(j.lead_statuses) ? j.lead_statuses : []);
+    setLeadStatusScannedAt(j.lead_status_last_scanned_at ? String(j.lead_status_last_scanned_at) : null);
   }, [slug]);
 
   function toggleNewProductFilter(id: number) {
@@ -718,6 +774,9 @@ export default function TemplatesClient({
         lookback_days: null,
         template_name: input.template_name,
         enabled: input.enabled,
+        ...(input.trigger_type === "lead_status_changed"
+          ? { target_status: newTargetStatus.trim() || null }
+          : {}),
       }),
     });
     const j = (await res.json().catch(() => ({}))) as {
@@ -957,6 +1016,7 @@ export default function TemplatesClient({
         : (directionOptions[0]?.value ?? storedDirection)
     );
     setEditTemplateName(trigger.template_name ?? "");
+    setEditTargetStatus(trigger.target_status ?? "");
   }
 
   async function onSaveTriggerEdit(trigger: TriggerRow) {
@@ -976,6 +1036,9 @@ export default function TemplatesClient({
       };
       if (allowsDelayBefore(trigger.trigger_type) && !immediate) {
         body.delay_direction = editDelayDirection;
+      }
+      if (trigger.trigger_type === "lead_status_changed") {
+        body.target_status = editTargetStatus.trim() || null;
       }
       const res = await fetch(`/api/${encodeURIComponent(slug)}/triggers`, {
         method: "PATCH",
@@ -1760,6 +1823,19 @@ export default function TemplatesClient({
                       <p className="font-medium text-zinc-900">
                         {triggerTypeLabel(trigger.trigger_type)}
                       </p>
+                      {trigger.trigger_type === "lead_status_changed" && trigger.target_status ? (
+                        <p className="text-xs text-zinc-600">סטטוס: {trigger.target_status}</p>
+                      ) : null}
+                      {trigger.trigger_type === "lead_status_changed" &&
+                      leadStatusNotInLatestScan(
+                        trigger.target_status,
+                        knownLeadStatuses,
+                        leadStatusScannedAt
+                      ) ? (
+                        <p className="text-xs text-amber-800">
+                          הסטטוס לא נמצא בארבוקס בסריקה האחרונה - ייתכן ששמו שונה
+                        </p>
+                      ) : null}
                       {showsItemTypeFilter(trigger.trigger_type) ? (
                         trigger.item_type_filter?.length ? (
                           <div className="space-y-0.5">
@@ -1807,6 +1883,14 @@ export default function TemplatesClient({
                       ) : null}
                       {editingTriggerId === trigger.id ? (
                         <div className="mt-2 space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                          {trigger.trigger_type === "lead_status_changed" ? (
+                            <LeadStatusPicker
+                              value={editTargetStatus}
+                              statuses={knownLeadStatuses}
+                              scannedAt={leadStatusScannedAt}
+                              onChange={setEditTargetStatus}
+                            />
+                          ) : null}
                           {isImmediateDelayTrigger(trigger.trigger_type) ? (
                             <p className="text-xs text-zinc-600">נשלח מיד עם האירוע.</p>
                           ) : (
@@ -2200,6 +2284,14 @@ export default function TemplatesClient({
                           </div>
                         ) : null}
 
+                        {newTriggerType === "lead_status_changed" ? (
+                          <LeadStatusPicker
+                            value={newTargetStatus}
+                            statuses={knownLeadStatuses}
+                            scannedAt={leadStatusScannedAt}
+                            onChange={setNewTargetStatus}
+                          />
+                        ) : null}
                         {isNewImmediateDelay ? (
                           <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
                             נשלח מיד עם האירוע — אין השהייה של ימים.

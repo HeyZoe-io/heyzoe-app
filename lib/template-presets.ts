@@ -47,6 +47,7 @@ export const TEMPLATE_PARAM_SLOTS: Record<TriggerType, TemplateParamSlot[]> = {
   freeze_ending_unbooked: ["first_name", "expiry_date"],
   freeze_ending_booked: ["first_name", "class_name", "expiry_date"],
   lost_lead: ["first_name"],
+  lead_status_changed: ["first_name"],
   trial_reminder: ["first_name", "class_name", "class_time"],
   trial_booked: ["first_name", "class_name", "class_date", "class_time"],
   milestones: ["first_name"],
@@ -173,6 +174,11 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
     category: "MARKETING",
     body: "היי {{1}}, יש הרבה החלטות שאנחנו נאלצים לקבל ביום-יום, אבל יש כאלה שיכולות לשדרג את החיים שלנו משמעותית 💪 בא לנו לפרגן לך באימון ניסיון במחיר הנחה - רק דרך השיחה הזו. לוחצים על הכפתור ומתחילים!",
     button_text: "אשמח לפרטים",
+  },
+  lead_status_changed: {
+    name: "lead_status_changed",
+    category: "MARKETING",
+    body: "היי {{1}}",
   },
   trial_reminder: {
     name: "trial_reminder",

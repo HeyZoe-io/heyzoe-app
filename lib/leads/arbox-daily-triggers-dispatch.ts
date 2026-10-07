@@ -28,6 +28,7 @@ export const ARBOX_DAILY_TRIGGER_TYPES = [
   "class_cancelled_staff",
   "sessions_expiring",
   "lost_lead",
+  "lead_status_changed",
 ] as const;
 
 /**

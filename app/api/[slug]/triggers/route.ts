@@ -29,7 +29,8 @@ function forcesAfterNoProductFilter(triggerType: string): boolean {
     isIncomingLeadTriggerType(triggerType) ||
     triggerType === "no_response" ||
     triggerType === "arbox_new_lead" ||
-    triggerType === "class_cancelled_customer"
+    triggerType === "class_cancelled_customer" ||
+    triggerType === "lead_status_changed"
   );
 }
 
@@ -53,6 +54,7 @@ type TriggerRow = {
   template_name: string | null;
   enabled: boolean;
   created_at: string;
+  target_status?: string | null;
 };
 
 async function requireTriggersAccess(slug: string) {
@@ -206,7 +208,15 @@ function normalizeTriggerRow(row: Record<string, unknown>): TriggerRow {
     template_name: row.template_name != null ? String(row.template_name) : null,
     enabled: Boolean(row.enabled),
     created_at: String(row.created_at ?? ""),
+    target_status:
+      row.target_status != null && String(row.target_status).trim()
+        ? String(row.target_status).trim()
+        : null,
   };
+}
+
+function missingTargetStatusColumn(message: string): boolean {
+  return /target_status|schema cache|PGRST204|could not find the/i.test(message);
 }
 
 const TRIGGER_SELECT =
@@ -221,11 +231,22 @@ export async function GET(_req: NextRequest, ctx: RouteContext) {
   if (!gate.ok) return gate.response;
   const { admin, business } = gate;
 
-  const { data, error } = await admin
+  const listed = await admin
     .from("template_triggers")
-    .select(TRIGGER_SELECT)
+    .select(`${TRIGGER_SELECT}, target_status`)
     .eq("business_id", business.id)
     .order("created_at", { ascending: true });
+  let data = listed.data as Record<string, unknown>[] | null;
+  let error = listed.error;
+  if (error && missingTargetStatusColumn(error.message)) {
+    const fallback = await admin
+      .from("template_triggers")
+      .select(TRIGGER_SELECT)
+      .eq("business_id", business.id)
+      .order("created_at", { ascending: true });
+    data = (fallback.data ?? null) as Record<string, unknown>[] | null;
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("[api/triggers] list failed:", error.message);
@@ -235,7 +256,31 @@ export async function GET(_req: NextRequest, ctx: RouteContext) {
   const triggers = (data ?? []).map((row) =>
     normalizeTriggerRow(row as Record<string, unknown>)
   );
-  return NextResponse.json({ triggers });
+  const known = await admin
+    .from("arbox_lead_known_statuses")
+    .select("status, last_seen_at")
+    .eq("business_id", business.id)
+    .order("status", { ascending: true })
+    .limit(200);
+  const scanned = await admin
+    .from("businesses")
+    .select("arbox_lead_status_last_scanned_at")
+    .eq("id", business.id)
+    .maybeSingle();
+  const schemaReady = !known.error && !scanned.error;
+  return NextResponse.json({
+    triggers,
+    lead_statuses: schemaReady
+      ? (known.data ?? []).map((row) => ({
+          status: String((row as { status?: unknown }).status ?? ""),
+          last_seen_at: String((row as { last_seen_at?: unknown }).last_seen_at ?? ""),
+        }))
+      : [],
+    lead_status_last_scanned_at: schemaReady
+      ? ((scanned.data as { arbox_lead_status_last_scanned_at?: unknown } | null)
+          ?.arbox_lead_status_last_scanned_at ?? null)
+      : null,
+  });
 }
 
 /**
@@ -336,6 +381,14 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     template_name: templateName,
     enabled,
     updated_at: new Date().toISOString(),
+    ...(triggerType === "lead_status_changed"
+      ? {
+          target_status:
+            body.target_status == null || String(body.target_status).trim() === ""
+              ? null
+              : String(body.target_status).trim().slice(0, 200),
+        }
+      : {}),
   };
 
   const { data: created, error: insertErr } = await admin
@@ -346,6 +399,9 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 
   if (insertErr) {
     console.error("[api/triggers] insert failed:", insertErr.message);
+    if (missingTargetStatusColumn(insertErr.message)) {
+      return NextResponse.json({ error: "lead_status_schema_missing" }, { status: 503 });
+    }
     return NextResponse.json({ error: "trigger_create_failed" }, { status: 500 });
   }
 
@@ -538,6 +594,14 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     patch.enabled = Boolean(body.enabled);
   }
 
+  if (body.target_status !== undefined) {
+    const status =
+      body.target_status == null || String(body.target_status).trim() === ""
+        ? null
+        : String(body.target_status).trim().slice(0, 200);
+    patch.target_status = status;
+  }
+
   const { data: existingClock } = await admin
     .from("template_triggers")
     .select(
@@ -547,6 +611,18 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     .eq("business_id", business.id)
     .maybeSingle();
   const clock = existingClock as RuleActivationSnapshot | null;
+  if (clock && patch.target_status !== undefined) {
+    const previousStatus = await admin
+      .from("template_triggers")
+      .select("target_status")
+      .eq("id", id)
+      .eq("business_id", business.id)
+      .maybeSingle();
+    if (previousStatus.error && missingTargetStatusColumn(previousStatus.error.message)) {
+      return NextResponse.json({ error: "lead_status_schema_missing" }, { status: 503 });
+    }
+    clock.target_status = (previousStatus.data as { target_status?: unknown } | null)?.target_status ?? null;
+  }
   const filterOnly = Boolean(clock && productFilterChanged(clock, patch) && !ruleActivationResets(clock, patch));
   if (filterOnly && clock) {
     const applied = await applyProductFilterScopeChange({

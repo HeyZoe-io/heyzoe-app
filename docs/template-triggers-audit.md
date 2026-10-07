@@ -94,7 +94,9 @@ tights `birthday_former` מחובר עם השהייה של 7 ימים לפני, 
 | `membership_cancelled` | סנכרון תכוף, עם שקט | 08:00–21:00 | לא | לא. 21:00–08:00 נדחה | לא | כבר יש שקט |
 | `freeze_created` | סנכרון תכוף, חלק `created` | 08:00–21:00 | לא | לא | לא | כבר יש שקט |
 | `freeze_ending_unbooked`, `freeze_ending_booked` | קרון יומי | סביב 09:00 | הסיום עם הזמנה כן קשור לשיעור עתידי, אבל השליחה היא בבוקר של יום היעד | לא | לא מועמד. זו לא תזכורת בוקר-של-שיעור | לא |
-| `birthday`, `birthday_former`, `membership_expiring`, `sessions_expiring`, `missed_class`, `missed_trial`, `attendance_gap`, `milestones`, `nth_workout`, `lost_lead`, `class_cancelled_staff` | קרון יומי | סביב 09:00 | `missed_*` אחרי השיעור. `class_cancelled_staff` ביום הזיהוי | לא | לא, חוץ ממאמן-ניסיון שכבר למעלה | לא |
+| `birthday`, `birthday_former`, `membership_expiring`, `sessions_expiring`, `missed_class`, `missed_trial`, `attendance_gap`, `milestones`, `nth_workout`, `class_cancelled_staff` | קרון יומי | סביב 09:00 | `missed_*` אחרי השיעור. `class_cancelled_staff` ביום הזיהוי | לא | לא, חוץ ממאמן-ניסיון שכבר למעלה | לא |
+| `lost_lead` | דיליי 0 בקרון של 15 הדקות אחרי 08:00. דיליי של יום ומעלה ב-09:00 ביום היעד | 08:00-20:45 לדיליי 0, ו-09:00 לדיליי של יום ומעלה | דיליי 0 ביום הסימון או למחרת בגלל שקט הלילה. דיליי N ביום האובדן ועוד N | לא לדיליי של יום ומעלה. דיליי 0 ממתין מ-21:00 עד 08:00 | לא | לא |
+| `lead_status_changed` | אותו קרון יומי, בוקר וערב | 09:00 ו-20:30 | בכניסה לסטטוס שנבחר | לא | לא | לא |
 | `incoming_lead` | וובהוק מיידי | ברגע שהליד נכנס | לא | כן | לא | כן |
 | `no_response` | `no-response-reengage` יומי | ההערה אומרת 11:00 | לא | לא | לא | לא |
 | השהייה שנכנסת ל־`scheduled_template_sends` | drain של התור | בתוך חלון 06:30–23:00 | לפי `due_at` | לא. מחוץ לחלון נשאר `pending` | לא | כבר יש שקט |

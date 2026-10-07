@@ -19,6 +19,7 @@ export const RETENTION_TRIGGER_TYPES = [
   "attendance_gap",
   "lost_lead",
   "no_response",
+  "lead_status_changed",
 ] as const;
 
 export type RetentionTriggerType = (typeof RETENTION_TRIGGER_TYPES)[number];
@@ -29,6 +30,7 @@ const RANK: Record<RetentionTriggerType, number> = {
   attendance_gap: 1,
   lost_lead: 2,
   no_response: 3,
+  lead_status_changed: 4,
 };
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
@@ -68,6 +70,7 @@ const RETENTION_SYNC_LOGS = [
   { table: "arbox_missed_class_sync_log", idColumn: "user_id" },
   { table: "arbox_attendance_gap_sync_log", idColumn: "user_id" },
   { table: "arbox_lost_lead_sync_log", idColumn: "lead_id" },
+  { table: "arbox_lead_status_change_sync_log", idColumn: "lead_id" },
 ] as const;
 
 async function retentionSyncLogSentToday(
