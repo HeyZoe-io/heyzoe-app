@@ -156,6 +156,11 @@ function delayDaysFieldLabel(type: string, variant: "create" | "edit"): string {
   return variant === "create" ? "ימים" : "השהייה (ימים)";
 }
 
+function delayCapErrorMessage(triggerType: string): string {
+  if (triggerType === "trial_reminder") return "אפשר עד 13 ימים";
+  return "אפשר עד 28 ימים";
+}
+
 function AttendanceGapDelayNote({ days }: { days: number }) {
   const max = maxDelayDaysForTrigger("attendance_gap");
   return (
@@ -165,6 +170,18 @@ function AttendanceGapDelayNote({ days }: { days: number }) {
       </p>
       {max != null && days > max ? (
         <p className="text-xs font-medium text-red-600">אפשר עד 28 ימים</p>
+      ) : null}
+    </>
+  );
+}
+
+function TrialReminderDelayNote({ days }: { days: number }) {
+  const max = maxDelayDaysForTrigger("trial_reminder");
+  return (
+    <>
+      <p className="text-xs text-zinc-500">ניתן להגדיר עד 13 ימים לפני האימון</p>
+      {max != null && days > max ? (
+        <p className="text-xs font-medium text-red-600">אפשר עד 13 ימים</p>
       ) : null}
     </>
   );
@@ -924,7 +941,7 @@ export default function TemplatesClient({
         throw new Error("כבר קיים טריגר הצטרפות ראשונה — ערכו את הקיים במקום ליצור עוד אחד");
       }
       if (j.error === "max_delay_days") {
-        throw new Error("אפשר עד 28 ימים");
+        throw new Error(delayCapErrorMessage(newTriggerType));
       }
       throw new Error(j.error || `http_${res.status}`);
     }
@@ -937,7 +954,7 @@ export default function TemplatesClient({
     setSuccess(null);
     const createMaxDelay = maxDelayDaysForTrigger(newTriggerType);
     if (!isNewImmediateDelay && createMaxDelay != null && newDelayDays > createMaxDelay) {
-      setError("אפשר עד 28 ימים");
+      setError(delayCapErrorMessage(newTriggerType));
       return;
     }
     setTriggerSaving(true);
@@ -1148,7 +1165,7 @@ export default function TemplatesClient({
         ? 0
         : Math.max(delayMin, Math.trunc(Number(editDelayDays) || 0));
       if (!immediate && delayMax != null && delayDays > delayMax) {
-        throw new Error("אפשר עד 28 ימים");
+        throw new Error(delayCapErrorMessage(trigger.trigger_type));
       }
       const body: Record<string, unknown> = {
         id: trigger.id,
@@ -1179,7 +1196,7 @@ export default function TemplatesClient({
           throw new Error("כבר קיים טריגר ליד ללא מענה פעיל");
         }
         if (j.error === "max_delay_days") {
-          throw new Error("אפשר עד 28 ימים");
+          throw new Error(delayCapErrorMessage(trigger.trigger_type));
         }
         throw new Error(j.error || `http_${res.status}`);
       }
@@ -2069,6 +2086,9 @@ export default function TemplatesClient({
                                 {isAttendanceGapTriggerType(trigger.trigger_type) ? (
                                   <AttendanceGapDelayNote days={editDelayDays} />
                                 ) : null}
+                                {trigger.trigger_type === "trial_reminder" ? (
+                                  <TrialReminderDelayNote days={editDelayDays} />
+                                ) : null}
                               </div>
                               {delayDirectionOptions(trigger.trigger_type).length > 0 ? (
                                 <div className="space-y-1">
@@ -2492,6 +2512,9 @@ export default function TemplatesClient({
                               />
                               {isAttendanceGapTriggerType(newTriggerType) ? (
                                 <AttendanceGapDelayNote days={newDelayDays} />
+                              ) : null}
+                              {newTriggerType === "trial_reminder" ? (
+                                <TrialReminderDelayNote days={newDelayDays} />
                               ) : null}
                               {newTriggerType === "no_response" ? (
                                 <p className="text-xs text-zinc-500">

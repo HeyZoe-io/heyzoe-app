@@ -846,11 +846,13 @@ export async function syncArboxTrialReminderForBusiness(input: {
         });
         if (!up.ok) ok = false;
       }
-      if (ok && seededRule) {
+      if (!ok) {
+        summary.errors += 1;
+      } else if (seededRule) {
         wrote += 1;
         if (needsFullSeed) summary.seeded += 1;
         else summary.soft_seeded += 1;
-      } else summary.errors += 1;
+      }
     }
 
     if (wrote === 0) {
@@ -895,7 +897,6 @@ export async function syncArboxTrialReminderForBusiness(input: {
         soft_seeded: summary.soft_seeded,
       });
     }
-    return summary;
   }
 
   const activeRuleIds = await ruleIdsActiveSinceActivation(

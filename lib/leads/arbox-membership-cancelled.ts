@@ -1,7 +1,6 @@
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
-  decideActivationEventAction,
   eventBeforeRuleActivation,
   israelSlotInstant,
   parseReportEventInstant,
@@ -285,6 +284,26 @@ function addCalendarDaysYmd(ymd: string, days: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/**
+ * New-rule seed. A due day before the run is history. The run day sends on
+ * this run (including after 09:00). A later due day waits.
+ */
+export function membershipCancelledActivationAction(input: {
+  eventYmd: string | null;
+  delayDays: number;
+  todayYmd: string;
+}): "seed" | "send" | "later" {
+  if (!input.eventYmd) return "later";
+  const dueYmd = addCalendarDaysYmd(
+    input.eventYmd,
+    Math.max(0, Math.trunc(Number(input.delayDays) || 0))
+  );
+  if (!dueYmd) return "later";
+  if (dueYmd < input.todayYmd) return "seed";
+  if (dueYmd === input.todayYmd) return "send";
+  return "later";
+}
+
 /** Live window is yesterday + today in Asia/Jerusalem, independent of delay_days. */
 export function membershipCancelledLiveWindow(now: Date): { fromDate: string; toDate: string } {
   const toDate = formatDateYmdIsrael(now);
@@ -530,8 +549,8 @@ async function dispatchMembershipCancelledTemplate(input: {
  * (usually 1 page). Plus 1 GET /v3/membershipTypes only when a product_filter is set.
  * WhatsApp: one UTILITY send per new cancellation. No Claude.
  *
- * Seed (arbox_cancellation_seeded=false): mark the 30-day window seen, no WhatsApp.
- * Soft-seed: empty log for a new trigger_id → same 30-day mark, no WhatsApp.
+ * Seed marks cancellations whose due day already passed. Due today still sends.
+ * Soft-seed: empty log for a new trigger_id → same past-due mark, then the send path.
  */
 export async function syncArboxMembershipCancelledForBusiness(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -620,6 +639,8 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   const nameById = needsTypeMap
     ? await fetchMembershipTypeNameById(apiKey)
     : new Map<number, string>();
+  const todayYmd = formatDateYmdIsrael(now);
+  const seededKeysThisRun = new Set<string>();
 
   async function seedRuleRows(rule: PurchaseTemplateTriggerRule): Promise<number> {
     let wrote = 0;
@@ -639,11 +660,16 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
         continue;
       }
       const eventYmd = reportTimestampToYmd(cancelledTime);
-      const dueYmd = eventYmd
-        ? addCalendarDaysYmd(eventYmd, Math.max(0, Math.trunc(Number(rule.delay_days) || 0)))
-        : null;
-      const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
-      if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+      if (
+        membershipCancelledActivationAction({
+          eventYmd,
+          delayDays: rule.delay_days,
+          todayYmd,
+        }) !== "seed"
+      ) {
+        continue;
+      }
+      seededKeysThisRun.add(`${rule.id}|${userId}|${cancelledTime}`);
       const marked = await upsertCancellationSyncLog({
         admin: input.admin,
         businessId,
@@ -685,23 +711,22 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
       summary.errors += 1;
       summary.fetch_error = "arbox_cancellation_seeded_flag_failed";
     }
-    return summary;
   }
 
-  const seededThisRun = new Set<string>();
-  for (const rule of rulesWithTemplate) {
-    const { count, error } = await input.admin
-      .from("arbox_cancellation_sync_log")
-      .select("user_id", { count: "exact", head: true })
-      .eq("business_id", businessId)
-      .eq("trigger_id", rule.id);
-    if (error) {
-      console.error("[leads/arbox-membership-cancelled] per-trigger seed count failed:", error.message);
-      continue;
+  if (input.cancellationSeeded) {
+    for (const rule of rulesWithTemplate) {
+      const { count, error } = await input.admin
+        .from("arbox_cancellation_sync_log")
+        .select("user_id", { count: "exact", head: true })
+        .eq("business_id", businessId)
+        .eq("trigger_id", rule.id);
+      if (error) {
+        console.error("[leads/arbox-membership-cancelled] per-trigger seed count failed:", error.message);
+        continue;
+      }
+      if ((count ?? 0) > 0) continue;
+      summary.seeded += await seedRuleRows(rule);
     }
-    if ((count ?? 0) > 0) continue;
-    summary.seeded += await seedRuleRows(rule);
-    seededThisRun.add(rule.id);
   }
 
   for (const raw of reportRows) {
@@ -718,7 +743,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     const eventYmd = reportTimestampToYmd(cancelledTime);
     const matching = orderAllRulesWithCompanion(
       matchingMembershipCancelledTemplateTriggerRules(
-        rulesWithTemplate.filter((r) => !seededThisRun.has(r.id)),
+        rulesWithTemplate,
         membershipTypeName,
         nameById
       )
@@ -774,7 +799,10 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           (existingSeen as { attempts?: unknown } | null)?.attempts
         );
 
-        if (existingSeen && !shouldRetryCancellationSyncLog(existingStatus)) {
+        if (
+          seededKeysThisRun.has(`${rule.id}|${userId}|${cancelledTime}`) ||
+          (existingSeen && !shouldRetryCancellationSyncLog(existingStatus))
+        ) {
           summary.already += 1;
           console.info("[leads/arbox-membership-cancelled] dispatch", {
             ...logBase,

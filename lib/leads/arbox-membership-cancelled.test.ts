@@ -483,7 +483,8 @@ async function windowCases() {
   });
   assert.equal(seeded.reportCalls, 1);
   assert.equal(seeded.summary.notified, 0);
-  assert.ok((seeded.summary.seeded ?? 0) >= 1);
+  assert.equal(seeded.summary.seeded ?? 0, 0);
+  assert.equal(seeded.summary.no_phone, 1);
   assert.equal(
     (ARBOX_DAILY_TRIGGER_TYPES as readonly string[]).includes("membership_cancelled"),
     false

@@ -16,7 +16,12 @@
  * No per-user Arbox calls.
  */
 import { logMessage } from "@/lib/analytics";
-import { eventBeforeRuleActivation, parseReportEventInstant } from "@/lib/rule-activation";
+import {
+  decideActivationEventAction,
+  eventBeforeRuleActivation,
+  israelSlotInstant,
+  parseReportEventInstant,
+} from "@/lib/rule-activation";
 import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
@@ -269,6 +274,40 @@ export function beforeNthWorkoutTarget(input: {
 
 export function shouldSeedNthWorkout(input: { yesCount: number; n: number }): boolean {
   return input.yesCount >= nthWorkoutN(input.n);
+}
+
+/**
+ * After-rules count workouts before today, so the message is due at 09:00
+ * the next morning. That morning sends. An earlier Nth workout is history.
+ * Fewer than N workouts waits for its own morning.
+ */
+export function nthWorkoutAfterDueAction(input: {
+  bookings: readonly ArboxBookingReportRow[];
+  userId: number;
+  memberSinceYmd: string;
+  todayYmd: string;
+  n: number;
+  now: Date;
+}): "seed" | "send" | "later" {
+  const workoutN = nthWorkoutN(input.n);
+  const dates: string[] = [];
+  for (const row of input.bookings) {
+    const userId = parseLeadIdFromUserId(row.user_id);
+    if (userId !== input.userId) continue;
+    if (!isBookingCheckedIn(row.check_in)) continue;
+    const classDate = parseClassDateYmd(row.date);
+    if (!classDate) continue;
+    if (classDate < input.memberSinceYmd) continue;
+    if (classDate >= input.todayYmd) continue;
+    dates.push(classDate);
+  }
+  dates.sort();
+  const nthDate = dates[workoutN - 1];
+  if (!nthDate) return "later";
+  const dueYmd = addDaysYmd(nthDate, 1);
+  if (!dueYmd || dueYmd > input.todayYmd) return "later";
+  const sendAt = israelSlotInstant(dueYmd, "09:00");
+  return decideActivationEventAction({ sendAt, now: input.now });
 }
 
 /** >= N and no terminal log → send once (catch-up included; log blocks repeats). */
@@ -664,6 +703,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
   }
 
   const allMembers = uniqueNthWorkoutMembers(collectDaysInClubMembers(membershipRows));
+  const seededAfterUsers = new Set<string>();
 
   async function seedRuleRows(
     rule: PurchaseTemplateTriggerRule,
@@ -689,7 +729,23 @@ export async function syncArboxNthWorkoutForBusiness(input: {
         memberSinceYmd: member.memberSinceYmd,
         todayYmd,
       });
-      if (!shouldSeedNthWorkout({ yesCount, n })) continue;
+      if (nthWorkoutDirection(rule.delay_direction) === "after") {
+        if (
+          nthWorkoutAfterDueAction({
+            bookings: bookingRows,
+            userId: member.userId,
+            memberSinceYmd: member.memberSinceYmd,
+            todayYmd,
+            n,
+            now,
+          }) !== "seed"
+        ) {
+          continue;
+        }
+        seededAfterUsers.add(`${rule.id}|${member.userId}`);
+      } else if (!shouldSeedNthWorkout({ yesCount, n })) {
+        continue;
+      }
       const marked = await upsertNthWorkoutSyncLog({
         admin: input.admin,
         businessId,
@@ -736,13 +792,12 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     return wrote;
   }
 
-  const blockSend = new Set<string>();
   // Evening must not mark the business seeded: that flag also gates after-rules,
   // which stay on the morning run.
-  if (slot !== "evening" && !input.nthWorkoutSeeded) {
+  const didFullSeed = slot !== "evening" && !input.nthWorkoutSeeded;
+  if (didFullSeed) {
     for (const rule of rulesWithTemplate) {
       await seedRuleRows(rule, "seeded");
-      if (nthWorkoutDirection(rule.delay_direction) !== "before") blockSend.add(rule.id);
     }
     const { error: flagErr } = await input.admin
       .from("businesses")
@@ -758,37 +813,33 @@ export async function syncArboxNthWorkoutForBusiness(input: {
       businessSlug,
       seeded: summary.seeded,
     });
-    if (blockSend.size === rulesWithTemplate.length) return summary;
   }
 
-  const seededThisRun = new Set<string>();
-  for (const rule of rulesWithTemplate) {
-    const { count, error } = await input.admin
-      .from("arbox_nth_workout_sync_log")
-      .select("user_id", { count: "exact", head: true })
-      .eq("business_id", businessId)
-      .eq("trigger_id", rule.id);
-    if (error) {
-      console.error("[leads/arbox-nth-workout] per-trigger seed count failed:", error.message);
-      continue;
+  if (!didFullSeed) {
+    for (const rule of rulesWithTemplate) {
+      const { count, error } = await input.admin
+        .from("arbox_nth_workout_sync_log")
+        .select("user_id", { count: "exact", head: true })
+        .eq("business_id", businessId)
+        .eq("trigger_id", rule.id);
+      if (error) {
+        console.error("[leads/arbox-nth-workout] per-trigger seed count failed:", error.message);
+        continue;
+      }
+      if (
+        !nthWorkoutNeedsSoftSeed({
+          nthWorkoutSeeded: true,
+          logCount: count ?? 0,
+        })
+      ) {
+        continue;
+      }
+      await seedRuleRows(rule, "soft_seeded");
     }
-    if (
-      !nthWorkoutNeedsSoftSeed({
-        nthWorkoutSeeded: true,
-        logCount: count ?? 0,
-      })
-    ) {
-      continue;
-    }
-    await seedRuleRows(rule, "soft_seeded");
-    if (nthWorkoutDirection(rule.delay_direction) !== "before") seededThisRun.add(rule.id);
   }
 
   const needsBefore = rulesWithTemplate.some(
-    (rule) =>
-      nthWorkoutDirection(rule.delay_direction) === "before" &&
-      !blockSend.has(rule.id) &&
-      !seededThisRun.has(rule.id)
+    (rule) => nthWorkoutDirection(rule.delay_direction) === "before"
   );
   let futureRows: ArboxBookingReportRow[] = input.prefetchedFutureRows ?? [];
   if (needsBefore && input.prefetchedFutureRows == null) {
@@ -822,7 +873,7 @@ export async function syncArboxNthWorkoutForBusiness(input: {
     const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
-      if (seededThisRun.has(rule.id) || blockSend.has(rule.id)) continue;
+      if (seededAfterUsers.has(`${rule.id}|${member.userId}`)) continue;
       if (eventBeforeRuleActivation(parseReportEventInstant(member.memberSinceYmd), rule)) continue;
       const n = nthWorkoutN(rule.delay_days);
       const lookbackDays = nthWorkoutLookbackDays(rule.lookback_days);

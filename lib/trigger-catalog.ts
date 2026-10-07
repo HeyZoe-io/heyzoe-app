@@ -446,6 +446,7 @@ export const TRIGGER_CATALOG = [
     showProductFilter: true,
     uniquePerBusiness: false,
     minDelayDays: 0,
+    maxDelayDays: 13,
     recipient: "customer",
     presetKey: "trial_reminder",
     uiOrder: 2,

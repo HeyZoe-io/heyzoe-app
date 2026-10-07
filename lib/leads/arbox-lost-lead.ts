@@ -270,7 +270,7 @@ export function isLostLeadImmediateDue(eventYmd: string, todayYmd: string): bool
   return eventYmd === todayYmd || eventYmd === shiftLostLeadYmd(todayYmd, -1);
 }
 
-function lostLeadNormalSendAt(
+export function lostLeadNormalSendAt(
   lostDate: string,
   delayDays: number,
   todayYmd: string,
@@ -787,7 +787,6 @@ export async function syncArboxLostLeadForBusiness(input: {
       businessSlug,
       seeded: summary.seeded,
     });
-    return summary;
   }
 
   let recentCheckInIndex = input.recentCheckInRows
@@ -797,20 +796,20 @@ export async function syncArboxLostLeadForBusiness(input: {
       })
     : null;
 
-  const seededThisRun = new Set<string>();
-  for (const rule of rulesWithTemplate) {
-    const { count, error } = await input.admin
-      .from("arbox_lost_lead_sync_log")
-      .select("lead_id", { count: "exact", head: true })
-      .eq("business_id", businessId)
-      .eq("trigger_id", rule.id);
-    if (error) {
-      console.error("[leads/arbox-lost-lead] per-trigger seed count failed:", error.message);
-      continue;
+  if (!needsFullSeed) {
+    for (const rule of rulesWithTemplate) {
+      const { count, error } = await input.admin
+        .from("arbox_lost_lead_sync_log")
+        .select("lead_id", { count: "exact", head: true })
+        .eq("business_id", businessId)
+        .eq("trigger_id", rule.id);
+      if (error) {
+        console.error("[leads/arbox-lost-lead] per-trigger seed count failed:", error.message);
+        continue;
+      }
+      if ((count ?? 0) > 0) continue;
+      await seedRuleRows(rule, "soft_seeded");
     }
-    if ((count ?? 0) > 0) continue;
-    await seedRuleRows(rule, "soft_seeded");
-    seededThisRun.add(rule.id);
   }
 
   const rowIsDue = (eventYmd: string | null, delayDays: number): boolean => {
@@ -828,7 +827,7 @@ export async function syncArboxLostLeadForBusiness(input: {
       const eventYmd = reportTimestampToYmd(lostDate);
       if (leadId == null || !lostDate || leadId === LOST_LEAD_SOFT_SEED_SENTINEL_LEAD_ID) continue;
       for (const rule of rulesWithTemplate) {
-        if (seededThisRun.has(rule.id) || !rowIsDue(eventYmd, rule.delay_days)) continue;
+        if (!rowIsDue(eventYmd, rule.delay_days)) continue;
         const { data: existing, error: existingErr } = await input.admin
           .from("arbox_lost_lead_sync_log")
           .select("status")
@@ -903,7 +902,6 @@ export async function syncArboxLostLeadForBusiness(input: {
     const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
-      if (seededThisRun.has(rule.id)) continue;
       if (!rowIsDue(eventYmd, rule.delay_days)) {
         continue;
       }

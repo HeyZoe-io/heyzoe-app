@@ -8,9 +8,8 @@
  * is off (no sessionsReport). WhatsApp: one immediate send per matching rule
  * on the exact join+delay day.
  *
- * Seed (arbox_days_in_club_seeded=false): members already at/past X days marked
- * seeded, no WhatsApp. Members not yet at X wait for the exact day.
- * Soft-seed: flag true + empty log for that trigger_id → same past-X mark.
+ * Seed marks members already past X. The exact day still sends.
+ * Soft-seed: flag true + empty log for that trigger_id → same past mark, then the send path.
  */
 import { logMessage } from "@/lib/analytics";
 import {
@@ -574,30 +573,29 @@ export async function syncArboxDaysInClubForBusiness(input: {
       businessSlug,
       seeded: summary.seeded,
     });
-    return summary;
   }
 
-  const seededThisRun = new Set<string>();
-  for (const rule of rulesWithTemplate) {
-    const { count, error } = await input.admin
-      .from("arbox_days_in_club_sync_log")
-      .select("user_id", { count: "exact", head: true })
-      .eq("business_id", businessId)
-      .eq("trigger_id", rule.id);
-    if (error) {
-      console.error("[leads/arbox-days-in-club] per-trigger seed count failed:", error.message);
-      continue;
+  if (!needsFullSeed) {
+    for (const rule of rulesWithTemplate) {
+      const { count, error } = await input.admin
+        .from("arbox_days_in_club_sync_log")
+        .select("user_id", { count: "exact", head: true })
+        .eq("business_id", businessId)
+        .eq("trigger_id", rule.id);
+      if (error) {
+        console.error("[leads/arbox-days-in-club] per-trigger seed count failed:", error.message);
+        continue;
+      }
+      if (
+        !daysInClubNeedsSoftSeed({
+          daysInClubSeeded: true,
+          logCount: count ?? 0,
+        })
+      ) {
+        continue;
+      }
+      await seedRuleRows(rule, "soft_seeded");
     }
-    if (
-      !daysInClubNeedsSoftSeed({
-        daysInClubSeeded: true,
-        logCount: count ?? 0,
-      })
-    ) {
-      continue;
-    }
-    await seedRuleRows(rule, "soft_seeded");
-    seededThisRun.add(rule.id);
   }
 
   for (const member of members) {
@@ -607,7 +605,6 @@ export async function syncArboxDaysInClubForBusiness(input: {
     const companionGate = createCompanionSendGate(isArboxDailyDryRun());
 
     for (const rule of rulesWithTemplate) {
-      if (seededThisRun.has(rule.id)) continue;
       const delayDays = daysInClubDelayDays(rule.delay_days);
       const milestoneYmd = addCalendarDaysYmd(member.memberSinceYmd, delayDays);
       const sendAt =
