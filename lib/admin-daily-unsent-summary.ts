@@ -14,6 +14,7 @@ import { CRON_UNEXPECTED_CALLER_MODEL } from "@/lib/cron-clock";
 import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { EMPTY_VARIABLE_ERROR } from "@/lib/notifications/template-empty-variable";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -98,6 +99,7 @@ export function unsentReason(input: {
   const status = String(input.status ?? "").trim().toLowerCase();
   const err = String(input.lastError ?? "").trim().toLowerCase();
   if (status === "unknown" || err.includes("send_outcome_unknown")) return "תוצאה לא ידועה";
+  if (err.includes(EMPTY_VARIABLE_ERROR)) return "משתנה ריק בטמפלייט";
   if (status === "sending" || err === "sending") return "נשאר באמצע שליחה";
   if (err === "duplicate_guard") return "נחסם כפילות";
   if (status === "sent") return null;
@@ -332,6 +334,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
 
   const seen = new Set<string>();
   const out: UnsentRow[] = [];
+  const triggerIdOf = new WeakMap<UnsentRow, string>();
   for (const row of raw) {
     const trigger = triggers.get(row.triggerId) || row.triggerFallback;
     const named = contacts.get(`${row.businessId}|${Number(row.userId)}`) ?? "";
@@ -350,7 +353,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       !Number.isNaN(classAt.getTime()) &&
       classAt.getTime() > now.getTime();
     const meta = row.reason === "נכשל" ? squashParam(row.metaError).slice(0, 80) : "";
-    out.push({
+    const unsent: UnsentRow = {
       businessId: row.businessId,
       business: names.get(row.businessId) || String(row.businessId),
       trigger,
@@ -359,29 +362,62 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       at: israelStamp(row.at),
       future,
       metaError: meta && !/^(activation_seed|retention_daily_cap|send_failed)$/i.test(meta) ? meta : "",
-    });
+    };
+    triggerIdOf.set(unsent, row.triggerId);
+    out.push(unsent);
   }
 
   const { data: failures, error: failureErr } = await admin
     .from("template_send_failures")
-    .select("business_id, meta_code, meta_message, created_at")
+    .select("business_id, trigger_id, meta_code, meta_message, created_at")
     .gte("created_at", sinceIso)
     .limit(200);
   if (failureErr && !/does not exist|schema cache/i.test(failureErr.message)) {
     console.error("[admin-daily-unsent] failure read failed", failureErr.message);
   }
   const failureByBusiness = new Map<number, string>();
+  const failureByTrigger = new Map<string, string>();
   for (const row of failures ?? []) {
     const id = Number((row as { business_id?: unknown }).business_id);
     const code = String((row as { meta_code?: unknown }).meta_code ?? "").trim();
     const message = String((row as { meta_message?: unknown }).meta_message ?? "").trim();
     if (!Number.isFinite(id) || !code) continue;
-    failureByBusiness.set(id, squashParam(message ? `${code}: ${message}` : code).slice(0, 80));
+    const text = squashParam(message ? `${code}: ${message}` : code).slice(0, 80);
+    failureByBusiness.set(id, text);
+    const triggerId = String((row as { trigger_id?: unknown }).trigger_id ?? "").trim();
+    if (triggerId) failureByTrigger.set(triggerId, text);
   }
   for (const row of out) {
     if (row.reason === "נכשל" && !row.metaError) {
-      row.metaError = failureByBusiness.get(row.businessId) ?? "";
+      const triggerId = triggerIdOf.get(row) ?? "";
+      row.metaError = (triggerId && failureByTrigger.get(triggerId)) || failureByBusiness.get(row.businessId) || "";
     }
+  }
+
+  const { data: marketing, error: marketingErr } = await admin
+    .from("scheduled_marketing_template_sends")
+    .select("contact_phone, template_name, status, last_error, updated_at")
+    .eq("status", "failed")
+    .gte("updated_at", sinceIso)
+    .limit(200);
+  if (marketingErr && !/does not exist|schema cache/i.test(marketingErr.message)) {
+    console.error("[admin-daily-unsent] marketing queue read failed", marketingErr.message);
+  }
+  for (const row of marketing ?? []) {
+    const lastError = String((row as { last_error?: unknown }).last_error ?? "");
+    if (!/empty_variable|send_outcome_unknown/i.test(lastError)) continue;
+    const reason = unsentReason({ status: "failed", lastError, overdue: false });
+    if (!reason) continue;
+    const phoneTail = String((row as { contact_phone?: unknown }).contact_phone ?? "").replace(/\D/g, "").slice(-4);
+    out.push({
+      businessId: 0,
+      business: "HeyZoe",
+      trigger: String((row as { template_name?: unknown }).template_name ?? "marketing"),
+      contact: phoneTail ? `***${phoneTail}` : "",
+      reason,
+      at: israelStamp(String((row as { updated_at?: unknown }).updated_at ?? "")),
+      metaError: "",
+    });
   }
 
   out.sort((a, b) => a.business.localeCompare(b.business, "he") || a.trigger.localeCompare(b.trigger));

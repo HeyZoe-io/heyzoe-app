@@ -27,6 +27,7 @@ import {
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
+import { EMPTY_VARIABLE_ERROR, emptyTemplateVariable } from "@/lib/notifications/template-empty-variable";
 
 export type OwnerTemplateComponent = {
   type: "body" | "header";
@@ -61,6 +62,19 @@ export async function sendOwnerNotification(input: {
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
+
+  const empty = emptyTemplateVariable(input.components);
+  if (empty) {
+    console.error("[sendOwnerNotification] empty template variable, not sent", { templateName, empty });
+    await recordTemplateSendFailure({
+      phoneNumberId,
+      phone: to,
+      templateName,
+      metaError: `${EMPTY_VARIABLE_ERROR}: ${empty}`,
+      raw: "",
+    }).catch((e) => console.error("[sendOwnerNotification] failure log failed:", e));
+    return { ok: false, error: EMPTY_VARIABLE_ERROR };
+  }
 
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
@@ -140,6 +154,26 @@ export async function sendBusinessTemplate(input: {
   if (!templateName) return { ok: false, error: "missing_template" };
 
   const isStaffRecipient = input.recipientKind === "staff";
+
+  const empty = emptyTemplateVariable(input.components);
+  if (empty) {
+    console.error("[sendBusinessTemplate] empty template variable, not sent", {
+      templateName,
+      empty,
+      phone: to.slice(-4),
+      triggerId: input.alertTriggerId ?? null,
+    });
+    if (isArboxDailyDryRun()) return { ok: false, error: EMPTY_VARIABLE_ERROR };
+    await recordTemplateSendFailure({
+      phoneNumberId,
+      phone: to,
+      templateName,
+      triggerId: input.alertTriggerId,
+      metaError: `${EMPTY_VARIABLE_ERROR}: ${empty}`,
+      raw: "",
+    }).catch((e) => console.error("[sendBusinessTemplate] failure log failed:", e));
+    return { ok: false, error: EMPTY_VARIABLE_ERROR };
+  }
 
   if (!input.skipOptOutGate && !isStaffRecipient) {
     const gate = await evaluateLeadTemplateSendByPhoneNumberId({
