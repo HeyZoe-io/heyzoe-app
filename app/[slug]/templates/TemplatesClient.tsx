@@ -30,6 +30,8 @@ import {
 } from "@/lib/template-presets";
 import { isTriggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
 import CampaignSendPanel from "@/app/[slug]/templates/CampaignSendPanel";
+import BulkJobsSection from "@/app/[slug]/templates/BulkJobsSection";
+import type { ManualBulkJobsOverviewResult } from "@/lib/manual-bulk/jobs-overview";
 import {
   EMPTY_TEMPLATE_BUTTONS,
   EMPTY_TEMPLATE_DRAFT,
@@ -252,6 +254,8 @@ type Props = {
   hasArbox: boolean;
   /** businesses.arbox_trial_membership_type_ids — already chosen on the links step. */
   initialTrialMembershipTypeIds?: number[];
+  /** undefined = not the owner / admin (section hidden); null = load failed. */
+  initialBulkJobs?: ManualBulkJobsOverviewResult | null;
 };
 
 function statusBadgeClass(status: string): string {
@@ -523,6 +527,7 @@ export default function TemplatesClient({
   hasWaba,
   hasArbox,
   initialTrialMembershipTypeIds = [],
+  initialBulkJobs,
 }: Props) {
   const savedTrialMembershipTypeIds = useMemo(
     () =>
@@ -540,6 +545,14 @@ export default function TemplatesClient({
   savedTrialMembershipTypeIdsRef.current = savedTrialMembershipTypeIds;
   const [templates, setTemplates] = useState<TemplateRow[]>(initialTemplates);
   const [categoryNotices, setCategoryNotices] = useState<CategoryNotice[]>(initialCategoryNotices);
+  const templateBodies = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const t of templates) {
+      const body = bodyTextFromTemplateComponents(t.components);
+      if (body && !out[t.name]) out[t.name] = body;
+    }
+    return out;
+  }, [templates]);
 
   useEffect(() => {
     if (isPlatformAdmin && readAdminRecategoryDismissed(slug)) setCategoryNotices([]);
@@ -2773,6 +2786,10 @@ export default function TemplatesClient({
           </ul>
         ) : null}
       </section>
+
+      {initialBulkJobs !== undefined ? (
+        <BulkJobsSection slug={slug} initial={initialBulkJobs} templateBodies={templateBodies} />
+      ) : null}
 
       <section className="rounded-2xl border border-zinc-200 bg-white/85 p-4 sm:p-5 shadow-sm" dir="rtl">
         <details className="group text-right">

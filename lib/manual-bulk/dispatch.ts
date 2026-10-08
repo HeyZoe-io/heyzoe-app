@@ -14,6 +14,7 @@ import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/templa
 import { logMessage } from "@/lib/analytics";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { isMissingWamidColumn } from "@/lib/wa-outbound-wamid";
 import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
 
 export type ManualBulkQueuedSendRow = {
@@ -32,21 +33,39 @@ export type ManualBulkQueuedSendRow = {
 async function markQueued(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   id: string,
-  mark: { status: "sent" | "failed" | "canceled" | "pending"; last_error?: string | null; attempts?: number | null }
+  mark: {
+    status: "sent" | "failed" | "canceled" | "pending";
+    last_error?: string | null;
+    attempts?: number | null;
+    wamid?: string | null;
+  }
 ): Promise<void> {
-  const { error } = await admin
-    .from("manual_bulk_queued_sends")
-    .update({
-      status: mark.status,
-      last_error: mark.status === "sent" ? null : (mark.last_error ?? null),
-      ...(mark.attempts != null ? { attempts: mark.attempts } : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("status", "pending");
+  const patch: Record<string, unknown> = {
+    status: mark.status,
+    last_error: mark.status === "sent" ? null : (mark.last_error ?? null),
+    ...(mark.attempts != null ? { attempts: mark.attempts } : {}),
+    updated_at: new Date().toISOString(),
+  };
+  if (mark.wamid) patch.wamid = mark.wamid;
+  const run = () => admin.from("manual_bulk_queued_sends").update(patch).eq("id", id).eq("status", "pending");
+  let { error } = await run();
+  if (error && "wamid" in patch && isMissingWamidColumn(error.message)) {
+    delete patch.wamid;
+    ({ error } = await run());
+  }
   if (error) {
     console.error("[manual-bulk] queue status update failed:", error.message, { id, status: mark.status });
   }
+}
+
+/** False when the row was canceled (or handled) after the drain fetched it. */
+async function queuedStillPending(admin: ReturnType<typeof createSupabaseAdminClient>, id: string): Promise<boolean> {
+  const { data, error } = await admin.from("manual_bulk_queued_sends").select("status").eq("id", id).maybeSingle();
+  if (error) {
+    console.error("[manual-bulk] pending re-check failed:", error.message, { id });
+    return true;
+  }
+  return String((data as { status?: unknown } | null)?.status ?? "") === "pending";
 }
 
 /** Meta errors already on this queued row. null before the attempts column exists. */
@@ -149,6 +168,11 @@ async function dispatchOne(
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
   });
 
+  if (!(await queuedStillPending(admin, row.id))) {
+    console.info("[manual-bulk] skip", { reason: "no_longer_pending", id: row.id, businessId });
+    return "skipped";
+  }
+
   const sendResult = await sendBusinessTemplate({
     to: phone,
     phoneNumberId,
@@ -181,7 +205,7 @@ async function dispatchOne(
     return "canceled";
   }
 
-  await markQueued(admin, row.id, { status: "sent" });
+  await markQueued(admin, row.id, { status: "sent", wamid: sendResult.wamid ?? null });
   const { error: logErr } = await admin.from("manual_bulk_send_log").upsert(
     {
       business_id: businessId,

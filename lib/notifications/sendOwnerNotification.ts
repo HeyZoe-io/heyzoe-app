@@ -133,7 +133,7 @@ export async function sendBusinessTemplate(input: {
    * Empty = the param-independent 20h claim (broadcast, bulk, non-event templates).
    */
   eventDedupKey?: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; wamid?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
     return { ok: false, error: "missing_meta_token" };
@@ -320,7 +320,7 @@ export async function sendBusinessTemplate(input: {
         templateName,
       });
     }
-    return { ok: true };
+    return wamid ? { ok: true, wamid } : { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[sendBusinessTemplate] failed:", msg);

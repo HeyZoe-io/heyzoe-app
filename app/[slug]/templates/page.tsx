@@ -7,6 +7,7 @@ import { businessHasArboxConnection } from "@/lib/crm/types";
 import { canonicalizeTriggerType } from "@/lib/template-trigger-types";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { listOpenUtilityRecategoryNotices } from "@/lib/template-category-notice";
+import { canViewManualBulkJobs, loadManualBulkJobsOverview } from "@/lib/manual-bulk/jobs-overview";
 import TemplatesClient, { type TemplateRow, type TriggerRow } from "./TemplatesClient";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -29,9 +30,20 @@ export default async function TemplatesPage({ params }: Props) {
   );
 
   const businessId = access.id;
+  const isPlatformAdmin = isAdminAllowedEmail(user.user.email ?? "");
+  const canViewBulkJobs = canViewManualBulkJobs({
+    isPlatformAdmin,
+    businessOwnerUserId: access.user_id,
+    userId: user.user.id,
+  });
 
-  const [{ data: templates, error: tplErr }, { data: biz, error: bizErr }, { data: triggers, error: trigErr }, categoryNotices] =
-    await Promise.all([
+  const [
+    { data: templates, error: tplErr },
+    { data: biz, error: bizErr },
+    { data: triggers, error: trigErr },
+    categoryNotices,
+    bulkJobs,
+  ] = await Promise.all([
     admin
       .from("whatsapp_templates")
       .select(
@@ -54,6 +66,9 @@ export default async function TemplatesPage({ params }: Props) {
       .eq("business_id", businessId)
       .order("created_at", { ascending: true }),
     listOpenUtilityRecategoryNotices(admin, businessId),
+    canViewBulkJobs
+      ? loadManualBulkJobsOverview(admin, { businessId }).catch(() => null)
+      : Promise.resolve(undefined),
   ]);
 
   if (tplErr) {
@@ -108,7 +123,8 @@ export default async function TemplatesPage({ params }: Props) {
       slug={access.slug || slug}
       initialTemplates={(templates ?? []) as TemplateRow[]}
       initialCategoryNotices={categoryNotices}
-      isPlatformAdmin={isAdminAllowedEmail(user.user.email ?? "")}
+      isPlatformAdmin={isPlatformAdmin}
+      initialBulkJobs={bulkJobs}
       initialLeadTemplateName={leadTemplateName || null}
       initialTriggers={initialTriggers}
       leadsWebhookSecret={leadsWebhookSecret}
