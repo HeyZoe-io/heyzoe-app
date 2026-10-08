@@ -1,6 +1,6 @@
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import {
-  ARBOX_BACKGROUND_PAUSE_SELECT,
+  arboxBackgroundPauseSelect,
   ARBOX_BACKGROUND_PAUSED,
   rowArboxBackgroundPaused,
 } from "@/lib/arbox-background-pause";
@@ -220,7 +220,7 @@ export async function listArboxDailyBusinessIds(
 ): Promise<{ ok: true; ids: number[]; paused: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
+    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin)}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
@@ -228,7 +228,7 @@ export async function listArboxDailyBusinessIds(
 
   const eligible: number[] = [];
   const paused: number[] = [];
-  for (const row of businessRows ?? []) {
+  for (const row of (businessRows ?? []) as unknown as Record<string, unknown>[]) {
     const parsed = parseArboxDailyBusiness(
       {
         ...(row as Record<string, unknown>),
@@ -286,11 +286,12 @@ export async function loadArboxDailyBusiness(
 ): Promise<ArboxDailyBusiness | null> {
   const { data, error } = await admin
     .from("businesses")
-    .select(`${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
+    .select(`${BUSINESS_SELECT}, ${await arboxBackgroundPauseSelect(admin)}`)
     .eq("id", businessId)
     .maybeSingle();
   if (error || !data) return null;
-  return parseArboxDailyBusiness(data as Record<string, unknown>, getArboxApiKey(data));
+  const row = data as unknown as Record<string, unknown>;
+  return parseArboxDailyBusiness(row, getArboxApiKey(row));
 }
 
 export type ArboxDailyBusinessRun = {

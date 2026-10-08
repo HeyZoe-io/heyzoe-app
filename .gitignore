@@ -45,3 +45,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 exports/
+
+# local scratch scripts at the repo root (service-role DB probes); never commit
+/db.mjs
+/j1.mjs
+/.tmp-*

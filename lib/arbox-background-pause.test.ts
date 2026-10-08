@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT,
   ARBOX_BACKGROUND_PAUSED,
+  arboxBackgroundPauseSelect,
   holdArboxBackgroundClocks,
+  isMissingPauseColumnError,
   isArboxBackgroundPaused,
   isBackgroundCrmKind,
   rowArboxBackgroundPaused,
@@ -63,6 +66,24 @@ async function main() {
   assert.equal(rowArboxBackgroundPaused({ arbox_background_pause: true }), true);
   assert.equal(rowArboxBackgroundPaused({ arbox_background_pause: null }), false);
   assert.equal(rowArboxBackgroundPaused({ social_links: { arbox_background_pause: true } }), true);
+  assert.equal(rowArboxBackgroundPaused({ arbox_background_paused: true }), true);
+  assert.equal(rowArboxBackgroundPaused({ arbox_background_paused: false, arbox_background_pause: null }), false);
+  assert.equal(rowArboxBackgroundPaused({ arbox_background_paused: false, arbox_background_pause: true }), true);
+
+  // Column probe: missing column falls back to the legacy key only.
+  assert.equal(isMissingPauseColumnError({ code: "42703", message: "column businesses.arbox_background_paused does not exist" }), true);
+  assert.equal(isMissingPauseColumnError({ code: "57014", message: "canceling statement due to statement timeout" }), false);
+  assert.equal(isMissingPauseColumnError(null), false);
+  const missingColumnAdmin = {
+    from: () => ({
+      select: () => ({
+        limit: () =>
+          Promise.resolve({ data: null, error: { code: "42703", message: "column businesses.arbox_background_paused does not exist" } }),
+      }),
+    }),
+  } as never;
+  assert.equal(await arboxBackgroundPauseSelect(missingColumnAdmin), ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT);
+  assert.equal(await arboxBackgroundPauseSelect(fakeAdmin({}, [])), ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT, "cached for 5 minutes");
 
   // Cron-raised CRM kinds are gated; live-conversation kinds are not.
   for (const kind of ["no_response", "idle_no_response", "template_sent", "template_no_response"]) {

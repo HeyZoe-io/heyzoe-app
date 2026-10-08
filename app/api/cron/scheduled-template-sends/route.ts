@@ -20,7 +20,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { getArboxApiKey } from "@/lib/business-secrets";
-import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
@@ -73,7 +73,7 @@ import {
  *  בתוך החלון — שאילתה לפי אינדקס (status, due_at).
  *  פקיעת מנוי/כרטיסייה: דוח מנויים פעילים אחד לעסק בטיק (לא לכל ליד).
  *  כרטיסייה בלי מנוי פעיל: עוד קריאת memberships אחת לזיהוי אימון היכרות.
- *  עסק עם social_links.arbox_background_pause: שורת טריגר מבוטלת בלי קריאה לארבוקס, כדי שלא תישלח אחרי ביטול ההשהיה. */
+ *  עסק עם arbox_background_paused: שורת טריגר מבוטלת בלי קריאה לארבוקס, כדי שלא תישלח אחרי ביטול ההשהיה. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -186,7 +186,7 @@ async function dispatchOneScheduledSend(
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
     admin
       .from("businesses")
-      .select(`id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
+      .select(`id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin)}`)
       .eq("id", businessId)
       .maybeSingle(),
     admin

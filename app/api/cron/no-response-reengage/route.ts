@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
-import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { syncNoResponseReengageForBusiness } from "@/lib/leads/no-response-reengage";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -10,7 +10,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Daily no_response template re-engage (non-Arbox).
  * Scheduling: cron-job.org daily (NOT Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
- * Skips a business with social_links.arbox_background_pause.
+ * Skips a business with arbox_background_paused.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 
   const { data: bizRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`id, slug, is_active, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
+    .select(`id, slug, is_active, ${await arboxBackgroundPauseSelect(admin)}`)
     .in("id", businessIds);
 
   if (bizErr) {

@@ -257,6 +257,9 @@ function lostLeadAdmin(rules: ReturnType<typeof lostLeadRule>[]) {
         limit() {
           return Promise.resolve(payload(table));
         },
+        range() {
+          return Promise.resolve(payload(table));
+        },
         maybeSingle() {
           return Promise.resolve({ data: null, error: null });
         },

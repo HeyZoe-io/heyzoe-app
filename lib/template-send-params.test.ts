@@ -182,6 +182,7 @@ import {
     freeze_ending_unbooked: ["דנה", "15.09.2026"],
     freeze_ending_booked: ["דנה", "יוגה", "15.09.2026"],
     lost_lead: ["דנה"],
+    lead_status_changed: ["דנה"],
     trial_reminder: ["דנה", "יוגה", "יום שלישי 6.10", "18:00"],
     trial_booked: ["דנה", "יוגה", "15.09.2026", "18:00"],
     milestones: ["דנה"],

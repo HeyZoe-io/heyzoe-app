@@ -28,7 +28,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * nth_workout rules whose direction is before, post-trial C5/C6 catch-up, and
  * lead_status_changed. It must finish before the 21:00 night hold.
  * No param (or slot=morning) is the existing 09:00 job. Scheduling: cron-job.org.
- * A business with social_links.arbox_background_pause gets no worker and its
+ * A business with arbox_background_paused gets no worker and its
  * catch-up clocks move to now (lib/arbox-background-pause.ts).
  */
 export const runtime = "nodejs";

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { maybeSendAdminDailyUnsentSummary } from "@/lib/admin-daily-unsent-summary";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
-import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { syncArboxClassCancelledCustomerForBusiness } from "@/lib/leads/arbox-class-cancelled-customer";
 import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -22,7 +22,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * bookings can be a second page). The trainer phone is taken from that same
  * classesSummaryReport fetch (0 extra Arbox calls) and upserted into
  * arbox_class_trainer_snapshot. No Claude. No Arbox calls when the business
- * has no enabled class_cancelled_customer rule, or social_links.arbox_background_pause.
+ * has no enabled class_cancelled_customer rule, or arbox_background_paused.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`id, slug, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
+    .select(`id, slug, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin)}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     trainer_held_quiet_hours?: number;
   }> = [];
 
-  for (const row of businessRows ?? []) {
+  for (const row of (businessRows ?? []) as unknown as Record<string, unknown>[]) {
     const businessId = Number((row as { id?: unknown }).id);
     const slug = String((row as { slug?: unknown }).slug ?? "").trim().toLowerCase();
     const apiKey = getArboxApiKey(row as Record<string, unknown>);

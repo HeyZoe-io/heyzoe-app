@@ -335,6 +335,9 @@ function mockAdmin(input: { rules: Record<string, unknown>[]; logs: LogRow[] }) 
           limit() {
             return builder;
           },
+          range() {
+            return builder;
+          },
           eq(column: string, value: unknown) {
             filters[column] = value;
             return builder;

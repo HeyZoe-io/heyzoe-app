@@ -139,12 +139,21 @@ setSendsHoldLookupForTests(async () => false);
 reset();
 globalThis.fetch = (async () =>
   new Response("{}", { status: 200 })) as typeof fetch;
-const open = await sendBusinessTemplate({
-  to: TO,
-  phoneNumberId: PHONE_ID,
-  templateName: "trial_booked",
-  skipOptOutGate: true,
-});
+// fetch is stubbed above; the non-production recipient lock is not under test here.
+const originalVercelEnv = process.env.VERCEL_ENV;
+process.env.VERCEL_ENV = "production";
+let open: Awaited<ReturnType<typeof sendBusinessTemplate>>;
+try {
+  open = await sendBusinessTemplate({
+    to: TO,
+    phoneNumberId: PHONE_ID,
+    templateName: "trial_booked",
+    skipOptOutGate: true,
+  });
+} finally {
+  if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = originalVercelEnv;
+}
 assert.equal(open.ok, true);
 assert.equal(peekWouldSends().length, 0);
 

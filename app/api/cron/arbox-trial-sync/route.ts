@@ -21,7 +21,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Returns immediately. Each eligible business runs in its own worker via after()
  * → GET /api/cron/arbox-trial-sync/business. Same URL cron-job.org already calls.
  * ?dry_run=1 awaits the workers in this request and does not write.
- * A business with social_links.arbox_background_pause gets no worker. Each live tick
+ * A business with arbox_background_paused gets no worker. Each live tick
  * moves its catch-up clocks to now (lib/arbox-background-pause.ts).
  */
 export const runtime = "nodejs";

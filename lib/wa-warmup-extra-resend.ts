@@ -76,7 +76,8 @@ export type DecideWarmupExtraResendInput = {
   cleanStepsCount: number;
   /**
    * Current awaiting extra index in DB (warmup_extra_awaiting_idx in PR3+).
-   * Ignored until PR3 wires the live guard — production omits this field today.
+   * When set and different from the resend target, the resend is skipped.
+   * The webhook does not pass it yet, so production behavior is unchanged.
    */
   liveAwaitingExtraIdx?: number | null;
 };
@@ -85,7 +86,7 @@ export type DecideWarmupExtraResendInput = {
  * Whether to send a warmup-extra menu resend (free-text / Claude continuation path).
  * Resolves targetExtraIdx exactly like resendUnansweredSalesFlowPrompt did before extract
  * (resolveActiveWarmupExtraMenuIndex + fromStep fallback). Step content / min-options gate
- * stays in the route (`st?.question && options.length >= 2`). PR3 will honor liveAwaitingExtraIdx.
+ * stays in the route (`st?.question && options.length >= 2`).
  */
 export function decideWarmupExtraResendAction(input: DecideWarmupExtraResendInput): WarmupExtraResendDecision {
   const targetExtraIdx = resolveWarmupResendExtraIdx({
@@ -100,7 +101,10 @@ export function decideWarmupExtraResendAction(input: DecideWarmupExtraResendInpu
     return { action: "skip", reason: "no_resend_target", targetExtraIdx };
   }
 
-  void input.liveAwaitingExtraIdx;
+  const live = input.liveAwaitingExtraIdx;
+  if (live != null && Number.isFinite(live) && live !== targetExtraIdx) {
+    return { action: "skip", reason: "live_awaiting_idx_moved", targetExtraIdx };
+  }
 
   return { action: "send", targetExtraIdx };
 }

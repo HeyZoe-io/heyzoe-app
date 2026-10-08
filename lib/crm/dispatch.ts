@@ -1,5 +1,5 @@
 import {
-  ARBOX_BACKGROUND_PAUSE_SELECT,
+  arboxBackgroundPauseSelect,
   isBackgroundCrmKind,
   rowArboxBackgroundPaused,
 } from "@/lib/arbox-background-pause";
@@ -85,7 +85,7 @@ export async function dispatchCrmEvent(input: {
     const { data: business, error } = await admin
       .from("businesses")
       .select(
-        `id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled, ${ARBOX_BACKGROUND_PAUSE_SELECT}`
+        `id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled, ${await arboxBackgroundPauseSelect(admin)}`
       )
       .eq("id", businessId)
       .maybeSingle();
@@ -96,7 +96,7 @@ export async function dispatchCrmEvent(input: {
     }
 
     const crmType = normalizeCrmType((business as { crm_type?: unknown } | null)?.crm_type);
-    const apiKey = getArboxApiKey(business);
+    const apiKey = getArboxApiKey(business as unknown as Record<string, unknown> | null);
     const boxId = String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? "").trim();
     const arboxSourceId = String(
       (business as { crm_arbox_source_id?: unknown } | null)?.crm_arbox_source_id ?? ""
