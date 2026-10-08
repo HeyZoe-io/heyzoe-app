@@ -333,7 +333,16 @@ export async function cancelExpiredHolds(admin: Admin, now: Date): Promise<numbe
     if (!/plan_day|column/i.test(error.message)) console.error("[send-plan] hold expiry failed:", error.message);
     return 0;
   }
-  return data?.length ?? 0;
+  // A planned row DISPATCH never reached (business paused, dispatch job missed) does not go out a day late.
+  const { data: stale, error: staleErr } = await admin
+    .from("scheduled_template_sends")
+    .update({ status: "canceled", last_error: "not_dispatched", updated_at: now.toISOString() })
+    .eq("status", "planned")
+    .lt("plan_day", planDayOf(now))
+    .select("id");
+  if (staleErr) console.error("[send-plan] stale plan expiry failed:", staleErr.message);
+  else if (stale?.length) console.warn("[send-plan] planned rows never dispatched, canceled", { count: stale.length });
+  return (data?.length ?? 0) + (stale?.length ?? 0);
 }
 
 /** A released row whose DISPATCH already passed goes out now only while it is still worth sending. */

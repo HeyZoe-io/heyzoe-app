@@ -586,13 +586,15 @@ async function main() {
     assert.equal(c.shiftDue(il("2026-10-12", "15:00")).toISOString(), il("2026-10-12", "15:00").toISOString());
   });
 
-  await test("unreleased holds of an earlier day are canceled", async () => {
+  await test("unreleased holds and never-dispatched rows of an earlier day are canceled", async () => {
     const { db, admin } = fakeAdmin<Admin>();
     db.seed("scheduled_template_sends", [
       { id: "h1", status: "held", plan_day: "2026-10-11" },
       { id: "h2", status: "held", plan_day: "2026-10-12" },
+      { id: "p1", status: "planned", plan_day: "2026-10-11" },
     ]);
-    assert.equal(await cancelExpiredHolds(admin, il("2026-10-12", "00:05")), 1);
+    assert.equal(await cancelExpiredHolds(admin, il("2026-10-12", "00:05")), 2);
+    assert.equal(db.rows("scheduled_template_sends")[2]!.last_error, "not_dispatched");
     assert.equal(db.rows("scheduled_template_sends")[0]!.last_error, "hold_expired");
     assert.equal(db.rows("scheduled_template_sends")[1]!.status, "held");
   });

@@ -104,11 +104,12 @@ grant select, insert, update, delete on public.send_trigger_pauses to service_ro
 alter table public.send_trigger_pauses enable row level security;
 
 -- 4. Indexes the checks read (10x scale: per-business range scans, no table scans).
-create index if not exists wa_template_send_refs_business_created_idx
-  on public.wa_template_send_refs (business_id, created_at);
-
 do $$
 begin
+  if to_regclass('public.wa_template_send_refs') is not null then
+    execute 'create index if not exists wa_template_send_refs_business_created_idx
+      on public.wa_template_send_refs (business_id, created_at)';
+  end if;
   if to_regclass('public.wa_message_statuses') is not null then
     execute 'create index if not exists wa_message_statuses_business_status_at_idx
       on public.wa_message_statuses (business_id, status, status_at)';
