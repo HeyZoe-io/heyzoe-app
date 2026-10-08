@@ -94,7 +94,7 @@ assert.equal(shouldSendAfterSilentSeed(!resetByReenable, false), false);
 
 const scopeNow = new Date("2026-10-07T06:00:00.000Z");
 const scopeFuture = new Date("2026-10-08T06:00:00.000Z");
-const scopePast = new Date("2026-10-06T17:30:00.000Z");
+const scopePast = new Date("2026-10-06T17:00:00.000Z");
 
 assert.equal(
   decideFilterScopeAction({

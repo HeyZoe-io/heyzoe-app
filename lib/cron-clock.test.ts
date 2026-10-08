@@ -6,8 +6,10 @@ import {
   countNotifiedSends,
   cronTimeOverrideDecision,
   isCronJobOrgUserAgent,
+  isVercelScheduledCron,
   rejectCronTimeOverride,
   resolveCronNow,
+  VERCEL_CRON_ROUTES,
 } from "@/lib/cron-clock";
 
 {
@@ -73,6 +75,24 @@ import {
 assert.equal(isCronJobOrgUserAgent("cron-job.org (https://cron-job.org)"), true);
 assert.equal(isCronJobOrgUserAgent("node"), false);
 assert.equal(isCronJobOrgUserAgent(""), false);
+
+{
+  const vercelJson = JSON.parse(
+    readFileSync(join(fileURLToPath(new URL(".", import.meta.url)), "..", "vercel.json"), "utf8")
+  ) as { crons?: Array<{ path: string }> };
+  const scheduled = [...new Set((vercelJson.crons ?? []).map((cron) => cron.path))].sort();
+  assert.deepEqual([...VERCEL_CRON_ROUTES].sort(), scheduled, "VERCEL_CRON_ROUTES must match vercel.json crons");
+
+  const route = "/api/cron/reset-monthly-quota-warnings";
+  const ok = { route, userAgent: "vercel-cron/1.0", authorization: "Bearer s3cret", secret: "s3cret" };
+  assert.equal(isVercelScheduledCron(ok), true);
+  assert.equal(isVercelScheduledCron({ ...ok, route: "/api/cron/arbox-daily-triggers" }), false, "route not in vercel.json");
+  assert.equal(isVercelScheduledCron({ ...ok, userAgent: "curl/8.4.0" }), false, "not Vercel's cron UA");
+  assert.equal(isVercelScheduledCron({ ...ok, userAgent: "node vercel-cron/1.0" }), false, "UA must start with vercel-cron/");
+  assert.equal(isVercelScheduledCron({ ...ok, authorization: null }), false, "no cron auth");
+  assert.equal(isVercelScheduledCron({ ...ok, authorization: "Bearer wrong" }), false, "wrong cron auth");
+  assert.equal(isVercelScheduledCron({ ...ok, secret: "", authorization: "Bearer " }), false, "no CRON_SECRET");
+}
 
 assert.equal(
   countNotifiedSends({

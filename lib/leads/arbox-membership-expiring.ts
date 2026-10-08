@@ -11,7 +11,7 @@ import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification"
 import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
-import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, markRulesSeeded, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
   isIntroWorkoutProductName,
@@ -366,6 +366,12 @@ async function dispatchMembershipExpiringTemplate(input: {
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const sendImmediate = delayDays === 0 && dueAtIsTodayIsrael(input.dueAt, input.now);
 
+  const eventDedupKey = buildMembershipExpiringScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.membershipUserId,
+    input.endDateYmd
+  );
   if (!sendImmediate) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -374,12 +380,7 @@ async function dispatchMembershipExpiringTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt: input.dueAt,
-      dedupKey: buildMembershipExpiringScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.membershipUserId,
-        input.endDateYmd
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-membership-expiring] enqueue failed:", enqueueResult.error);
@@ -434,6 +435,7 @@ async function dispatchMembershipExpiringTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -561,6 +563,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     return summary;
   }
   const freshRules = rules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  const seedErrorsBefore = summary.errors;
   if (freshRules.length && !isArboxDailyDryRun()) {
     for (const row of report.rows) {
       const membershipUserIdRaw = Number(row.membership_user_id);
@@ -585,6 +588,9 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
     }
   }
   for (const rule of freshRules) activeRuleIds.add(rule.id);
+  if (freshRules.length && summary.errors === seedErrorsBefore) {
+    await markRulesSeeded(input.admin, freshRules.map((rule) => rule.id), now);
+  }
 
   for (const row of report.rows) {
     const membershipUserIdRaw = Number(row.membership_user_id);

@@ -59,6 +59,10 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Arbox salesReport: date range must not exceed 31 days (API returns 400). */
 const MAX_SALES_REPORT_SPAN_DAYS = 30;
 const ISRAEL_TZ = "Asia/Jerusalem";
+/** A step needs at least this much of the worker budget to start (one or two Arbox report pages). */
+export const TRIAL_SYNC_STEP_MIN_MS = 8_000;
+/** Budget inside the 60s maxDuration of /api/cron/arbox-trial-sync/business. */
+export const TRIAL_SYNC_BUSINESS_BUDGET_MS = 45_000;
 
 export type BusinessRow = {
   id: number;
@@ -100,6 +104,8 @@ export type BusinessSummary = {
   freeze_created?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
   registered_after_trial?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
   lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
+  /** Steps not started because the worker's time budget ran out. They run on the next tick. */
+  budget_skipped?: string[];
 };
 
 function formatDateYmdIsrael(d: Date): string {
@@ -451,6 +457,8 @@ export async function runArboxTrialSyncForBusiness(input: {
   business: BusinessRow;
   now?: Date;
   dryRun?: boolean;
+  /** Epoch ms. Steps that would start with less than TRIAL_SYNC_STEP_MIN_MS left wait for the next tick. */
+  deadlineMs?: number;
 }): Promise<BusinessSummary> {
   const admin = input.admin;
   const business = input.business;
@@ -508,6 +516,19 @@ export async function runArboxTrialSyncForBusiness(input: {
       errors: 0,
       pages_fetched: 0,
       cursor_advanced: false,
+    };
+
+    const skipForBudget = (step: string): boolean => {
+      if (input.deadlineMs == null) return false;
+      const left = input.deadlineMs - Date.now();
+      if (left >= TRIAL_SYNC_STEP_MIN_MS) return false;
+      (summary.budget_skipped ??= []).push(step);
+      console.warn("[cron/arbox-trial-sync] step postponed to next tick (time budget)", {
+        slug: business.slug,
+        step,
+        left_ms: left,
+      });
+      return true;
     };
 
     if (isCrmNightHold(now)) {
@@ -757,69 +778,73 @@ export async function runArboxTrialSyncForBusiness(input: {
     }
 
     // Separate step: credit_refusal via transactionsReport?status=FAIL (does not touch sales/purchase).
-    try {
-      summary.credit_refusal = await syncArboxCreditRefusalsForBusiness({
-        admin,
-        businessId: business.id,
-        businessSlug: business.slug,
-        apiKey: business.apiKey,
-        boxId: business.crm_box_id,
-        arboxLastSyncAt: business.arbox_last_sync_at,
-        creditRefusalSeeded: business.arbox_credit_refusal_seeded,
-        now,
-      });
-    } catch (e) {
-      console.error("[cron/arbox-trial-sync] credit_refusal step threw", {
-        slug: business.slug,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      summary.credit_refusal = {
-        fetched: 0,
-        pages_fetched: 0,
-        seeded: 0,
-        processed: 0,
-        already: 0,
-        throttled: 0,
-        notified: 0,
-        deferred: 0,
-        gated: 0,
-        no_phone: 0,
-        errors: 1,
-        fetch_error: e instanceof Error ? e.message : String(e),
-      };
+    if (!skipForBudget("credit_refusal")) {
+      try {
+        summary.credit_refusal = await syncArboxCreditRefusalsForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.apiKey,
+          boxId: business.crm_box_id,
+          arboxLastSyncAt: business.arbox_last_sync_at,
+          creditRefusalSeeded: business.arbox_credit_refusal_seeded,
+          now,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] credit_refusal step threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.credit_refusal = {
+          fetched: 0,
+          pages_fetched: 0,
+          seeded: 0,
+          processed: 0,
+          already: 0,
+          throttled: 0,
+          notified: 0,
+          deferred: 0,
+          gated: 0,
+          no_phone: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
     // Separate step: arbox_new_lead via allLeadsReport (no Arbox call unless an enabled rule exists).
-    try {
-      summary.new_lead = await syncArboxNewLeadsForBusiness({
-        admin,
-        businessId: business.id,
-        businessSlug: business.slug,
-        apiKey: business.apiKey,
-        boxId: business.crm_box_id,
-        arboxLastSyncAt: business.arbox_last_sync_at,
-        leadsSeeded: business.arbox_leads_seeded,
-        now,
-      });
-    } catch (e) {
-      console.error("[cron/arbox-trial-sync] arbox_new_lead step threw", {
-        slug: business.slug,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      summary.new_lead = {
-        fetched: 0,
-        pages_fetched: 0,
-        customer_pages_fetched: 0,
-        seeded: 0,
-        processed: 0,
-        already: 0,
-        notified: 0,
-        deferred: 0,
-        gated: 0,
-        no_phone: 0,
-        errors: 1,
-        fetch_error: e instanceof Error ? e.message : String(e),
-      };
+    if (!skipForBudget("new_lead")) {
+      try {
+        summary.new_lead = await syncArboxNewLeadsForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.apiKey,
+          boxId: business.crm_box_id,
+          arboxLastSyncAt: business.arbox_last_sync_at,
+          leadsSeeded: business.arbox_leads_seeded,
+          now,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] arbox_new_lead step threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.new_lead = {
+          fetched: 0,
+          pages_fetched: 0,
+          customer_pages_fetched: 0,
+          seeded: 0,
+          processed: 0,
+          already: 0,
+          notified: 0,
+          deferred: 0,
+          gated: 0,
+          no_phone: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
     if (trialBookedBusinessIds.has(business.id) && !trialBookedSendsEnabled()) {
@@ -828,7 +853,10 @@ export async function runArboxTrialSyncForBusiness(input: {
       });
     }
 
-    if (trialBookingConfirmEnabled(trialBookedBusinessIds.has(business.id))) {
+    if (
+      trialBookingConfirmEnabled(trialBookedBusinessIds.has(business.id)) &&
+      !skipForBudget("trial_booking_confirm")
+    ) {
       try {
         summary.trial_booking_confirm = await syncTrialBookingConfirmForBusiness({
           admin,
@@ -863,109 +891,116 @@ export async function runArboxTrialSyncForBusiness(input: {
       }
     }
 
-    try {
-      summary.membership_cancelled = await syncArboxMembershipCancelledForBusiness({
-        admin,
-        businessId: business.id,
-        businessSlug: business.slug,
-        apiKey: business.apiKey,
-        boxId: business.crm_box_id,
-        cancellationSeeded: business.arbox_cancellation_seeded,
-        now,
-      });
-    } catch (e) {
-      console.error("[cron/arbox-trial-sync] membership_cancelled step threw", {
-        slug: business.slug,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      summary.membership_cancelled = {
-        fetched: 0,
-        pages_fetched: 0,
-        seeded: 0,
-        processed: 0,
-        already: 0,
-        skipped_filter: 0,
-        skipped_rejoined: 0,
-        notified: 0,
-        deferred: 0,
-        gated: 0,
-        no_phone: 0,
-        abandoned: 0,
-        errors: 1,
-        fetch_error: e instanceof Error ? e.message : String(e),
-      };
+    if (!skipForBudget("membership_cancelled")) {
+      try {
+        summary.membership_cancelled = await syncArboxMembershipCancelledForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.apiKey,
+          boxId: business.crm_box_id,
+          cancellationSeeded: business.arbox_cancellation_seeded,
+          now,
+          ...(input.deadlineMs != null ? { deadlineMs: input.deadlineMs } : {}),
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] membership_cancelled step threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.membership_cancelled = {
+          fetched: 0,
+          pages_fetched: 0,
+          seeded: 0,
+          processed: 0,
+          already: 0,
+          skipped_filter: 0,
+          skipped_rejoined: 0,
+          notified: 0,
+          deferred: 0,
+          gated: 0,
+          no_phone: 0,
+          abandoned: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
-    try {
-      summary.lost_lead = await syncArboxLostLeadForBusiness({
-        admin,
-        businessId: business.id,
-        businessSlug: business.slug,
-        apiKey: business.apiKey,
-        boxId: business.crm_box_id,
-        lostLeadSeeded: business.arbox_lost_lead_seeded,
-        lane: "immediate",
-        now,
-      });
-    } catch (e) {
-      console.error("[cron/arbox-trial-sync] lost_lead step threw", {
-        slug: business.slug,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      summary.lost_lead = {
-        fetched: 0,
-        pages_fetched: 0,
-        seeded: 0,
-        soft_seeded: 0,
-        processed: 0,
-        already: 0,
-        skipped_active: 0,
-        skipped_recent_checkin: 0,
-        notified: 0,
-        deferred: 0,
-        gated: 0,
-        no_phone: 0,
-        abandoned: 0,
-        errors: 1,
-        fetch_error: e instanceof Error ? e.message : String(e),
-      };
+    if (!skipForBudget("lost_lead")) {
+      try {
+        summary.lost_lead = await syncArboxLostLeadForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.apiKey,
+          boxId: business.crm_box_id,
+          lostLeadSeeded: business.arbox_lost_lead_seeded,
+          lane: "immediate",
+          now,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] lost_lead step threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.lost_lead = {
+          fetched: 0,
+          pages_fetched: 0,
+          seeded: 0,
+          soft_seeded: 0,
+          processed: 0,
+          already: 0,
+          skipped_active: 0,
+          skipped_recent_checkin: 0,
+          notified: 0,
+          deferred: 0,
+          gated: 0,
+          no_phone: 0,
+          abandoned: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
-    try {
-      summary.freeze_created = await syncArboxFreezeForBusiness({
-        admin,
-        businessId: business.id,
-        businessSlug: business.slug,
-        apiKey: business.apiKey,
-        boxId: business.crm_box_id,
-        freezeSeeded: business.arbox_freeze_seeded,
-        part: "created",
-        now,
-      });
-    } catch (e) {
-      console.error("[cron/arbox-trial-sync] freeze_created step threw", {
-        slug: business.slug,
-        error: e instanceof Error ? e.message : String(e),
-      });
-      summary.freeze_created = {
-        fetched_holds: 0,
-        fetched_future: 0,
-        pages_fetched: 0,
-        created_seeded: 0,
-        ending_seeded: 0,
-        soft_seeded: 0,
-        created_processed: 0,
-        ending_processed: 0,
-        already: 0,
-        notified: 0,
-        deferred: 0,
-        gated: 0,
-        no_phone: 0,
-        abandoned: 0,
-        skipped_ended: 0,
-        errors: 1,
-        fetch_error: e instanceof Error ? e.message : String(e),
-      };
+    if (!skipForBudget("freeze_created")) {
+      try {
+        summary.freeze_created = await syncArboxFreezeForBusiness({
+          admin,
+          businessId: business.id,
+          businessSlug: business.slug,
+          apiKey: business.apiKey,
+          boxId: business.crm_box_id,
+          freezeSeeded: business.arbox_freeze_seeded,
+          part: "created",
+          now,
+        });
+      } catch (e) {
+        console.error("[cron/arbox-trial-sync] freeze_created step threw", {
+          slug: business.slug,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        summary.freeze_created = {
+          fetched_holds: 0,
+          fetched_future: 0,
+          pages_fetched: 0,
+          created_seeded: 0,
+          ending_seeded: 0,
+          soft_seeded: 0,
+          created_processed: 0,
+          ending_processed: 0,
+          already: 0,
+          notified: 0,
+          deferred: 0,
+          gated: 0,
+          no_phone: 0,
+          abandoned: 0,
+          skipped_ended: 0,
+          errors: 1,
+          fetch_error: e instanceof Error ? e.message : String(e),
+        };
+      }
     }
 
   return summary;

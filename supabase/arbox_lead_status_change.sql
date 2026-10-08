@@ -1,5 +1,5 @@
 -- Lead status changed (leadsInProcessReport snapshot diff).
--- Scheduling stays on the existing arbox-daily-triggers cron (09:00 and 20:30),
+-- Scheduling stays on the existing arbox-daily-triggers cron (09:00 and 20:00, lib/daily-run-slots.ts),
 -- cron-job.org, not Vercel. No new cron URL.
 -- Run this in the Supabase SQL editor before the dashboard can store a target status.
 -- The app skips the step and sends nothing until these objects exist.

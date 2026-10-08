@@ -682,6 +682,7 @@ import {
   parseMarketingOptOutStatuses,
   parseUserPreferencesWebhook,
 } from "@/lib/wa-marketing-opt-out";
+import { parseMetaStatusEvents, persistMetaStatusEvents } from "@/lib/wa-message-status";
 import { isMarketingOptOutButtonText } from "@/lib/meta-marketing-opt-out-button";
 import { isTriggerAlertMuteButtonText } from "@/lib/meta-trigger-alert-mute-button";
 import { claimContactAlertMute, loadTemplateSendRef } from "@/lib/contact-alert-mute";
@@ -6840,6 +6841,10 @@ export async function POST(req: NextRequest) {
     const appEchoes = parseSmbMessageEchoes(metaPayload);
     const marketingPrefs = parseUserPreferencesWebhook(metaPayload);
     const marketingOptOutStatuses = parseMarketingOptOutStatuses(metaPayload);
+    const deliveryStatuses = parseMetaStatusEvents(metaPayload);
+    if (deliveryStatuses.length) {
+      after(() => persistMetaStatusEvents(createSupabaseAdminClient(), deliveryStatuses).then(() => undefined));
+    }
     if (appEchoes.length) {
       after(() =>
         import("@/lib/wa-app-echo-pause")

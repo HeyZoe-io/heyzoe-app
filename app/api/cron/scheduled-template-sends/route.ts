@@ -507,6 +507,7 @@ async function dispatchOneScheduledSend(
     phoneNumberId,
     templateName,
     alertTriggerId: row.trigger_id,
+    eventDedupKey: row.dedup_key,
     languageCode,
     skipOptOutGate: true,
     ...(isStaffRecipient ? { recipientKind: "staff" as const } : {}),

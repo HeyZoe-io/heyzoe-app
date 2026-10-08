@@ -7,20 +7,24 @@
  * IO (10 businesses): 0 extra bookingsReport GETs when freeze-ending already prefetches
  * the shared future window; +1 GET when only trial_reminder is live. +1 /v3/membershipTypes
  * when trial ids are set (same as C4). No salesReport join.
- * Evening slot (cron-job.org at 20:30 Asia/Jerusalem, ?slot=evening): one extra
+ * Evening slot (cron-job.org at EVENING_SLOT_IL Asia/Jerusalem, ?slot=evening): one extra
  * bookings GET per business that has an enabled trial_reminder rule, and no
  * other trigger steps. The slot is the query param. Hour 20 is outside the
- * 21:00 night hold, so a 20:30 start is not held.
+ * 21:00 night hold, so the evening start is not held.
  * delay 0/1 rules send only on the evening run, for tomorrow's classes. The
  * 09:00 run sends delay >= 2 only, and marks a delay 0/1 class of today that has
  * no row as skipped (booked_after_evening_run).
  */
+import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import {
+  activationCatchUpDue,
   decideActivationEventAction,
   israelSlotInstant,
+  markRulesSeeded,
   ruleIdsActiveSinceActivation,
 } from "@/lib/rule-activation";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -222,15 +226,15 @@ export function addIsraelCalendarDays(ymd: string, days: number): string | null 
   return `${year}-${month}-${day}`;
 }
 
-const REMINDER_MORNING_HM = "09:00";
-const REMINDER_EVENING_HM = "20:30";
+const REMINDER_MORNING_HM = MORNING_SLOT_IL;
+const REMINDER_EVENING_HM = EVENING_SLOT_IL;
 
-/** delay 0 or 1: the reminder goes at 20:30 the evening before, whatever the class time. */
+/** delay 0 or 1: the reminder goes at the evening slot the evening before, whatever the class time. */
 export function trialReminderSendsEveningBefore(delayDays: number): boolean {
   return Math.max(0, Math.trunc(delayDays)) <= 1;
 }
 
-/** 20:30 the evening before for delay 0/1, 09:00 on class_date − delay otherwise. */
+/** Evening slot the evening before for delay 0/1, morning slot on class_date − delay otherwise. */
 export function trialReminderNormalSendAt(input: {
   classDateYmd: string;
   classTime: string;
@@ -573,6 +577,8 @@ async function dispatchTrialReminderTemplate(input: {
   now: Date;
   dueOffsetMs?: number;
   slot?: TrialReminderSlot;
+  /** Rule activated after the normal slot, class still ahead (activationCatchUpDue). */
+  catchUp?: boolean;
 }): Promise<{ dispatch: TrialReminderDispatch; ok: boolean; reason?: string }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
@@ -580,6 +586,7 @@ async function dispatchTrialReminderTemplate(input: {
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
   if (
+    !input.catchUp &&
     !trialReminderSendAllowedNow({
       classDateYmd: input.classDateYmd,
       classTime: input.classTime,
@@ -605,6 +612,14 @@ async function dispatchTrialReminderTemplate(input: {
     computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now).getTime() +
       Math.max(0, input.dueOffsetMs ?? 0)
   );
+  const eventDedupKey = buildTrialReminderScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd,
+    input.classTime,
+    input.className
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -613,14 +628,7 @@ async function dispatchTrialReminderTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildTrialReminderScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd,
-        input.classTime,
-        input.className
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-reminder] enqueue failed:", enqueueResult.error);
@@ -690,6 +698,7 @@ async function dispatchTrialReminderTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -933,6 +942,19 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
   const trialDecision = (userId: number, classDate: string, classTime: string) =>
     classRun?.forKeys(userId, classDate, classTime);
+  /** Rule activated after this class's reminder slot: send in this run instead of seeding. */
+  const catchUp = (rule: PurchaseTemplateTriggerRule, classDateYmd: string, classTime: string) =>
+    activationCatchUpDue({
+      sendAt: trialReminderNormalSendAt({
+        classDateYmd,
+        classTime,
+        delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+      }),
+      classStartAt: israelWallTimeToUtc(classDateYmd, classTime),
+      rule,
+      now,
+      sameDayOnly: true,
+    });
 
   const needsFullSeed = !input.trialReminderSeeded;
   let needsSoftSeed = false;
@@ -970,6 +992,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
         });
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        if (catchUp(rule, classDateYmd, classTime)) continue;
         seededRule = true;
         const up = await upsertTrialReminderSyncLog({
           admin: input.admin,
@@ -1053,6 +1076,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
   const freshRules = sendRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if (freshRules.length) {
+    const seedErrorsBefore = summary.errors;
     for (const row of reportRows) {
       const userId = parseTrialReminderUserId(row.user_id);
       const classDateYmd = parseClassDateYmd(row.date);
@@ -1068,6 +1092,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
         });
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        if (catchUp(rule, classDateYmd, classTime)) continue;
         const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
           {
             business_id: businessId,
@@ -1090,6 +1115,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
       }
     }
     for (const rule of freshRules) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(input.admin, freshRules.map((rule) => rule.id), now);
+    }
   }
 
   for (const row of reportRows) {
@@ -1126,7 +1154,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
           todayYmd,
           delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
           slot,
-        }) && ruleCoversRow(item)
+        }) &&
+        ruleCoversRow(item) &&
+        !catchUp(item, classDateYmd, classTime)
     );
     if (lateRules.length) {
       summary.booked_after_evening_run = (summary.booked_after_evening_run ?? 0) + 1;
@@ -1160,13 +1190,14 @@ export async function syncArboxTrialReminderForBusiness(input: {
     const dueRules = sendRules.filter(
       (item) =>
         ruleCoversRow(item) &&
-        trialReminderMatchesSlot({
+        (trialReminderMatchesSlot({
           classDateYmd,
           classTime,
           todayYmd,
           delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
           slot,
-        })
+        }) ||
+          catchUp(item, classDateYmd, classTime))
     );
     if (!dueRules.length) continue;
     summary.due += 1;
@@ -1302,6 +1333,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
             now,
             dueOffsetMs: ctx.dueOffsetMs,
             slot,
+            catchUp: catchUp(item, classDateYmd, classTime),
           });
           if (send.reason === DUPLICATE_GUARD_ERROR) duplicateGuard = true;
           return send.dispatch as CompanionDispatch;

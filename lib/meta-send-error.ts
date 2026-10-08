@@ -45,4 +45,11 @@ export async function recordTemplateSendFailure(input: {
   if (error && !/does not exist|schema cache/i.test(error.message)) {
     console.error("[template-send] failure log insert failed", error.message);
   }
+  const { alertBusinessBlockingErrors, shouldAlertForSendFailure } = await import("@/lib/wa-blocking-error-alert");
+  if (shouldAlertForSendFailure(input.phoneNumberId, businessId, code)) {
+    await alertBusinessBlockingErrors(
+      [{ businessId: Number(businessId), errorCode: Number(code), detail: input.templateName, source: "send_api" }],
+      { admin }
+    );
+  }
 }

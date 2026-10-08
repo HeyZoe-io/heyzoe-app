@@ -554,6 +554,7 @@ async function sendOnePurchaseTemplate(input: {
         phoneNumberId,
         templateName,
         alertTriggerId: matchedRule.id,
+        eventDedupKey: buildPurchaseScheduledDedupKey(input.businessId, matchedRule.id, input.saleId),
         languageCode,
         ...(sendComponents ? { components: sendComponents } : {}),
       });
@@ -1069,6 +1070,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         boxId: String((business as { crm_box_id?: unknown } | null)?.crm_box_id ?? ""),
         taskTypeId: taskTypeNum,
         userId: arboxUserId,
+        businessId: input.businessId,
         kind: "trial_registered",
         noteText: buildCrmEventNote("trial_registered", eventDateIl, {
           offerKind: "trial",

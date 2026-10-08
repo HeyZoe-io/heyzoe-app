@@ -418,6 +418,15 @@ async function dispatchMissedTemplate(input: {
     ).getTime() + Math.max(0, input.dueOffsetMs ?? 0)
   );
 
+  const eventDedupKey = buildMissedClassScheduledDedupKey(
+    input.kind,
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd,
+    input.classTime,
+    input.className
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -426,15 +435,7 @@ async function dispatchMissedTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildMissedClassScheduledDedupKey(
-        input.kind,
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd,
-        input.classTime,
-        input.className
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-missed-class] enqueue failed:", enqueueResult.error);
@@ -489,6 +490,7 @@ async function dispatchMissedTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

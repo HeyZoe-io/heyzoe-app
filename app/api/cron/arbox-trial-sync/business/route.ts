@@ -6,6 +6,7 @@ import { arboxDailyContext, runArboxDailyContext } from "@/lib/leads/arbox-daily
 import {
   loadArboxTrialSyncBusiness,
   runArboxTrialSyncForBusiness,
+  TRIAL_SYNC_BUSINESS_BUDGET_MS,
 } from "@/lib/leads/arbox-trial-sync-run";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -14,7 +15,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * One Arbox business for the 15-minute trial sync.
  * Called by the dispatcher (and by ?dry_run=1). Same Bearer CRON_SECRET.
  * Scheduling stays on GET /api/cron/arbox-trial-sync via cron-job.org.
- * maxDuration 60 covers one studio's Arbox reports on the paid plan.
+ * maxDuration 60 covers one studio's Arbox reports on the paid plan. Steps get a 45s budget
+ * from the request start; what does not fit waits for the next 15-minute tick (budget_skipped).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +51,7 @@ export async function GET(req: NextRequest) {
         business,
         now,
         dryRun,
+        deadlineMs: started + TRIAL_SYNC_BUSINESS_BUDGET_MS,
       });
     let wouldSend: { template: string; phone_tail: string; params: string[] }[] = [];
     const result = await runWithArboxCallCount(

@@ -1,5 +1,7 @@
 /** Single source of truth for template-trigger types, labels, and UI/API rules. */
 
+import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
+
 export type TriggerActivation = "automatic" | "manual";
 export type TriggerAudience = "leads" | "members" | "staff";
 export type TriggerDelayMode = "after" | "before" | "either" | "none" | "gap_days";
@@ -41,17 +43,17 @@ type TriggerCatalogEntryShape = {
 
 const SEND_HINT_FREQUENT_HE =
   "נשלח עד כ־15 דקות אחרי האירוע, בכל שעות היום";
-const SEND_HINT_DAILY_HE = "נשלח פעם ביום בשעה 09:00 (שעון ישראל)";
+const SEND_HINT_DAILY_HE = `נשלח פעם ביום בשעה ${MORNING_SLOT_IL} (שעון ישראל)`;
 const SEND_HINT_POST_TRIAL_NOT_REGISTERED_HE =
-  "נשלח ב־09:00 (שעון ישראל). אם פוספס בבוקר — גם ב־20:30 באותו יום";
+  `נשלח ב־${MORNING_SLOT_IL} (שעון ישראל). אם פוספס בבוקר — גם ב־${EVENING_SLOT_IL} באותו יום`;
 const SEND_HINT_LOST_LEAD_HE =
-  "דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-09:00 ביום היעד (שעון ישראל).";
+  `דיליי 0 נשלח עד כ-15 דקות אחרי שהליד מסומן אבוד בארבוקס. בין 21:00 ל-08:00 ההודעה ממתינה ל-08:00. דיליי של יום ומעלה נשלח ב-${MORNING_SLOT_IL} ביום היעד (שעון ישראל).`;
 const SEND_HINT_LEAD_STATUS_HE =
-  "נבדק ב-09:00 וב-20:30 (שעון ישראל). אפשר לבחור בריצה הקרובה, רק ב-09:00, או רק ב-20:30. דיליי של יום ומעלה יוצא ביום היעד, בחלון שנבחר, ורק אם הליד עדיין בסטטוס.";
+  `נבדק ב-${MORNING_SLOT_IL} וב-${EVENING_SLOT_IL} (שעון ישראל). אפשר לבחור בריצה הקרובה, רק ב-${MORNING_SLOT_IL}, או רק ב-${EVENING_SLOT_IL}. דיליי של יום ומעלה יוצא ביום היעד, בחלון שנבחר, ורק אם הליד עדיין בסטטוס.`;
 const SEND_HINT_TRIAL_CLASS_HE =
-  "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:30 בערב שלפני.";
+  `יוצא ב־${MORNING_SLOT_IL} (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־${EVENING_SLOT_IL} בערב שלפני.`;
 const SEND_HINT_TRIAL_REMINDER_HE =
-  "0 או 1 ימים לפני: נשלח ב־20:30 בערב שלפני השיעור (שעון ישראל), בלי קשר לשעת השיעור. 2 ימים ומעלה: נשלח ב־09:00. הרשמה אחרי 20:30 או ביום השיעור לא מקבלת תזכורת.";
+  `0 או 1 ימים לפני: נשלח ב־${EVENING_SLOT_IL} בערב שלפני השיעור (שעון ישראל), בלי קשר לשעת השיעור. 2 ימים ומעלה: נשלח ב־${MORNING_SLOT_IL}. הרשמה אחרי ${EVENING_SLOT_IL} או ביום השיעור לא מקבלת תזכורת.`;
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
 const SEND_HINT_WEBHOOK_HE = "נשלח מיד כשמגיע ליד מהאתר או מהקמפיין";
 const SEND_HINT_MANUAL_HE = "שליחה ידנית — תצוגה מקדימה, אישור, ותזמון לתור";
@@ -128,7 +130,7 @@ export const TRIGGER_CATALOG = [
     presetKey: "registered_after_trial",
     uiOrder: 6,
     sendHintHe:
-      "השהייה 0 נשלחת תוך כ־15 דקות. השהייה של יום ומעלה נשלחת ב־09:00 (שעון ישראל)",
+      `השהייה 0 נשלחת תוך כ־15 דקות. השהייה של יום ומעלה נשלחת ב־${MORNING_SLOT_IL} (שעון ישראל)`,
   },
   {
     type: "not_registered_after_trial",
@@ -604,9 +606,9 @@ export const LEAD_STATUS_SEND_SLOTS = ["next_run", "morning", "evening"] as cons
 export type LeadStatusSendSlot = (typeof LEAD_STATUS_SEND_SLOTS)[number];
 
 const SEND_SLOT_LABELS_HE: Record<LeadStatusSendSlot, string> = {
-  next_run: "בריצה הקרובה (09:00 או 20:30)",
-  morning: "רק ב-09:00",
-  evening: "רק ב-20:30",
+  next_run: `בריצה הקרובה (${MORNING_SLOT_IL} או ${EVENING_SLOT_IL})`,
+  morning: `רק ב-${MORNING_SLOT_IL}`,
+  evening: `רק ב-${EVENING_SLOT_IL}`,
 };
 
 /** No slots means the trigger has no selector and keeps its historical send time. */
@@ -1102,7 +1104,7 @@ export function formatDelayLabel(
     return days === 0 ? "מיידי" : `${days} ימים אחרי אובדן הליד`;
   }
   if (type === "lead_status_changed") {
-    return days === 0 ? "בריצה הקרובה (09:00 או 20:30)" : `${days} ימים אחרי השינוי`;
+    return days === 0 ? `בריצה הקרובה (${MORNING_SLOT_IL} או ${EVENING_SLOT_IL})` : `${days} ימים אחרי השינוי`;
   }
   if (type === "milestones") {
     return `${Math.max(1, days)} ימים מההצטרפות`;
@@ -1114,7 +1116,7 @@ export function formatDelayLabel(
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
-  if (type === "trial_reminder" && days <= 1) return "ערב לפני האימון, 20:30";
+  if (type === "trial_reminder" && days <= 1) return `ערב לפני האימון, ${EVENING_SLOT_IL}`;
   if (isClassBeforeTriggerType(type)) {
     return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
   }

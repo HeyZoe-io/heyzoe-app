@@ -21,6 +21,8 @@ type MessageLogInput = {
   model_used?: string | null;
   session_id?: string | null;
   error_code?: string | null;
+  /** Meta wamid when the caller has it (app echoes). Assistant rows otherwise take it from the send. */
+  wamid?: string | null;
 };
 
 /** מסמן session אחרי בחירת שירות במסלול מכירה (רק role=event — לא נטען ל-Claude). */
@@ -384,17 +386,34 @@ export async function logMessage(input: MessageLogInput) {
       return;
     }
     const supabase = createSupabaseAdminClient();
-    const { error } = await supabase.from("messages").insert({
+    const outbound = await import("@/lib/wa-outbound-wamid");
+    const wamid =
+      String(input.wamid ?? "").trim() ||
+      (input.role === "assistant" ? outbound.takeOutboundWamid({ sessionId: input.session_id, content }) : null) ||
+      null;
+    const row: Record<string, unknown> = {
       business_slug: businessSlug,
       role: input.role,
       content,
       model_used: input.model_used ?? null,
       session_id: input.session_id ?? null,
       error_code: input.error_code ?? null,
-    });
+    };
+    const withWamid = !outbound.wamidColumnKnownMissing();
+    if (withWamid) row.wamid = wamid;
+    let { data: inserted, error } = await supabase.from("messages").insert(row).select("id");
+    if (error && withWamid && outbound.isMissingWamidColumn(error.message)) {
+      outbound.markWamidColumnMissing();
+      delete row.wamid;
+      ({ data: inserted, error } = await supabase.from("messages").insert(row).select("id"));
+    }
     if (error) {
       console.error("[analytics] logMessage insert error:", error.message);
       return;
+    }
+    const rowId = String((inserted?.[0] as { id?: unknown } | undefined)?.id ?? "");
+    if (input.role === "assistant" && !wamid && withWamid && !outbound.wamidColumnKnownMissing()) {
+      outbound.awaitOutboundWamid({ sessionId: input.session_id, content, rowId });
     }
     noteWaLogInserted(input.role, content);
     if (input.role === "assistant") {

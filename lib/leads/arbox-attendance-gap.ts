@@ -4,6 +4,7 @@
  * Tiers = template_triggers.delay_days (7/14/21). Dedup includes gap_start_date for re-entry.
  * sync_log still stores variant='unbooked' (PK column kept; no migration).
  */
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import {
   addCalendarDaysYmd,
@@ -234,7 +235,7 @@ export function attendanceGapDueAction(input: {
   now: Date;
 }): "seed" | "send" {
   const dueYmd = addCalendarDaysYmd(input.lastYesYmd, input.tier);
-  const sendAt = dueYmd ? israelSlotInstant(dueYmd, "09:00") : null;
+  const sendAt = dueYmd ? israelSlotInstant(dueYmd, MORNING_SLOT_IL) : null;
   return decideActivationEventAction({ sendAt, now: input.now });
 }
 
@@ -759,6 +760,13 @@ async function dispatchGapTemplate(input: {
       Math.max(0, input.dueOffsetMs ?? 0)
   );
 
+  const eventDedupKey = buildAttendanceGapScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.gapStartDate,
+    input.tier
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -767,13 +775,7 @@ async function dispatchGapTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildAttendanceGapScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.gapStartDate,
-        input.tier
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-attendance-gap] enqueue failed:", enqueueResult.error);
@@ -827,6 +829,7 @@ async function dispatchGapTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -1164,7 +1167,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
             Math.max(1, Math.trunc(Number(candidate.delay_days) || 0)) === tier &&
             (catchUp === "send" ||
               !eventBeforeRuleActivation(
-                israelSlotInstant(addCalendarDaysYmd(state.lastYesYmd, tier) ?? "", "09:00"),
+                israelSlotInstant(addCalendarDaysYmd(state.lastYesYmd, tier) ?? "", MORNING_SLOT_IL),
                 candidate
               ))
         )

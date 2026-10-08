@@ -407,6 +407,11 @@ async function sendArboxNewLeadTemplate(input: {
     return { dispatch: "no_rule", ok: false };
   }
 
+  const eventDedupKey = buildArboxNewLeadScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.leadId
+  );
   if (input.rule.delay_days > 0) {
     const dueAt = computeDueAt(
       {
@@ -422,11 +427,7 @@ async function sendArboxNewLeadTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildArboxNewLeadScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.leadId
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-new-lead] enqueue failed:", enqueueResult.error);
@@ -484,6 +485,7 @@ async function sendArboxNewLeadTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

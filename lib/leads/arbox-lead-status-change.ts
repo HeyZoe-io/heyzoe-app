@@ -3,7 +3,7 @@ import { templateFailureDispatch } from "@/lib/business-sends-hold";
 /**
  * lead_status_changed: full leadsInProcessReport pull, diff against the snapshot.
  * fromDate/toDate are ignored by Arbox, so every scan reads all open leads.
- * Runs on the existing 09:00 and 20:30 arbox-daily-triggers workers. No new cron.
+ * Runs on the existing morning (09:00) and evening (20:00) arbox-daily-triggers workers (lib/daily-run-slots.ts). No new cron.
  * Missing tables or target_status column: log once, skip, never send.
  */
 import { logMessage } from "@/lib/analytics";
@@ -751,6 +751,7 @@ async function dispatchLeadStatusTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey: input.dedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -1041,7 +1042,7 @@ export async function syncArboxLeadStatusForBusiness(input: {
   apiKey: string;
   boxId: string;
   now?: Date;
-  /** 09:00 morning or 20:30 evening. Defaults to morning for callers that omit it. */
+  /** Morning or evening slot (lib/daily-run-slots.ts). Defaults to morning for callers that omit it. */
   slot?: "morning" | "evening";
   /** Test hook. Production probes the due_date column. */
   pendingColumns?: boolean;
