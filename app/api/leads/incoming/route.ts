@@ -25,6 +25,8 @@ import {
   enqueueScheduledTemplateSend,
 } from "@/lib/scheduled-template-sends";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { incomingFallbackClaimKey, incomingFallbackWindow } from "@/lib/leads/incoming-fallback-claim";
+import { sendWithSyncLogClaim, settleForSendError } from "@/lib/leads/sync-log-claim";
 import {
   companionTemplateAlreadySent,
   createCompanionSendGate,
@@ -608,14 +610,81 @@ export async function POST(req: NextRequest) {
     storedComponents: (fallbackTpl as { components?: unknown } | null)?.components,
     firstName,
   });
-  const sendResult = await sendBusinessTemplate({
-    to: phoneNorm,
-    phoneNumberId,
-    templateName,
-    languageCode:
-      String((fallbackTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
-    ...(sendComponents ? { components: sendComponents } : {}),
-  });
+  const sendFallback = () =>
+    sendBusinessTemplate({
+      to: phoneNorm,
+      phoneNumberId,
+      templateName,
+      languageCode:
+        String((fallbackTpl as { language?: string } | null)?.language ?? "he").trim() || "he",
+      ...(sendComponents ? { components: sendComponents } : {}),
+    });
+
+  const window = await incomingFallbackWindow(admin, businessId, phoneNorm, now);
+  if (window.state === "error") {
+    console.error("[api/leads/incoming] fallback dedup read failed:", window.error, { businessId });
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "error",
+      statusCode: 500,
+      errorDetail: "dedup_read_failed",
+    });
+    return NextResponse.json({ error: "dedup_read_failed" }, { status: 500 });
+  }
+  if (window.state === "blocked") {
+    console.info("[api/leads/incoming] skip", { reason: "opening_template_within_24h", businessId });
+    await writeIncomingAudit({
+      admin,
+      body: bodyRecord,
+      result: "validated",
+      statusCode: 200,
+      errorDetail: "gated:duplicate_24h",
+    });
+    return NextResponse.json({ ok: true, dispatch: "gated", gate: "duplicate_24h" });
+  }
+
+  let sendResult: Awaited<ReturnType<typeof sendBusinessTemplate>>;
+  if (window.state === "missing_table") {
+    console.error("[api/leads/incoming] incoming_lead_fallback_send_log missing, unclaimed legacy send", { businessId });
+    sendResult = await sendFallback();
+  } else {
+    const claimed = await sendWithSyncLogClaim({
+      admin,
+      ...incomingFallbackClaimKey(businessId, phoneNorm, templateName, now, window.attempts),
+      send: async () => {
+        const value = await sendFallback();
+        return {
+          settle: value.ok ? ("sent" as const) : settleForSendError(value.error),
+          reason: value.ok ? null : String(value.error ?? "send_failed").slice(0, 200),
+          value,
+        };
+      },
+    });
+    if (claimed.claim === "lost") {
+      console.info("[api/leads/incoming] skip", { reason: "claim_lost", businessId });
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "validated",
+        statusCode: 200,
+        errorDetail: "gated:duplicate_24h",
+      });
+      return NextResponse.json({ ok: true, dispatch: "gated", gate: "duplicate_24h" });
+    }
+    if (claimed.claim !== "won" || !claimed.value) {
+      console.error("[api/leads/incoming] fallback claim failed", { businessId });
+      await writeIncomingAudit({
+        admin,
+        body: bodyRecord,
+        result: "error",
+        statusCode: 500,
+        errorDetail: "dedup_claim_failed",
+      });
+      return NextResponse.json({ error: "dedup_claim_failed" }, { status: 500 });
+    }
+    sendResult = claimed.value;
+  }
 
   console.info("[api/leads/incoming] template trigger resolution", {
     businessId,
