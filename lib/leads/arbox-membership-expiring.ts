@@ -41,6 +41,7 @@ import {
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -81,7 +82,8 @@ export type MembershipExpiringDispatch =
   | "skipped_expired_end"
   | "no_rule"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type MembershipExpiringSyncSummary = {
   skipped?: boolean;
@@ -531,6 +533,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
   }
   summary.fetched = report.rows.length;
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
 
   const activeIndex = await loadActiveMembershipIndex({
     apiKey,
@@ -768,6 +771,36 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
         });
         continue;
       }
+      const leave = await leaveRequest({ id: sendContact.id, phone: sendPhone, arbox_user_id: userId });
+      if (leave !== "clear") {
+        if (leave === "blocked") {
+          for (const rule of pendingRules) {
+            const marked = await upsertOptionalReason(
+              input.admin,
+              "arbox_expiring_sync_log",
+              {
+                business_id: businessId,
+                trigger_id: rule.id,
+                membership_user_id: membershipUserId,
+                end_date: endDateYmd,
+                contact_id: sendContact.id,
+                processed_at: now.toISOString(),
+                status: "skipped",
+                attempts: attemptsByRule.get(rule.id) ?? 0,
+              },
+              "business_id,trigger_id,membership_user_id,end_date",
+              LEAVE_REQUEST_REASON,
+            );
+            if (!marked.ok) summary.errors += 1;
+          }
+        }
+        console.info("[leads/arbox-membership-expiring] dispatch", {
+          ...logBase,
+          dispatch: "skipped",
+          reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
+        });
+        continue;
+      }
       const sendDispatch = await runCompanionTemplateSends({
         rules: pendingRules,
         dryRun: isArboxDailyDryRun(),
@@ -810,7 +843,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
                   : send.dispatch === "immediate" ||
                       send.dispatch === "gated" ||
                       send.dispatch === "skipped" ||
-                      send.dispatch === "send_failed"
+                      (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
                     ? send.dispatch
                     : "skipped";
               return { settle: claimSettleForDispatch(dispatch), value: dispatch };
@@ -825,7 +858,7 @@ export async function syncArboxMembershipExpiringForBusiness(input: {
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") summary.errors += 1;
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-membership-expiring] row threw", {

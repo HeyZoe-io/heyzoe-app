@@ -14,6 +14,18 @@ assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "08:00")), f
 
 assert.equal(unsentReason({ status: "sent", overdue: true }), null);
 assert.equal(unsentReason({ status: "sending", overdue: true }), "נשאר באמצע שליחה");
+assert.equal(unsentReason({ status: "unknown", overdue: false }), "תוצאה לא ידועה");
+assert.equal(
+  unsentReason({ status: "sending", lastError: "send_outcome_unknown", overdue: true }),
+  "תוצאה לא ידועה",
+  "unknown stored as sending before the SQL"
+);
+assert.equal(
+  unsentReason({ status: "failed", lastError: "send_outcome_unknown: fetch failed", overdue: false }),
+  "תוצאה לא ידועה"
+);
+assert.equal(unsentReason({ status: "failed", lastError: "empty_variable", overdue: false }), "משתנה ריק בטמפלייט");
+assert.equal(unsentReason({ status: "pending", lastError: "empty_variable", overdue: false }), "משתנה ריק בטמפלייט");
 assert.equal(
   unsentReason({ status: "sent", lastError: "sending", overdue: true }),
   "נשאר באמצע שליחה"

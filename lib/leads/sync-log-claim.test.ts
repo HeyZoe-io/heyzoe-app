@@ -1,17 +1,27 @@
 import assert from "node:assert/strict";
 import {
   claimQueuedTemplateSend,
+  claimSettleForDispatch,
   claimSyncLogBeforeSend,
+  settleForSendError,
   missingColumnFromError,
   sendWithSyncLogClaim,
   settleQueuedTemplateSend,
   type SyncLogSettle,
 } from "./sync-log-claim";
-import { TRIAL_BOOKING_RETRYABLE, trialBookingClaimKey } from "./arbox-trial-booking-confirm";
+import {
+  TRIAL_BOOKING_RETRYABLE,
+  trialBookingAlreadyHandled,
+  trialBookingClaimKey,
+} from "./arbox-trial-booking-confirm";
+import { isCancellationSyncLogTerminal, nextCancellationSyncLogAfterDispatch } from "./arbox-membership-cancelled";
+import { templateFailureDispatch } from "../business-sends-hold";
+import { sendErrorBodyIsExplicit, thrownSendOutcome } from "../notifications/graph-whatsapp-send";
 import { trialSaleClaimKey } from "./arbox-trial-sale-registered";
 import { firstPaidPurchaseClaimKey } from "./arbox-first-paid-purchase";
 import { arboxNewLeadClaimKey } from "./arbox-new-lead";
 import { classCancelNotifyClaimKey } from "./arbox-class-cancelled-customer";
+import { incomingFallbackClaimKey } from "./incoming-fallback-claim";
 import {
   companionClaimFailures,
   recordCompanionTemplateSent,
@@ -130,8 +140,6 @@ type Path = {
   key: (attempts: number) => Key;
   /** Meta error on this path: retried (failed) or released for an outer retry counter. */
   metaSettle: SyncLogSettle;
-  /** False: a failed trial-booking claim stays terminal (Oct 5 decision). */
-  metaRetried?: boolean;
 };
 
 const now = new Date("2026-10-08T06:00:00.000Z");
@@ -159,7 +167,6 @@ const paths: Path[] = [
       retryable: TRIAL_BOOKING_RETRYABLE,
     }),
     metaSettle: "failed",
-    metaRetried: false,
   },
   {
     name: "trial sale / purchase",
@@ -200,6 +207,15 @@ const paths: Path[] = [
     key: () => classCancelNotifyClaimKey(1, "rule-a", { schedule_id: "77", user_id: "11" }, now),
     metaSettle: "release",
   },
+  {
+    name: "incoming lead fallback (Sanga)",
+    spec: {
+      columns: ["business_id", "phone", "sent_day", "template_name", ...SYNC_COLUMNS],
+      pk: ["business_id", "phone", "sent_day"],
+    },
+    key: (attempts) => incomingFallbackClaimKey(1, "972501112233", "sanga_open", now, attempts),
+    metaSettle: "failed",
+  },
 ];
 
 async function send(key: Key, admin: never, settle: SyncLogSettle | "throw") {
@@ -239,12 +255,24 @@ async function pathTests(path: Path) {
     } else {
       assert.equal(db.data[table]!.length, 0, path.name);
     }
-    if (path.metaRetried === false) {
-      assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
-    } else {
-      assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "won", graphCalls: 1 }, path.name);
-      assert.equal(statusOf(db), "sent", path.name);
+    assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "won", graphCalls: 1 }, path.name);
+    assert.equal(statusOf(db), "sent", path.name);
+  }
+
+  // Unknown outcome (network error, timeout): final, never sent again.
+  {
+    const db = fresh();
+    await send(path.key(0), db.admin, "unknown");
+    const row = db.data[table]![0];
+    if (path.spec.statuses) {
+      assert.equal(row?.status, "sending", `${path.name}: before the SQL, unknown is stored as sending`);
+      assert.equal(row?.reason, "send_outcome_unknown", path.name);
     }
+    assert.deepEqual(await send(path.key(1), db.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
+    const after = fakeDb({ [table]: { ...path.spec, statuses: path.spec.statuses && [...path.spec.statuses, "unknown"] } });
+    await send(path.key(0), after.admin, "unknown");
+    if (path.spec.statuses) assert.equal(after.data[table]![0]?.status, "unknown", path.name);
+    assert.deepEqual(await send(path.key(1), after.admin, "sent"), { claim: "lost", graphCalls: 0 }, path.name);
   }
 
   // Worker death after the Graph call: the row stays at sending and is never sent again.
@@ -284,6 +312,41 @@ async function capTests() {
   await send(key(2), db.admin, "failed");
   assert.equal(db.data.arbox_birthday_sync_log![0]?.status, "abandoned");
   assert.deepEqual(await send(key(3), db.admin, "sent"), { claim: "lost", graphCalls: 0 });
+
+  // A caller that always passes attempts 0 still reaches the cap from the stored count.
+  const zero = fakeDb({ arbox_birthday_sync_log: spec });
+  for (let i = 0; i < 3; i += 1) await send(key(0), zero.admin, "failed");
+  assert.equal(zero.data.arbox_birthday_sync_log![0]?.status, "abandoned");
+  assert.deepEqual(await send(key(0), zero.admin, "sent"), { claim: "lost", graphCalls: 0 });
+}
+
+async function finalStatusTests() {
+  // A manual stop or a skip is final for the event key: the claim never takes it over.
+  const spec: TableSpec = {
+    columns: ["business_id", "trigger_id", "user_id", ...SYNC_COLUMNS],
+    pk: ["business_id", "trigger_id", "user_id"],
+    statuses: [...ALL_STATUSES, "unknown", "canceled"],
+  };
+  const key: Key = {
+    table: "arbox_birthday_sync_log",
+    row: { business_id: 1, trigger_id: "r", user_id: 11, attempts: 0 },
+    filters: [
+      ["business_id", 1],
+      ["trigger_id", "r"],
+      ["user_id", 11],
+    ],
+  };
+  for (const status of ["skipped", "abandoned", "canceled", "seeded", "unknown", "sent", "no_phone"]) {
+    const db = fakeDb({ arbox_birthday_sync_log: spec });
+    db.data.arbox_birthday_sync_log!.push({ business_id: 1, trigger_id: "r", user_id: 11, status, reason: "manual_hold" });
+    assert.deepEqual(await send(key, db.admin, "sent"), { claim: "lost", graphCalls: 0 }, status);
+    assert.equal(db.data.arbox_birthday_sync_log![0]?.status, status, `${status} unchanged`);
+  }
+  for (const status of ["pending", "failed"]) {
+    const db = fakeDb({ arbox_birthday_sync_log: spec });
+    db.data.arbox_birthday_sync_log!.push({ business_id: 1, trigger_id: "r", user_id: 11, status, attempts: 1 });
+    assert.deepEqual(await send(key, db.admin, "sent"), { claim: "won", graphCalls: 1 }, status);
+  }
 }
 
 async function legacyTableTests() {
@@ -352,6 +415,13 @@ async function companionTests() {
   assert.equal(await recordCompanionTemplateSent(held.admin, input), true);
   await settleCompanionTemplateSent(held.admin, input.dedupKey, "release");
   assert.equal(held.data.scheduled_template_sends!.length, 0);
+
+  const unknown = fakeDb({ scheduled_template_sends: spec });
+  assert.equal(await recordCompanionTemplateSent(unknown.admin, input), true);
+  await settleCompanionTemplateSent(unknown.admin, input.dedupKey, "unknown");
+  assert.equal(unknown.data.scheduled_template_sends![0]?.status, "canceled");
+  assert.equal(unknown.data.scheduled_template_sends![0]?.last_error, "send_outcome_unknown");
+  assert.equal(await recordCompanionTemplateSent(unknown.admin, input), false, "unknown is never taken again");
 }
 
 async function queuedTests() {
@@ -370,6 +440,42 @@ async function queuedTests() {
   await settleQueuedTemplateSend(db.admin, "k", "sent");
   assert.equal(rows[0]?.status, "sent");
   assert.equal(await claimQueuedTemplateSend(db.admin, "k"), "lost");
+
+  // Unknown: final. Before the SQL allows `unknown`, it is stored as failed + send_outcome_unknown.
+  const legacy = fakeDb({ scheduled_template_sends: { ...spec, statuses: ["pending", "sending", "sent", "canceled", "failed"] } });
+  legacy.data.scheduled_template_sends!.push({ id: 2, dedup_key: "u", status: "pending", last_error: null });
+  assert.equal(await claimQueuedTemplateSend(legacy.admin, "u"), "won");
+  await settleQueuedTemplateSend(legacy.admin, "u", "unknown");
+  assert.equal(legacy.data.scheduled_template_sends![0]?.status, "failed");
+  assert.equal(legacy.data.scheduled_template_sends![0]?.last_error, "send_outcome_unknown");
+  assert.equal(await claimQueuedTemplateSend(legacy.admin, "u"), "lost");
+}
+
+function classificationTests() {
+  const meta = `{"error":{"message":"(#131026) Message undeliverable","code":131026}}`;
+  assert.equal(sendErrorBodyIsExplicit(meta), true);
+  assert.equal(sendErrorBodyIsExplicit("<html>502 Bad Gateway</html>"), false);
+  assert.equal(sendErrorBodyIsExplicit(""), false);
+  assert.equal(thrownSendOutcome(new Error(`[Meta WA send] 400 Bad Request: ${meta}`)), "explicit");
+  assert.equal(thrownSendOutcome(new Error("[Meta WA send] 503 Service Unavailable: ")), "unknown");
+  assert.equal(thrownSendOutcome(new TypeError("fetch failed")), "unknown");
+  assert.equal(thrownSendOutcome(new DOMException("The operation was aborted due to timeout", "TimeoutError")), "unknown");
+  assert.equal(templateFailureDispatch("(#131026) Message undeliverable"), "send_failed");
+  assert.equal(templateFailureDispatch("send_outcome_unknown: fetch failed"), "send_unknown");
+  assert.equal(templateFailureDispatch("sends_hold"), "gated");
+  assert.equal(settleForSendError("send_outcome_unknown:http_502"), "unknown");
+  assert.equal(settleForSendError("(#131026) Message undeliverable"), "failed");
+  assert.equal(settleForSendError("sends_hold"), "release");
+  assert.equal(claimSettleForDispatch("send_unknown"), "unknown");
+  assert.deepEqual(nextCancellationSyncLogAfterDispatch({ dispatch: "send_unknown", attemptsSoFar: 1 }), {
+    attempts: 1,
+    status: "unknown",
+    hitCap: false,
+  });
+  assert.equal(isCancellationSyncLogTerminal("unknown"), true);
+  assert.equal(trialBookingAlreadyHandled("failed"), false, "trial booking: a Meta failure is retried");
+  assert.equal(trialBookingAlreadyHandled("unknown"), true);
+  assert.equal(trialBookingAlreadyHandled("sending"), true);
 }
 
 async function main() {
@@ -378,8 +484,10 @@ async function main() {
     missingColumnFromError({ message: "Could not find the 'attempts' column of 'arbox_birthday_sync_log' in the schema cache" }),
     "attempts"
   );
+  classificationTests();
   for (const path of paths) await pathTests(path);
   await capTests();
+  await finalStatusTests();
   await legacyTableTests();
   await companionTests();
   await queuedTests();

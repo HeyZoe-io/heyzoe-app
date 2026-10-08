@@ -5,6 +5,7 @@
  * and does not call Meta or Twilio.
  */
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isSendOutcomeUnknown } from "@/lib/notifications/graph-whatsapp-send";
 
 export const SENDS_HOLD_DRY_RUN = "dry_run";
 export const SENDS_HOLD_ERROR = "sends_hold";
@@ -22,11 +23,15 @@ export function isSendsHoldError(error: unknown): boolean {
   return text === SENDS_HOLD_ERROR || text.startsWith(`${SENDS_HOLD_ERROR}:`);
 }
 
-/** Held template sends stay retryable. They are not a Meta failure. */
-export function templateFailureDispatch(error: unknown): "gated" | "send_failed" {
+/**
+ * Held template sends stay retryable. They are not a Meta failure.
+ * send_unknown: the request may have reached Meta. It is never retried.
+ */
+export function templateFailureDispatch(error: unknown): "gated" | "send_failed" | "send_unknown" {
   if (isSendsHoldError(error)) return "gated";
   const text = error instanceof Error ? error.message : String(error ?? "");
   if (text === "suppressed_alert_mute" || text.includes("suppressed_alert_mute")) return "gated";
+  if (isSendOutcomeUnknown(text)) return "send_unknown";
   return "send_failed";
 }
 

@@ -44,8 +44,7 @@ import {
   sendWithSyncLogClaim,
   settleSyncLogClaim,
   syncLogRowRetryable,
-  type SyncLogSettle,
-} from "@/lib/leads/sync-log-claim";
+  type SyncLogSettle, settleForSendError } from "@/lib/leads/sync-log-claim";
 
 const SALE_LOG_SENTINEL_TRIGGER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -71,6 +70,7 @@ async function markPurchaseSaleSeen(input: {
   return { ok: true };
 }
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
+import { claimPurchaseSameDay } from "@/lib/leads/purchase-same-day-claim";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** One row from Arbox GET /v3/reports/salesReport `data[]`. */
@@ -382,7 +382,7 @@ async function sendOnePurchaseTemplate(input: {
     saleDateYmd: saleDateYmdFromRaw(input.saleDate),
     triggerId: matchedRule.id,
   };
-  if (purchaseTemplateCollapsedForSameDay(input.purchaseSameDaySent, sameDayIdentity)) {
+  const collapseSameDay = async (): Promise<OpeningTemplateResult> => {
     const seenMark = await markPurchaseSaleSeen({
       admin: input.admin,
       businessId: input.businessId,
@@ -402,7 +402,25 @@ async function sendOnePurchaseTemplate(input: {
       template_name: templateName,
     });
     return { outcome: "collapsed_same_day", dispatch: "no_rule" };
+  };
+  if (purchaseTemplateCollapsedForSameDay(input.purchaseSameDaySent, sameDayIdentity)) {
+    return collapseSameDay();
   }
+  /** null = go ahead; otherwise the result to return without sending. */
+  const claimSameDay = async (): Promise<OpeningTemplateResult | null> => {
+    if (!purchaseSameDaySentKey(sameDayIdentity)) return null;
+    const claim = await claimPurchaseSameDay({
+      admin: input.admin,
+      businessId: input.businessId,
+      userId: sameDayIdentity.userId,
+      saleDateYmd: sameDayIdentity.saleDateYmd,
+      triggerId: matchedRule.id,
+      saleId: input.saleId,
+    });
+    if (claim === "collapsed") return collapseSameDay();
+    if (claim === "error") return { outcome: "send_failed", dispatch: "no_rule" };
+    return null;
+  };
 
   if (matchedRule.delay_days > 0) {
     dispatch = "deferred";
@@ -413,6 +431,8 @@ async function sendOnePurchaseTemplate(input: {
       },
       parseSaleEventDate(input.saleDate)
     );
+    const sameDayBlocked = await claimSameDay();
+    if (sameDayBlocked) return sameDayBlocked;
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
       businessId: input.businessId,
@@ -516,6 +536,9 @@ async function sendOnePurchaseTemplate(input: {
     businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
   });
 
+  const sameDayBlocked = await claimSameDay();
+  if (sameDayBlocked) return sameDayBlocked;
+
   const claimed = await sendWithSyncLogClaim({
     admin: input.admin,
     ...trialSaleClaimKey(
@@ -536,7 +559,7 @@ async function sendOnePurchaseTemplate(input: {
       });
       if (!sendResult.ok) {
         return {
-          settle: isSendsHoldError(sendResult.error) ? ("release" as const) : ("failed" as const),
+          settle: settleForSendError(sendResult.error),
           reason: String(sendResult.error ?? "send_failed").slice(0, 200),
           value: sendResult,
         };
@@ -1115,7 +1138,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         whatsapp = "sent";
       } else if (waResult.reason === "trial_template_already_sent") {
         whatsapp = "skipped_zoe_confirm";
-      } else if (waResult.reason === "send_failed") {
+      } else if (waResult.reason === "send_failed" || waResult.reason === "send_unknown") {
         whatsapp = "send_failed";
       } else if (waResult.reason === "sends_hold") {
         whatsapp = "send_failed";

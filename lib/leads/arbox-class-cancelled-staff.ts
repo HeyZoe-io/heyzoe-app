@@ -9,6 +9,7 @@
  * IO (10 businesses): up to 2 paginated report GETs/business/day when the
  * rule is enabled. No Claude. No contacts insert. No Conversations log.
  */
+import { settleQueuedTemplateSend } from "@/lib/leads/sync-log-claim";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchArboxPagedReportRows } from "@/lib/leads/arbox-paged-report";
 import {
@@ -42,7 +43,8 @@ export type ClassCancelledStaffDispatch =
   | "no_rule"
   | "no_phone"
   | "gated"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type ClassCancelledStaffSyncSummary = {
   skipped?: boolean;
@@ -288,6 +290,10 @@ async function dispatchClassCancelledStaff(input: {
     return { dispatch: "immediate", ok: true };
   }
   if (send === "gated") return { dispatch: "gated", ok: false };
+  if (send === "send_unknown") {
+    await settleQueuedTemplateSend(input.admin, dedupKey, "unknown", null, "pending");
+    return { dispatch: "send_unknown", ok: false };
+  }
   return { dispatch: "send_failed", ok: false };
 }
 
@@ -433,7 +439,7 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
       if (send.dispatch === "immediate") summary.notified += 1;
       else if (send.dispatch === "already") summary.already += 1;
       else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
+      else if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-class-cancelled-staff] row threw", {

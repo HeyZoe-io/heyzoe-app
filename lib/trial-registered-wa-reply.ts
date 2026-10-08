@@ -1,3 +1,4 @@
+import { thrownSendOutcome } from "@/lib/notifications/graph-whatsapp-send";
 import { fetchLastSfServiceEventName, logMessage } from "@/lib/analytics";
 import { withWaMessageLogScope } from "@/lib/wa-message-log-context";
 import "@/lib/wa-message-log-als.server";
@@ -49,6 +50,7 @@ export type TrialRegisteredWaReplyResult =
         | "outside_24h_window"
         | "no_user_session"
         | "send_failed"
+        | "send_unknown"
         | "sends_hold"
         | "opted_out"
         | "trial_template_already_sent";
@@ -372,7 +374,7 @@ export async function sendTrialRegisteredWhatsAppReplyIfInWindow(input: {
       phone: input.phone.slice(-4),
       error: e instanceof Error ? e.message : String(e),
     });
-    return { sent: false, reason: "send_failed" };
+    return { sent: false, reason: thrownSendOutcome(e) === "unknown" ? "send_unknown" : "send_failed" };
   }
   });
 }

@@ -12,6 +12,7 @@ import {
   decideScheduledSendGate,
   isDuePendingScheduledSend,
   NO_TEMPLATE_SKIPPED_ERROR,
+  nextScheduledSendAfterMetaError,
   selectDuePendingScheduledSends,
 } from "@/lib/scheduled-template-sends";
 import { SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
@@ -260,6 +261,16 @@ void (async () => {
 
   assert.equal(decideScheduledDrainDispatch(thu0200).action, "hold");
   assert.equal(decideScheduledDrainDispatch(thu1400).action, "dispatch");
+
+  assert.deepEqual(decideScheduledSendAfterMeta({ ok: false, error: "send_outcome_unknown:http_502" }), {
+    status: "unknown",
+    last_error: "send_outcome_unknown:http_502",
+  });
+  assert.equal(decideScheduledSendAfterMeta({ ok: false, error: "(#131026) undeliverable" }).status, "failed");
+  assert.deepEqual(nextScheduledSendAfterMetaError(0), { status: "pending", attempts: 1 });
+  assert.deepEqual(nextScheduledSendAfterMetaError(1), { status: "pending", attempts: 2 });
+  assert.deepEqual(nextScheduledSendAfterMetaError(2), { status: "failed", attempts: 3 });
+  assert.deepEqual(nextScheduledSendAfterMetaError(null), { status: "failed", attempts: null }, "no attempts column: final as before");
 
   console.log("scheduled-template-sends.test.ts: ok");
 })().catch((err) => {

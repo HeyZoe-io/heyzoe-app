@@ -22,6 +22,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
+  isCancellationSyncLogTerminal,
   nextCancellationSyncLogAfterDispatch,
   parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
@@ -191,7 +192,7 @@ export function freezeCreatedStartInSpan(startYmd: string, now: Date): boolean {
   return startYmd >= from && startYmd <= to;
 }
 
-const FREEZE_CREATED_TERMINAL = new Set(["seeded", "sent", "abandoned", "no_phone", "skipped"]);
+const FREEZE_CREATED_TERMINAL = { has: (status: string) => isCancellationSyncLogTerminal(status) };
 
 /**
  * Marker row per rule: membership_hold_id 0, user_id = this version, status seeded.
@@ -433,7 +434,9 @@ async function upsertCreatedLog(input: {
   /** Leave an existing row (a prior send) unchanged. */
   ignoreExisting?: boolean;
 }): Promise<boolean> {
-  const { error } = await input.admin.from("arbox_freeze_created_sync_log").upsert(
+  const { ok } = await upsertOptionalReason(
+    input.admin,
+    "arbox_freeze_created_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -444,16 +447,11 @@ async function upsertCreatedLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    {
-      onConflict: "business_id,trigger_id,membership_hold_id",
-      ignoreDuplicates: input.ignoreExisting === true,
-    }
+    "business_id,trigger_id,membership_hold_id",
+    undefined,
+    { ignoreDuplicates: input.ignoreExisting === true }
   );
-  if (error) {
-    console.error("[leads/arbox-freeze] created sync_log upsert failed:", error.message);
-    return false;
-  }
-  return true;
+  return ok;
 }
 
 async function upsertEndingLog(input: {
@@ -469,7 +467,9 @@ async function upsertEndingLog(input: {
   status: CancellationSyncLogStatus;
   nowIso: string;
 }): Promise<boolean> {
-  const { error } = await input.admin.from("arbox_freeze_ending_sync_log").upsert(
+  const { ok } = await upsertOptionalReason(
+    input.admin,
+    "arbox_freeze_ending_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -482,13 +482,9 @@ async function upsertEndingLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,trigger_id,membership_hold_id,end_suspend_ymd" }
+    "business_id,trigger_id,membership_hold_id,end_suspend_ymd"
   );
-  if (error) {
-    console.error("[leads/arbox-freeze] ending sync_log upsert failed:", error.message);
-    return false;
-  }
-  return true;
+  return ok;
 }
 
 async function dispatchFreezeTemplate(input: {
@@ -505,7 +501,7 @@ async function dispatchFreezeTemplate(input: {
   rule: PurchaseTemplateTriggerRule;
   dedupKey: string;
   now: Date;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "send_unknown" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -627,7 +623,8 @@ async function dispatchFreezeTemplate(input: {
   return { dispatch: "immediate", ok: true };
 }
 
-function mapDispatch(d: string): "immediate" | "deferred" | "gated" | "send_failed" | "skipped" {
+function mapDispatch(d: string): "immediate" | "deferred" | "gated" | "send_failed" | "send_unknown" | "skipped" {
+  if (d === "send_unknown") return "send_unknown";
   if (d === "immediate") return "immediate";
   if (d === "deferred") return "deferred";
   if (d === "gated") return "gated";
@@ -1124,7 +1121,7 @@ export async function syncArboxFreezeForBusiness(input: {
             if (sendDispatch === "immediate") summary.notified += 1;
             else if (sendDispatch === "deferred") summary.deferred += 1;
             else if (sendDispatch === "gated") summary.gated += 1;
-            else if (sendDispatch === "send_failed") {
+            else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") {
               if (next.hitCap) summary.abandoned += 1;
               else summary.errors += 1;
             }
@@ -1222,7 +1219,7 @@ export async function syncArboxFreezeForBusiness(input: {
         (existingRows ?? [])
           .filter((log) => {
             const status = String((log as { status?: unknown }).status ?? "");
-            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            return isCancellationSyncLogTerminal(status);
           })
           .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
       );
@@ -1417,7 +1414,7 @@ export async function syncArboxFreezeForBusiness(input: {
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") {
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }

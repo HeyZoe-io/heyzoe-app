@@ -10,6 +10,7 @@
  * 1 bookingsReport (today…+14, usually 1–2 pages) + 1 membershipTypes.
  * First pass seeds and sends nothing.
  */
+import { isSendOutcomeUnknown, SEND_OUTCOME_UNKNOWN } from "@/lib/notifications/graph-whatsapp-send";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import {
   bookingMatchesTrialScope,
@@ -157,9 +158,10 @@ export function trialBookingConfirmEnabled(hasTrialBookedRule: boolean): boolean
   return trialBookedSendsEnabled() && hasTrialBookedRule === true;
 }
 
-/** A claim row exists. Pending / sending is already taken. A failed send is terminal too (Oct 5). */
+/** A claim row exists. Pending / sending / unknown is already taken. Only a Meta failure is tried again. */
 export function trialBookingAlreadyHandled(status: string | null | undefined): boolean {
-  return Boolean(String(status ?? "").trim());
+  const value = String(status ?? "").trim();
+  return Boolean(value) && !TRIAL_BOOKING_RETRYABLE.includes(value);
 }
 
 /** Class start in Asia/Jerusalem is strictly before `now`. The start minute itself still sends. */
@@ -339,7 +341,7 @@ async function sendTrialBookedTemplate(input: {
   classTime: string;
   rule: PurchaseTemplateTriggerRule;
   template: ApprovedTrialBookedTemplate;
-}): Promise<"sent" | "skipped" | "waiting" | "failed" | "held"> {
+}): Promise<"sent" | "skipped" | "waiting" | "failed" | "held" | "unknown"> {
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   if (!phoneNumberId) return "waiting";
@@ -377,7 +379,7 @@ async function sendTrialBookedTemplate(input: {
   if (!sendResult.ok) {
     if (isSendsHoldError(sendResult.error)) return "held";
     console.error(LOG, "template send failed:", sendResult.error);
-    return "failed";
+    return isSendOutcomeUnknown(sendResult.error) ? "unknown" : "failed";
   }
   await logMessage({
     business_slug: input.businessSlug,
@@ -885,11 +887,20 @@ export async function syncTrialBookingConfirmForBusiness(input: {
               return { settle: "sent" as const, value: waResult, row: { confirm_status: "sent", template_status: "skipped" } };
             }
             if (waResult.reason === "sends_hold") return { settle: "release" as const, value: waResult };
+            if (waResult.reason === "send_unknown") {
+              return {
+                settle: "unknown" as const,
+                reason: SEND_OUTCOME_UNKNOWN,
+                value: waResult,
+                row: { confirm_status: "failed", template_status: "skipped" },
+              };
+            }
+            const terminal = trialBookingConfirmIsTerminalSkip(waResult);
             return {
-              settle: "failed" as const,
+              settle: terminal ? ("skipped" as const) : ("failed" as const),
               reason: String(waResult.reason ?? "send_failed"),
               value: waResult,
-              row: { confirm_status: "failed", template_status: "skipped" },
+              row: { confirm_status: terminal ? "skipped" : "failed", template_status: "skipped" },
             };
           },
         });
@@ -974,6 +985,22 @@ export async function syncTrialBookingConfirmForBusiness(input: {
               row: { confirm_status: "skipped", template_status: "skipped" },
             };
           }
+          if (outcome === "unknown") {
+            return {
+              settle: "unknown" as const,
+              reason: SEND_OUTCOME_UNKNOWN,
+              value: outcome,
+              row: { confirm_status: "skipped", template_status: "failed" },
+            };
+          }
+          if (outcome === "waiting") {
+            return {
+              settle: "skipped" as const,
+              reason: "no_channel",
+              value: outcome,
+              row: { confirm_status: "skipped", template_status: "skipped" },
+            };
+          }
           return {
             settle: "failed" as const,
             reason: "send_failed",
@@ -994,7 +1021,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       if (templateSend.value === "sent") {
         summary.template_sent += 1;
         counts.last24h += 1;
-      } else if (templateSend.value === "failed") {
+      } else if (templateSend.value === "failed" || templateSend.value === "unknown") {
         summary.errors += 1;
       }
     }
@@ -1005,7 +1032,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
 
 
 
-export const TRIAL_BOOKING_RETRYABLE: readonly string[] = [];
+/** A Meta error is retried up to the attempt cap. Unknown, skipped and sent are final. */
+export const TRIAL_BOOKING_RETRYABLE: readonly string[] = ["failed"];
 
 /** One booking, one rule, one channel. Same primary key as the confirm log. */
 export function trialBookingClaimKey(

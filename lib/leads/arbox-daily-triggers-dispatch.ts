@@ -1,11 +1,15 @@
 import { CRON_INTERNAL_HEADER } from "@/lib/cron-clock";
 import { resolveCronSecret } from "@/lib/server-env";
+import { retryableInRun } from "@/lib/leads/arbox-daily-run-status";
 
 /**
  * Under the dispatcher maxDuration (300s) so "dispatch done" is always logged.
  * A worker that is still running keeps going on its own invocation.
  */
 export const ARBOX_DAILY_WORKER_ABORT_MS = 285_000;
+
+/** An in-run retry needs at least this much of the abort budget left to start. */
+export const ARBOX_DAILY_RETRY_MIN_MS = 60_000;
 
 /**
  * Trigger types this cron's steps actually run.
@@ -54,6 +58,8 @@ export type WorkerDispatchResult = {
   outcome: WorkerDispatchOutcome;
   body: unknown;
   error?: string;
+  /** 2 when the dispatcher retried this business in the same run. */
+  attempts?: number;
 };
 
 /**
@@ -98,24 +104,50 @@ export async function dispatchArboxDailyWorkers(input: {
   authorization: string | null;
   slot?: "morning" | "evening";
   nowIso?: string;
+  /** Retry a business whose worker failed once, inside the same run. Not with dry run. */
+  retryIncomplete?: boolean;
 }): Promise<{ total_ms: number; businesses: WorkerDispatchResult[] }> {
   const started = Date.now();
-  const settled = await Promise.allSettled(
-    input.businessIds.map((id) => callWorker(input, id, input.slot === "evening" ? "evening" : "morning"))
-  );
-  const businesses: WorkerDispatchResult[] = settled.map((result, index) => {
-    if (result.status === "fulfilled") return result.value;
-    const reason = result.reason;
-    return {
-      business_id: input.businessIds[index] ?? 0,
-      http: 0,
-      elapsed_ms: 0,
-      ok: false,
-      outcome: "failed",
-      body: null,
-      error: reason instanceof Error ? reason.message : String(reason),
-    };
-  });
+  const slot = input.slot === "evening" ? "evening" : "morning";
+  const runAll = async (ids: number[], abortMs: number): Promise<WorkerDispatchResult[]> => {
+    const settled = await Promise.allSettled(ids.map((id) => callWorker(input, id, slot, abortMs)));
+    return settled.map((result, index) => {
+      if (result.status === "fulfilled") return result.value;
+      const reason = result.reason;
+      return {
+        business_id: ids[index] ?? 0,
+        http: 0,
+        elapsed_ms: 0,
+        ok: false,
+        outcome: "failed" as const,
+        body: null,
+        error: reason instanceof Error ? reason.message : String(reason),
+      };
+    });
+  };
+  const businesses = await runAll(input.businessIds, ARBOX_DAILY_WORKER_ABORT_MS);
+  if (input.retryIncomplete && !input.dryRun) {
+    const retryIds = businesses.filter(retryableInRun).map((row) => row.business_id);
+    const left = ARBOX_DAILY_WORKER_ABORT_MS - (Date.now() - started);
+    if (retryIds.length && left >= ARBOX_DAILY_RETRY_MIN_MS) {
+      console.warn("[cron/arbox-daily-triggers] retrying incomplete businesses in this run", {
+        slot,
+        businesses: retryIds,
+        budget_ms: left,
+      });
+      const retried = new Map((await runAll(retryIds, left)).map((row) => [row.business_id, row]));
+      for (let i = 0; i < businesses.length; i += 1) {
+        const again = retried.get(businesses[i].business_id);
+        if (again) businesses[i] = { ...again, attempts: 2 };
+      }
+    } else if (retryIds.length) {
+      console.error("[cron/arbox-daily-triggers] no time left to retry in this run", {
+        slot,
+        businesses: retryIds,
+        budget_ms: left,
+      });
+    }
+  }
   const total_ms = Date.now() - started;
   console.info("[cron/arbox-daily-triggers] dispatch done", {
     total_ms,
@@ -126,6 +158,7 @@ export async function dispatchArboxDailyWorkers(input: {
       http: row.http,
       elapsed_ms: row.elapsed_ms,
       result: row.outcome,
+      ...(row.attempts ? { attempts: row.attempts } : {}),
       ...(row.error ? { error: row.error } : {}),
     })),
   });
@@ -140,7 +173,8 @@ async function callWorker(
     nowIso?: string;
   },
   businessId: number,
-  slot: "morning" | "evening"
+  slot: "morning" | "evening",
+  abortMs: number = ARBOX_DAILY_WORKER_ABORT_MS
 ): Promise<WorkerDispatchResult> {
   const started = Date.now();
   const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot, input.nowIso);
@@ -154,7 +188,7 @@ async function callWorker(
         ...(authorization ? { Authorization: authorization } : {}),
         [CRON_INTERNAL_HEADER]: "1",
       },
-      signal: AbortSignal.timeout(ARBOX_DAILY_WORKER_ABORT_MS),
+      signal: AbortSignal.timeout(abortMs),
     });
     const body = await res.json().catch(() => null);
     return {

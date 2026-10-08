@@ -58,6 +58,7 @@ export type TrainerTrialHeadsUpDispatch =
   | "no_phone"
   | "gated"
   | "send_failed"
+  | "send_unknown"
   | "held"
   | "skipped";
 
@@ -304,6 +305,10 @@ async function dispatchTrainerTrialHeadsUp(input: {
   if (send === "gated") {
     await settleQueuedTemplateSend(input.admin, dedupKey, "release", heldError);
     return { dispatch: "gated", ok: false };
+  }
+  if (send === "send_unknown") {
+    await settleQueuedTemplateSend(input.admin, dedupKey, "unknown");
+    return { dispatch: "send_unknown", ok: false };
   }
   await settleQueuedTemplateSend(input.admin, dedupKey, "failed", heldError);
   return { dispatch: "send_failed", ok: false };
@@ -714,7 +719,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       else if (send.dispatch === "already") summary.already += 1;
       else if (send.dispatch === "gated") summary.gated += 1;
       else if (send.dispatch === "no_phone") summary.no_phone += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
+      else if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-trainer-trial-heads-up] row threw", {

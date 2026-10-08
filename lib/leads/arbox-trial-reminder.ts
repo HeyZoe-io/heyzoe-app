@@ -43,7 +43,7 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
-import { isMissingSyncLogReasonColumn } from "@/lib/leads/sync-log-reason";
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   bookingMatchesTrialScope,
   fetchArboxBookingsReport,
@@ -95,7 +95,8 @@ export type TrialReminderDispatch =
   | "seeded"
   | "already"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type TrialReminderSyncSummary = {
   skipped?: boolean;
@@ -548,22 +549,13 @@ async function upsertTrialReminderSyncLog(input: {
     attempts: input.attempts,
     status: input.status,
   };
-  if (input.reason !== undefined) row.reason = input.reason;
-  const first = await input.admin
-    .from("arbox_trial_reminder_sync_log")
-    .upsert(row, { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" });
-  if (!first.error) return { ok: true };
-  if (input.reason !== undefined && isMissingSyncLogReasonColumn(first.error.message)) {
-    delete row.reason;
-    const second = await input.admin
-      .from("arbox_trial_reminder_sync_log")
-      .upsert(row, { onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name" });
-    if (!second.error) return { ok: true };
-    console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", second.error.message);
-    return { ok: false };
-  }
-  console.error("[leads/arbox-trial-reminder] sync_log upsert failed:", first.error.message);
-  return { ok: false };
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_trial_reminder_sync_log",
+    row,
+    "business_id,trigger_id,user_id,class_date,class_time,class_name",
+    input.reason
+  );
 }
 
 async function dispatchTrialReminderTemplate(input: {
@@ -604,7 +596,8 @@ async function dispatchTrialReminderTemplate(input: {
       slot,
       realToday: formatDateYmdIsrael(new Date()),
     });
-    return { dispatch: "skipped", ok: false };
+    // Not this run's day: no final skip, the row stays pending for the right run.
+    return { dispatch: "gated", ok: false };
   }
 
   // Detection delay already applied (due-day filter). Send on this cron run.
@@ -1196,7 +1189,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         (existingRows ?? [])
           .filter((row) => {
             const status = String((row as { status?: unknown }).status ?? "");
-            return isCancellationSyncLogTerminal(status) && status !== "skipped";
+            return isCancellationSyncLogTerminal(status);
           })
           .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );
@@ -1373,7 +1366,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         send.dispatch === "deferred" ||
         send.dispatch === "gated" ||
         send.dispatch === "skipped" ||
-        send.dispatch === "send_failed"
+        (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
       ) {
         const next = nextCancellationSyncLogAfterDispatch({
           dispatch: send.dispatch,
@@ -1401,7 +1394,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;
         else if (send.dispatch === "gated") summary.gated += 1;
-        else if (send.dispatch === "send_failed" && !next.hitCap) summary.errors += 1;
+        else if ((send.dispatch === "send_failed" || send.dispatch === "send_unknown") && !next.hitCap) summary.errors += 1;
       }
     } catch (e) {
       summary.errors += 1;
