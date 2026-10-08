@@ -195,6 +195,15 @@ export async function handleLeadHumanRequested(input: {
     return { already: true };
   }
 
+  const { lockFollowupSeriesForHumanInvolvement } = await import("@/lib/followup-series-lock");
+  await lockFollowupSeriesForHumanInvolvement({
+    admin: input.supabase,
+    businessId,
+    phone: input.phone,
+    nowIso: input.nowIso,
+    reason: "human_requested",
+  });
+
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const { logMessage } = await import("@/lib/analytics");
   await logMessage({
@@ -286,6 +295,15 @@ export async function markContactHumanRequestedManually(input: {
   if (!updated?.length) {
     return { ok: false, error: "contact_not_found" };
   }
+
+  const { lockFollowupSeriesForHumanInvolvement } = await import("@/lib/followup-series-lock");
+  await lockFollowupSeriesForHumanInvolvement({
+    admin: input.admin,
+    businessId,
+    phone: input.phone,
+    nowIso,
+    reason: "human_requested",
+  });
 
   const slug = String(input.businessSlug ?? "").trim().toLowerCase();
   const channel = await resolveSendChannelForContact(input.admin, businessId, input.phone);

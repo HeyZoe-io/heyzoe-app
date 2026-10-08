@@ -4,6 +4,7 @@ import {
   appEchoTextClearsHumanRequested,
   clearHumanRequestedAfterStaffReply,
 } from "@/lib/human-requested";
+import { lockFollowupSeriesForHumanInvolvement } from "@/lib/followup-series-lock";
 import { buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import {
   isMarketingConversationsSlug,
@@ -400,6 +401,13 @@ export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promis
           businessId,
           phone: echo.leadPhone,
         }).catch((e) => console.error("[wa-app-echo-pause] clear human_requested failed:", e));
+        await lockFollowupSeriesForHumanInvolvement({
+          admin,
+          businessId,
+          phone: echo.leadPhone,
+          nowIso: now.toISOString(),
+          reason: "staff_app_reply",
+        }).catch((e) => console.error("[wa-app-echo-pause] follow-up series lock failed:", e));
       }
     }
 

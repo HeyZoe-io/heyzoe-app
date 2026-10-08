@@ -1,6 +1,7 @@
 -- Manual step: run once in the Supabase SQL editor before merging feat/arbox-member-badge.
 -- Idempotent. One transaction: either every part applies or none does.
 -- Replaces the unapplied supabase/contacts_arbox_membership_status.sql (Hebrew values).
+-- Parts: 1 Arbox background pause, 2 membership badge, 3 follow-up series lock.
 
 begin;
 
@@ -40,8 +41,19 @@ comment on column public.contacts.arbox_membership_status is
 comment on column public.contacts.arbox_membership_checked_at is
   'When the per-contact Arbox membership lookup last succeeded. Refresh is skipped for 7 days.';
 
+-- Part 3. Follow-up series runs once per contact. Set when the first follow-up is claimed,
+-- or on any human involvement. Null on every existing row: nothing changes until the
+-- backfill (scripts/backfill-followup-series-lock.mts) runs. The wa-followups due-time
+-- trigger does not watch this column.
+alter table public.contacts
+  add column if not exists followup_series_locked_at timestamptz null;
+
+comment on column public.contacts.followup_series_locked_at is
+  'Set once: first follow-up claimed, or human request / staff reply / dashboard send. While set, no new follow-up series starts. Stage resets for tags are unaffected.';
+
 commit;
 
 -- Check after running:
 -- select slug, arbox_background_paused from public.businesses where arbox_background_paused;
 -- select count(*) from public.contacts where arbox_membership_status is not null;
+-- select count(*) from public.contacts where followup_series_locked_at is not null;

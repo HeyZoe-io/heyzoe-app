@@ -7,6 +7,7 @@ import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 import { outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
 import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
+import { lockFollowupSeriesForHumanInvolvement } from "@/lib/followup-series-lock";
 
 export const runtime = "nodejs";
 
@@ -142,6 +143,13 @@ export async function POST(req: NextRequest) {
         .update({ last_contact_at: nowIso })
         .eq("business_id", businessId)
         .eq("phone", phone);
+      await lockFollowupSeriesForHumanInvolvement({
+        admin,
+        businessId,
+        phone,
+        nowIso,
+        reason: "dashboard_send",
+      });
     } catch (e) {
       console.error("[api/contacts/send] single send failed:", e);
       failed += 1;

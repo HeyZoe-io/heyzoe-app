@@ -29,6 +29,13 @@ import { resolveWaFollowupCta } from "@/lib/wa-followup-cta";
 import { customerServicePhoneFromSocialLinks } from "@/lib/whatsapp-copy";
 import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import {
+  claimFollowupSeriesStart,
+  decideFollowupSeriesGate,
+  FOLLOWUP_SERIES_LOCK_COLUMN,
+  FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS,
+  followupSeriesLockColumnExists,
+} from "@/lib/followup-series-lock";
 
 /** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
 export const runtime = "nodejs";
@@ -51,7 +58,8 @@ type WaFollowupSkipReason =
   | "session_paused"
   | "stage_disabled"
   | "node_followups"
-  | "sales_flow_not_started";
+  | "sales_flow_not_started"
+  | "series_locked";
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -295,6 +303,29 @@ export async function GET(req: NextRequest) {
         messages_hint,
       });
     }
+    if (contact.id != null && (await followupSeriesLockColumnExists(admin))) {
+      const { data: lockRow } = await admin
+        .from("contacts")
+        .select(FOLLOWUP_SERIES_LOCK_COLUMN)
+        .eq("id", contact.id as string | number)
+        .maybeSingle();
+      const lockedAt = (lockRow as Record<string, unknown> | null)?.[FOLLOWUP_SERIES_LOCK_COLUMN];
+      const gate = decideFollowupSeriesGate({
+        lockColumn: true,
+        lockedAt: typeof lockedAt === "string" ? lockedAt : null,
+        stageCurrent: Number(contact.wa_followup_stage ?? 0) || 0,
+      });
+      if (gate === "locked") {
+        return NextResponse.json({
+          ok: true,
+          debug: true,
+          skip_reason: "series_locked",
+          phone: maskPhone(debugPhone),
+          business_slug: debugSlug,
+          followup_series_locked_at: lockedAt,
+        });
+      }
+    }
     const contactPhone = String(contact.phone ?? "").trim();
     const evalResult = await evaluateBusinessWaFollowup({
       admin,
@@ -355,13 +386,21 @@ export async function GET(req: NextRequest) {
   const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
 
+  // Follow-up series runs once per contact: locked contacts are read only while their series is in progress.
+  const lockColumn = await followupSeriesLockColumnExists(admin);
+  const lockSelect = lockColumn ? `, ${FOLLOWUP_SERIES_LOCK_COLUMN}` : "";
+  const withSeriesLockGate = <Q extends { or: (filters: string) => Q }>(q: Q): Q =>
+    lockColumn ? q.or(FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS) : q;
   const followupSelect =
-    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at, trial_signup_notice";
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at, trial_signup_notice" +
+    lockSelect;
   const followupSelectNoSelfReported =
-    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, trial_signup_notice";
+    "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, trial_signup_notice" +
+    lockSelect;
 
   let contacts: any[] | null = null;
-  const { data: contactsData, error } = await admin
+  const { data: contactsData, error } = await withSeriesLockGate(
+    admin
     .from("contacts")
     .select(followupSelect)
     .eq("source", "whatsapp")
@@ -375,6 +414,7 @@ export async function GET(req: NextRequest) {
     .not("wa_next_followup_at", "is", null)
     .lte("wa_next_followup_at", nowIso)
     .gte("wa_next_followup_at", cutoff24hIso)
+    )
     .limit(BATCH);
   contacts = (contactsData as any[] | null) ?? null;
 
@@ -384,7 +424,8 @@ export async function GET(req: NextRequest) {
       console.warn(
         "[cron/wa-followups] self_reported_registered_at missing — run supabase/contacts_cta_frequency_and_self_reported.sql"
       );
-      const retry = await admin
+      const retry = await withSeriesLockGate(
+        admin
         .from("contacts")
         .select(followupSelectNoSelfReported)
         .eq("source", "whatsapp")
@@ -397,6 +438,7 @@ export async function GET(req: NextRequest) {
         .not("wa_next_followup_at", "is", null)
         .lte("wa_next_followup_at", nowIso)
         .gte("wa_next_followup_at", cutoff24hIso)
+        )
         .limit(BATCH);
       if (retry.error) {
         console.error("[cron/wa-followups] contacts query (no self_reported):", retry.error);
@@ -404,7 +446,8 @@ export async function GET(req: NextRequest) {
       }
       contacts = (retry.data as any[] | null) ?? null;
     } else if (/wa_next_followup_at|column/i.test(msg)) {
-      const { data: legacy, error: legacyErr } = await admin
+      const { data: legacy, error: legacyErr } = await withSeriesLockGate(
+        admin
         .from("contacts")
         .select(followupSelect)
         .eq("source", "whatsapp")
@@ -418,6 +461,7 @@ export async function GET(req: NextRequest) {
         .not("last_contact_at", "is", null)
         .lt("last_contact_at", cutoff20mIso)
         .gte("last_contact_at", cutoff24hIso)
+        )
         .limit(BATCH);
       if (legacyErr) {
         console.error("[cron/wa-followups] contacts query (legacy):", legacyErr);
@@ -433,7 +477,8 @@ export async function GET(req: NextRequest) {
     const seen = new Set((contacts ?? []).map((c) => String((c as { id?: unknown }).id ?? "")));
     const room = Math.max(0, BATCH - (contacts?.length ?? 0));
     if (room > 0) {
-      const { data: nullDueRows, error: nullDueErr } = await admin
+      const { data: nullDueRows, error: nullDueErr } = await withSeriesLockGate(
+        admin
         .from("contacts")
         .select(followupSelect)
         .eq("source", "whatsapp")
@@ -449,6 +494,7 @@ export async function GET(req: NextRequest) {
         .not("last_contact_at", "is", null)
         .lt("last_contact_at", cutoff20mIso)
         .gte("last_contact_at", cutoff24hIso)
+        )
         .limit(room);
       if (nullDueErr) {
         console.warn("[cron/wa-followups] null due-at supplement query:", nullDueErr.message);
@@ -509,6 +555,21 @@ export async function GET(req: NextRequest) {
         business_id: businessId ?? null,
       });
       bumpSkip("invalid_contact");
+      continue;
+    }
+
+    const seriesGate = decideFollowupSeriesGate({
+      lockColumn,
+      lockedAt: (c as { followup_series_locked_at?: string | null }).followup_series_locked_at ?? null,
+      stageCurrent: Number((c as { wa_followup_stage?: number | null }).wa_followup_stage ?? 0) || 0,
+    });
+    if (seriesGate === "locked") {
+      logWaFollowupSkip("series_locked", {
+        contact_id: contactId ?? null,
+        phone: maskPhone(phone),
+        business_id: businessId,
+      });
+      bumpSkip("series_locked");
       continue;
     }
 
@@ -753,6 +814,20 @@ export async function GET(req: NextRequest) {
         social_links: socialLinks,
         session_phase: sessionPhase || null,
       });
+
+      if (seriesGate === "start_series" && contactId != null) {
+        const claim = await claimFollowupSeriesStart({ admin, contactId, nowIso: new Date().toISOString() });
+        if (!claim.claimed) {
+          logWaFollowupSkip("series_locked", {
+            contact_id: contactId,
+            phone: maskPhone(phone),
+            business_slug,
+            detail: claim.error ? "claim_failed" : "locked_meanwhile",
+          });
+          bumpSkip("series_locked");
+          continue;
+        }
+      }
 
       await withWaMessageLogScope({ businessSlug: business_slug, sessionId }, async () => {
       await sendWhatsAppIdleFollowupMessage(

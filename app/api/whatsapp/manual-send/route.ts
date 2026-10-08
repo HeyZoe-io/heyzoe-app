@@ -15,6 +15,7 @@ import {
   sendWhatsAppMessage,
 } from "@/lib/whatsapp";
 import { extractPhoneFromSessionId } from "@/lib/conversations-sessions";
+import { lockFollowupSeriesForHumanInvolvement } from "@/lib/followup-series-lock";
 import {
   clearHumanRequestedAfterStaffReply,
   manualDashboardSendClearsHumanRequested,
@@ -130,6 +131,13 @@ export async function POST(req: NextRequest) {
         phone: parsed.leadPhone,
       });
     }
+    await lockFollowupSeriesForHumanInvolvement({
+      admin,
+      businessId: access.business.id,
+      phone: parsed.leadPhone,
+      nowIso: new Date().toISOString(),
+      reason: "dashboard_send",
+    });
     });
 
     return NextResponse.json({ ok: true, content: mediaUrl ? formatManualMediaMessageContent(mediaUrl, text) : text });
