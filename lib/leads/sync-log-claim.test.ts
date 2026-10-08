@@ -21,6 +21,7 @@ import { trialSaleClaimKey } from "./arbox-trial-sale-registered";
 import { firstPaidPurchaseClaimKey } from "./arbox-first-paid-purchase";
 import { arboxNewLeadClaimKey } from "./arbox-new-lead";
 import { classCancelNotifyClaimKey } from "./arbox-class-cancelled-customer";
+import { incomingFallbackClaimKey } from "./incoming-fallback-claim";
 import {
   companionClaimFailures,
   recordCompanionTemplateSent,
@@ -205,6 +206,15 @@ const paths: Path[] = [
     },
     key: () => classCancelNotifyClaimKey(1, "rule-a", { schedule_id: "77", user_id: "11" }, now),
     metaSettle: "release",
+  },
+  {
+    name: "incoming lead fallback (Sanga)",
+    spec: {
+      columns: ["business_id", "phone", "sent_day", "template_name", ...SYNC_COLUMNS],
+      pk: ["business_id", "phone", "sent_day"],
+    },
+    key: (attempts) => incomingFallbackClaimKey(1, "972501112233", "sanga_open", now, attempts),
+    metaSettle: "failed",
   },
 ];
 
