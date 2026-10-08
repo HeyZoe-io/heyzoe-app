@@ -352,7 +352,9 @@ export default function CampaignSendPanel(props: {
             ? "לא ניתן לתזמן לזמן שעבר."
             : j.error === "invalid_schedule_time"
               ? "תאריך או שעה לא תקינים."
-              : j.error || "confirm_failed";
+              : j.error === "bulk_send_held"
+                ? "השליחה לא נכנסה לתור. צוות זואי בודק ויחזור אלייך."
+                : j.error || "confirm_failed";
         throw new Error(mapped);
       }
       const start = j.dispatch_at_he ? `התחלה ${j.dispatch_at_he}` : "ה-drain הבא";

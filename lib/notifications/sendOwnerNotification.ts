@@ -1,6 +1,6 @@
 import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { outboundSendsHeld } from "@/lib/business-sends-hold";
-import { isArboxDailyDryRun, noteArboxDailyWouldSend } from "@/lib/leads/arbox-daily-run-flag";
+import { activeSendPlan, isArboxDailyDryRun, noteArboxDailyWouldSend } from "@/lib/leads/arbox-daily-run-flag";
 import {
   contactAlertMuted,
   graphTemplateMessageId,
@@ -31,6 +31,7 @@ import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
 import { EMPTY_VARIABLE_ERROR, emptyTemplateVariable } from "@/lib/notifications/template-empty-variable";
+import { eventSendGate } from "@/lib/send-plan/inline";
 
 export type OwnerTemplateComponent = {
   type: "body" | "header";
@@ -147,7 +148,22 @@ export async function sendBusinessTemplate(input: {
    * Empty = the param-independent 20h claim (broadcast, bulk, non-event templates).
    */
   eventDedupKey?: string | null;
+  /** DISPATCH, the queue drain and bulk: the checks already ran when the send was planned or queued. */
+  skipSendChecks?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
+  const plan = activeSendPlan();
+  if (plan?.intercepts) {
+    return plan.record({
+      to: input.to,
+      phoneNumberId: String(input.phoneNumberId ?? "").trim(),
+      templateName: String(input.templateName ?? "").trim(),
+      languageCode: input.languageCode,
+      components: input.components,
+      recipientKind: input.recipientKind,
+      alertTriggerId: input.alertTriggerId,
+      eventDedupKey: input.eventDedupKey,
+    });
+  }
   const token = resolveMetaAccessToken();
   if (!token) {
     return { ok: false, error: "missing_meta_token" };
@@ -212,6 +228,20 @@ export async function sendBusinessTemplate(input: {
     noteArboxDailyWouldSend(line);
     console.info("[dry-run] template", line);
     return { ok: true };
+  }
+
+  if (!input.skipSendChecks && input.alertTriggerId) {
+    const gate = await eventSendGate({
+      to,
+      phoneNumberId,
+      templateName,
+      languageCode: input.languageCode,
+      components: input.components,
+      recipientKind: input.recipientKind,
+      alertTriggerId: input.alertTriggerId,
+      eventDedupKey: input.eventDedupKey,
+    });
+    if (gate) return gate;
   }
 
   if (

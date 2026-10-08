@@ -7,6 +7,7 @@ import {
 } from "@/lib/manual-bulk/constants";
 import { loadApprovedMarketingTemplate } from "@/lib/manual-bulk/preview";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { alertBulkHeld, BULK_SEND_HELD_ERROR, bulkQueueHold } from "@/lib/send-plan/bulk";
 
 export async function enqueueManualBulkSend(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
@@ -34,6 +35,26 @@ export async function enqueueManualBulkSend(input: {
     templateName: input.templateName,
   });
   if (!tpl) throw new Error("template_not_approved_marketing");
+  if (Number.isFinite(input.dueAt.getTime())) {
+    const hold = await bulkQueueHold({
+      admin: input.admin,
+      businessId: input.businessId,
+      templateName: tpl.name,
+      components: tpl.components,
+      dueAt: input.dueAt,
+    });
+    if (hold) {
+      console.error("[manual-bulk] held at queue time", { business_id: input.businessId, template_name: tpl.name, ...hold });
+      await alertBulkHeld({
+        admin: input.admin,
+        businessId: input.businessId,
+        businessSlug: input.businessSlug,
+        templateName: tpl.name,
+        reason: hold.reason,
+      });
+      throw new Error(BULK_SEND_HELD_ERROR);
+    }
+  }
 
   const audience = await buildManualBulkAudience({
     admin: input.admin,

@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { activeSendPlan, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   isOpeningServicePickMenuModel,
   salesFlowGreetingMarkerCountsAsStarted,
@@ -369,6 +369,7 @@ export async function fetchRecentSessionMessages(input: {
 }
 
 export async function logMessage(input: MessageLogInput) {
+  if (activeSendPlan()?.captureLog(input)) return;
   if (isArboxDailyDryRun()) return;
   try {
     const { consumeWaOutboundIfLogged, noteWaLogInserted, shouldSkipDuplicateWaLog } = await import(

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { StaffIndex } from "@/lib/leads/arbox-staff";
+import type { SendPlanHandle } from "@/lib/send-plan/types";
 
 /**
  * Opt-in context for one /api/cron/arbox-daily-triggers/business invocation.
@@ -18,6 +19,8 @@ export type ArboxDailyRunContext = {
   staffIndex?: StaffIndex;
   /** Filled only while dryRun is true. Returned to the caller; nothing is sent. */
   wouldSend?: { template: string; phone_tail: string; params: string[] }[];
+  /** PLAN phase (or legacy queue checks): sends and queued rows go through the plan checks. */
+  sendPlan?: SendPlanHandle;
 };
 
 const storage = new AsyncLocalStorage<ArboxDailyRunContext>();

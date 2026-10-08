@@ -83,6 +83,7 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const status =
       message === "audience_membership_requires_arbox" ||
       message === "template_not_approved_marketing" ||
+      message === "bulk_send_held" ||
       message === "confirmation_required" ||
       message === "schedule_in_past" ||
       message === "invalid_schedule_time"

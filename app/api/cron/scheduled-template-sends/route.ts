@@ -26,24 +26,23 @@ import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
 import {
-  classDateYmdFromStaffDedupKey,
   classDateYmdFromTrainerHeadsUpDedupKey,
-  classDateYmdFromTrialReminderDedupKey,
-  classNameFromScheduledDedupKey,
   classTimeFromScheduledDedupKey,
   clientFirstNameFromStaffDedupKey,
   templateBodyUsesSlot,
   userIdFromTrainerTrialHeadsUpDedupKey,
-  expiryYmdFromScheduledDedupKey,
-  membershipTypeNameFromScheduledDedupKey,
-  startDateYmdFromScheduledDedupKey,
   templateBodyUsesFirstNameSlot,
-  templateSendPayload,
-  trainerHeadsUpTemplateParamValues,
-  trialReminderTemplateParamValues,
   triggerTypeFromScheduledDedupKey,
 } from "@/lib/template-send-params";
 import { fetchArboxGeneralNotesText } from "@/lib/leads/arbox-general-notes";
+import { buildScheduledSendPayload } from "@/lib/scheduled-send-payload";
+import {
+  cancelExpiredHolds,
+  isStoredComponentsRow,
+  PLANNED_ROW_SELECT,
+  sendPlannedRow,
+  type PlannedRow,
+} from "@/lib/send-plan/dispatch";
 import {
   TRAINER_CLASS_STARTED,
   TRAINER_TEMPLATE_PENDING,
@@ -183,6 +182,21 @@ async function dispatchOneScheduledSend(
 ): Promise<"sent" | "failed" | "canceled" | "skipped"> {
   if (decideScheduledDrainDispatch(now).action === "hold") return "skipped";
   if (!isDuePendingScheduledSend(row, now)) return "skipped";
+
+  if (String(row.dedup_key ?? "").startsWith("plan:")) {
+    const { data: planned } = await admin
+      .from("scheduled_template_sends")
+      .select(PLANNED_ROW_SELECT)
+      .eq("id", row.id)
+      .maybeSingle();
+    if (planned && isStoredComponentsRow(planned as { dedup_key?: string; components?: unknown })) {
+      const { outcome } = await sendPlannedRow(admin, planned as unknown as PlannedRow, now);
+      if (outcome === "sent") return "sent";
+      if (outcome === "failed" || outcome === "unknown") return "failed";
+      if (outcome === "canceled" || outcome === "skipped" || outcome === "blocked") return "canceled";
+      return "skipped";
+    }
+  }
 
   const businessId = Number(row.business_id);
   const phone = String(row.contact_phone ?? "").trim();
@@ -388,21 +402,6 @@ async function dispatchOneScheduledSend(
       });
     }
   }
-  let { sendComponents, bodyParams } = templateSendPayload({
-    triggerType,
-    storedComponents,
-    firstName,
-    clientFullName: staffClientFirst,
-    clientGeneralNotes,
-    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
-    expiryDateYmd:
-      classDateYmdFromStaffDedupKey(row.dedup_key) ?? expiryYmdFromScheduledDedupKey(row.dedup_key),
-    startDateYmd: startDateYmdFromScheduledDedupKey(row.dedup_key),
-    membershipTypeName: membershipTypeNameFromScheduledDedupKey(row.dedup_key),
-    className: classNameFromScheduledDedupKey(row.dedup_key),
-    classTime: classTimeFromScheduledDedupKey(row.dedup_key),
-    classDateYmd: classDateYmdFromTrainerHeadsUpDedupKey(row.dedup_key),
-  });
   if (triggerType === "trainer_trial_heads_up") {
     const delivery = decideTrainerHeadsUpDelivery({
       storedComponents,
@@ -438,69 +437,31 @@ async function dispatchOneScheduledSend(
       });
       return "canceled";
     }
-    const filled = trainerHeadsUpTemplateParamValues({
-      storedComponents,
-      className: classNameFromScheduledDedupKey(row.dedup_key),
-      classTime: classTimeFromScheduledDedupKey(row.dedup_key),
-      clientFullName: staffClientFirst,
-      clientGeneralNotes,
-      classDateYmd: classDateYmdFromTrainerHeadsUpDedupKey(row.dedup_key),
-    });
-    if (!filled.ok) {
-      console.info("[cron/scheduled-template-sends] skip", {
-        reason: filled.reason,
-        var_count: filled.varCount,
-        id: row.id,
-        businessId,
-        triggerType,
-      });
-      await markScheduledSend(admin, row.id, {
-        status: "canceled",
-        last_error: filled.reason,
-      });
-      return "canceled";
-    }
-    bodyParams = filled.values;
-    sendComponents = [
-      {
-        type: "body",
-        parameters: filled.values.map((text) => ({ type: "text" as const, text })),
-      },
-    ];
   }
-  if (triggerType === "trial_reminder") {
-    const filled = trialReminderTemplateParamValues({
-      storedComponents,
-      firstName,
-      className: classNameFromScheduledDedupKey(row.dedup_key),
-      classTime: classTimeFromScheduledDedupKey(row.dedup_key),
-      classDateYmd: classDateYmdFromTrialReminderDedupKey(row.dedup_key),
+  const payload = buildScheduledSendPayload({
+    triggerType,
+    dedupKey: row.dedup_key,
+    storedComponents,
+    firstName,
+    staffClientFirst,
+    clientGeneralNotes,
+    businessName: String((bizRow as { name?: unknown } | null)?.name ?? ""),
+  });
+  if (!payload.ok) {
+    console.info("[cron/scheduled-template-sends] skip", {
+      reason: payload.reason,
+      var_count: payload.varCount,
+      id: row.id,
+      businessId,
+      triggerType,
     });
-    if (!filled.ok) {
-      console.info("[cron/scheduled-template-sends] skip", {
-        reason: filled.reason,
-        var_count: filled.varCount,
-        id: row.id,
-        businessId,
-        triggerType,
-      });
-      await markScheduledSend(admin, row.id, {
-        status: "canceled",
-        last_error: filled.reason,
-      });
-      return "canceled";
-    }
-    bodyParams = filled.values;
-    sendComponents =
-      filled.values.length > 0
-        ? [
-            {
-              type: "body",
-              parameters: filled.values.map((text) => ({ type: "text" as const, text })),
-            },
-          ]
-        : undefined;
+    await markScheduledSend(admin, row.id, {
+      status: "canceled",
+      last_error: payload.reason,
+    });
+    return "canceled";
   }
+  const { sendComponents, bodyParams } = payload;
 
   const sendResult = await sendBusinessTemplate({
     to: phone,
@@ -510,6 +471,7 @@ async function dispatchOneScheduledSend(
     eventDedupKey: row.dedup_key,
     languageCode,
     skipOptOutGate: true,
+    skipSendChecks: true,
     ...(isStaffRecipient ? { recipientKind: "staff" as const } : {}),
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -615,6 +577,10 @@ async function drainScheduledTemplateSends() {
     console.error("[cron/scheduled-template-sends] bulk schedule materialize failed:", e);
     bulk_schedules.errors += 1;
   }
+
+  await cancelExpiredHolds(admin, now).catch((e) =>
+    console.error("[cron/scheduled-template-sends] hold expiry threw:", e instanceof Error ? e.message : e)
+  );
 
   const windowDecision = decideScheduledDrainDispatch(now);
   if (windowDecision.action === "hold") {

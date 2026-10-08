@@ -1,5 +1,5 @@
 import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { activeSendPlan, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { isSendOutcomeUnknown } from "@/lib/notifications/graph-whatsapp-send";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -440,7 +440,23 @@ export async function enqueueScheduledTemplateSend(input: {
     }
   }
 
-  if (isArboxDailyDryRun()) return { ok: true, inserted: true };
+  const plan = activeSendPlan();
+  const dueAt = plan ? plan.shiftDue(input.dueAt) : input.dueAt;
+  const note = () =>
+    plan?.noteEnqueue({
+      businessId,
+      triggerId,
+      contactPhone,
+      templateName,
+      dedupKey,
+      dueAt,
+      recipientKind: input.recipientKind,
+    });
+
+  if (isArboxDailyDryRun()) {
+    note();
+    return { ok: true, inserted: true };
+  }
 
   const nowIso = new Date().toISOString();
   const row = {
@@ -448,7 +464,7 @@ export async function enqueueScheduledTemplateSend(input: {
     trigger_id: triggerId,
     contact_phone: contactPhone,
     template_name: templateName,
-    due_at: input.dueAt.toISOString(),
+    due_at: dueAt.toISOString(),
     status: "pending" as const,
     dedup_key: dedupKey,
     last_error: null,
@@ -469,6 +485,7 @@ export async function enqueueScheduledTemplateSend(input: {
   }
 
   const inserted = Array.isArray(data) && data.length > 0;
+  if (inserted) note();
   return { ok: true, inserted };
 }
 

@@ -309,7 +309,12 @@ export async function sendWithSyncLogClaim<T>(input: {
  * A queued template the immediate path sends itself: pending → sending before
  * the Graph call, so the Stage C drain (pending only) cannot send it too.
  */
-export async function claimQueuedTemplateSend(admin: Admin, dedupKey: string): Promise<"won" | "lost" | "error"> {
+export async function claimQueuedTemplateSend(
+  admin: Admin,
+  dedupKey: string,
+  /** pending (Stage C) or planned (DISPATCH of a PLAN row). */
+  from: "pending" | "planned" = "pending"
+): Promise<"won" | "lost" | "error"> {
   const key = dedupKey.trim();
   if (!key) return "error";
   if (isArboxDailyDryRun()) return "won";
@@ -317,7 +322,7 @@ export async function claimQueuedTemplateSend(admin: Admin, dedupKey: string): P
     .from("scheduled_template_sends")
     .update({ status: "sending", updated_at: new Date().toISOString() })
     .eq("dedup_key", key)
-    .eq("status", "pending")
+    .eq("status", from)
     .select("id");
   if (error) {
     console.error("[sync-log-claim] queued claim failed:", error.message);

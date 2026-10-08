@@ -86,13 +86,15 @@ export function arboxDailyWorkerUrl(
   businessId: number,
   dryRun: boolean,
   slot: "morning" | "evening" = "morning",
-  nowIso?: string
+  nowIso?: string,
+  phase?: "plan"
 ): string {
   const base = origin.endsWith("/") ? origin : `${origin}/`;
   const url = new URL("/api/cron/arbox-daily-triggers/business", base);
   url.searchParams.set("business_id", String(businessId));
   if (dryRun) url.searchParams.set("dry_run", "1");
   if (slot === "evening") url.searchParams.set("slot", "evening");
+  if (phase === "plan") url.searchParams.set("phase", "plan");
   if (dryRun && nowIso) url.searchParams.set("now", nowIso);
   return url.toString();
 }
@@ -106,6 +108,8 @@ export async function dispatchArboxDailyWorkers(input: {
   nowIso?: string;
   /** Retry a business whose worker failed once, inside the same run. Not with dry run. */
   retryIncomplete?: boolean;
+  /** plan: workers write the PLAN instead of sending (lib/send-plan). */
+  phase?: "plan";
 }): Promise<{ total_ms: number; businesses: WorkerDispatchResult[] }> {
   const started = Date.now();
   const slot = input.slot === "evening" ? "evening" : "morning";
@@ -171,13 +175,14 @@ async function callWorker(
     dryRun: boolean;
     authorization: string | null;
     nowIso?: string;
+    phase?: "plan";
   },
   businessId: number,
   slot: "morning" | "evening",
   abortMs: number = ARBOX_DAILY_WORKER_ABORT_MS
 ): Promise<WorkerDispatchResult> {
   const started = Date.now();
-  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot, input.nowIso);
+  const url = arboxDailyWorkerUrl(input.origin, businessId, input.dryRun, slot, input.nowIso, input.phase);
   const secret = resolveCronSecret();
   const authorization =
     input.authorization ?? (secret ? `Bearer ${secret}` : null);

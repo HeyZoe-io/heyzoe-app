@@ -3,6 +3,8 @@
  * The worker route installs the bridge. Client bundles and every other caller
  * see no context, so send/fetch behavior stays unchanged.
  */
+import type { SendPlanHandle } from "@/lib/send-plan/types";
+
 type ArboxDailyRunContext = {
   businessId: number;
   dryRun: boolean;
@@ -11,6 +13,7 @@ type ArboxDailyRunContext = {
   arboxReports: string[];
   membershipTypesByKey: Map<string, Promise<unknown>>;
   wouldSend?: { template: string; phone_tail: string; params: string[] }[];
+  sendPlan?: SendPlanHandle;
 };
 
 type ArboxDailyBridge = {
@@ -37,4 +40,9 @@ export function noteArboxDailyWouldSend(line: {
 }): void {
   const list = bridge()?.context()?.wouldSend;
   if (list) list.push(line);
+}
+
+/** The PLAN of the current daily-run invocation, if any. */
+export function activeSendPlan(): SendPlanHandle | undefined {
+  return bridge()?.context()?.sendPlan;
 }

@@ -131,7 +131,8 @@ export async function dispatchStaffTemplateImmediate(input: {
       businessId: input.businessId,
       triggerType: input.triggerType,
     });
-    return templateFailureDispatch(sendResult.error);
+    const dispatch = templateFailureDispatch(sendResult.error);
+    return dispatch === "skipped" ? "send_failed" : dispatch;
   }
   return "sent";
 }
