@@ -7,6 +7,7 @@ import {
   pullArboxWeeklyTimetable,
 } from "@/lib/arbox-schedule-sync";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
+import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -15,6 +16,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Daily Arbox timetable → product schedule_slots sync.
  * Scheduling: cron-job.org (not Vercel crons — Hobby).
  * GET + Authorization: Bearer CRON_SECRET
+ * Skips a business with social_links.arbox_background_pause (no Arbox call, no write).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
+    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null");
 
@@ -68,6 +70,10 @@ export async function GET(req: NextRequest) {
     const apiKey = getArboxApiKey(row as Record<string, unknown>);
     const locationId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (!Number.isFinite(id) || id <= 0 || !slug || !businessQualifiesForArboxScheduleSync(row, apiKey)) {
+      continue;
+    }
+    if (rowArboxBackgroundPaused(row)) {
+      summaries.push({ slug, ok: true, skipped: ARBOX_BACKGROUND_PAUSED });
       continue;
     }
 

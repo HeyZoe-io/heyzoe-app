@@ -1,3 +1,8 @@
+import {
+  ARBOX_BACKGROUND_PAUSE_SELECT,
+  isBackgroundCrmKind,
+  rowArboxBackgroundPaused,
+} from "@/lib/arbox-background-pause";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { submitArboxCrmEvent } from "@/lib/crm/adapters/arbox";
 import { submitPlanDoLeadEvent } from "@/lib/crm/adapters/plan-do";
@@ -80,7 +85,7 @@ export async function dispatchCrmEvent(input: {
     const { data: business, error } = await admin
       .from("businesses")
       .select(
-        "id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled"
+        `id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled, ${ARBOX_BACKGROUND_PAUSE_SELECT}`
       )
       .eq("id", businessId)
       .maybeSingle();
@@ -142,6 +147,14 @@ export async function dispatchCrmEvent(input: {
     }
 
     if (crmType === "arbox") {
+      if (isBackgroundCrmKind(input.kind) && rowArboxBackgroundPaused(business)) {
+        console.info("[crm/dispatch] arbox skipped — background paused", {
+          businessId,
+          kind: input.kind,
+          phone: maskPhoneForLog(leadPhone),
+        });
+        return { createdHumanRequestTask: false };
+      }
       const result = await submitArboxCrmEvent({
         businessId,
         apiKey,

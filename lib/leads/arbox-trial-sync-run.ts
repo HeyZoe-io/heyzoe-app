@@ -1,4 +1,9 @@
 import { resolveCronNow } from "@/lib/cron-clock";
+import {
+  ARBOX_BACKGROUND_PAUSE_SELECT,
+  ARBOX_BACKGROUND_PAUSED,
+  rowArboxBackgroundPaused,
+} from "@/lib/arbox-background-pause";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
@@ -69,13 +74,14 @@ export type BusinessRow = {
   arbox_freeze_seeded: boolean;
   arbox_post_trial_followup_seeded: boolean;
   arbox_lost_lead_seeded: boolean;
+  arbox_background_paused?: boolean;
 };
 
 export type BusinessSummary = {
   business_id: number;
   slug: string;
   skipped?: boolean;
-  skip_reason?: "quiet_hours" | "time_override_requires_dry_run";
+  skip_reason?: "quiet_hours" | "time_override_requires_dry_run" | typeof ARBOX_BACKGROUND_PAUSED;
   fetched: number;
   processed: number;
   already: number;
@@ -335,6 +341,7 @@ function parseBusinessRow(row: Record<string, unknown>, apiKey: string): Busines
     arbox_freeze_seeded: row.arbox_freeze_seeded === true,
     arbox_post_trial_followup_seeded: row.arbox_post_trial_followup_seeded === true,
     arbox_lost_lead_seeded: row.arbox_lost_lead_seeded === true,
+    arbox_background_paused: rowArboxBackgroundPaused(row),
   };
 }
 
@@ -360,24 +367,27 @@ export function trialSyncBusinessNeedsWorker(input: {
  */
 export async function listArboxTrialSyncBusinessIds(
   admin: ReturnType<typeof createSupabaseAdminClient>
-): Promise<{ ok: true; ids: number[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; ids: number[]; paused: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`crm_type, ${BUSINESS_SELECT}`)
+    .select(`crm_type, ${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
   if (bizErr) return { ok: false, error: bizErr.message };
 
   const businesses: BusinessRow[] = [];
+  const paused: number[] = [];
   for (const row of businessRows ?? []) {
     const parsed = parseBusinessRow(
       { ...(row as Record<string, unknown>), crm_type: "arbox" },
       getArboxApiKey(row)
     );
-    if (parsed) businesses.push(parsed);
+    if (!parsed) continue;
+    if (rowArboxBackgroundPaused(row)) paused.push(parsed.id);
+    else businesses.push(parsed);
   }
-  if (!businesses.length) return { ok: true, ids: [] };
+  if (!businesses.length) return { ok: true, ids: [], paused };
 
   const { data: rules, error: ruleErr } = await admin
     .from("template_triggers")
@@ -419,6 +429,7 @@ export async function listArboxTrialSyncBusinessIds(
         })
       )
       .map((b) => b.id),
+    paused,
   };
 }
 
@@ -428,7 +439,7 @@ export async function loadArboxTrialSyncBusiness(
 ): Promise<BusinessRow | null> {
   const { data, error } = await admin
     .from("businesses")
-    .select(BUSINESS_SELECT)
+    .select(`${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("id", businessId)
     .eq("crm_type", "arbox")
     .maybeSingle();
@@ -470,6 +481,24 @@ export async function runArboxTrialSyncForBusiness(input: {
   }
   const now = resolvedNow.now;
   const nowIso = now.toISOString();
+  if (business.arbox_background_paused) {
+    console.info("[cron/arbox-trial-sync] arbox background paused", { slug: business.slug });
+    return {
+      business_id: business.id,
+      slug: business.slug,
+      skipped: true,
+      skip_reason: ARBOX_BACKGROUND_PAUSED,
+      fetched: 0,
+      processed: 0,
+      already: 0,
+      unpaid: 0,
+      seeded: 0,
+      seed_without_contact: 0,
+      errors: 0,
+      pages_fetched: 0,
+      cursor_advanced: false,
+    };
+  }
   const trialBookedBusinessIds = await loadTrialBookedBusinessIds(admin);
     const summary: BusinessSummary = {
       business_id: business.id,

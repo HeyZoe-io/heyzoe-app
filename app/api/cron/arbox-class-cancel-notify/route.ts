@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { maybeSendAdminDailyUnsentSummary } from "@/lib/admin-daily-unsent-summary";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
+import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { syncArboxClassCancelledCustomerForBusiness } from "@/lib/leads/arbox-class-cancelled-customer";
 import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -21,7 +22,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * bookings can be a second page). The trainer phone is taken from that same
  * classesSummaryReport fetch (0 extra Arbox calls) and upserted into
  * arbox_class_trainer_snapshot. No Claude. No Arbox calls when the business
- * has no enabled class_cancelled_customer rule.
+ * has no enabled class_cancelled_customer rule, or social_links.arbox_background_pause.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_api_key, crm_api_key_enc, crm_box_id")
+    .select(`id, slug, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
@@ -96,6 +97,16 @@ export async function GET(req: NextRequest) {
     const apiKey = getArboxApiKey(row as Record<string, unknown>);
     const boxId = String((row as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     if (!Number.isFinite(businessId) || businessId <= 0 || !slug || !apiKey || !boxId) continue;
+    if (rowArboxBackgroundPaused(row)) {
+      businesses.push({
+        business_id: businessId,
+        slug,
+        dry_run: dryRun,
+        skipped: true,
+        skip_reason: ARBOX_BACKGROUND_PAUSED,
+      });
+      continue;
+    }
 
     try {
       const result = await runWithArboxCallCount(

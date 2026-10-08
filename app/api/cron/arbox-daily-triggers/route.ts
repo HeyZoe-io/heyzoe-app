@@ -1,4 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { holdArboxBackgroundClocks } from "@/lib/arbox-background-pause";
 import { authorizeCron } from "@/lib/cron-auth";
 import {
   countNotifiedSends,
@@ -27,6 +28,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * nth_workout rules whose direction is before, post-trial C5/C6 catch-up, and
  * lead_status_changed. It must finish before the 21:00 night hold.
  * No param (or slot=morning) is the existing 09:00 job. Scheduling: cron-job.org.
+ * A business with social_links.arbox_background_pause gets no worker and its
+ * catch-up clocks move to now (lib/arbox-background-pause.ts).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +90,7 @@ export async function GET(req: NextRequest) {
       dry_run: true,
       slot,
       businesses: ids,
+      arbox_background_paused: listed.paused,
       started_at: startedAt,
       total_ms: dispatched.total_ms,
       sends,
@@ -95,6 +99,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (ids.length) after(() => fanOut());
+  if (listed.paused.length) await holdArboxBackgroundClocks(admin, listed.paused, new Date());
 
   logCronInvocation({
     route: "/api/cron/arbox-daily-triggers",
@@ -115,6 +120,7 @@ export async function GET(req: NextRequest) {
     accepted: true,
     slot,
     businesses: ids,
+    arbox_background_paused: listed.paused,
     started_at: startedAt,
   });
 }

@@ -20,6 +20,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { getArboxApiKey } from "@/lib/business-secrets";
+import { ARBOX_BACKGROUND_PAUSE_SELECT, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
@@ -71,7 +72,8 @@ import {
  *  IO: מחוץ לחלון — מימוש schedules (שאילתה לפי next_run_at) בלי drain.
  *  בתוך החלון — שאילתה לפי אינדקס (status, due_at).
  *  פקיעת מנוי/כרטיסייה: דוח מנויים פעילים אחד לעסק בטיק (לא לכל ליד).
- *  כרטיסייה בלי מנוי פעיל: עוד קריאת memberships אחת לזיהוי אימון היכרות. */
+ *  כרטיסייה בלי מנוי פעיל: עוד קריאת memberships אחת לזיהוי אימון היכרות.
+ *  עסק עם social_links.arbox_background_pause: שורת טריגר מבוטלת בלי קריאה לארבוקס, כדי שלא תישלח אחרי ביטול ההשהיה. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -184,7 +186,7 @@ async function dispatchOneScheduledSend(
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
     admin
       .from("businesses")
-      .select("id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id")
+      .select(`id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
       .eq("id", businessId)
       .maybeSingle(),
     admin
@@ -204,6 +206,15 @@ async function dispatchOneScheduledSend(
   ]);
 
   setArboxCallCounterSlug(String((bizRow as { slug?: unknown } | null)?.slug ?? ""));
+
+  if (rowArboxBackgroundPaused(bizRow)) {
+    console.info("[cron/scheduled-template-sends] canceled — arbox background paused", {
+      id: row.id,
+      businessId,
+    });
+    await markScheduledSend(admin, row.id, { status: "canceled", last_error: ARBOX_BACKGROUND_PAUSED });
+    return "canceled";
+  }
 
   const wabaId = String((bizRow as { waba_id?: unknown } | null)?.waba_id ?? "")
     .trim()

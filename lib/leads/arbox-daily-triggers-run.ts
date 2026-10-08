@@ -1,5 +1,10 @@
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import {
+  ARBOX_BACKGROUND_PAUSE_SELECT,
+  ARBOX_BACKGROUND_PAUSED,
+  rowArboxBackgroundPaused,
+} from "@/lib/arbox-background-pause";
+import {
   sharedFutureBookingsWindow,
   syncArboxAttendanceGapForBusiness,
 } from "@/lib/leads/arbox-attendance-gap";
@@ -80,6 +85,7 @@ export type ArboxDailyBusiness = {
   arbox_days_in_club_seeded: boolean;
   arbox_nth_workout_seeded: boolean;
   arbox_trial_membership_type_ids: unknown;
+  arbox_background_paused?: boolean;
 };
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
@@ -203,6 +209,7 @@ export function parseArboxDailyBusiness(row: Record<string, unknown>, apiKey: st
     arbox_days_in_club_seeded: flag(row, "arbox_days_in_club_seeded"),
     arbox_nth_workout_seeded: flag(row, "arbox_nth_workout_seeded"),
     arbox_trial_membership_type_ids: row.arbox_trial_membership_type_ids,
+    arbox_background_paused: rowArboxBackgroundPaused(row),
   };
 }
 
@@ -210,16 +217,17 @@ export function parseArboxDailyBusiness(row: Record<string, unknown>, apiKey: st
 export async function listArboxDailyBusinessIds(
   admin: Admin,
   opts?: { slot?: "morning" | "evening" }
-): Promise<{ ok: true; ids: number[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; ids: number[]; paused: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
+    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
   if (bizErr) return { ok: false, error: bizErr.message };
 
   const eligible: number[] = [];
+  const paused: number[] = [];
   for (const row of businessRows ?? []) {
     const parsed = parseArboxDailyBusiness(
       {
@@ -228,9 +236,11 @@ export async function listArboxDailyBusinessIds(
       },
       getArboxApiKey(row)
     );
-    if (parsed) eligible.push(parsed.id);
+    if (!parsed) continue;
+    if (parsed.arbox_background_paused) paused.push(parsed.id);
+    else eligible.push(parsed.id);
   }
-  if (!eligible.length) return { ok: true, ids: [] };
+  if (!eligible.length) return { ok: true, ids: [], paused };
 
   const evening = opts?.slot === "evening";
   const ruleQuery = admin
@@ -267,7 +277,7 @@ export async function listArboxDailyBusinessIds(
     const id = Number((row as { business_id?: unknown }).business_id);
     if (Number.isFinite(id)) withRule.add(id);
   }
-  return { ok: true, ids: eligible.filter((id) => withRule.has(id)) };
+  return { ok: true, ids: eligible.filter((id) => withRule.has(id)), paused };
 }
 
 export async function loadArboxDailyBusiness(
@@ -276,7 +286,7 @@ export async function loadArboxDailyBusiness(
 ): Promise<ArboxDailyBusiness | null> {
   const { data, error } = await admin
     .from("businesses")
-    .select(BUSINESS_SELECT)
+    .select(`${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_SELECT}`)
     .eq("id", businessId)
     .maybeSingle();
   if (error || !data) return null;
@@ -366,6 +376,24 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
   const now = resolvedNow.now;
+  if (business.arbox_background_paused) {
+    console.info("[cron/arbox-daily-triggers] arbox background paused", { slug: business.slug, slot });
+    return {
+      business_id: business.id,
+      slug: business.slug,
+      elapsed_ms: 0,
+      arbox_calls: 0,
+      arbox_reports: [],
+      steps: [],
+      summary: {
+        business_id: business.id,
+        slug: business.slug,
+        slot,
+        skip_reason: ARBOX_BACKGROUND_PAUSED,
+      },
+      would_send: [],
+    };
+  }
   const timings: ArboxDailyStepTiming[] = [];
   const started = Date.now();
   const entry: { business_id: number; slug: string; [step: string]: unknown } = {

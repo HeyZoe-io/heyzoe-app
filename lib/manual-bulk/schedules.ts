@@ -5,6 +5,7 @@
  * IO (10 businesses, 1 weekly each): 1 indexed SELECT per cron tick;
  * Arbox GETs only on the due weekday (same as one-off confirm).
  */
+import { loadArboxBackgroundPausedIds } from "@/lib/arbox-background-pause";
 import { enqueueManualBulkSend } from "@/lib/manual-bulk/enqueue";
 import {
   clampManualBulkWeeks,
@@ -320,6 +321,10 @@ export async function materializeDueManualBulkSchedules(input: {
     .map((row) => normalizeScheduleRow(row as Record<string, unknown>))
     .filter((row): row is ManualBulkScheduleRow => Boolean(row));
   summary.due = rows.length;
+  const pausedBusinessIds = await loadArboxBackgroundPausedIds(
+    input.admin,
+    rows.map((row) => row.business_id)
+  );
 
   for (const schedule of rows) {
     const nextRunAt = new Date(schedule.next_run_at);
@@ -330,6 +335,25 @@ export async function materializeDueManualBulkSchedules(input: {
         now,
       })
     ) {
+      continue;
+    }
+    if (pausedBusinessIds.has(schedule.business_id)) {
+      const advanced = advanceWeeklyNextRunAt({
+        weekday: schedule.weekday,
+        timeLocal: schedule.time_local,
+        now,
+        lastOccurrenceAt: nextRunAt,
+      });
+      await input.admin
+        .from("manual_bulk_schedules")
+        .update({ next_run_at: advanced.toISOString(), updated_at: now.toISOString() })
+        .eq("id", schedule.id)
+        .eq("enabled", true);
+      console.info("[manual-bulk] schedule skipped — arbox background paused", {
+        business_id: schedule.business_id,
+        schedule_id: schedule.id,
+        next_run_at: advanced.toISOString(),
+      });
       continue;
     }
     const occurrenceYmd = occurrenceYmdFromRunAt(nextRunAt);
