@@ -16,6 +16,7 @@ import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { EMPTY_VARIABLE_ERROR } from "@/lib/notifications/template-empty-variable";
 import { ARBOX_ERROR_REASON } from "@/lib/leads/arbox-error-retry";
+import { loadIncompleteRunsSince } from "@/lib/leads/arbox-daily-run-status";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -420,6 +421,28 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       at: israelStamp(String((row as { updated_at?: unknown }).updated_at ?? "")),
       metaError: "",
     });
+  }
+
+  const incompleteRuns = await loadIncompleteRunsSince(admin, sinceIso);
+  if (incompleteRuns.length) {
+    const missing = [...new Set(incompleteRuns.map((row) => row.business_id))].filter((id) => !names.has(id));
+    if (missing.length) {
+      const { data } = await admin.from("businesses").select("id, name, slug").in("id", missing);
+      for (const row of data ?? []) {
+        names.set(Number(row.id), String(row.name ?? "").trim() || String(row.slug ?? row.id));
+      }
+    }
+    for (const row of incompleteRuns) {
+      out.push({
+        businessId: row.business_id,
+        business: names.get(row.business_id) || String(row.business_id),
+        trigger: row.slot === "evening" ? "ריצת ערב" : "ריצת בוקר",
+        contact: "",
+        reason: "ריצה לא הושלמה",
+        at: israelStamp(row.updated_at),
+        metaError: squashParam(row.reason).slice(0, 80),
+      });
+    }
   }
 
   out.sort((a, b) => a.business.localeCompare(b.business, "he") || a.trigger.localeCompare(b.trigger));
