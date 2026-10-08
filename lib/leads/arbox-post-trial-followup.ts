@@ -89,6 +89,7 @@ import {
 } from "@/lib/same-trigger-template-order";
 import { minDelayDaysForTrigger } from "@/lib/trigger-catalog";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 export { SAME_TRIGGER_TEMPLATE_GAP_MS };
 
@@ -1119,13 +1120,15 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const products = await retryArboxOnce("leads/arbox-post-trial-followup", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!products.ok) {
       notRegisteredKeys = null;
       summary.errors += 1;
@@ -1319,11 +1322,27 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       if (outcome === "not_registered") {
         const activeKeys = await ensureNotRegisteredActiveKeys();
         if (!activeKeys) {
+          await writeArboxErrorRows({
+            admin: input.admin,
+            table: "arbox_post_trial_followup_sync_log",
+            onConflict: "business_id,trigger_id,user_id,class_date",
+            rows: rulesToSend.map((rule) => ({
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: att.userId,
+              class_date: att.classDateYmd,
+              outcome,
+              contact_id: resolved.contact?.id ?? null,
+              processed_at: nowIso,
+              attempts: 0,
+            })),
+          });
           console.info("[leads/arbox-post-trial-followup] dispatch", {
             businessId,
             outcome,
             user_id: att.userId,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1612,6 +1631,20 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         class_date: att.classDateYmd,
         error: e instanceof Error ? e.message : String(e),
       });
+      await writeArboxErrorRows({
+        admin: input.admin,
+        table: "arbox_post_trial_followup_sync_log",
+        onConflict: "business_id,trigger_id,user_id,class_date",
+        rows: rulesToSend.map((rule) => ({
+          business_id: businessId,
+          trigger_id: rule.id,
+          user_id: att.userId,
+          class_date: att.classDateYmd,
+          outcome,
+          processed_at: nowIso,
+          attempts: 0,
+        })),
+      }).catch((error) => console.error("[leads/arbox-post-trial-followup] arbox_error row failed", error));
     }
   }
 

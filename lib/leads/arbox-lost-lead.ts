@@ -67,6 +67,7 @@ import {
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -683,13 +684,15 @@ export async function syncArboxLostLeadForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const fetched = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const fetched = await retryArboxOnce("leads/arbox-lost-lead", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!fetched.ok) {
       activeProductState = { kind: "failed" };
       summary.errors += 1;
@@ -1047,10 +1050,24 @@ export async function syncArboxLostLeadForBusiness(input: {
 
         const activeKeys = await ensureActiveProductKeys();
         if (!activeKeys) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "pending",
+            attempts: existingAttempts,
+            reason: ARBOX_ERROR_REASON,
+          });
+          if (!marked.ok) summary.errors += 1;
           console.info("[leads/arbox-lost-lead] dispatch", {
             ...logBase,
             contact: resolved.contact?.id ?? null,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1243,6 +1260,21 @@ export async function syncArboxLostLeadForBusiness(input: {
           lost_date: lostDate,
           error: e instanceof Error ? e.message : String(e),
         });
+        await writeArboxErrorRows({
+          admin: input.admin,
+          table: "arbox_lost_lead_sync_log",
+          onConflict: "business_id,trigger_id,lead_id,lost_date",
+          rows: [
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              lead_id: leadId,
+              lost_date: lostDate,
+              processed_at: nowIso,
+              attempts: 0,
+            },
+          ],
+        }).catch((error) => console.error("[leads/arbox-lost-lead] arbox_error row failed", error));
       }
     }
   }
