@@ -12,6 +12,7 @@ import { isMissedClassDatePast, parseClassDateAsEventDate } from "@/lib/leads/ar
 import { postTrialDecisionYmd } from "@/lib/leads/arbox-post-trial-followup";
 import {
   addIsraelCalendarDays,
+  earlyCutoffNormalSendAt,
   trialReminderNormalSendAt,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
@@ -107,8 +108,11 @@ function aheadOf(now: Date): Date {
 function normalSendAt(rule: ScopeRule, classDateYmd: string, classTime: string, now: Date): Date | null {
   const delay = Math.max(0, Math.trunc(rule.delay_days) || 0);
   if (rule.trigger_type === "trial_booked") return null;
-  if (rule.trigger_type === "trial_reminder" || rule.trigger_type === "trainer_trial_heads_up") {
+  if (rule.trigger_type === "trial_reminder") {
     return trialReminderNormalSendAt({ classDateYmd, classTime, delayDays: delay });
+  }
+  if (rule.trigger_type === "trainer_trial_heads_up") {
+    return earlyCutoffNormalSendAt({ classDateYmd, classTime, delayDays: delay });
   }
   if (rule.trigger_type === "missed_trial" || rule.trigger_type === "trial_attended") {
     if (!isMissedClassDatePast(classDateYmd, now)) return aheadOf(now);

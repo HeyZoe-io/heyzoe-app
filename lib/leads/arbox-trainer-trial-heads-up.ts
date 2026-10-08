@@ -16,12 +16,12 @@ import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
-  trialReminderMatchesSlot,
+  earlyCutoffMatchesSlot,
   normalizeTrialReminderClassNamePk,
   normalizeTrialReminderClassTimePk,
   parseTrialReminderUserId,
   trialReminderFutureWindow,
-  trialReminderNormalSendAt,
+  earlyCutoffNormalSendAt,
   type TrialReminderSlot,
 } from "@/lib/leads/arbox-trial-reminder";
 import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
@@ -319,7 +319,7 @@ export function trainerHeadsUpMatchesSlot(input: {
   bodyVarCount: number;
 }): boolean {
   if (input.bodyVarCount === 5) {
-    return trialReminderMatchesSlot({
+    return earlyCutoffMatchesSlot({
       classDateYmd: input.classDateYmd,
       classTime: input.classTime,
       todayYmd: input.todayYmd,
@@ -572,7 +572,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       for (const rule of freshRules) {
         const templateName = String(rule.template_name ?? "").trim();
         if (!templateName) continue;
-        const sendAt = trialReminderNormalSendAt({
+        const sendAt = earlyCutoffNormalSendAt({
           classDateYmd,
           classTime,
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),

@@ -11,6 +11,9 @@
  * bookings GET per business that has an enabled trial_reminder rule, and no
  * other trigger steps. The slot is the query param. Hour 20 is outside the
  * 21:00 night hold, so a 20:30 start is not held.
+ * delay 0/1 rules send only on the evening run, for tomorrow's classes. The
+ * 09:00 run sends delay >= 2 only, and marks a delay 0/1 class of today that has
+ * no row as skipped (booked_after_evening_run).
  */
 import { logMessage } from "@/lib/analytics";
 import {
@@ -118,6 +121,8 @@ export type TrialReminderSyncSummary = {
   no_phone: number;
   abandoned: number;
   errors: number;
+  /** 09:00 run: delay 0/1 classes of today with no evening reminder. */
+  booked_after_evening_run?: number;
   fetch_error?: string;
   trial_match_mode?: "product_filter_names" | "business_trial_ids_names";
 };
@@ -173,7 +178,7 @@ export function isTrialReminderDue(input: {
   return diff === days;
 }
 
-/** Classes starting before this Israel wall time are reminded the evening before. */
+/** Trainer heads-up only: delay-0 classes starting before this Israel wall time go the evening before. */
 export const REMINDER_EARLY_CUTOFF = "10:00";
 
 export type TrialReminderSlot = "morning" | "evening";
@@ -219,8 +224,72 @@ export function addIsraelCalendarDays(ymd: string, days: number): string | null 
 const REMINDER_MORNING_HM = "09:00";
 const REMINDER_EVENING_HM = "20:30";
 
-/** The 09:00 or 20:30 Israel slot this reminder would normally use. */
+/** delay 0 or 1: the reminder goes at 20:30 the evening before, whatever the class time. */
+export function trialReminderSendsEveningBefore(delayDays: number): boolean {
+  return Math.max(0, Math.trunc(delayDays)) <= 1;
+}
+
+/** 20:30 the evening before for delay 0/1, 09:00 on class_date − delay otherwise. */
 export function trialReminderNormalSendAt(input: {
+  classDateYmd: string;
+  classTime: string;
+  delayDays: number;
+}): Date | null {
+  const delay = Math.max(0, Math.trunc(input.delayDays));
+  if (trialReminderSendsEveningBefore(delay)) {
+    const prev = addIsraelCalendarDays(input.classDateYmd, -1);
+    return prev ? israelSlotInstant(prev, REMINDER_EVENING_HM) : null;
+  }
+  const due = addIsraelCalendarDays(input.classDateYmd, -delay);
+  return due ? israelSlotInstant(due, REMINDER_MORNING_HM) : null;
+}
+
+/**
+ * Evening sends delay 0/1 rules for tomorrow's classes. Morning sends only
+ * delay >= 2 rules on their due day.
+ */
+export function trialReminderMatchesSlot(input: {
+  classDateYmd: string;
+  classTime: string;
+  todayYmd: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+}): boolean {
+  const delay = Math.max(0, Math.trunc(input.delayDays));
+  if (trialReminderSendsEveningBefore(delay)) {
+    if (input.slot !== "evening") return false;
+    const tomorrow = addIsraelCalendarDays(input.todayYmd, 1);
+    return tomorrow != null && input.classDateYmd === tomorrow;
+  }
+  if (input.slot === "evening") return false;
+  return isTrialReminderDue({
+    classDateYmd: input.classDateYmd,
+    todayYmd: input.todayYmd,
+    delayDays: delay,
+  });
+}
+
+export const TRIAL_REMINDER_BOOKED_AFTER_EVENING_RUN = "booked_after_evening_run";
+
+/**
+ * 09:00 run, delay 0/1 rule, class today: the evening run already passed, so the
+ * booking came after it (or on the class day). No reminder for it.
+ */
+export function trialReminderBookedAfterEveningRun(input: {
+  classDateYmd: string;
+  todayYmd: string;
+  delayDays: number;
+  slot: TrialReminderSlot;
+}): boolean {
+  return (
+    input.slot === "morning" &&
+    trialReminderSendsEveningBefore(input.delayDays) &&
+    input.classDateYmd === input.todayYmd
+  );
+}
+
+/** Trainer heads-up split: delay 0 before the cutoff goes the evening before, the rest at 09:00. */
+export function earlyCutoffNormalSendAt(input: {
   classDateYmd: string;
   classTime: string;
   delayDays: number;
@@ -238,13 +307,12 @@ export function trialReminderNormalSendAt(input: {
 }
 
 /**
- * Morning sends the existing due day, except a delay-0 class that starts before
- * the cutoff (that one already went out the previous evening).
+ * Trainer heads-up split. Morning sends the existing due day, except a delay-0
+ * class that starts before the cutoff (that one went out the previous evening).
  * Evening sends only delay-0 classes whose date is tomorrow and whose start is
- * before the cutoff. delay > 0 stays on the morning job: that due day is already
- * before the class, so 09:00 is not after the class.
+ * before the cutoff.
  */
-export function trialReminderMatchesSlot(input: {
+export function earlyCutoffMatchesSlot(input: {
   classDateYmd: string;
   classTime: string;
   todayYmd: string;
@@ -285,7 +353,6 @@ export function trialReminderSendAllowedNow(input: {
   delayDays: number;
   slot: TrialReminderSlot;
   realNow?: Date;
-  cutoffHm?: string;
 }): boolean {
   const realNow = input.realNow ?? new Date();
   return trialReminderMatchesSlot({
@@ -294,7 +361,6 @@ export function trialReminderSendAllowedNow(input: {
     todayYmd: formatDateYmdIsrael(realNow),
     delayDays: input.delayDays,
     slot: input.slot,
-    cutoffHm: input.cutoffHm,
   });
 }
 
@@ -1046,32 +1112,69 @@ export async function syncArboxTrialReminderForBusiness(input: {
     if (!bookingMatchesTrialScope(row, trialScope, trialDecision(userId, classDateYmd, classTime))) continue;
     summary.trial_rows += 1;
 
-    const dueRules = sendRules.filter((item) => {
+    const ruleCoversRow = (item: PurchaseTemplateTriggerRule): boolean => {
       if (!activeRuleIds.has(item.id)) return false;
       const ids = parseIdList(item.product_filter);
-      if (ids.length) {
-        const names = new Set<string>();
-        for (const id of ids) {
-          const name = nameById.get(id);
-          if (name) names.add(normalizeMembershipTypeName(name));
-        }
-        if (
-          !bookingMatchesTrialScope(row, {
-            trialTypeIds: ids,
-            trialTypeNamesNormalized: names,
-          })
-        ) {
-          return false;
+      if (!ids.length) return true;
+      const names = new Set<string>();
+      for (const id of ids) {
+        const name = nameById.get(id);
+        if (name) names.add(normalizeMembershipTypeName(name));
+      }
+      return bookingMatchesTrialScope(row, {
+        trialTypeIds: ids,
+        trialTypeNamesNormalized: names,
+      });
+    };
+    const lateRules = sendRules.filter(
+      (item) =>
+        trialReminderBookedAfterEveningRun({
+          classDateYmd,
+          todayYmd,
+          delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+          slot,
+        }) && ruleCoversRow(item)
+    );
+    if (lateRules.length) {
+      summary.booked_after_evening_run = (summary.booked_after_evening_run ?? 0) + 1;
+      if (!isArboxDailyDryRun()) {
+        const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
+          lateRules.map((item) => ({
+            business_id: businessId,
+            trigger_id: item.id,
+            user_id: userId,
+            class_date: classDateYmd,
+            class_time: classTime,
+            class_name: className,
+            contact_id: null,
+            processed_at: nowIso,
+            attempts: 0,
+            status: "skipped",
+            reason: TRIAL_REMINDER_BOOKED_AFTER_EVENING_RUN,
+          })),
+          {
+            onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+            ignoreDuplicates: true,
+          }
+        );
+        if (error) {
+          summary.errors += 1;
+          console.error("[leads/arbox-trial-reminder] booked_after_evening_run upsert failed:", error.message);
         }
       }
-      return trialReminderMatchesSlot({
-        classDateYmd,
-        classTime,
-        todayYmd,
-        delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
-        slot,
-      });
-    });
+    }
+
+    const dueRules = sendRules.filter(
+      (item) =>
+        ruleCoversRow(item) &&
+        trialReminderMatchesSlot({
+          classDateYmd,
+          classTime,
+          todayYmd,
+          delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+          slot,
+        })
+    );
     if (!dueRules.length) continue;
     summary.due += 1;
     summary.processed += 1;

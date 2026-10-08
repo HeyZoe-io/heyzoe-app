@@ -180,6 +180,10 @@ function TrialReminderDelayNote({ days }: { days: number }) {
   return (
     <>
       <p className="text-xs text-zinc-500">ניתן להגדיר עד 13 ימים לפני האימון</p>
+      <p className="text-xs text-zinc-500">
+        0 או 1: נשלח ב־20:30 בערב שלפני האימון, בלי קשר לשעת האימון. הרשמה אחרי 20:30 או ביום
+        האימון לא מקבלת תזכורת. 2 ומעלה: נשלח ב־09:00.
+      </p>
       {max != null && days > max ? (
         <p className="text-xs font-medium text-red-600">אפשר עד 13 ימים</p>
       ) : null}

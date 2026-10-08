@@ -50,6 +50,8 @@ const SEND_HINT_LEAD_STATUS_HE =
   "נבדק ב-09:00 וב-20:30 (שעון ישראל). אפשר לבחור בריצה הקרובה, רק ב-09:00, או רק ב-20:30. דיליי של יום ומעלה יוצא ביום היעד, בחלון שנבחר, ורק אם הליד עדיין בסטטוס.";
 const SEND_HINT_TRIAL_CLASS_HE =
   "יוצא ב־09:00 (שעון ישראל). בכלל «בוקר השיעור», שיעור שמתחיל לפני 10:00 נשלח ב־20:30 בערב שלפני.";
+const SEND_HINT_TRIAL_REMINDER_HE =
+  "0 או 1 ימים לפני: נשלח ב־20:30 בערב שלפני השיעור (שעון ישראל), בלי קשר לשעת השיעור. 2 ימים ומעלה: נשלח ב־09:00. הרשמה אחרי 20:30 או ביום השיעור לא מקבלת תזכורת.";
 const SEND_HINT_NO_RESPONSE_HE = "נשלח פעם ביום בשעה 11:00 (שעון ישראל)";
 const SEND_HINT_WEBHOOK_HE = "נשלח מיד כשמגיע ליד מהאתר או מהקמפיין";
 const SEND_HINT_MANUAL_HE = "שליחה ידנית — תצוגה מקדימה, אישור, ותזמון לתור";
@@ -452,7 +454,7 @@ export const TRIGGER_CATALOG = [
     recipient: "customer",
     presetKey: "trial_reminder",
     uiOrder: 2,
-    sendHintHe: SEND_HINT_TRIAL_CLASS_HE,
+    sendHintHe: SEND_HINT_TRIAL_REMINDER_HE,
   },
   {
     type: "trial_booked",
@@ -1112,6 +1114,7 @@ export function formatDelayLabel(
   if (type === "membership_cancelled") {
     return days === 0 ? "ביום הביטול" : `${days} ימים אחרי הביטול`;
   }
+  if (type === "trial_reminder" && days <= 1) return "ערב לפני האימון, 20:30";
   if (isClassBeforeTriggerType(type)) {
     return days === 0 ? "בוקר האימון" : `${days} ימים לפני האימון`;
   }

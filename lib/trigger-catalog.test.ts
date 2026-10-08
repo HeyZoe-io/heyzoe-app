@@ -572,8 +572,9 @@ function triggerCatalogAudience(type: string) {
   assert.equal(formatDelayLabel("lost_lead", 1, "after"), "1 ימים אחרי אובדן הליד");
   assert.equal(minDelayDaysForTrigger("lost_lead"), 0);
   assert.equal(defaultDelayDays("lost_lead"), 1);
-  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "בוקר האימון");
-  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
+  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "ערב לפני האימון, 20:30");
+  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "ערב לפני האימון, 20:30");
+  assert.equal(formatDelayLabel("trial_reminder", 2, "before"), "2 ימים לפני האימון");
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
   assert.equal(formatDelayLabel("trainer_trial_heads_up", 0, "before"), "בוקר האימון");
@@ -678,10 +679,9 @@ function triggerCatalogAudience(type: string) {
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /09:00/);
   assert.match(triggerSendScheduleHintHe("trial_reminder"), /20:30/);
   assert.doesNotMatch(triggerSendScheduleHintHe("trial_reminder"), /20:00/);
-  assert.equal(
-    triggerSendScheduleHintHe("trainer_trial_heads_up"),
-    triggerSendScheduleHintHe("trial_reminder")
-  );
+  assert.match(triggerSendScheduleHintHe("trial_reminder"), /בלי קשר לשעת השיעור/);
+  assert.doesNotMatch(triggerSendScheduleHintHe("trial_reminder"), /10:00/);
+  assert.match(triggerSendScheduleHintHe("trainer_trial_heads_up"), /לפני 10:00/);
   assert.match(triggerSendScheduleHintHe("milestones"), /09:00/);
   assert.match(triggerSendScheduleHintHe("nth_workout"), /09:00/);
   assert.match(triggerSendScheduleHintHe("no_response"), /11:00/);

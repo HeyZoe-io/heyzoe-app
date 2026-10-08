@@ -13,6 +13,12 @@ import {
   trialReminderHasConfiguredIds,
   trialReminderMatchesSlot,
   trialReminderNeedsSoftSeed,
+  trialReminderNormalSendAt,
+  trialReminderSendsEveningBefore,
+  trialReminderBookedAfterEveningRun,
+  TRIAL_REMINDER_BOOKED_AFTER_EVENING_RUN,
+  earlyCutoffMatchesSlot,
+  earlyCutoffNormalSendAt,
   TRIAL_REMINDER_FUTURE_SPAN_DAYS,
   TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_DATE,
   TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME,
@@ -233,8 +239,8 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
   assert.equal(defaultDelayDirection("trial_reminder"), "before");
-  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "בוקר האימון");
-  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "1 ימים לפני האימון");
+  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "ערב לפני האימון, 20:30");
+  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "ערב לפני האימון, 20:30");
 }
 
 {
@@ -248,95 +254,123 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   };
   const onTime = { ...early, classTime: "10:00" };
   assert.equal(
-    trialReminderMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "evening" }),
+    earlyCutoffMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "evening" }),
     true,
-    "09:59 tomorrow is evening only"
+    "trainer split: 09:59 tomorrow is evening only"
   );
+  assert.equal(earlyCutoffMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "morning" }), false);
+  assert.equal(earlyCutoffMatchesSlot({ ...early, classDateYmd: today, slot: "morning" }), false);
+  assert.equal(earlyCutoffMatchesSlot({ ...onTime, classDateYmd: today, slot: "morning" }), true);
+  assert.equal(earlyCutoffMatchesSlot({ ...onTime, classDateYmd: tomorrow, slot: "evening" }), false);
   assert.equal(
-    trialReminderMatchesSlot({ ...early, classDateYmd: tomorrow, slot: "morning" }),
-    false
-  );
-  assert.equal(
-    trialReminderMatchesSlot({ ...early, classDateYmd: today, slot: "morning" }),
-    false,
-    "09:59 on the class morning is not the 09:00 job"
-  );
-  assert.equal(
-    trialReminderMatchesSlot({ ...onTime, classDateYmd: today, slot: "morning" }),
+    earlyCutoffMatchesSlot({ ...early, classDateYmd: tomorrow, delayDays: 1, slot: "morning" }),
     true,
-    "10:00 is morning only"
-  );
-  assert.equal(
-    trialReminderMatchesSlot({ ...onTime, classDateYmd: tomorrow, slot: "evening" }),
-    false
-  );
-  assert.equal(
-    trialReminderMatchesSlot({
-      classDateYmd: tomorrow,
-      classTime: "07:00",
-      todayYmd: today,
-      delayDays: 1,
-      slot: "evening",
-    }),
-    false,
-    "delay 1 stays on the morning job"
-  );
-  assert.equal(
-    trialReminderMatchesSlot({
-      classDateYmd: tomorrow,
-      classTime: "07:00",
-      todayYmd: today,
-      delayDays: 1,
-      slot: "morning",
-    }),
-    true
+    "trainer split: delay 1 stays on the morning job"
   );
 }
 
 {
-  const wednesdayEvening = new Date("2026-10-07T15:20:18Z");
+  const today = "2026-10-08";
+  const tomorrow = "2026-10-09";
+  for (const delayDays of [0, 1]) {
+    for (const classTime of ["06:30", "09:59", "10:00", "13:00", "20:00"]) {
+      const base = { classTime, todayYmd: today, delayDays };
+      assert.equal(
+        trialReminderMatchesSlot({ ...base, classDateYmd: tomorrow, slot: "evening" }),
+        true,
+        `delay ${delayDays} ${classTime}: tomorrow goes on the evening run`
+      );
+      assert.equal(
+        trialReminderMatchesSlot({ ...base, classDateYmd: tomorrow, slot: "morning" }),
+        false,
+        `delay ${delayDays} ${classTime}: never on the 09:00 run`
+      );
+      assert.equal(trialReminderMatchesSlot({ ...base, classDateYmd: today, slot: "morning" }), false);
+      assert.equal(trialReminderMatchesSlot({ ...base, classDateYmd: today, slot: "evening" }), false);
+      assert.equal(
+        trialReminderMatchesSlot({ ...base, classDateYmd: "2026-10-10", slot: "evening" }),
+        false
+      );
+    }
+    assert.equal(trialReminderSendsEveningBefore(delayDays), true);
+  }
+  assert.equal(trialReminderSendsEveningBefore(2), false);
+  const two = { classTime: "07:00", todayYmd: today, delayDays: 2 };
+  assert.equal(trialReminderMatchesSlot({ ...two, classDateYmd: "2026-10-10", slot: "morning" }), true);
+  assert.equal(trialReminderMatchesSlot({ ...two, classDateYmd: "2026-10-10", slot: "evening" }), false);
+  assert.equal(trialReminderMatchesSlot({ ...two, classDateYmd: tomorrow, slot: "evening" }), false);
+}
+
+{
+  const today = "2026-10-09";
+  assert.equal(
+    trialReminderBookedAfterEveningRun({ classDateYmd: today, todayYmd: today, delayDays: 0, slot: "morning" }),
+    true,
+    "a class of today on the 09:00 run was booked after last evening"
+  );
+  assert.equal(
+    trialReminderBookedAfterEveningRun({ classDateYmd: today, todayYmd: today, delayDays: 1, slot: "morning" }),
+    true
+  );
+  assert.equal(
+    trialReminderBookedAfterEveningRun({ classDateYmd: today, todayYmd: today, delayDays: 1, slot: "evening" }),
+    false
+  );
+  assert.equal(
+    trialReminderBookedAfterEveningRun({ classDateYmd: "2026-10-10", todayYmd: today, delayDays: 1, slot: "morning" }),
+    false,
+    "tomorrow's class still waits for tonight"
+  );
+  assert.equal(
+    trialReminderBookedAfterEveningRun({ classDateYmd: today, todayYmd: today, delayDays: 2, slot: "morning" }),
+    false
+  );
+  assert.equal(TRIAL_REMINDER_BOOKED_AFTER_EVENING_RUN, "booked_after_evening_run");
+}
+
+{
   const thursdayMorning = new Date("2026-10-08T06:00:00Z");
+  const thursdayEvening = new Date("2026-10-08T17:30:00Z");
+  const fridayClass = { classDateYmd: "2026-10-09", classTime: "09:00", delayDays: 1 };
+  assert.equal(
+    trialReminderSendAllowedNow({ ...fridayClass, slot: "morning", realNow: thursdayMorning }),
+    false,
+    "delay 1 Friday class no longer goes Thursday 09:00"
+  );
+  assert.equal(trialReminderSendAllowedNow({ ...fridayClass, slot: "evening", realNow: thursdayEvening }), true);
   assert.equal(
     trialReminderSendAllowedNow({
       classDateYmd: "2026-10-09",
-      classTime: "09:00",
-      delayDays: 1,
-      slot: "morning",
-      realNow: wednesdayEvening,
+      classTime: "19:00",
+      delayDays: 0,
+      slot: "evening",
+      realNow: thursdayEvening,
     }),
-    false,
-    "1 day before a Friday class is not Wednesday"
+    true,
+    "delay 0 evening class goes the evening before"
   );
   assert.equal(
     trialReminderSendAllowedNow({
       classDateYmd: "2026-10-09",
-      classTime: "09:00",
-      delayDays: 1,
-      slot: "evening",
-      realNow: wednesdayEvening,
+      classTime: "19:00",
+      delayDays: 0,
+      slot: "morning",
+      realNow: new Date("2026-10-09T06:00:00Z"),
     }),
     false
   );
   assert.equal(
-    trialReminderSendAllowedNow({
-      classDateYmd: "2026-10-09",
-      classTime: "09:00",
-      delayDays: 1,
-      slot: "morning",
-      realNow: thursdayMorning,
-    }),
-    true
+    trialReminderNormalSendAt({ classDateYmd: "2026-10-09", classTime: "19:00", delayDays: 0 })?.toISOString(),
+    "2026-10-08T17:30:00.000Z"
   );
   assert.equal(
-    trialReminderSendAllowedNow({
-      classDateYmd: "2026-10-08",
-      classTime: "19:00",
-      delayDays: 0,
-      slot: "morning",
-      realNow: wednesdayEvening,
-    }),
-    false,
-    "delay 0 evening class waits for the class morning"
+    trialReminderNormalSendAt({ classDateYmd: "2026-10-09", classTime: "07:00", delayDays: 1 })?.toISOString(),
+    "2026-10-08T17:30:00.000Z"
+  );
+  assert.equal(
+    earlyCutoffNormalSendAt({ classDateYmd: "2026-10-09", classTime: "19:00", delayDays: 0 })?.toISOString(),
+    "2026-10-09T06:00:00.000Z",
+    "trainer heads-up timing is unchanged"
   );
 }
 
@@ -416,7 +450,7 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   try {
     assert.equal(reminderEarlyCutoffHm(), "08:30");
     assert.equal(
-      trialReminderMatchesSlot({
+      earlyCutoffMatchesSlot({
         classDateYmd: "2026-10-07",
         classTime: "08:29",
         todayYmd: "2026-10-06",
@@ -426,7 +460,7 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
       true
     );
     assert.equal(
-      trialReminderMatchesSlot({
+      earlyCutoffMatchesSlot({
         classDateYmd: "2026-10-06",
         classTime: "08:30",
         todayYmd: "2026-10-06",
