@@ -32,7 +32,7 @@ export async function refreshArboxMembershipBadge(input: {
   if (!badge) return { wrote: false, badge: null };
 
   const admin = createSupabaseAdminClient();
-  // Columns land with supabase/contacts_arbox_membership_status.sql and are not in generated types yet.
+  // Columns land with supabase/arbox_pause_and_membership_badge.sql and are not in generated types yet.
   const contacts = admin.from("contacts") as unknown as {
     select: (columns: string) => {
       eq: (column: string, value: unknown) => {

@@ -1,7 +1,7 @@
-/** Stored on contacts.arbox_membership_status. Null means not checked. */
-export const ARBOX_MEMBERSHIP_BADGE_ACTIVE = "מנוי פעיל";
-export const ARBOX_MEMBERSHIP_BADGE_EXPIRED = "מנוי לא בתוקף";
-export const ARBOX_MEMBERSHIP_BADGE_LEAD = "ליד";
+/** Codes stored on contacts.arbox_membership_status. Null means not checked. */
+export const ARBOX_MEMBERSHIP_BADGE_ACTIVE = "active";
+export const ARBOX_MEMBERSHIP_BADGE_EXPIRED = "inactive";
+export const ARBOX_MEMBERSHIP_BADGE_LEAD = "lead";
 
 export const ARBOX_MEMBERSHIP_BADGES = [
   ARBOX_MEMBERSHIP_BADGE_ACTIVE,
@@ -22,10 +22,9 @@ export function arboxMembershipBadgeLabel(
   value: ArboxMembershipBadge,
   lang: "he" | "en"
 ): string {
-  if (lang === "he") return value;
-  if (value === ARBOX_MEMBERSHIP_BADGE_ACTIVE) return "Active member";
-  if (value === ARBOX_MEMBERSHIP_BADGE_EXPIRED) return "Membership expired";
-  return "Lead";
+  if (value === ARBOX_MEMBERSHIP_BADGE_ACTIVE) return lang === "he" ? "מנוי פעיל" : "Active member";
+  if (value === ARBOX_MEMBERSHIP_BADGE_EXPIRED) return lang === "he" ? "מנוי לא בתוקף" : "Membership expired";
+  return lang === "he" ? "ליד" : "Lead";
 }
 
 /** First message (null) and a check older than 7 days. */
