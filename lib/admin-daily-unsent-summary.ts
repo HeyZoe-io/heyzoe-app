@@ -17,6 +17,7 @@ import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isMissingStatusTable, WA_MESSAGE_STATUSES_TABLE } from "@/lib/wa-message-status";
+import { BLOCKING_ALERT_MODEL } from "@/lib/wa-blocking-error-alert";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -46,6 +47,8 @@ export const DELIVERY_FAILED_REASON = "נכשל במסירה";
 /** Accepted 24–48h ago and no delivered / read / failed status since. */
 export const UNDELIVERED_24H_REASON = "לא נמסר אחרי 24 שעות";
 export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
+/** Immediate blocking-error alert went out in the last 24h (payment, lock, template paused…). */
+export const BLOCKING_ALERT_REASON = "חסימה בחשבון וואטסאפ";
 const FUTURE_SEED_REASON = "סומן לפני מועד השליחה";
 /** A rule that seeds more than this many rows in a day is listed by name in the summary. */
 export const HISTORY_RULE_BREAKDOWN_MIN = 10;
@@ -606,6 +609,31 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       reason: "קריאה לא מ-cron-job.org",
       at: String((row as { created_at?: unknown }).created_at ?? ""),
       metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
+    });
+  }
+  const { data: blocking, error: blockingError } = await admin
+    .from("messages")
+    .select("content, created_at, model_used")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .like("model_used", `${BLOCKING_ALERT_MODEL}:%`)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (blockingError) {
+    console.error("[admin-daily-unsent] blocking alert lookup failed", blockingError.message);
+  }
+  for (const row of blocking ?? []) {
+    const [, businessRaw, code] = String((row as { model_used?: unknown }).model_used ?? "").split(":");
+    const businessId = Number(businessRaw);
+    out.push({
+      businessId: Number.isFinite(businessId) ? businessId : 0,
+      business: names.get(businessId) || `עסק ${businessRaw ?? ""}`.trim(),
+      trigger: "וואטסאפ",
+      contact: "",
+      reason: BLOCKING_ALERT_REASON,
+      at: israelStamp(String((row as { created_at?: unknown }).created_at ?? "")),
+      metaError:
+        squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140) || (code ? `קוד ${code}` : ""),
     });
   }
   return out;
