@@ -1,6 +1,6 @@
 /**
  * Read-only Arbox membership lookup by phone — on-demand, explicit
- * registration_failed_inquiry only.
+ * registration_failed_inquiry or a «when does my membership end» question only.
  * GET /v3/users/searchUser then GET /v3/users/memberships?user_id= (no `active` filter).
  * Always looks up the WhatsApp sender number (msg.from) only. No Arbox writes. No cache.
  *
@@ -17,7 +17,8 @@
  * Expired/cancelled cards with debt stay EXPIRED.
  *
  * IO (10x clients): 2 Arbox calls (searchUser + memberships), only when the lead
- * explicitly says registration/booking failed (never per inbound message).
+ * explicitly says registration/booking failed or asks when the membership ends
+ * (never per inbound message).
  */
 
 import { arboxPublicFetch, searchArboxUserByPhone } from "@/lib/crm/adapters/arbox";
@@ -42,6 +43,27 @@ export const MEMBERSHIP_LOOKUP_EXPIRED_MODEL = "membership_lookup_expired";
 export const MEMBERSHIP_LOOKUP_NOT_FOUND_MODEL = "membership_lookup_not_found";
 export const MEMBERSHIP_LOOKUP_FETCH_FAILED_MODEL = "membership_lookup_fetch_failed";
 export const MEMBERSHIP_LOOKUP_ACTIVE_FOLLOWUP_MODEL = "membership_lookup_active_followup";
+export const MEMBERSHIP_END_DATE_MODEL = "membership_end_date";
+export const MEMBERSHIP_END_DATE_OPEN_MODEL = "membership_end_date_open";
+
+/** Arbox does not expose auto-renew — never claim it renews, only the in-force date. */
+export function buildMembershipEndDateReply(endYmd: string): string {
+  const [y, m, d] = endYmd.split("-");
+  return `המנוי שלך בתוקף עד ${d}.${m}.${y}. אני לא רואה אם הוא מתחדש או לא :) אבל אם לא ביקשת לבטל, הוא כנראה מתחדש.`;
+}
+
+/**
+ * Personal «when does my membership renew / end» question.
+ * Cancel / freeze / refund wording stays with the closed playbooks.
+ */
+export function isMembershipEndDateAsk(raw: string): boolean {
+  const t = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 200) return false;
+  if (!/מנוי/u.test(t)) return false;
+  if (/לבטל|ביטול|מבטל|להקפיא|הקפא|הקפאה|החזר/u.test(t)) return false;
+  if (!/מתי|תאריך|עד איזה|עד איזו/u.test(t)) return false;
+  return /מתחדש|חידוש|יתחדש|נגמר|ייגמר|יגמר|מסתיים|יסתיים|תוקף|פג|יפוג/u.test(t);
+}
 
 export type ArboxUserMembershipRecord = {
   active?: unknown;
@@ -123,6 +145,25 @@ export function classifyMembershipLookup(input: {
   return "active";
 }
 
+/**
+ * Latest end date across in-force rows. An in-force row with no end_time is open-ended:
+ * there is no date to quote. Null when nothing is in force.
+ */
+export function pickMembershipEndDate(input: {
+  records: ArboxUserMembershipRecord[];
+  todayYmd: string;
+}): { kind: "until"; endYmd: string } | { kind: "open" } | null {
+  const inForce = input.records.filter((row) => isInForceMembership(row, input.todayYmd));
+  if (inForce.length === 0) return null;
+  let latest: string | null = null;
+  for (const row of inForce) {
+    const endYmd = parseEndDateYmd(row.end_time);
+    if (!endYmd) return { kind: "open" };
+    if (!latest || endYmd > latest) latest = endYmd;
+  }
+  return latest ? { kind: "until", endYmd: latest } : { kind: "open" };
+}
+
 /** Full set for one user — do not pass `active` (see file header). */
 export function buildArboxUserMembershipsPath(userId: string): string {
   const qs = new URLSearchParams({ user_id: String(userId ?? "").trim() });
@@ -197,26 +238,21 @@ export async function fetchArboxUserMemberships(input: {
   return { ok: true, records: parseArboxMembershipRecords(res.json) };
 }
 
-export async function lookupArboxMembershipByPhone(input: {
+async function fetchMembershipRecordsByPhone(input: {
   apiKey: string;
   boxId: string;
   lookupPhone: string;
-  now?: Date;
-}): Promise<MembershipLookupReply> {
-  guardPreClaudeOutbound("lookupArboxMembershipByPhone");
+}): Promise<
+  { status: "ok"; records: ArboxUserMembershipRecord[] } | { status: "not_found" | "fetch_failed" }
+> {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const lookupPhone = String(input.lookupPhone ?? "").trim();
-  const todayYmd = formatDateYmdIsrael(input.now ?? new Date());
 
-  if (!apiKey || !boxId) {
-    return mapMembershipLookupReply("fetch_failed");
-  }
+  if (!apiKey || !boxId) return { status: "fetch_failed" };
 
   const phoneTail = normalizeIsraeliPhoneTail(lookupPhone);
-  if (!phoneTail) {
-    return mapMembershipLookupReply("not_found");
-  }
+  if (!phoneTail) return { status: "not_found" };
 
   const locationId = parsePositiveIntId(boxId) ?? undefined;
   let foundUserId: string | null = null;
@@ -228,23 +264,75 @@ export async function lookupArboxMembershipByPhone(input: {
     });
   } catch {
     console.error("[membership-lookup] searchUser failed", { status: "network" });
-    return mapMembershipLookupReply("fetch_failed");
+    return { status: "fetch_failed" };
   }
 
-  if (!foundUserId) {
-    return mapMembershipLookupReply("not_found");
-  }
+  if (!foundUserId) return { status: "not_found" };
 
   const memberships = await fetchArboxUserMemberships({ apiKey, userId: foundUserId });
-  if (!memberships.ok) {
-    return mapMembershipLookupReply("fetch_failed");
-  }
+  if (!memberships.ok) return { status: "fetch_failed" };
+  return { status: "ok", records: memberships.records };
+}
+
+export async function lookupArboxMembershipByPhone(input: {
+  apiKey: string;
+  boxId: string;
+  lookupPhone: string;
+  now?: Date;
+}): Promise<MembershipLookupReply> {
+  guardPreClaudeOutbound("lookupArboxMembershipByPhone");
+  const todayYmd = formatDateYmdIsrael(input.now ?? new Date());
+  const fetched = await fetchMembershipRecordsByPhone(input);
+  if (fetched.status !== "ok") return mapMembershipLookupReply(fetched.status);
 
   return mapMembershipLookupReply(
     classifyMembershipLookup({
       userFound: true,
-      records: memberships.records,
+      records: fetched.records,
       todayYmd,
     })
   );
 }
+
+/**
+ * «מתי מתחדש לי המנוי?» — same 2 Arbox reads, only when Claude confirms the hint.
+ * In force with a date: the date, no team alert. Open-ended, expired, not found,
+ * or a failed read: the existing handoff copy.
+ */
+export function mapMembershipEndDateReply(input: {
+  fetched:
+    | { status: "ok"; records: ArboxUserMembershipRecord[] }
+    | { status: "not_found" | "fetch_failed" };
+  todayYmd: string;
+}): MembershipLookupReply {
+  if (input.fetched.status !== "ok") return mapMembershipLookupReply(input.fetched.status);
+  const picked = pickMembershipEndDate({ records: input.fetched.records, todayYmd: input.todayYmd });
+  if (!picked) return mapMembershipLookupReply("expired");
+  if (picked.kind === "open") {
+    return {
+      kind: "active",
+      text: MEMBERSHIP_LOOKUP_NOT_FOUND_REPLY,
+      modelUsed: MEMBERSHIP_END_DATE_OPEN_MODEL,
+      notifyHumanRequested: true,
+    };
+  }
+  return {
+    kind: "active",
+    text: buildMembershipEndDateReply(picked.endYmd),
+    modelUsed: MEMBERSHIP_END_DATE_MODEL,
+    notifyHumanRequested: false,
+  };
+}
+
+export async function lookupArboxMembershipEndDateByPhone(input: {
+  apiKey: string;
+  boxId: string;
+  lookupPhone: string;
+  now?: Date;
+}): Promise<MembershipLookupReply> {
+  guardPreClaudeOutbound("lookupArboxMembershipEndDateByPhone");
+  const todayYmd = formatDateYmdIsrael(input.now ?? new Date());
+  const fetched = await fetchMembershipRecordsByPhone(input);
+  return mapMembershipEndDateReply({ fetched, todayYmd });
+}
+

@@ -3,6 +3,7 @@ import { isScheduleInquiryIntent } from "@/lib/wa-booking-lookup";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
 import { isDemotedClosedPlaybook, type FastPathHint } from "@/lib/wa-fast-path-hint";
 import { classifyInboundSpeechAct } from "@/lib/wa-inbound-speech-act";
+import { isMembershipEndDateAsk } from "@/lib/wa-membership-lookup";
 import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
 import { matchesBookedClassMoveIntent } from "@/lib/wa-registration-intent";
 import { matchesArboxRegistrationVerifyAsk } from "@/lib/wa-arbox-registration-verify";
@@ -18,6 +19,9 @@ export function collectPreClaudeHint(text: string): FastPathHint | null {
   if (!raw) return null;
   if (matchesArboxRegistrationVerifyAsk(raw)) {
     return { matcher: "registration_verify", category: "registration_verify" };
+  }
+  if (isMembershipEndDateAsk(raw)) {
+    return { matcher: "membership_end_date", category: "membership_end_date" };
   }
   const playbook = detectClosedPlaybookIntent(raw);
   if (playbook && isDemotedClosedPlaybook(playbook.category)) {

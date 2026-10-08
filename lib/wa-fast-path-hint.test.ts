@@ -49,6 +49,10 @@ assert.equal(decide("בלי תג", "schedule_lookup"), "ignore_hint");
 assert.equal(decide("[[route:my_schedule]]\nמתי שלי", "schedule_lookup"), "use_hint");
 assert.equal(decide("בלי תג", "membership_lookup"), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nבדיקה", "membership_lookup"), "use_hint");
+assert.equal(decide("[[route:answer]]\nאין לי גישה", "membership_end_date"), "use_hint");
+assert.equal(decide("[[route:handoff]]\nצוות", "membership_end_date"), "use_hint");
+assert.equal(decide("[[route:policy_question]]\nכלל", "membership_end_date"), "ignore_hint");
+assert.equal(decide("בלי תג", "membership_end_date"), "ignore_hint");
 
 const friend = "חברה שלי ביטלה ואני רוצה להצטרף במקומה";
 const cancel = "אני רוצה לבטל את המנוי";

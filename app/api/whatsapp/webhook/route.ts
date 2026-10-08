@@ -418,7 +418,9 @@ import {
   registrationFailedNonArboxHandoff,
 } from "@/lib/wa-registration-failed-intent";
 import {
+  isMembershipEndDateAsk,
   lookupArboxMembershipByPhone,
+  lookupArboxMembershipEndDateByPhone,
   mapMembershipLookupReply,
   MEMBERSHIP_LOOKUP_ACTIVE_MODEL,
   type MembershipLookupReply,
@@ -9060,6 +9062,14 @@ async function processIncoming(
       fastPathHint = { matcher: "membership_lookup", category: "membership_lookup" };
     }
   }
+  if (
+    !fastPathHint &&
+    isSalesFlowFreeTextInbound(msg) &&
+    businessId &&
+    isMembershipEndDateAsk(msg.text)
+  ) {
+    fastPathHint = { matcher: "membership_end_date", category: "membership_end_date" };
+  }
 
   // After ACTIVE membership lookup asked which class — do not adjudicate eligibility; team handoff.
   if (
@@ -14440,6 +14450,31 @@ async function processIncoming(
           }
         }
         return;
+      } else if (hintCategory === "membership_end_date" && businessId) {
+        const arboxCreds = await loadArboxScheduleLookupConnection({
+          supabase,
+          businessId: Number(businessId),
+        });
+        if (arboxCreds) {
+          const result = await lookupArboxMembershipEndDateByPhone({
+            apiKey: arboxCreds.apiKey,
+            boxId: arboxCreds.boxId,
+            lookupPhone: msg.from,
+          });
+          await sendMembershipLookupReply({
+            result,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            nowIso,
+            modelUsed: hintedModel(result.modelUsed),
+          });
+          return;
+        }
       } else if (hintCategory === "schedule_lookup" && businessId) {
         const arboxCreds = await loadArboxScheduleLookupConnection({
           supabase,

@@ -63,6 +63,10 @@ export function decideHintAction(input: {
   ) {
     return tagStatus === "ok" && route === "handoff" ? "use_hint" : "ignore_hint";
   }
+  // A member asking about her own membership is tagged answer; policy_question stays with the knowledge.
+  if (input.hint.category === "membership_end_date") {
+    return tagStatus === "ok" && (route === "answer" || route === "handoff") ? "use_hint" : "ignore_hint";
+  }
   if (input.hint.category === "signup") {
     return tagStatus === "ok" && route === "signup" ? "use_hint" : "ignore_hint";
   }

@@ -6,7 +6,13 @@ import { matchesRegistrationIntentPhrase } from "@/lib/wa-registration-intent";
 import { isScheduleIntent } from "@/lib/wa-schedule-intent";
 import {
   buildArboxUserMembershipsPath,
+  buildMembershipEndDateReply,
   classifyMembershipLookup,
+  isMembershipEndDateAsk,
+  mapMembershipEndDateReply,
+  MEMBERSHIP_END_DATE_MODEL,
+  MEMBERSHIP_END_DATE_OPEN_MODEL,
+  pickMembershipEndDate,
   hasPositiveMembershipDebt,
   isInForceMembership,
   mapMembershipLookupReply,
@@ -360,6 +366,99 @@ const TODAY = "2026-08-23";
   assert.equal(parseArboxMembershipRecords({ data: [] }).length, 0);
   assert.equal(parseArboxMembershipRecords(null).length, 0);
   assert.equal(parseArboxMembershipRecords([{ active: 0 }]).length, 1);
+}
+
+/** «מתי מתחדש לי המנוי?» — personal end-date ask; cancel / freeze / general talk are not. */
+{
+  for (const t of [
+    "מתי מתחדש לי המנוי?",
+    "עד מתי המנוי שלי בתוקף?",
+    "מתי נגמר המנוי שלי",
+    "היי, מתי המנוי שלי מסתיים?",
+    "מה התאריך שהמנוי שלי פג?",
+  ]) {
+    assert.equal(isMembershipEndDateAsk(t), true, t);
+  }
+  for (const t of [
+    "אני רוצה לבטל את המנוי, מתי הוא נגמר?",
+    "אפשר להקפיא את המנוי? מתי הוא נגמר",
+    "נגמר לי המנוי",
+    "מתי יש שיעור ביום שני?",
+    "כמה עולה מנוי?",
+  ]) {
+    assert.equal(isMembershipEndDateAsk(t), false, t);
+  }
+}
+
+/** End date: latest in-force date; open-ended in force has no date; nothing in force is null. */
+{
+  assert.deepEqual(
+    pickMembershipEndDate({
+      records: [
+        { active: 1, cancelled: 0, end_time: "2026-09-30" },
+        { active: 1, cancelled: 0, end_time: "2026-11-15T00:00:00" },
+        { active: 1, cancelled: 0, end_time: "2026-08-01" },
+      ],
+      todayYmd: TODAY,
+    }),
+    { kind: "until", endYmd: "2026-11-15" }
+  );
+  assert.deepEqual(
+    pickMembershipEndDate({
+      records: [
+        { active: 1, cancelled: 0, end_time: "2026-09-30" },
+        { active: 1, cancelled: 0, end_time: null },
+      ],
+      todayYmd: TODAY,
+    }),
+    { kind: "open" }
+  );
+  assert.equal(
+    pickMembershipEndDate({
+      records: [{ active: 1, cancelled: 0, end_time: "2026-08-01" }],
+      todayYmd: TODAY,
+    }),
+    null
+  );
+}
+
+/** End-date reply: date without a team alert; everything else is the existing handoff copy. */
+{
+  const until = mapMembershipEndDateReply({
+    fetched: { status: "ok", records: [{ active: 1, cancelled: 0, end_time: "2026-11-15", debt: 120 }] },
+    todayYmd: TODAY,
+  });
+  assert.equal(until.modelUsed, MEMBERSHIP_END_DATE_MODEL);
+  assert.equal(until.notifyHumanRequested, false);
+  assert.equal(
+    until.text,
+    "המנוי שלך בתוקף עד 15.11.2026. אני לא רואה אם הוא מתחדש או לא :) אבל אם לא ביקשת לבטל, הוא כנראה מתחדש."
+  );
+  assert.equal(buildMembershipEndDateReply("2026-11-15"), until.text);
+
+  const open = mapMembershipEndDateReply({
+    fetched: { status: "ok", records: [{ active: 1, cancelled: 0, end_time: null }] },
+    todayYmd: TODAY,
+  });
+  assert.equal(open.modelUsed, MEMBERSHIP_END_DATE_OPEN_MODEL);
+  assert.equal(open.notifyHumanRequested, true);
+  assert.equal(open.text, MEMBERSHIP_LOOKUP_NOT_FOUND_REPLY);
+
+  const expired = mapMembershipEndDateReply({
+    fetched: { status: "ok", records: [{ active: 1, cancelled: 0, end_time: "2026-08-01" }] },
+    todayYmd: TODAY,
+  });
+  assert.equal(expired.modelUsed, MEMBERSHIP_LOOKUP_EXPIRED_MODEL);
+  assert.equal(expired.notifyHumanRequested, true);
+
+  assert.equal(
+    mapMembershipEndDateReply({ fetched: { status: "not_found" }, todayYmd: TODAY }).modelUsed,
+    MEMBERSHIP_LOOKUP_NOT_FOUND_MODEL
+  );
+  assert.equal(
+    mapMembershipEndDateReply({ fetched: { status: "fetch_failed" }, todayYmd: TODAY }).modelUsed,
+    MEMBERSHIP_LOOKUP_FETCH_FAILED_MODEL
+  );
 }
 
 console.log("wa-membership-lookup.test.ts: ok");
