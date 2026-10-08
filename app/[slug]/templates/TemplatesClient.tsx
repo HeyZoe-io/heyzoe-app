@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Check, ChevronDown, Copy, Loader2, Pencil, RefreshCw, Trash2, X } from "lucide-react";
+import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import {
   DASHBOARD_CENTERED_CONTENT,
   DASHBOARD_SETTINGS_SHELL,
@@ -181,8 +182,8 @@ function TrialReminderDelayNote({ days }: { days: number }) {
     <>
       <p className="text-xs text-zinc-500">ניתן להגדיר עד 13 ימים לפני האימון</p>
       <p className="text-xs text-zinc-500">
-        0 או 1: נשלח ב־20:30 בערב שלפני האימון, בלי קשר לשעת האימון. הרשמה אחרי 20:30 או ביום
-        האימון לא מקבלת תזכורת. 2 ומעלה: נשלח ב־09:00.
+        0 או 1: נשלח ב־{EVENING_SLOT_IL} בערב שלפני האימון, בלי קשר לשעת האימון. הרשמה אחרי{" "}
+        {EVENING_SLOT_IL} או ביום האימון לא מקבלת תזכורת. 2 ומעלה: נשלח ב־{MORNING_SLOT_IL}.
       </p>
       {max != null && days > max ? (
         <p className="text-xs font-medium text-red-600">אפשר עד 13 ימים</p>

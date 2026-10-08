@@ -11,6 +11,7 @@
  * Seed marks members already past X. The exact day still sends.
  * Soft-seed: flag true + empty log for that trigger_id → same past mark, then the send path.
  */
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
@@ -507,7 +508,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
         continue;
       }
       const milestoneYmd = addCalendarDaysYmd(member.memberSinceYmd, delayDays);
-      const sendAt = milestoneYmd ? israelSlotInstant(milestoneYmd, "09:00") : null;
+      const sendAt = milestoneYmd ? israelSlotInstant(milestoneYmd, MORNING_SLOT_IL) : null;
       if (decideActivationEventAction({ sendAt, now }) === "send") continue;
       const marked = await upsertDaysInClubSyncLog({
         admin: input.admin,
@@ -612,7 +613,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
       const delayDays = daysInClubDelayDays(rule.delay_days);
       const milestoneYmd = addCalendarDaysYmd(member.memberSinceYmd, delayDays);
       const sendAt =
-        (milestoneYmd ? israelSlotInstant(milestoneYmd, "09:00") : null) ??
+        (milestoneYmd ? israelSlotInstant(milestoneYmd, MORNING_SLOT_IL) : null) ??
         parseReportEventInstant(member.memberSinceYmd);
       if (eventBeforeRuleActivation(sendAt, rule)) continue;
       if (

@@ -239,8 +239,8 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   assert.equal(minDelayDaysForTrigger("trial_reminder"), 0);
   assert.equal(defaultDelayDays("trial_reminder"), 1);
   assert.equal(defaultDelayDirection("trial_reminder"), "before");
-  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "ערב לפני האימון, 20:30");
-  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "ערב לפני האימון, 20:30");
+  assert.equal(formatDelayLabel("trial_reminder", 0, "before"), "ערב לפני האימון, 20:00");
+  assert.equal(formatDelayLabel("trial_reminder", 1, "before"), "ערב לפני האימון, 20:00");
 }
 
 {
@@ -330,7 +330,7 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
 
 {
   const thursdayMorning = new Date("2026-10-08T06:00:00Z");
-  const thursdayEvening = new Date("2026-10-08T17:30:00Z");
+  const thursdayEvening = new Date("2026-10-08T17:00:00Z");
   const fridayClass = { classDateYmd: "2026-10-09", classTime: "09:00", delayDays: 1 };
   assert.equal(
     trialReminderSendAllowedNow({ ...fridayClass, slot: "morning", realNow: thursdayMorning }),
@@ -361,11 +361,11 @@ assert.equal(TRIAL_REMINDER_SOFT_SEED_SENTINEL_CLASS_NAME, "seed");
   );
   assert.equal(
     trialReminderNormalSendAt({ classDateYmd: "2026-10-09", classTime: "19:00", delayDays: 0 })?.toISOString(),
-    "2026-10-08T17:30:00.000Z"
+    "2026-10-08T17:00:00.000Z"
   );
   assert.equal(
     trialReminderNormalSendAt({ classDateYmd: "2026-10-09", classTime: "07:00", delayDays: 1 })?.toISOString(),
-    "2026-10-08T17:30:00.000Z"
+    "2026-10-08T17:00:00.000Z"
   );
   assert.equal(
     earlyCutoffNormalSendAt({ classDateYmd: "2026-10-09", classTime: "19:00", delayDays: 0 })?.toISOString(),

@@ -27,7 +27,7 @@ const scanned = "2026-10-07T03:00:00.000Z";
 
 assert.equal(minDelayDaysForTrigger("lead_status_changed"), 0);
 assert.equal(defaultDelayDays("lead_status_changed"), 0);
-assert.equal(formatDelayLabel("lead_status_changed", 0, "after"), "בריצה הקרובה (09:00 או 20:30)");
+assert.equal(formatDelayLabel("lead_status_changed", 0, "after"), "בריצה הקרובה (09:00 או 20:00)");
 assert.equal(leadStatusSendIsQueued(0, now), false);
 assert.equal(leadStatusSendIsQueued(1, now), true);
 assert.ok(retentionRank("lost_lead") < retentionRank("lead_status_changed"));
