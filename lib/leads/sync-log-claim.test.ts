@@ -310,6 +310,35 @@ async function capTests() {
   assert.deepEqual(await send(key(0), zero.admin, "sent"), { claim: "lost", graphCalls: 0 });
 }
 
+async function finalStatusTests() {
+  // A manual stop or a skip is final for the event key: the claim never takes it over.
+  const spec: TableSpec = {
+    columns: ["business_id", "trigger_id", "user_id", ...SYNC_COLUMNS],
+    pk: ["business_id", "trigger_id", "user_id"],
+    statuses: [...ALL_STATUSES, "unknown", "canceled"],
+  };
+  const key: Key = {
+    table: "arbox_birthday_sync_log",
+    row: { business_id: 1, trigger_id: "r", user_id: 11, attempts: 0 },
+    filters: [
+      ["business_id", 1],
+      ["trigger_id", "r"],
+      ["user_id", 11],
+    ],
+  };
+  for (const status of ["skipped", "abandoned", "canceled", "seeded", "unknown", "sent", "no_phone"]) {
+    const db = fakeDb({ arbox_birthday_sync_log: spec });
+    db.data.arbox_birthday_sync_log!.push({ business_id: 1, trigger_id: "r", user_id: 11, status, reason: "manual_hold" });
+    assert.deepEqual(await send(key, db.admin, "sent"), { claim: "lost", graphCalls: 0 }, status);
+    assert.equal(db.data.arbox_birthday_sync_log![0]?.status, status, `${status} unchanged`);
+  }
+  for (const status of ["pending", "failed"]) {
+    const db = fakeDb({ arbox_birthday_sync_log: spec });
+    db.data.arbox_birthday_sync_log!.push({ business_id: 1, trigger_id: "r", user_id: 11, status, attempts: 1 });
+    assert.deepEqual(await send(key, db.admin, "sent"), { claim: "won", graphCalls: 1 }, status);
+  }
+}
+
 async function legacyTableTests() {
   // Before the migration: no status / attempts / reason columns.
   const spec: TableSpec = { columns: ["business_id", "trigger_id", "user_id", "processed_at"], pk: ["business_id", "trigger_id", "user_id"] };
@@ -448,6 +477,7 @@ async function main() {
   classificationTests();
   for (const path of paths) await pathTests(path);
   await capTests();
+  await finalStatusTests();
   await legacyTableTests();
   await companionTests();
   await queuedTests();

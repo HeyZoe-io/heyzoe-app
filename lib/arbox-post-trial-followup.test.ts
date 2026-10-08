@@ -303,7 +303,23 @@ assert.equal(
       todayYmd: today,
     }),
     true
-  );
+  );  for (const reason of ["held_class_oct5_not_yesterday_catchup", "held_not_checked_in", "product_filter_scope"]) {
+    assert.equal(
+      postTrialSeededBlocksSend({ status: "seeded", reason, classDateYmd: "2026-10-06", delayDays: 1, todayYmd: today }),
+      true,
+      `a seeded row with a manual reason is never reopened (${reason})`
+    );
+  }
+  for (const status of ["skipped", "abandoned", "canceled", "sending", "unknown", "no_phone"]) {
+    assert.equal(
+      postTrialSeededBlocksSend({ status, classDateYmd: "2026-10-06", delayDays: 1, todayYmd: today }),
+      true,
+      `${status} is final`
+    );
+  }
+  for (const status of ["", "pending", "failed"]) {
+    assert.equal(postTrialLogStatusBlocksSend(status), false, `${status || "no row"} may send`);
+  }
 }
 
 {

@@ -596,7 +596,8 @@ async function dispatchTrialReminderTemplate(input: {
       slot,
       realToday: formatDateYmdIsrael(new Date()),
     });
-    return { dispatch: "skipped", ok: false };
+    // Not this run's day: no final skip, the row stays pending for the right run.
+    return { dispatch: "gated", ok: false };
   }
 
   // Detection delay already applied (due-day filter). Send on this cron run.
@@ -1188,7 +1189,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
         (existingRows ?? [])
           .filter((row) => {
             const status = String((row as { status?: unknown }).status ?? "");
-            return isCancellationSyncLogTerminal(status) && status !== "skipped";
+            return isCancellationSyncLogTerminal(status);
           })
           .map((row) => String((row as { trigger_id?: unknown }).trigger_id ?? ""))
       );

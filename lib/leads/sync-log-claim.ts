@@ -10,7 +10,8 @@ type WriteError = { code?: string; message?: string } | null;
 
 type Filters = Array<[string, string | number]>;
 
-const DEFAULT_RETRYABLE: readonly string[] = ["pending", "skipped", "failed"];
+/** skipped / abandoned / canceled / unknown are final for the event key. */
+const DEFAULT_RETRYABLE: readonly string[] = ["pending", "failed"];
 
 /** Meta failures before a claim is abandoned. Same cap as the cancellation log. */
 export const SYNC_LOG_SEND_ATTEMPT_CAP = 3;
@@ -75,7 +76,7 @@ export async function claimSyncLogBeforeSend(input: {
   table: string;
   row: Record<string, unknown>;
   filters: Filters;
-  /** Existing statuses a new run may take over. Default: pending, skipped, failed. */
+  /** Existing statuses a new run may take over. Default: pending, failed. */
   retryable?: readonly string[];
 }): Promise<"won" | "lost" | "error"> {
   const inserted = await insertClaim(input, "sending");

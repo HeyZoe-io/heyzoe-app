@@ -1372,7 +1372,7 @@ async function sendOne(input: {
   }
   const existingStatus = String((existing as { status?: unknown } | null)?.status ?? "").trim();
   const attempts = parseCancellationSyncAttempts((existing as { attempts?: unknown } | null)?.attempts);
-  if (existingStatus && existingStatus !== "pending") {
+  if (existingStatus && existingStatus !== "pending" && existingStatus !== "failed") {
     summary.already += 1;
     return;
   }
