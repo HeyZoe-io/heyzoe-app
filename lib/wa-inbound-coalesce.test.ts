@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   claimTrailingUserTurnFromHistory,
   joinInboundUserTexts,
+  trailingUserTurnStartIso,
 } from "@/lib/wa-inbound-coalesce";
 
 assert.equal(joinInboundUserTexts("איפה החניה", [{ content: "אפשר לשלם במזומן ?" }]), "איפה החניה\nאפשר לשלם במזומן ?");
@@ -52,5 +53,22 @@ const pickupAfterCrash = [{ content: "להביא מזרון?", created_at: ofriB
   (row) => row.created_at > uncommittedThroughIso
 );
 assert.equal(pickupAfterCrash.length, 1, "V4: crash before commit leaves the second message pending");
+
+const orA = "2026-10-07T16:56:00.692059+00:00";
+const orB = "2026-10-07T16:56:05.038404+00:00";
+const orHistory = [
+  { role: "assistant", content: "מצטערת לשמוע שברצונך לבטל את המנוי!", created_at: "2026-10-07T13:10:41.159878+00:00" },
+  { role: "user", content: "היי\nאני אני רשום לאימון כרגע", created_at: orA },
+];
+const orStart = trailingUserTurnStartIso(orHistory);
+assert.equal(orStart, orA);
+const rewound = new Date(Date.parse(orStart!) - 1).toISOString();
+const pendingAfterSupersede = [
+  { content: "היי\nאני אני רשום לאימון כרגע", created_at: orA },
+  { content: "ואני לא יכול להגיע", created_at: orB },
+].filter((row) => row.created_at > rewound);
+assert.equal(pendingAfterSupersede.length, 2, "superseded reply: pickup re-answers the whole turn");
+assert.equal(trailingUserTurnStartIso(orHistory.slice(0, 1)), null);
+assert.equal(trailingUserTurnStartIso(ofriHistory), ofriA);
 
 console.log("wa-inbound-coalesce.test.ts: ok");

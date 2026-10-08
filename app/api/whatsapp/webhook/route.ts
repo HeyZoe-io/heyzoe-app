@@ -753,6 +753,7 @@ import {
   fetchLatestUserMessageCreatedAt,
   fetchSessionUserMessagesAfter,
   joinInboundUserTexts,
+  trailingUserTurnStartIso,
   WA_INBOUND_PICKUP_MAX_DEPTH,
 } from "@/lib/wa-inbound-coalesce";
 import { buildNoResponseReactivationPatch } from "@/lib/wa-no-response";
@@ -13892,6 +13893,27 @@ async function processIncoming(
     }
     if (didCallClaude && !isFallbackErrorReply) {
       processedUserThroughIso = promptClaimedThroughIso;
+      const turnStartIso = trailingUserTurnStartIso(history);
+      if (
+        msg.type === "text" &&
+        turnStartIso &&
+        (processOpts?.pickupDepth ?? 0) < WA_INBOUND_PICKUP_MAX_DEPTH
+      ) {
+        const newer = await fetchSessionUserMessagesAfter({
+          businessSlug: business_slug,
+          sessionId,
+          afterIso: promptClaimedThroughIso,
+        });
+        if (newer.length) {
+          console.info("[WA Webhook] inbound arrived during inference — dropping reply, re-answering whole turn", {
+            business_slug,
+            sessionId,
+            newerCount: newer.length,
+          });
+          processedUserThroughIso = new Date(Date.parse(turnStartIso) - 1).toISOString();
+          return;
+        }
+      }
     }
   }
 

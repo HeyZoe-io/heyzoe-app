@@ -122,6 +122,18 @@ export function claimTrailingUserTurnFromHistory(input: {
   };
 }
 
+/** created_at of the first user row in the trailing (unanswered) user run, or null. */
+export function trailingUserTurnStartIso(history: SessionHistoryMessage[]): string | null {
+  let start: string | null = null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const row = history[i];
+    if (!row || row.role !== "user") break;
+    const at = String(row.created_at ?? "").trim();
+    if (at && Number.isFinite(Date.parse(at))) start = at;
+  }
+  return start;
+}
+
 export function joinInboundUserTexts(base: string, extras: { content: string }[]): string {
   const parts: string[] = [];
   const push = (raw: string) => {
