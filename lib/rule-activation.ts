@@ -155,21 +155,51 @@ export function decideFilterScopeAction(input: {
   return "seed";
 }
 
+/** Daily Arbox run slots, Israel wall clock. */
+export const DAILY_RUN_SLOTS = ["09:00", "20:30"] as const;
+
+const ISRAEL_PARTS = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Jerusalem",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+function israelYmdHm(at: Date): { ymd: string; hm: string } {
+  const parts = Object.fromEntries(ISRAEL_PARTS.formatToParts(at).map((p) => [p.type, p.value]));
+  return { ymd: `${parts.year}-${parts.month}-${parts.day}`, hm: `${parts.hour}:${parts.minute}` };
+}
+
+/** Latest daily slot today at or before `now`. Null before the first slot. */
+export function currentRunSlotStart(now: Date): Date | null {
+  const { ymd, hm } = israelYmdHm(now);
+  let start: Date | null = null;
+  for (const slot of DAILY_RUN_SLOTS) {
+    if (slot <= hm) start = israelSlotInstant(ymd, slot);
+  }
+  return start;
+}
+
 /**
  * New rule or disable+enable. A send time that is still ahead goes out once
- * on the normal path. A missing or already-passed send time is history.
+ * on the normal path. So does one earlier today, at or after the current
+ * run's slot: a 09:00 send reached at 09:00:20 is due, not history.
+ * A missing send time, an earlier day, or an earlier slot today is history.
  */
 export function decideActivationEventAction(input: {
   sendAt: Date | null;
   now: Date;
 }): "seed" | "send" {
-  const action = decideFilterScopeAction({
-    previouslyInScope: false,
-    nowInScope: true,
-    sendAt: input.sendAt,
-    now: input.now,
-  });
-  return action === "send" ? "send" : "seed";
+  const sendMs = input.sendAt?.getTime();
+  if (sendMs == null || !Number.isFinite(sendMs)) return "seed";
+  if (sendMs >= input.now.getTime()) return "send";
+  if (israelYmdHm(input.sendAt!).ymd !== israelYmdHm(input.now).ymd) return "seed";
+  const slotStart = currentRunSlotStart(input.now);
+  if (!slotStart || sendMs >= slotStart.getTime()) return "send";
+  return "seed";
 }
 
 /** Israel wall clock. `hm` is HH:MM. */

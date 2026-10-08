@@ -144,7 +144,9 @@ export function unsentReason(input: {
   const err = String(input.lastError ?? "").trim().toLowerCase();
   if (status === "unknown" || err.includes("send_outcome_unknown")) return "תוצאה לא ידועה";
   if (err.includes(EMPTY_VARIABLE_ERROR)) return "משתנה ריק בטמפלייט";
-  if (status === "sending" || err === "sending") return "נשאר באמצע שליחה";
+  if (status === "sending") return "נשאר באמצע שליחה";
+  if (status === "sent" && err === "sending") return null;
+  if (err === "sending") return "נשאר באמצע שליחה";
   if (err === "duplicate_guard") return "נחסם כפילות";
   if (status === "sent") return null;
   if (err.includes(ARBOX_ERROR_REASON)) return "שגיאת ארבוקס";
