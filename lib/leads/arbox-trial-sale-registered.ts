@@ -530,6 +530,7 @@ async function sendOnePurchaseTemplate(input: {
         phoneNumberId,
         templateName,
         alertTriggerId: matchedRule.id,
+        eventDedupKey: buildPurchaseScheduledDedupKey(input.businessId, matchedRule.id, input.saleId),
         languageCode,
         ...(sendComponents ? { components: sendComponents } : {}),
       });

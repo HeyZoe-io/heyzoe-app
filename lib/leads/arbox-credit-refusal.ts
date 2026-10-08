@@ -405,6 +405,11 @@ async function sendCreditRefusalTemplate(input: {
     return { dispatch: "no_rule", ok: false };
   }
 
+  const eventDedupKey = buildCreditRefusalScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.transactionId
+  );
   if (input.rule.delay_days > 0) {
     const dueAt = computeDueAt(
       {
@@ -420,11 +425,7 @@ async function sendCreditRefusalTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildCreditRefusalScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.transactionId
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-credit-refusal] enqueue failed:", enqueueResult.error);
@@ -482,6 +483,7 @@ async function sendCreditRefusalTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

@@ -500,6 +500,7 @@ async function dispatchLostLeadTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey: buildLostLeadScheduledDedupKey(input.businessId, input.rule.id, input.leadId, input.lostDate),
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

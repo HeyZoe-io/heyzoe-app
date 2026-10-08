@@ -1,6 +1,7 @@
 import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { buildMembershipCancelledScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
   eventBeforeRuleActivation,
   israelSlotInstant,
@@ -535,6 +536,14 @@ async function dispatchMembershipCancelledTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey: buildMembershipCancelledScheduledDedupKey(
+      input.businessId,
+      input.rule.id,
+      input.userId,
+      input.cancelledTime,
+      input.endDateYmd,
+      input.membershipTypeName
+    ),
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

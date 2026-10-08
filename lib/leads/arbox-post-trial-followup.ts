@@ -614,6 +614,14 @@ async function dispatchFollowupTemplate(input: {
   // Conversion window already waited via delay_days vs class_date; send immediate on decision day.
   const dueAt = computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now);
 
+  const eventDedupKey = buildPostTrialFollowupScheduledDedupKey(
+    input.outcome,
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd,
+    input.className
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -622,14 +630,7 @@ async function dispatchFollowupTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildPostTrialFollowupScheduledDedupKey(
-        input.outcome,
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd,
-        input.className
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-post-trial-followup] enqueue failed:", enqueueResult.error);
@@ -684,6 +685,7 @@ async function dispatchFollowupTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

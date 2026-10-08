@@ -403,6 +403,13 @@ async function sendBirthdayTemplate(input: {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
+  const eventDedupKey = buildBirthdayScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.birthdayYear,
+    input.triggerType
+  );
   if (input.rule.delay_days > 0) {
     const triggerYmd = computeBirthdayTriggerDateYmd(input.birthdayRaw, input.rule, input.now);
     const dueAt = triggerYmd
@@ -418,13 +425,7 @@ async function sendBirthdayTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildBirthdayScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.birthdayYear,
-        input.triggerType
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-birthday] enqueue failed:", enqueueResult.error);
@@ -478,6 +479,7 @@ async function sendBirthdayTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

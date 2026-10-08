@@ -759,6 +759,13 @@ async function dispatchGapTemplate(input: {
       Math.max(0, input.dueOffsetMs ?? 0)
   );
 
+  const eventDedupKey = buildAttendanceGapScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.gapStartDate,
+    input.tier
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -767,13 +774,7 @@ async function dispatchGapTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildAttendanceGapScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.gapStartDate,
-        input.tier
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-attendance-gap] enqueue failed:", enqueueResult.error);
@@ -827,6 +828,7 @@ async function dispatchGapTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

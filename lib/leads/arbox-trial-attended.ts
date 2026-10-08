@@ -440,6 +440,12 @@ async function dispatchTrialAttendedTemplate(input: {
 
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
 
+  const eventDedupKey = buildTrialAttendedScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd
+  );
   if (delayDays > 0) {
     const dueAt = computeDueAt(
       {
@@ -455,12 +461,7 @@ async function dispatchTrialAttendedTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildTrialAttendedScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-attended] enqueue failed:", enqueueResult.error);
@@ -514,6 +515,7 @@ async function dispatchTrialAttendedTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

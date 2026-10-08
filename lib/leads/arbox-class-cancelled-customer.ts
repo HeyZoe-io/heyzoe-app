@@ -1363,6 +1363,7 @@ async function sendPending(input: {
             phoneNumberId,
             templateName: rule.template_name,
             alertTriggerId: rule.id,
+            eventDedupKey: `class_cancelled:${input.businessId}:${rule.id}:${encodeURIComponent(row.schedule_id)}:${row.user_id}`,
             languageCode: tpl?.language || "he",
             skipOptOutGate: true,
             components: classCancelledCustomerBodyComponents(values),
