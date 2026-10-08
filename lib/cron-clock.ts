@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logMessage } from "@/lib/analytics";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
+import { resolveCronSecret } from "@/lib/server-env";
 
 /** Query keys that would replace the server clock. None of these are read on a live run. */
 export const CRON_TIME_OVERRIDE_PARAMS = ["now", "date", "today", "at", "as_of", "asof"] as const;
@@ -11,6 +12,10 @@ export const CRON_UNEXPECTED_CALLER_MODEL = "cron_unexpected_caller";
 export const CRON_INTERNAL_HEADER = "x-heyzoe-cron-internal";
 
 const CRON_JOB_ORG_UA = /cron-job\.org/i;
+const VERCEL_CRON_UA = /^vercel-cron\/\d/i;
+
+/** Paths under `crons` in vercel.json. cron-clock.test.ts fails if the two drift apart. */
+export const VERCEL_CRON_ROUTES: readonly string[] = ["/api/cron/reset-monthly-quota-warnings"];
 
 export type CronTimeOverrideDecision =
   | { action: "none" }
@@ -107,6 +112,22 @@ export function isCronJobOrgUserAgent(userAgent: string | null | undefined): boo
   return CRON_JOB_ORG_UA.test(String(userAgent ?? ""));
 }
 
+/**
+ * A scheduled run from vercel.json: listed route, Vercel's cron user agent, and the
+ * `Bearer CRON_SECRET` header Vercel attaches. All three, or it is still flagged.
+ */
+export function isVercelScheduledCron(input: {
+  route: string;
+  userAgent: string | null | undefined;
+  authorization: string | null | undefined;
+  secret: string;
+}): boolean {
+  if (!input.secret) return false;
+  if (!VERCEL_CRON_ROUTES.includes(input.route)) return false;
+  if (!VERCEL_CRON_UA.test(String(input.userAgent ?? "").trim())) return false;
+  return input.authorization === `Bearer ${input.secret}`;
+}
+
 export function isInternalCronCall(req: NextRequest): boolean {
   return req.headers.get(CRON_INTERNAL_HEADER) === "1";
 }
@@ -134,8 +155,9 @@ export async function noteUnexpectedCronCaller(input: {
   userAgent: string | null;
   dryRun: boolean;
   internal: boolean;
+  vercelCron?: boolean;
 }): Promise<void> {
-  if (input.dryRun || input.internal || isCronJobOrgUserAgent(input.userAgent)) return;
+  if (input.dryRun || input.internal || input.vercelCron || isCronJobOrgUserAgent(input.userAgent)) return;
   if (isArboxDailyDryRun()) return;
   const ua = String(input.userAgent ?? "").trim() || "חסר";
   const slot = input.slot ? ` slot=${input.slot}` : "";
@@ -166,6 +188,12 @@ export async function acknowledgeCron(
     userAgent,
     dryRun,
     internal: isInternalCronCall(req),
+    vercelCron: isVercelScheduledCron({
+      route,
+      userAgent,
+      authorization: req.headers.get("authorization"),
+      secret: resolveCronSecret(),
+    }),
   });
 }
 
