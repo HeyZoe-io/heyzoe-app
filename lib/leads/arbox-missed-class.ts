@@ -31,6 +31,7 @@ import {
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { REGISTERED_VIA_ZOE_REASON, registeredViaZoe } from "@/lib/leads/registered-via-zoe";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   bookingMatchesTrialScope,
@@ -275,6 +276,8 @@ type ContactRow = {
   phone: string | null;
   full_name: string | null;
   arbox_user_id: string | null;
+  trial_registered?: boolean | null;
+  session_phase?: string | null;
 };
 
 async function resolveOrCreateContact(input: {
@@ -283,7 +286,7 @@ async function resolveOrCreateContact(input: {
   row: ArboxBookingReportRow;
   source: string;
 }): Promise<{ contact: ContactRow | null; phone: string | null }> {
-  const contactSelect = "id, phone, full_name, arbox_user_id";
+  const contactSelect = "id, phone, full_name, arbox_user_id, trial_registered, session_phase";
   const arboxUserId = String(input.row.user_id ?? "").trim();
   let phoneNorm = normalizePhone(input.row.phone);
   const fullName = resolveReportFullName(input.row);
@@ -1049,6 +1052,33 @@ export async function syncArboxMissedClassForBusiness(input: {
             nowIso,
           });
         }
+        continue;
+      }
+
+      if (kind === "missed_trial" && registeredViaZoe(resolved.contact)) {
+        for (const rule of rulesToSend) {
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact.id,
+            attempts: attemptsSoFar,
+            status: "skipped",
+            nowIso,
+            reason: REGISTERED_VIA_ZOE_REASON,
+          });
+        }
+        console.info("[leads/arbox-missed-class] dispatch", {
+          businessId,
+          kind,
+          user_id: userId,
+          dispatch: "skipped",
+          reason: REGISTERED_VIA_ZOE_REASON,
+        });
         continue;
       }
 
