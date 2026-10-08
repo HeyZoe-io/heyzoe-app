@@ -18,7 +18,9 @@ import { resolveSupabaseServiceRoleKey, resolveSupabaseUrl } from "@/lib/server-
 type Admin = SupabaseClient;
 const PAGE = 1000;
 const WRITE_BATCH = 200;
-const HUMAN_MODELS = ["human_requested", "human_requested_manual", "manual_handoff", "wa_business_app"];
+const HUMAN_MODELS = ["human_requested", "human_requested_manual", "manual_handoff"];
+/** Live code locks only on a text echo; these placeholders are logged for every other echo type. */
+const NON_TEXT_ECHO = /^\[(unsupported|revoke|edit|unknown|תמונה|הקלטה|וידאו|קובץ|איש קשר|מיקום|סטיקר)\]/;
 
 type ContactRow = {
   id: number;
@@ -31,14 +33,22 @@ type ContactRow = {
   wa_followup_3_sent_at: string | null;
 };
 
-async function sessionPhonesForModels(admin: Admin, slug: string, models: { like?: string; in?: string[] }) {
+async function sessionPhonesForModels(
+  admin: Admin,
+  slug: string,
+  models: { like?: string; in?: string[]; textEchoOnly?: boolean }
+) {
   const phones = new Set<string>();
   for (let from = 0; ; from += PAGE) {
-    let q = admin.from("messages").select("session_id").eq("business_slug", slug);
+    let q = admin
+      .from("messages")
+      .select(models.textEchoOnly ? "session_id, content" : "session_id")
+      .eq("business_slug", slug);
     q = models.like ? q.like("model_used", models.like) : q.in("model_used", models.in ?? []);
     const { data, error } = await q.order("id", { ascending: true }).range(from, from + PAGE - 1);
     if (error) throw error;
-    for (const row of data ?? []) {
+    for (const row of (data ?? []) as { session_id?: string; content?: string }[]) {
+      if (models.textEchoOnly && NON_TEXT_ECHO.test(String(row.content ?? "").trim())) continue;
       const parts = waSessionIdParts(String((row as { session_id?: string }).session_id ?? ""));
       const phone = parts ? canonicalContactPhone(parts.phone) : null;
       if (phone) phones.add(phone);
@@ -106,6 +116,12 @@ async function main() {
   for (const biz of businesses as { id: number; slug: string }[]) {
     const followupPhones = await sessionPhonesForModels(admin, biz.slug, { like: "wa_followup_%" });
     const humanPhones = await sessionPhonesForModels(admin, biz.slug, { in: HUMAN_MODELS });
+    for (const phone of await sessionPhonesForModels(admin, biz.slug, {
+      in: ["wa_business_app"],
+      textEchoOnly: true,
+    })) {
+      humanPhones.add(phone);
+    }
     const contacts = await contactsForBusiness(admin, biz.id);
 
     const toLock: number[] = [];
