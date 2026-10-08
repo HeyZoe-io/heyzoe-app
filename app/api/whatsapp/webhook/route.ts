@@ -8919,6 +8919,7 @@ async function processIncoming(
             phone: msg.from,
             nowIso,
             sessionId,
+            reason: playbook.category,
           });
         } catch (e) {
           console.error(
@@ -14218,7 +14219,7 @@ async function processIncoming(
           session_id: sessionId,
         });
       };
-      const notifyTeam = async () => {
+      const notifyTeam = async (reason?: string) => {
         if (!businessId) return;
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -14229,6 +14230,7 @@ async function processIncoming(
             phone: msg.from,
             nowIso,
             sessionId,
+            reason,
           });
         } catch (e) {
           console.error(`[WA Webhook] confirmed hint ${hintCategory} human_requested failed:`, e);
@@ -14272,7 +14274,7 @@ async function processIncoming(
           return;
         }
         if (confirmed) {
-          if (confirmed.notifyHumanRequested) await notifyTeam();
+          if (confirmed.notifyHumanRequested) await notifyTeam(confirmed.category);
           await sendClosed(confirmed.reply, confirmed.modelUsed);
           return;
         }

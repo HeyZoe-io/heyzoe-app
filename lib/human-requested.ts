@@ -5,6 +5,7 @@ import {
   waSessionIdVariantsFromSessionId,
 } from "@/lib/phone-normalize";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { stampLeaveRequest } from "@/lib/leads/leave-request";
 
 /**
  * Stage 3 is «ללא מענה» in the list and also «no more follow-ups».
@@ -146,10 +147,20 @@ export async function handleLeadHumanRequested(input: {
   fullName?: string | null;
   /** מועד שיחה שנבחר (יום+בלוק) — נוסף למייל בעלים אם קיים */
   callScheduleSlot?: string | null;
+  /** Closed-playbook category of this handoff. cancellation / freeze / complaint pause retention for 14 days. */
+  reason?: string | null;
 }): Promise<{ already: boolean }> {
   const businessId = Number(input.businessId);
   const phoneVariants = contactPhoneLookupVariants(input.phone);
   if (!businessId || !phoneVariants.length) return { already: false };
+
+  await stampLeaveRequest({
+    admin: input.supabase as never,
+    businessId,
+    phoneVariants,
+    kind: input.reason,
+    nowIso: input.nowIso,
+  });
 
   const sessionId = String(input.sessionId ?? "").trim();
   if (sessionId) {

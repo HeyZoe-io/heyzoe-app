@@ -23,6 +23,7 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
@@ -1125,6 +1126,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     existingRows: GapExistingRow[];
   };
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   const staffProducts = attendanceGapStaffProducts({
     membershipRows: input.activeMembershipRows ?? [],
     sessionRows: input.activeSessionRows ?? [],
@@ -1604,6 +1606,35 @@ export async function syncArboxAttendanceGapForBusiness(input: {
             trigger: "attendance_gap",
             businessId,
             user_id: state.userId,
+          });
+          continue;
+        }
+        const leave = await leaveRequest({ id: sendContact.id, phone: sendPhone, arbox_user_id: state.userId });
+        if (leave !== "clear") {
+          if (leave === "blocked") {
+            for (const rule of pendingRules) {
+              await upsertGapSyncLog({
+                admin: input.admin,
+                businessId,
+                triggerId: rule.id,
+                userId: state.userId,
+                gapStartDate: state.lastYesYmd,
+                tier,
+                contactId: sendContact.id,
+                attempts: attemptsSoFar,
+                status: "skipped",
+                nowIso,
+                reason: LEAVE_REQUEST_REASON,
+              });
+            }
+            markRetentionSent(businessId, sendPhone, now);
+          }
+          console.info("[leads/arbox-attendance-gap] dispatch", {
+            businessId,
+            user_id: state.userId,
+            tier,
+            dispatch: "skipped",
+            reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
           });
           continue;
         }

@@ -12,6 +12,7 @@ import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
@@ -883,6 +884,7 @@ export async function syncArboxLostLeadForBusiness(input: {
   }
 
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   for (const raw of reportRows) {
     const row = raw as ArboxLostLeadRow;
     const leadId = parseLostLeadId(row);
@@ -1082,6 +1084,32 @@ export async function syncArboxLostLeadForBusiness(input: {
         }
 
         const templateName = String(rule.template_name ?? "").trim();
+        const leave = await leaveRequest({ id: resolved.contact?.id ?? null, phone });
+        if (leave !== "clear") {
+          if (leave === "blocked") {
+            const marked = await upsertLostLeadSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              leadId,
+              lostDate,
+              contactId: resolved.contact?.id ?? null,
+              nowIso,
+              status: "skipped",
+              attempts: existingAttempts,
+              reason: LEAVE_REQUEST_REASON,
+            });
+            if (!marked.ok) summary.errors += 1;
+            markRetentionSent(businessId, phone, now);
+          }
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            phone: maskPhoneForLog(phone),
+            dispatch: "skipped",
+            reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
+          });
+          continue;
+        }
         if (await retentionAlreadySentToday(input.admin, businessId, phone, now)) {
           const marked = await upsertLostLeadSyncLog({
             admin: input.admin,

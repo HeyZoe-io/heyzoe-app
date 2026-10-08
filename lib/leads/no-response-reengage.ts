@@ -29,6 +29,7 @@ import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/templa
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import {
   companionTemplateAlreadySent,
@@ -648,6 +649,7 @@ export async function syncNoResponseReengageForBusiness(input: {
   }
 
   const staffIndex = await retentionStaffIndex(input.admin, input.businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, input.businessId, now);
   for (const row of candidateRows) {
     summary.examined += 1;
     const contact = row as ContactCandidate;
@@ -672,6 +674,13 @@ export async function syncNoResponseReengageForBusiness(input: {
         businessId: input.businessId,
         user_id: Number.isFinite(staffUserId) ? Math.trunc(staffUserId) : null,
       });
+      continue;
+    }
+
+    const leave = await leaveRequest({ id: String(contactId), phone, arbox_user_id: contact.arbox_user_id ?? null });
+    if (leave !== "clear") {
+      if (leave === "blocked") markRetentionSent(input.businessId, phone, now);
+      bump(summary, leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed");
       continue;
     }
 
