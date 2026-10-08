@@ -9,6 +9,7 @@ import {
   loadAllZoeAdminConversationSessions,
   ZOE_ADMIN_ALL_CONVERSATIONS_SLUG,
 } from "@/lib/zoe-admin-conversations";
+import { markSessionsWithFailedDelivery } from "@/lib/wa-message-delivery";
 
 export const runtime = "nodejs";
 
@@ -29,14 +30,21 @@ export async function GET(req: NextRequest) {
     const admin = createSupabaseAdminClient();
 
     if (isZoeAdminAllConversationsSlug(slug)) {
-      const { data: bizRows } = await admin.from("businesses").select("slug, name").limit(2000);
+      const { data: bizRows } = await admin.from("businesses").select("id, slug, name").limit(2000);
       const businesses = (bizRows ?? [])
         .map((b) => ({
+          id: Number((b as { id?: unknown }).id),
           slug: String((b as { slug?: string }).slug ?? "").trim().toLowerCase(),
           name: ((b as { name?: string | null }).name ?? null) as string | null,
         }))
         .filter((b) => b.slug);
-      const sessions = await loadAllZoeAdminConversationSessions(admin, businesses);
+      const loaded = await loadAllZoeAdminConversationSessions(
+        admin,
+        businesses.map(({ slug: s, name }) => ({ slug: s, name }))
+      );
+      const sessions = await markSessionsWithFailedDelivery(admin, loaded, {
+        businessIdBySlug: new Map(businesses.map((b) => [b.slug, b.id])),
+      });
       return NextResponse.json({ sessions, slug: ZOE_ADMIN_ALL_CONVERSATIONS_SLUG });
     }
 
@@ -45,7 +53,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ sessions });
     }
 
-    const sessions = await loadBusinessConversationSessions(admin, slug);
+    const loaded = await loadBusinessConversationSessions(admin, slug);
+    const { data: biz } = await admin.from("businesses").select("id").eq("slug", slug).maybeSingle();
+    const businessId = Number((biz as { id?: unknown } | null)?.id);
+    const sessions =
+      Number.isFinite(businessId) && businessId > 0
+        ? await markSessionsWithFailedDelivery(admin, loaded, { businessId })
+        : loaded;
     return NextResponse.json({ sessions });
   } catch (e) {
     return NextResponse.json(
