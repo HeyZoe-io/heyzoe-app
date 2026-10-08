@@ -472,21 +472,4 @@ const arboxPrompt = buildSystemPrompt(
 assert.match(arboxPrompt, /מהאפליקציה Arbox/);
 assert.match(arboxPrompt, /נכנסים, מוצאים את השיעור ומבטלים/);
 
-// Omer's place 8.10: class-cancel policy must not answer a membership cancel / freeze.
-for (const omerKnowledge of [
-  {
-    knowledgeQa: [
-      { question: "מה מדיניות הביטול או ההקפאה?", answer: "ביטול שיעור בוקר 12 שעות לפני וביטול שיעור ערב 5 שעות לפני." },
-    ],
-  },
-  { traits: ["מה מדיניות הביטול או ההקפאה? ביטול שיעור בוקר 12 שעות לפני וביטול שיעור ערב 5 שעות לפני."] },
-]) {
-  const cancel = resolveClosedPlaybook({ inbound: "אני מעוניינת לבטל את המנוי", knowledge: omerKnowledge, hasArbox: true });
-  assert.equal(cancel?.category, "cancellation");
-  assert.equal(cancel?.reply, CLOSED_PLAYBOOK_CANCELLATION_REPLY);
-  assert.equal(cancel?.notifyHumanRequested, true);
-  assert.equal(lookupPlaybookFact("freeze", omerKnowledge), null);
-  assert.match(String(lookupPlaybookFact("class_cancel", omerKnowledge)), /ביטול שיעור בוקר/);
-}
-
 console.log("wa-closed-playbook.test.ts: ok");

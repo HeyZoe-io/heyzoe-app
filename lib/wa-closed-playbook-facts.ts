@@ -92,19 +92,6 @@ function firstMatchingLine(blob: string, terms: RegExp[]): string | null {
   return null;
 }
 
-const MEMBERSHIP_TOPICS = new Set<ClosedPlaybookCategory>(["cancellation", "freeze", "refund"]);
-
-/**
- * «מדיניות הביטול או ההקפאה? ביטול שיעור בוקר 12 שעות לפני…» matches cancellation/freeze
- * on the question, but the lead-facing answer is about cancelling a class.
- */
-function isClassCancelFactForMembershipTopic(category: ClosedPlaybookCategory, fact: string): boolean {
-  if (!MEMBERSHIP_TOPICS.has(category)) return false;
-  const answer = fact.replace(/^[^?؟\n]{0,120}[?؟]\s*/u, "").trim() || fact;
-  if (!termsHit(answer, TOPIC_TERMS.class_cancel)) return false;
-  return !termsHit(answer, TOPIC_TERMS[category as "cancellation" | "freeze" | "refund"]);
-}
-
 /**
  * Heuristic per-topic lookup over existing free-text knowledgeQa / traits / FAQ.
  * Not a typed slot. Cancel vs freeze vs refund use separate term sets.
@@ -116,23 +103,20 @@ export function lookupPlaybookFact(
   if (!knowledge || category === "discount" || category === "coach_owner") return null;
   const terms = TOPIC_TERMS[category];
   if (!terms?.length) return null;
-  const fits = (fact: string | null): fact is string => !!fact && !isClassCancelFactForMembershipTopic(category, fact);
 
   for (const pair of knowledge.knowledgeQa ?? []) {
     const hit = qaCoversTopic(pair, terms);
-    if (fits(hit)) return hit;
+    if (hit) return hit;
   }
   for (const line of knowledge.traits ?? []) {
     const trimmed = String(line ?? "").trim();
     if (!trimmed) continue;
-    if (!termsHit(trimmed, terms)) continue;
-    const hit = leadFacingFactText(trimmed);
-    if (fits(hit)) return hit;
+    if (termsHit(trimmed, terms)) return leadFacingFactText(trimmed);
   }
   const fromFaq = firstMatchingLine(knowledge.faqsText ?? "", terms);
-  if (fits(fromFaq)) return fromFaq;
+  if (fromFaq) return fromFaq;
   const fromMemberships = firstMatchingLine(knowledge.membershipsAndCardsText ?? "", terms);
-  if (fits(fromMemberships)) return fromMemberships;
+  if (fromMemberships) return fromMemberships;
   if (category === "group") {
     const catalog = resolveKnowledgeCatalogServices({
       knowledgeCatalog: knowledge.knowledgeCatalogServices,
