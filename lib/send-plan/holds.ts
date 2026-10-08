@@ -12,6 +12,7 @@ import {
   PLANNED_ROW_SELECT,
   releasedRowSendableNow,
   sendPlannedRow,
+  type DispatchDeps,
   type PlannedRow,
 } from "@/lib/send-plan/dispatch";
 
@@ -131,7 +132,13 @@ export async function cancelHeld(admin: Admin, selector: HeldSelector, by: strin
   return { matched: rows.length, canceled: data?.length ?? 0, failed: 0 };
 }
 
-export async function releaseHeld(admin: Admin, selector: HeldSelector, by: string, now = new Date()): Promise<HeldActionResult> {
+export async function releaseHeld(
+  admin: Admin,
+  selector: HeldSelector,
+  by: string,
+  now = new Date(),
+  deps?: DispatchDeps
+): Promise<HeldActionResult> {
   const rows = await selectHeld(admin, selector);
   const result: HeldActionResult = { matched: rows.length, released: 0, sent_now: 0, canceled: 0, failed: 0 };
   for (const row of rows) {
@@ -168,7 +175,7 @@ export async function releaseHeld(admin: Admin, selector: HeldSelector, by: stri
     // DISPATCH for this row already passed (or it is an event row): send now through the claim.
     const claim = await claimQueuedTemplateSend(admin, row.dedup_key, "planned");
     if (claim !== "won") continue;
-    const sent = await sendPlannedRow(admin, row, now).catch((e) => {
+    const sent = await sendPlannedRow(admin, row, now, { deps }).catch((e) => {
       console.error("[send-plan] release send threw:", e instanceof Error ? e.message : e, { id: row.id });
       return { outcome: "unknown" as const };
     });

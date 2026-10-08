@@ -65,6 +65,9 @@ export function isStoredComponentsRow(row: { dedup_key?: string | null; componen
   return String(row.dedup_key ?? "").startsWith("plan:") && row.components != null;
 }
 
+/** Injected in tests; production uses the real sender and conversation log. */
+export type DispatchDeps = { send?: typeof sendBusinessTemplate; log?: typeof logMessage };
+
 export type DispatchOutcome = "sent" | "failed" | "canceled" | "skipped" | "blocked" | "unknown" | "held" | "lost";
 
 export type RevalidationInput = {
@@ -165,7 +168,7 @@ export async function sendPlannedRow(
   admin: Admin,
   row: PlannedRow,
   now: Date,
-  opts: { dryRun?: boolean } = {}
+  opts: { dryRun?: boolean; deps?: DispatchDeps } = {}
 ): Promise<{ outcome: DispatchOutcome; reason?: string }> {
   const business = await businessState(admin, row.business_id);
   const staff = row.recipient_kind === "staff";
@@ -187,7 +190,8 @@ export async function sendPlannedRow(
   }
   if (opts.dryRun) return { outcome: "sent" };
 
-  const result = await sendBusinessTemplate({
+  const send = opts.deps?.send ?? sendBusinessTemplate;
+  const result = await send({
     to: row.contact_phone,
     phoneNumberId: row.phone_number_id,
     templateName: row.template_name,
@@ -223,17 +227,17 @@ export async function sendPlannedRow(
     return { outcome: "canceled", reason: after.last_error };
   }
   await markRow(admin, row.id, { status: "sent", last_error: null }, ["sending"]);
-  if (!staff) await logPlannedSend(row, business.slug);
+  if (!staff) await logPlannedSend(row, business.slug, opts.deps?.log ?? logMessage);
   return { outcome: "sent" };
 }
 
-async function logPlannedSend(row: PlannedRow, slug: string): Promise<void> {
+async function logPlannedSend(row: PlannedRow, slug: string, log: typeof logMessage): Promise<void> {
   const captured = row.log_message;
   const sessionId = captured?.session_id || buildWaSessionId(row.phone_number_id, row.contact_phone);
   const businessSlug = captured?.business_slug || slug;
   const content = captured?.content || row.rendered_body || "";
   if (!businessSlug || !sessionId || !content) return;
-  await logMessage({
+  await log({
     business_slug: businessSlug,
     role: "assistant",
     content,
@@ -258,6 +262,7 @@ export async function dispatchPlannedSends(input: {
   now: Date;
   dryRun?: boolean;
   limit?: number;
+  deps?: DispatchDeps;
 }): Promise<DispatchSummary> {
   const planDay = planDayOf(input.now);
   const summary: DispatchSummary = {
@@ -302,7 +307,7 @@ export async function dispatchPlannedSends(input: {
         outcome = "lost";
       } else {
         try {
-          ({ outcome } = await sendPlannedRow(input.admin, row, input.now));
+          ({ outcome } = await sendPlannedRow(input.admin, row, input.now, { deps: input.deps }));
         } catch (e) {
           outcome = "unknown";
           console.error("[send-plan] dispatch row threw:", e instanceof Error ? e.message : e, { id: row.id });

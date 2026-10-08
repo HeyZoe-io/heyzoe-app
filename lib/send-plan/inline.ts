@@ -42,6 +42,7 @@ import {
   countSendsSince,
   emptyPlanReadCache,
   loadContactCheck,
+  loadLoggedTemplateSends,
   loadSendHistory,
   loadTemplateMeta,
   loadTriggerType,
@@ -71,6 +72,7 @@ export function resetEventSendGateCache(): void {
   cache = { at: 0, reads: emptyPlanReadCache() };
   businessByPhoneId.clear();
   baselineCache.clear();
+  slugByBusiness.clear();
 }
 
 async function businessIdFor(admin: Admin, phoneNumberId: string): Promise<number | null> {
@@ -79,6 +81,17 @@ async function businessIdFor(admin: Admin, phoneNumberId: string): Promise<numbe
   const id = await lookupBusinessIdByPhoneNumberId(admin, phoneNumberId);
   businessByPhoneId.set(phoneNumberId, { id, at: Date.now() });
   return id;
+}
+
+const slugByBusiness = new Map<number, { slug: string; at: number }>();
+
+async function businessSlugFor(admin: Admin, businessId: number): Promise<string> {
+  const hit = slugByBusiness.get(businessId);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.slug;
+  const { data } = await admin.from("businesses").select("slug").eq("id", businessId).maybeSingle();
+  const slug = String((data as { slug?: unknown } | null)?.slug ?? "").trim().toLowerCase();
+  slugByBusiness.set(businessId, { slug, at: Date.now() });
+  return slug;
 }
 
 function endOfIsraelDay(now: Date): Date {
@@ -118,10 +131,13 @@ async function hourlyBaseline(admin: Admin, businessId: number, triggerId: strin
   const hit = baselineCache.get(key);
   if (hit && Date.now() - hit.at < 30 * 60_000) return hit.avg;
   const history = await loadSendHistory(admin, businessId, now, triggerId);
-  const avg = hourlyAverage(
-    history.rows.map((row) => row.created_at),
-    now
-  );
+  let times = history.rows.map((row) => row.created_at);
+  if (!history.covered) {
+    // Per-trigger history is short: the business's normal volume of this hour is the ceiling.
+    const slug = await businessSlugFor(admin, businessId);
+    times = (slug ? await loadLoggedTemplateSends(admin, slug, now) : null) ?? times;
+  }
+  const avg = hourlyAverage(times, now);
   baselineCache.set(key, { avg, at: Date.now() });
   return avg;
 }

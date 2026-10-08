@@ -43,6 +43,8 @@ export type SendPlanHandle = {
   record(input: PlanSendInput): Promise<{ ok: boolean; error?: string }>;
   /** A queued row written during PLAN, checked in finalize. */
   noteEnqueue(input: PlanEnqueueInput): void;
+  /** The run claimed its own queued row to send it now (trainer heads-up): the send carries its key. */
+  noteQueueClaim(dedupKey: string): void;
   /** A due time before DISPATCH moves by the same distance, so nothing drains before it. */
   shiftDue(dueAt: Date): Date;
   /** logMessage right after a planned send: kept on the row, logged when DISPATCH sends. */

@@ -16,6 +16,7 @@ import {
   templateClaimName,
 } from "@/lib/notifications/template-send-claim";
 import { LEAVE_REQUEST_WINDOW_MS } from "@/lib/leads/leave-request";
+import { LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
 import { israelWallInstant, planDayOf, WABA_BLOCKING_CODES } from "@/lib/send-plan/checks";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
@@ -281,36 +282,79 @@ async function readWabaBlocked(
   return { blocked: true, code };
 }
 
-/** Automated sends of the 14 days before today (wa_template_send_refs). */
+export const BASELINE_DAYS = 14;
+
+function baselineWindow(now: Date): { since: string; until: string } {
+  const until = israelWallInstant(planDayOf(now), "00:00") ?? new Date(now.getTime() - (now.getTime() % DAY_MS));
+  return { since: new Date(until.getTime() - BASELINE_DAYS * DAY_MS).toISOString(), until: until.toISOString() };
+}
+
+/**
+ * Automated sends of the 14 days before today (wa_template_send_refs, per trigger).
+ * `covered`: the table holds the whole window for this business. Until then the per-trigger
+ * baselines are not trusted (refs started on 7.10.2026) and the callers fall back.
+ */
 export async function loadSendHistory(
   admin: Admin,
   businessId: number,
   now: Date,
   triggerId?: string | null
-): Promise<{ ok: boolean; rows: Array<{ trigger_id: string | null; created_at: string }> }> {
-  const until = israelWallInstant(planDayOf(now), "00:00") ?? new Date(now.getTime() - (now.getTime() % DAY_MS));
-  const since = new Date(until.getTime() - 14 * DAY_MS).toISOString();
+): Promise<{ ok: boolean; covered: boolean; rows: Array<{ trigger_id: string | null; created_at: string }> }> {
+  const { since, until } = baselineWindow(now);
   let query = admin
     .from("wa_template_send_refs")
     .select("trigger_id, created_at")
     .eq("business_id", businessId)
     .gte("created_at", since)
-    .lt("created_at", until.toISOString());
+    .lt("created_at", until);
   if (triggerId) query = query.eq("trigger_id", triggerId);
   const { data, error } = await query.limit(20000);
   if (error) {
     if (!missingRelation(error.message)) {
       console.error("[send-plan] send history read failed:", error.message, { businessId });
     }
-    return { ok: false, rows: [] };
+    return { ok: false, covered: false, rows: [] };
   }
+  const { data: first } = await admin
+    .from("wa_template_send_refs")
+    .select("created_at")
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const firstAt = String((first?.[0] as { created_at?: unknown } | undefined)?.created_at ?? "");
   return {
     ok: true,
+    covered: Boolean(firstAt) && firstAt <= since,
     rows: (data ?? []).map((row) => ({
       trigger_id: (row as { trigger_id?: string | null }).trigger_id ?? null,
       created_at: String((row as { created_at?: unknown }).created_at ?? ""),
     })),
   };
+}
+
+/**
+ * Business-level fallback baseline: automated template sends in the conversation log
+ * (messages, model_used lead_template) over the same 14 days. Index (business_slug, created_at).
+ * Returns the send times; null when the read fails.
+ */
+export async function loadLoggedTemplateSends(admin: Admin, businessSlug: string, now: Date): Promise<string[] | null> {
+  const slug = businessSlug.trim();
+  if (!slug) return null;
+  const { since, until } = baselineWindow(now);
+  const { data, error } = await admin
+    .from("messages")
+    .select("created_at")
+    .eq("business_slug", slug)
+    .eq("role", "assistant")
+    .eq("model_used", LEAD_TEMPLATE_MODEL)
+    .gte("created_at", since)
+    .lt("created_at", until)
+    .limit(20000);
+  if (error) {
+    console.error("[send-plan] logged sends read failed:", error.message, { businessSlug: slug });
+    return null;
+  }
+  return (data ?? []).map((row) => String((row as { created_at?: unknown }).created_at ?? ""));
 }
 
 export async function countSendsSince(

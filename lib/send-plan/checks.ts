@@ -256,6 +256,8 @@ export function groupVolumeHolds(input: {
   items: readonly VolumeGroupItem[];
   triggerDailyAverage: ReadonlyMap<string, number>;
   businessDailyAverage: number;
+  /** false while the per-trigger history does not cover the window: business check only. */
+  checkTriggers?: boolean;
 }): { ids: Set<string>; groups: Array<{ group: string; count: number; limit: number }> } {
   const live = input.items.filter((item) => item.status === "planned" || item.status === "held");
   const ids = new Set<string>();
@@ -266,6 +268,7 @@ export function groupVolumeHolds(input: {
     for (const item of live) if (item.status === "planned") ids.add(item.id);
     return { ids, groups };
   }
+  if (input.checkTriggers === false) return { ids, groups };
   const byTrigger = new Map<string, VolumeGroupItem[]>();
   for (const item of live) {
     const list = byTrigger.get(item.triggerKey) ?? [];

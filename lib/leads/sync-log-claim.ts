@@ -1,5 +1,5 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { activeSendPlan, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { isMissingSyncLogReasonColumn, syncLogStatusFallbacks } from "@/lib/leads/sync-log-reason";
 import { isSendsHoldError } from "@/lib/business-sends-hold";
 import { isSendOutcomeUnknown, SEND_OUTCOME_UNKNOWN } from "@/lib/notifications/graph-whatsapp-send";
@@ -317,6 +317,7 @@ export async function claimQueuedTemplateSend(
 ): Promise<"won" | "lost" | "error"> {
   const key = dedupKey.trim();
   if (!key) return "error";
+  if (from === "pending") activeSendPlan()?.noteQueueClaim(key);
   if (isArboxDailyDryRun()) return "won";
   const { data, error } = await admin
     .from("scheduled_template_sends")

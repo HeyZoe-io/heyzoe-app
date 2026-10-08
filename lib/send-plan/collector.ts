@@ -41,7 +41,9 @@ import {
 import {
   emptyPlanReadCache,
   findCertainDuplicate,
+  BASELINE_DAYS,
   loadContactCheck,
+  loadLoggedTemplateSends,
   loadSendHistory,
   loadTemplateMeta,
   loadTriggerType,
@@ -95,6 +97,8 @@ export class SendPlanCollector implements SendPlanHandle {
   private readonly cache: PlanReadCache = emptyPlanReadCache();
   private readonly seenEvents = new Set<string>();
   private writeErrors = 0;
+  private readonly claimedQueue = new Set<string>();
+  private lastClaim: QueuedNote | null = null;
 
   constructor(
     private readonly admin: Admin,
@@ -123,6 +127,11 @@ export class SendPlanCollector implements SendPlanHandle {
     this.queued.push({ ...input, firstSeenAt: Date.now() });
   }
 
+  noteQueueClaim(dedupKey: string): void {
+    this.claimedQueue.add(dedupKey);
+    this.lastClaim = this.queued.find((note) => note.dedupKey === dedupKey) ?? null;
+  }
+
   captureLog(entry: PlanLogInput): boolean {
     if (this.mode !== "plan" || entry.role !== "assistant") return false;
     const session = String(entry.session_id ?? "");
@@ -140,7 +149,8 @@ export class SendPlanCollector implements SendPlanHandle {
     return true;
   }
 
-  async record(input: PlanSendInput): Promise<{ ok: boolean; error?: string }> {
+  async record(raw: PlanSendInput): Promise<{ ok: boolean; error?: string }> {
+    const input = this.withClaimedQueueKey(raw);
     const phone = normalizePhone(input.to) ?? String(input.to ?? "").replace(/\D/g, "");
     const templateName = input.templateName.trim();
     const triggerId = String(input.alertTriggerId ?? "").trim() || null;
@@ -269,12 +279,24 @@ export class SendPlanCollector implements SendPlanHandle {
     return { ok: false, error: `${SEND_CHECK_SKIPPED_ERROR}:${result.reason}` };
   }
 
+  /** A send right after the run claimed its queued row is that row: same trigger and event key. */
+  private withClaimedQueueKey(input: PlanSendInput): PlanSendInput {
+    const claim = this.lastClaim;
+    this.lastClaim = null;
+    if (!claim || input.eventDedupKey || input.alertTriggerId) return input;
+    const phone = normalizePhone(input.to) ?? String(input.to ?? "").replace(/\D/g, "");
+    const claimPhone = normalizePhone(claim.contactPhone) ?? claim.contactPhone.replace(/\D/g, "");
+    if (phone !== claimPhone || input.templateName.trim() !== claim.templateName.trim()) return input;
+    return { ...input, alertTriggerId: claim.triggerId, eventDedupKey: claim.dedupKey };
+  }
+
   /** Queue checks, then the volume check. Returns the business summary. */
   async finalize(): Promise<PlanSummary> {
     let queuedChecked = 0;
-    const businessName = await this.businessName();
+    const business = await this.business();
     for (const note of this.queued) {
-      const item = await this.checkQueued(note, businessName).catch((e) => {
+      if (this.claimedQueue.has(note.dedupKey)) continue;
+      const item = await this.checkQueued(note, business.name).catch((e) => {
         console.error("[send-plan] queued check failed:", e instanceof Error ? e.message : e, {
           dedupKey: note.dedupKey,
         });
@@ -287,18 +309,22 @@ export class SendPlanCollector implements SendPlanHandle {
     }
 
     const history = await loadSendHistory(this.admin, this.businessId, this.planNow);
-    const averages = dailyAverages(history.rows);
-    const volume = history.ok
-      ? groupVolumeHolds({
-          items: this.items.map((item) => ({
-            id: item.id,
-            triggerKey: item.triggerId ?? "none",
-            status: item.status,
-          })),
-          triggerDailyAverage: averages.byTrigger,
-          businessDailyAverage: averages.business,
-        })
-      : { ids: new Set<string>(), groups: [] };
+    const averages = dailyAverages(history.covered ? history.rows : []);
+    const logged = await loadLoggedTemplateSends(this.admin, business.slug, this.planNow);
+    const businessDaily = Math.max(averages.business, (logged?.length ?? 0) / BASELINE_DAYS);
+    const volume =
+      history.covered || logged
+        ? groupVolumeHolds({
+            items: this.items.map((item) => ({
+              id: item.id,
+              triggerKey: item.triggerId ?? "none",
+              status: item.status,
+            })),
+            triggerDailyAverage: averages.byTrigger,
+            businessDailyAverage: businessDaily,
+            checkTriggers: history.covered,
+          })
+        : { ids: new Set<string>(), groups: [] };
     for (const item of this.items) {
       if (!volume.ids.has(item.id) || item.status !== "planned") continue;
       item.status = "held";
@@ -345,9 +371,10 @@ export class SendPlanCollector implements SendPlanHandle {
     return summary;
   }
 
-  private async businessName(): Promise<string> {
-    const { data } = await this.admin.from("businesses").select("name").eq("id", this.businessId).maybeSingle();
-    return String((data as { name?: unknown } | null)?.name ?? "");
+  private async business(): Promise<{ name: string; slug: string }> {
+    const { data } = await this.admin.from("businesses").select("name, slug").eq("id", this.businessId).maybeSingle();
+    const row = data as { name?: unknown; slug?: unknown } | null;
+    return { name: String(row?.name ?? ""), slug: String(row?.slug ?? "").trim().toLowerCase() };
   }
 
   /** The same checks as a planned send, on a row the run queued. Writes only when not planned. */
