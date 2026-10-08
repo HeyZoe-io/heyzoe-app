@@ -22,6 +22,7 @@ import {
 } from "@/lib/lead-template";
 import { resolveTemplateFirstName } from "@/lib/template-first-name";
 import {
+  isCancellationSyncLogTerminal,
   nextCancellationSyncLogAfterDispatch,
   parseCancellationSyncAttempts,
   type CancellationSyncLogStatus,
@@ -191,7 +192,7 @@ export function freezeCreatedStartInSpan(startYmd: string, now: Date): boolean {
   return startYmd >= from && startYmd <= to;
 }
 
-const FREEZE_CREATED_TERMINAL = new Set(["seeded", "sent", "abandoned", "no_phone", "skipped"]);
+const FREEZE_CREATED_TERMINAL = { has: (status: string) => isCancellationSyncLogTerminal(status) };
 
 /**
  * Marker row per rule: membership_hold_id 0, user_id = this version, status seeded.
@@ -1218,7 +1219,7 @@ export async function syncArboxFreezeForBusiness(input: {
         (existingRows ?? [])
           .filter((log) => {
             const status = String((log as { status?: unknown }).status ?? "");
-            return status === "seeded" || status === "sent" || status === "abandoned" || status === "no_phone";
+            return isCancellationSyncLogTerminal(status);
           })
           .map((log) => String((log as { trigger_id?: unknown }).trigger_id ?? ""))
       );

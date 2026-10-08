@@ -18,7 +18,7 @@
  * Decision day itself still sends on that run (even after 09:00), matching
  * lost-lead / cancellation new-rule activation.
  */
-import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
+import { isMissingSyncLogReasonColumn, upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
@@ -312,9 +312,10 @@ export function postTrialActivationInstant(input: {
   return parseReportEventInstant(input.classDateYmd);
 }
 
+/** Only no row, pending, or a Meta failure may send. Skipped / abandoned / canceled / unknown are final. */
 export function postTrialLogStatusBlocksSend(status: string | null | undefined): boolean {
   const value = String(status ?? "").trim();
-  return value === "seeded" || value === "sent" || value === "abandoned" || value === "no_phone";
+  return value !== "" && value !== "pending" && value !== "failed";
 }
 
 /**
@@ -322,15 +323,18 @@ export function postTrialLogStatusBlocksSend(status: string | null | undefined):
  * Catch-up only for that mistake: status seeded and decision day is today.
  * Intentional history seeds (decision day already past) stay blocked.
  * Already-sent rows stay blocked via status sent.
+ * A seeded row with a reason (a manual hold, a filter-scope seed) is never reopened.
  */
 export function postTrialSeededBlocksSend(input: {
   status: string | null | undefined;
+  reason?: string | null;
   classDateYmd: string;
   delayDays: number;
   todayYmd: string;
 }): boolean {
   const status = String(input.status ?? "").trim();
   if (status !== "seeded") return postTrialLogStatusBlocksSend(status);
+  if (String(input.reason ?? "").trim()) return true;
   return postTrialSeedAction({
     classDateYmd: input.classDateYmd,
     delayDays: input.delayDays,
@@ -1324,14 +1328,19 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       let sentImmediateThisRun = false;
       const trackEachTemplate = rulesToSend.length > 1;
       for (const rule of rulesToSend) {
-        const { data: existing, error: existingErr } = await input.admin
-          .from("arbox_post_trial_followup_sync_log")
-          .select("status, attempts")
-          .eq("business_id", businessId)
-          .eq("trigger_id", rule.id)
-          .eq("user_id", att.userId)
-          .eq("class_date", att.classDateYmd)
-          .maybeSingle();
+        const readExisting = (columns: string) =>
+          input.admin
+            .from("arbox_post_trial_followup_sync_log")
+            .select(columns)
+            .eq("business_id", businessId)
+            .eq("trigger_id", rule.id)
+            .eq("user_id", att.userId)
+            .eq("class_date", att.classDateYmd)
+            .maybeSingle();
+        let { data: existing, error: existingErr } = await readExisting("status, attempts, reason");
+        if (existingErr && isMissingSyncLogReasonColumn(existingErr.message)) {
+          ({ data: existing, error: existingErr } = await readExisting("status, attempts"));
+        }
         if (existingErr) {
           logDedupBlockedSend({
             log: "[leads/arbox-post-trial-followup]",
@@ -1346,6 +1355,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         if (
           postTrialSeededBlocksSend({
             status,
+            reason: String((existing as { reason?: unknown } | null)?.reason ?? ""),
             classDateYmd: att.classDateYmd,
             delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
             todayYmd,
@@ -1406,6 +1416,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
               .eq("user_id", att.userId)
               .eq("class_date", att.classDateYmd)
               .eq("status", "seeded")
+              .is("reason", null)
               .select("status");
             if (reopenErr) {
               logDedupBlockedSend({
