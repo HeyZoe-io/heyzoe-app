@@ -77,6 +77,7 @@ import {
 } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MISSED_SEED_SPAN_DAYS = 30;
@@ -798,13 +799,15 @@ export async function syncArboxMissedClassForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const products = await retryArboxOnce("leads/arbox-missed-class", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!products.ok) {
       missedTrialKeys = null;
       summary.errors += 1;
@@ -1087,11 +1090,28 @@ export async function syncArboxMissedClassForBusiness(input: {
       if (kind === "missed_trial") {
         const activeKeys = await ensureMissedTrialActiveKeys();
         if (!activeKeys) {
+          for (const rule of rulesToSend) {
+            await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: resolved.contact.id,
+              attempts: attemptsSoFar,
+              status: "pending",
+              nowIso,
+              reason: ARBOX_ERROR_REASON,
+            });
+          }
           console.info("[leads/arbox-missed-class] dispatch", {
             businessId,
             kind,
             user_id: userId,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1410,6 +1430,21 @@ export async function syncArboxMissedClassForBusiness(input: {
         class_date: classDateYmd,
         error: e instanceof Error ? e.message : String(e),
       });
+      await writeArboxErrorRows({
+        admin: input.admin,
+        table: "arbox_missed_class_sync_log",
+        onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+        rows: batch.map((rule) => ({
+          business_id: businessId,
+          trigger_id: rule.id,
+          user_id: userId,
+          class_date: classDateYmd,
+          class_time: classTime,
+          class_name: className,
+          processed_at: nowIso,
+          attempts: 0,
+        })),
+      }).catch((error) => console.error("[leads/arbox-missed-class] arbox_error row failed", error));
     }
   }
 

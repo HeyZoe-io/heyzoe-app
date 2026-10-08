@@ -15,6 +15,7 @@ import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { EMPTY_VARIABLE_ERROR } from "@/lib/notifications/template-empty-variable";
+import { ARBOX_ERROR_REASON } from "@/lib/leads/arbox-error-retry";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -103,6 +104,7 @@ export function unsentReason(input: {
   if (status === "sending" || err === "sending") return "נשאר באמצע שליחה";
   if (err === "duplicate_guard") return "נחסם כפילות";
   if (status === "sent") return null;
+  if (err.includes(ARBOX_ERROR_REASON)) return "שגיאת ארבוקס";
   if (status === "pending" && !input.overdue) return null;
   if (err.includes("class_unmarked")) return "אימון בלי סימון";
   if (err === "frozen" || err.includes("freeze_blocks")) return "הקפאה";
