@@ -465,6 +465,7 @@ const TODAY = "2026-08-23";
     mapMembershipEndDateReply({ fetched: { status: "fetch_failed" }, todayYmd: TODAY }).modelUsed,
     MEMBERSHIP_LOOKUP_FETCH_FAILED_MODEL
   );
+}
 
 /** Conversations badge uses the same in-force rule. Empty records are «ליד», not expired. */
 {
