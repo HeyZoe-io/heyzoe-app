@@ -866,8 +866,10 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
   cleared: number;
   skipped: number;
 }> {
-  const { isAllowedWhatsAppSendTimeIsrael } = await import("@/lib/israel-time");
-  if (!isAllowedWhatsAppSendTimeIsrael(new Date())) return { sent: 0, cleared: 0, skipped: 0 };
+  const { isAllowedWhatsAppSendTimeIsrael, WA_FOLLOWUP_QUIET_END_MINUTES } = await import("@/lib/israel-time");
+  if (!isAllowedWhatsAppSendTimeIsrael(new Date(), WA_FOLLOWUP_QUIET_END_MINUTES)) {
+    return { sent: 0, cleared: 0, skipped: 0 };
+  }
 
   const nowIso = new Date().toISOString();
   const { data, error } = await admin

@@ -13,6 +13,8 @@ import {
 } from "@/lib/marketing-followups";
 import {
   isAllowedWhatsAppSendTimeIsrael,
+  nextAllowedWhatsAppSendTimeIsrael,
+  WA_FOLLOWUP_QUIET_END_MINUTES,
   WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES,
   WA_ISRAEL_QUIET_END_MINUTES,
   WA_ISRAEL_QUIET_START_MINUTES,
@@ -125,5 +127,21 @@ assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(5, 15, 59)), true);
 assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(5, 16, 0)), false);
 assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(6, 18, 59)), false);
 assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(6, 19, 0)), true);
+
+assert.equal(WA_FOLLOWUP_QUIET_END_MINUTES, 8 * 60);
+assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(0, 7, 59), WA_FOLLOWUP_QUIET_END_MINUTES), false);
+assert.equal(isAllowedWhatsAppSendTimeIsrael(israelLocal(0, 8, 0), WA_FOLLOWUP_QUIET_END_MINUTES), true);
+assert.equal(
+  nextAllowedWhatsAppSendTimeIsrael(israelLocal(0, 2, 0), WA_FOLLOWUP_QUIET_END_MINUTES).toISOString(),
+  israelLocal(0, 8, 0).toISOString()
+);
+assert.equal(
+  nextAllowedWhatsAppSendTimeIsrael(israelLocal(0, 23, 30), WA_FOLLOWUP_QUIET_END_MINUTES).toISOString(),
+  israelLocal(1, 8, 0).toISOString()
+);
+assert.equal(
+  nextAllowedWhatsAppSendTimeIsrael(israelLocal(0, 2, 0)).toISOString(),
+  israelLocal(0, 6, 30).toISOString()
+);
 
 console.log("marketing-followup-config.test.ts ok");

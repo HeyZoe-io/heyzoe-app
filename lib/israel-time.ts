@@ -328,6 +328,8 @@ export function getIsraelYesterdayRange(referenceUtc: Date = new Date()): {
 export const WA_ISRAEL_QUIET_START_MINUTES = 23 * 60;
 /** דקות מחצות — סוף שקט לילה (לא כולל). */
 export const WA_ISRAEL_QUIET_END_MINUTES = 6 * 60 + 30;
+/** פולואפים של זואי (wa-followups וצמתי פלואו): סוף שקט לילה 08:00. שאר השליחות נשארות 06:30. */
+export const WA_FOLLOWUP_QUIET_END_MINUTES = 8 * 60;
 /** שישי: חסימה מ־16:00. */
 export const WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES = 16 * 60;
 /** שבת: מותר שוב מ־19:00. */
@@ -348,12 +350,15 @@ export function whatsAppIsraelSendWindowSummaryHe(): string {
   return `שליחה רק בחלון החוקי בישראל: א׳–ה׳ ${quietEnd}–${quietStart}, שישי ${quietEnd}–${friday}, שבת ${saturday}–${quietStart}. מחוץ לחלון (לילה ${quietStart}–${quietEnd}, ושישי מ־${friday} עד שבת ${saturday}) הפולואפ לא נשלח וממתין למועד החוקי הבא.`;
 }
 
-export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
+export function isAllowedWhatsAppSendTimeIsrael(
+  dateUtc: Date,
+  quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES
+): boolean {
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
 
-  // Quiet hours: 23:00–06:30 (inclusive start, exclusive end)
+  // Quiet hours: 23:00–quietEnd (inclusive start, exclusive end)
   const minutes = p.hour * 60 + p.minute;
-  const inQuiet = minutes >= WA_ISRAEL_QUIET_START_MINUTES || minutes < WA_ISRAEL_QUIET_END_MINUTES;
+  const inQuiet = minutes >= WA_ISRAEL_QUIET_START_MINUTES || minutes < quietEndMinutes;
   if (inQuiet) return false;
 
   // Weekend block: Fri 16:00 → Sat 19:00 (Israel time)
@@ -365,15 +370,18 @@ export function isAllowedWhatsAppSendTimeIsrael(dateUtc: Date): boolean {
   return true;
 }
 
-export function nextAllowedWhatsAppSendTimeIsrael(dateUtc: Date): Date {
-  if (isAllowedWhatsAppSendTimeIsrael(dateUtc)) return dateUtc;
+export function nextAllowedWhatsAppSendTimeIsrael(
+  dateUtc: Date,
+  quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES
+): Date {
+  if (isAllowedWhatsAppSendTimeIsrael(dateUtc, quietEndMinutes)) return dateUtc;
 
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
   const minutes = p.hour * 60 + p.minute;
   const resumeHour = Math.floor(WA_ISRAEL_SATURDAY_RESUME_MINUTES / 60);
   const resumeMinute = WA_ISRAEL_SATURDAY_RESUME_MINUTES % 60;
-  const quietEndHour = Math.floor(WA_ISRAEL_QUIET_END_MINUTES / 60);
-  const quietEndMinute = WA_ISRAEL_QUIET_END_MINUTES % 60;
+  const quietEndHour = Math.floor(quietEndMinutes / 60);
+  const quietEndMinute = quietEndMinutes % 60;
 
   // Weekend block
   if (p.weekday === 5 && minutes >= WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES) {
@@ -399,7 +407,7 @@ export function nextAllowedWhatsAppSendTimeIsrael(dateUtc: Date): Date {
 
   // Quiet hours
   if (minutes >= WA_ISRAEL_QUIET_START_MINUTES) {
-    // After 23:00 → next day 06:30
+    // After 23:00 → next day quietEnd
     return makeUtcDateFromLocalInTz({
       year: p.year,
       month: p.month,
@@ -408,7 +416,7 @@ export function nextAllowedWhatsAppSendTimeIsrael(dateUtc: Date): Date {
       minute: quietEndMinute,
     });
   }
-  // Before 06:30 → same day 06:30
+  // Before quietEnd → same day quietEnd
   return makeUtcDateFromLocalInTz({
     year: p.year,
     month: p.month,

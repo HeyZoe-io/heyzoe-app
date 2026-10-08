@@ -12,7 +12,7 @@ import {
   resolveTwilioAuthToken,
 } from "@/lib/whatsapp";
 import { resolveCronSecret } from "@/lib/server-env";
-import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { nextAllowedWhatsAppSendTimeIsrael, WA_FOLLOWUP_QUIET_END_MINUTES } from "@/lib/israel-time";
 import {
   resolveWaSalesFollowupTemplates,
   resolveWaSalesFollowupEnabled,
@@ -336,7 +336,7 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
-  const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now);
+  const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now, WA_FOLLOWUP_QUIET_END_MINUTES);
   if (allowedAt.getTime() > now.getTime()) {
     logWaFollowupSkip("time_window", { next_allowed_at: allowedAt.toISOString() });
     return NextResponse.json({
