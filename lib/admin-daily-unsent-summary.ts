@@ -6,6 +6,8 @@
  *
  * IO after 09:30: one messages lookup for the day, then about a dozen indexed
  * log reads (processed_at / updated_at, last 24h) and one template-status read.
+ * Delivery: failed statuses of the last 24h (status, status_at index), and sends
+ * accepted 24–48h ago checked by wamid in chunks of 200 (primary key).
  * At 10x businesses the same queries stay on those indexes. No Claude.
  */
 import { ADMIN_SUPPORT_ALERT_WHATSAPP, sendAdminWhatsAppTemplate } from "@/lib/notifications/sendAdminWhatsAppTemplate";
@@ -14,6 +16,7 @@ import { CRON_UNEXPECTED_CALLER_MODEL } from "@/lib/cron-clock";
 import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { isMissingStatusTable, WA_MESSAGE_STATUSES_TABLE } from "@/lib/wa-message-status";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -38,6 +41,10 @@ export type UnsentRow = {
 export type UnsentGroup = "problem" | "manual" | "expected";
 
 export const MANUAL_BLOCK_REASON = "נחסם ידנית";
+/** Graph accepted the send, then Meta reported status=failed (error code in metaError). */
+export const DELIVERY_FAILED_REASON = "נכשל במסירה";
+/** Accepted 24–48h ago and no delivered / read / failed status since. */
+export const UNDELIVERED_24H_REASON = "לא נמסר אחרי 24 שעות";
 export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
 const FUTURE_SEED_REASON = "סומן לפני מועד השליחה";
 /** A rule that seeds more than this many rows in a day is listed by name in the summary. */
@@ -298,21 +305,126 @@ async function readLog(
   return [];
 }
 
+type RawUnsent = {
+  businessId: number;
+  triggerId: string;
+  triggerFallback: string;
+  userId: string;
+  phone: string;
+  reason: string;
+  at: string;
+  classStart: string;
+  metaError: string;
+};
+
+type SendRef = { wamid: string; business_id: number; phone: string; template_name: string; trigger_id: string | null; created_at: string };
+
+const REF_SELECT = "wamid, business_id, phone, template_name, trigger_id, created_at";
+const IN_CHUNK = 200;
+
+function refToRaw(ref: SendRef, reason: string, at: string, metaError: string): RawUnsent {
+  return {
+    businessId: Number(ref.business_id),
+    triggerId: String(ref.trigger_id ?? ""),
+    triggerFallback: String(ref.template_name ?? "template"),
+    userId: "",
+    phone: String(ref.phone ?? ""),
+    reason,
+    at,
+    classStart: "",
+    metaError,
+  };
+}
+
+/**
+ * Automated sends (wa_template_send_refs) that Meta failed to deliver in the last 24h,
+ * and sends accepted 24–48h ago that never reached delivered / read / failed.
+ * The second check starts at the first stored status, so sends from before the
+ * table existed are not reported as undelivered.
+ */
+export async function loadDeliveryProblems(admin: Admin, now: Date): Promise<RawUnsent[]> {
+  const sinceIso = new Date(now.getTime() - 24 * 36e5).toISOString();
+  const olderIso = new Date(now.getTime() - 48 * 36e5).toISOString();
+  const out: RawUnsent[] = [];
+
+  const { data: failed, error: failedErr } = await admin
+    .from(WA_MESSAGE_STATUSES_TABLE)
+    .select("wamid, error_code, status_at, received_at")
+    .eq("status", "failed")
+    .gte("status_at", sinceIso)
+    .limit(2000);
+  if (failedErr) {
+    if (!isMissingStatusTable(failedErr.message)) {
+      console.error("[admin-daily-unsent] delivery status read failed", failedErr.message);
+    }
+    return out;
+  }
+  const failedRows = (failed ?? []) as Array<{ wamid: string; error_code: number | null; status_at: string | null; received_at: string }>;
+  const failedIds = [...new Set(failedRows.map((row) => row.wamid))];
+  const refs = new Map<string, SendRef>();
+  for (let i = 0; i < failedIds.length; i += IN_CHUNK) {
+    const { data, error } = await admin
+      .from("wa_template_send_refs")
+      .select(REF_SELECT)
+      .in("wamid", failedIds.slice(i, i + IN_CHUNK));
+    if (error) {
+      console.error("[admin-daily-unsent] send ref read failed", error.message);
+      break;
+    }
+    for (const ref of (data ?? []) as SendRef[]) refs.set(ref.wamid, ref);
+  }
+  for (const row of failedRows) {
+    const ref = refs.get(row.wamid);
+    if (!ref) continue;
+    const code = row.error_code == null ? "ללא קוד" : String(row.error_code);
+    out.push(refToRaw(ref, DELIVERY_FAILED_REASON, row.status_at ?? row.received_at, code));
+  }
+
+  const { data: first, error: firstErr } = await admin
+    .from(WA_MESSAGE_STATUSES_TABLE)
+    .select("received_at")
+    .order("received_at", { ascending: true })
+    .limit(1);
+  const trackedSince = String((first?.[0] as { received_at?: unknown } | undefined)?.received_at ?? "");
+  if (firstErr || !trackedSince) return out;
+  const fromIso = new Date(Math.max(Date.parse(olderIso), Date.parse(trackedSince))).toISOString();
+  if (fromIso >= sinceIso) return out;
+
+  const { data: aged, error: agedErr } = await admin
+    .from("wa_template_send_refs")
+    .select(REF_SELECT)
+    .gte("created_at", fromIso)
+    .lt("created_at", sinceIso)
+    .limit(5000);
+  if (agedErr) {
+    console.error("[admin-daily-unsent] aged send ref read failed", agedErr.message);
+    return out;
+  }
+  const agedRefs = (aged ?? []) as SendRef[];
+  const settled = new Set<string>();
+  for (let i = 0; i < agedRefs.length; i += IN_CHUNK) {
+    const { data, error } = await admin
+      .from(WA_MESSAGE_STATUSES_TABLE)
+      .select("wamid")
+      .in("wamid", agedRefs.slice(i, i + IN_CHUNK).map((ref) => ref.wamid))
+      .in("status", ["delivered", "read", "failed"]);
+    if (error) {
+      console.error("[admin-daily-unsent] aged status read failed", error.message);
+      return out;
+    }
+    for (const row of data ?? []) settled.add(String((row as { wamid?: unknown }).wamid ?? ""));
+  }
+  for (const ref of agedRefs) {
+    if (!settled.has(ref.wamid)) out.push(refToRaw(ref, UNDELIVERED_24H_REASON, ref.created_at, ""));
+  }
+  return out;
+}
+
 export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<UnsentRow[]> {
   const since = new Date(now.getTime() - 24 * 36e5);
   const sinceIso = since.toISOString();
   const overdueBefore = new Date(now.getTime() - 30 * 60_000).toISOString();
-  const raw: Array<{
-    businessId: number;
-    triggerId: string;
-    triggerFallback: string;
-    userId: string;
-    phone: string;
-    reason: string;
-    at: string;
-    classStart: string;
-    metaError: string;
-  }> = [];
+  const raw: RawUnsent[] = [];
 
   for (const source of SYNC_LOGS) {
     const rows = await readLog(admin, source.table, sinceIso);
@@ -375,6 +487,8 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
     });
   }
 
+  raw.push(...(await loadDeliveryProblems(admin, now)));
+
   const businessIds = [...new Set(raw.map((row) => row.businessId).filter((id) => id > 0))];
   const triggerIds = [...new Set(raw.map((row) => row.triggerId).filter(Boolean))];
   const userIds = [...new Set(raw.map((row) => Number(row.userId)).filter((id) => id > 0))];
@@ -434,7 +548,8 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       classAt != null &&
       !Number.isNaN(classAt.getTime()) &&
       classAt.getTime() > now.getTime();
-    const meta = row.reason === "נכשל" ? squashParam(row.metaError).slice(0, 80) : "";
+    const meta =
+      row.reason === "נכשל" || row.reason === DELIVERY_FAILED_REASON ? squashParam(row.metaError).slice(0, 80) : "";
     out.push({
       businessId: row.businessId,
       business: names.get(row.businessId) || String(row.businessId),
