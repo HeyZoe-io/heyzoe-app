@@ -1,3 +1,5 @@
+import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
+
 /**
  * A rule may only act on events at or after it became active.
  * Activation is max(created_at, updated_at). There is no separate column:
@@ -156,7 +158,7 @@ export function decideFilterScopeAction(input: {
 }
 
 /** Daily Arbox run slots, Israel wall clock. */
-export const DAILY_RUN_SLOTS = ["09:00", "20:30"] as const;
+export const DAILY_RUN_SLOTS = [MORNING_SLOT_IL, EVENING_SLOT_IL] as const;
 
 const ISRAEL_PARTS = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Jerusalem",

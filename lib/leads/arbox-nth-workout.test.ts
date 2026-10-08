@@ -326,7 +326,7 @@ import {
   assert.deepEqual(
     beforeNthWorkoutTarget({
       ...base,
-      nowMinutes: 20 * 60 + 30,
+      nowMinutes: 20 * 60,
       n: 1,
       bookings: [{ user_id: 11, check_in: "", date: "2026-10-07", time: "07:00" }],
     }),

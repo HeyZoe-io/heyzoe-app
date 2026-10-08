@@ -2,7 +2,7 @@
  * C7 nth_workout: new members (member_since within lookback ≤30d).
  * After: fire when yesCount >= N (check_in="Yes" since join, date < today).
  * Before: fire once the day before workout N, or the morning of if it is still later today.
- * Evening slot (20:30) runs before-rules only. A booking that appeared after the
+ * Evening slot (EVENING_SLOT_IL) runs before-rules only. A booking that appeared after the
  * 09:00 run is still the day before the class, so the evening run sends it.
  * The sync log is shared, so the morning send is not repeated.
  * Once per (business_id, trigger_id, user_id).
@@ -15,6 +15,7 @@
  * a business with a live before rule (~3 GETs; ~30/evening if 10 studios have one).
  * No per-user Arbox calls.
  */
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
@@ -180,7 +181,7 @@ export function nthWorkoutDirection(raw: unknown): NthWorkoutDirection {
 
 /**
  * Morning runs every nth_workout rule. Evening runs only before-rules, so a
- * registration after 09:00 still gets the day-before message at 20:30.
+ * registration after 09:00 still gets the day-before message at the evening slot.
  * After-rules stay on the morning run.
  */
 export function nthWorkoutRulesForSlot<T extends { delay_direction?: unknown }>(
@@ -310,7 +311,7 @@ export function nthWorkoutAfterDueAction(input: {
   if (!nthDate) return "later";
   const dueYmd = addDaysYmd(nthDate, 1);
   if (!dueYmd || dueYmd > input.todayYmd) return "later";
-  const sendAt = israelSlotInstant(dueYmd, "09:00");
+  const sendAt = israelSlotInstant(dueYmd, MORNING_SLOT_IL);
   return decideActivationEventAction({ sendAt, now: input.now });
 }
 
