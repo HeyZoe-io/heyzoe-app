@@ -71,7 +71,7 @@ export async function postWhatsAppGraphMessage(input: {
     throw new NonProdSendBlockedError();
   }
   const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(input.phoneNumberId.trim())}/messages`;
-  return fetch(url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${input.token}`,
@@ -80,4 +80,36 @@ export async function postWhatsAppGraphMessage(input: {
     body: JSON.stringify(input.body),
     ...(input.timeoutMs ? { signal: AbortSignal.timeout(input.timeoutMs) } : {}),
   });
+  if (res.ok) await noteAcceptedSend(res, input);
+  return res;
+}
+
+/** Hands the wamid to the messages log. Never throws; the caller still reads the body. */
+async function noteAcceptedSend(
+  res: Response,
+  input: { phoneNumberId: string; to: string; body: unknown }
+): Promise<void> {
+  try {
+    const { describeGraphBody, noteOutboundSend, wamidFromGraphResponse } = await import(
+      "@/lib/wa-outbound-wamid"
+    );
+    const wamid = wamidFromGraphResponse(await res.clone().json().catch(() => null));
+    if (!wamid) return;
+    const rowId = noteOutboundSend({
+      phoneNumberId: input.phoneNumberId.trim(),
+      to: input.to,
+      wamid,
+      ...describeGraphBody(input.body),
+    });
+    if (rowId == null) return;
+    const { createSupabaseAdminClient } = await import("@/lib/supabase-admin");
+    const { error } = await createSupabaseAdminClient()
+      .from("messages")
+      .update({ wamid })
+      .eq("id", rowId)
+      .is("wamid", null);
+    if (error) console.error("[graph-whatsapp-send] wamid stamp failed:", error.message);
+  } catch (e) {
+    console.error("[graph-whatsapp-send] wamid note failed:", e instanceof Error ? e.message : e);
+  }
 }
