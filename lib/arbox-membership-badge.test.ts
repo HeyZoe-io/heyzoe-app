@@ -17,8 +17,15 @@ const NOW = new Date("2026-10-07T18:00:00.000Z");
   assert.equal(isArboxMembershipBadge(ARBOX_MEMBERSHIP_BADGE_EXPIRED), true);
   assert.equal(isArboxMembershipBadge(ARBOX_MEMBERSHIP_BADGE_LEAD), true);
   assert.equal(isArboxMembershipBadge(null), false);
-  assert.equal(isArboxMembershipBadge("active"), false);
+  assert.deepEqual(
+    [ARBOX_MEMBERSHIP_BADGE_ACTIVE, ARBOX_MEMBERSHIP_BADGE_EXPIRED, ARBOX_MEMBERSHIP_BADGE_LEAD],
+    ["active", "inactive", "lead"]
+  );
+  assert.equal(isArboxMembershipBadge("מנוי פעיל"), false);
+  assert.equal(isArboxMembershipBadge("Active"), false);
   assert.equal(arboxMembershipBadgeLabel(ARBOX_MEMBERSHIP_BADGE_LEAD, "he"), "ליד");
+  assert.equal(arboxMembershipBadgeLabel(ARBOX_MEMBERSHIP_BADGE_ACTIVE, "he"), "מנוי פעיל");
+  assert.equal(arboxMembershipBadgeLabel(ARBOX_MEMBERSHIP_BADGE_EXPIRED, "he"), "מנוי לא בתוקף");
   assert.equal(arboxMembershipBadgeLabel(ARBOX_MEMBERSHIP_BADGE_ACTIVE, "en"), "Active member");
 }
 
