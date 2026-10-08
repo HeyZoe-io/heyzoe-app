@@ -10,6 +10,7 @@ import { WaConversationMessage } from "@/components/conversations/WaConversation
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { foldConversationReactions } from "@/lib/wa-inbound-reaction";
+import type { MessageDelivery } from "@/lib/wa-delivery-errors";
 
 type DashboardPayload = {
   range: { from: string; to: string };
@@ -48,6 +49,7 @@ type SessionMessage = {
   created_at: string;
   error_code?: string | null;
   model_used?: string | null;
+  delivery?: MessageDelivery | null;
 };
 
 export default function DashboardClient({ data }: { data: DashboardPayload }) {
@@ -467,6 +469,7 @@ export default function DashboardClient({ data }: { data: DashboardPayload }) {
                                           errorCode={m.error_code}
                                           modelUsed={m.model_used}
                                           reactionEmoji={m.reactionEmoji}
+                                          delivery={m.delivery}
                                         />
                                       ))}
                                   </div>

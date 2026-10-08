@@ -39,6 +39,7 @@ import {
 import { isMarketingConversationsSlug } from "@/lib/marketing-whatsapp";
 import { isZoeAdminAllConversationsSlug } from "@/lib/zoe-admin-conversations";
 import { isAppEchoAutoPause, formatAppEchoPauseRemaining } from "@/lib/wa-app-echo-pause";
+import type { MessageDelivery } from "@/lib/wa-delivery-errors";
 import {
   dashboardDateLocale,
   dashboardDir,
@@ -84,6 +85,10 @@ const i18n = {
     messageCount: (n: number) => `${n} הודעות`,
     backToList: "חזרה לרשימה",
     openArboxProfile: "פתח כרטיס בארבוקס",
+    failedFilter: "הודעות שנכשלו",
+    failedFilterHint: "שיחות עם הודעה יוצאת שלא נמסרה ב-14 הימים האחרונים",
+    failedBadge: "יש הודעה שלא נמסרה",
+    emptyFailed: "אין שיחות עם הודעות שנכשלו ב-14 הימים האחרונים.",
   },
   en: {
     pageTitle: (slug: string) => `Conversations — ${slug}`,
@@ -122,6 +127,10 @@ const i18n = {
     messageCount: (n: number) => `${n} messages`,
     backToList: "Back to list",
     openArboxProfile: "Open Arbox profile",
+    failedFilter: "Failed messages",
+    failedFilterHint: "Chats with an outbound message that was not delivered in the last 14 days",
+    failedBadge: "Has an undelivered message",
+    emptyFailed: "No chats with failed messages in the last 14 days.",
   },
 } as const;
 
@@ -131,6 +140,7 @@ type SessionMessage = {
   created_at: string;
   error_code?: string | null;
   model_used?: string | null;
+  delivery?: MessageDelivery | null;
 };
 
 type SessionSummary = {
@@ -158,6 +168,8 @@ type SessionSummary = {
   /** פגישה מדף הלידים. השדה קיים בשיחות שיווק גם כשאין פגישה (null). */
   nextCallAt?: string | null;
   nextCallTime?: string | null;
+  /** Outbound message to this phone failed delivery in the last 14 days. */
+  hasFailedDelivery?: boolean;
 };
 
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -405,6 +417,7 @@ export default function ConversationsClient({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [pausing, setPausing] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [failedOnly, setFailedOnly] = useState(false);
   // Mobile-first: starting as `true` made the first paint show both panels on phones,
   // then snap to list-only after matchMedia — felt like the admin screen "jumped/refreshed".
   const [isDesktop, setIsDesktop] = useState(false);
@@ -466,18 +479,23 @@ export default function ConversationsClient({
         })
       : sessions;
     const q = searchQuery.trim().toLowerCase();
+    const delivered = failedOnly ? list.filter((s) => s.hasFailedDelivery === true) : list;
     const filtered = q
-      ? list.filter((s) => {
+      ? delivered.filter((s) => {
           const name = sessionLeadName(s).toLowerCase();
           const phone = sessionPhoneDisplay(s, "").toLowerCase();
           return name.includes(q) || phone.includes(q);
         })
-      : list;
+      : delivered;
     const pinRequiresCall = apiScope === "admin" && isMarketingConversationsSlug(slug);
     return pinRequiresCall
       ? sortMarketingSessionsByStatusPriority(filtered)
       : sortSessionsByRecentActivity(filtered);
-  }, [sessions, normalizedFilter, searchQuery, apiScope, slug]);
+  }, [sessions, normalizedFilter, searchQuery, failedOnly, apiScope, slug]);
+  const failedSessionCount = useMemo(
+    () => sessions.filter((s) => s.hasFailedDelivery === true).length,
+    [sessions]
+  );
 
   const selected = visibleSessions.find((s) => s.session_id === selectedId) ?? null;
   const arboxProfileUrl = selected
@@ -891,7 +909,9 @@ export default function ConversationsClient({
     !manualReplyWindowExpired &&
     (manualText.trim().length > 0 || Boolean(pendingImageFile));
 
-  const emptyMessage = normalizedFilter
+  const emptyMessage = failedOnly
+    ? t.emptyFailed
+    : normalizedFilter
     ? t.emptyFilter
     : isZoeAdminAllConversationsSlug(slug)
       ? t.emptyAdmin
@@ -951,6 +971,28 @@ export default function ConversationsClient({
                   className="min-w-0 flex-1 border-0 bg-transparent text-[14px] text-[#111b21] placeholder:text-[#667781] focus:outline-none"
                   dir={dashboardDir(lang)}
                 />
+              </div>
+              <div className="mt-2 flex">
+                <button
+                  type="button"
+                  onClick={() => setFailedOnly((v) => !v)}
+                  aria-pressed={failedOnly}
+                  title={t.failedFilterHint}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] transition-colors ${
+                    failedOnly
+                      ? "bg-[#fde8e8] font-medium text-[#ea0038]"
+                      : "bg-[#f0f2f5] text-[#54656f] hover:bg-[#e9edef]"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className="inline-flex h-[14px] w-[14px] items-center justify-center rounded-full bg-[#ea0038] text-[10px] font-bold leading-none text-white"
+                  >
+                    !
+                  </span>
+                  {t.failedFilter}
+                  {failedSessionCount > 0 ? <span className="tabular-nums">({failedSessionCount})</span> : null}
+                </button>
               </div>
             </div>
 
@@ -1057,6 +1099,16 @@ export default function ConversationsClient({
                         <SessionContactStatusDot statusKey={s.contactStatus} lang={lang} />
                         <SessionMembershipBadge status={s.arboxMembershipStatus} lang={lang} />
                       </span>
+                      {s.hasFailedDelivery ? (
+                        <span
+                          title={t.failedBadge}
+                          aria-label={t.failedBadge}
+                          role="img"
+                          className="inline-flex h-[14px] w-[14px] items-center justify-center rounded-full bg-[#ea0038] text-[10px] font-bold leading-none text-white"
+                        >
+                          !
+                        </span>
+                      ) : null}
                       {s.isPaused ? (
                         <SessionPauseBadge
                           isPaused={s.isPaused}
@@ -1200,6 +1252,7 @@ export default function ConversationsClient({
                           modelUsed={m.model_used}
                           lang={lang}
                           reactionEmoji={m.reactionEmoji}
+                          delivery={m.delivery}
                         />
                       </Fragment>
                     ))
