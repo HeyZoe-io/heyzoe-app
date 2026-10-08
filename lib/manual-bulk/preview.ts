@@ -76,6 +76,7 @@ export async function previewManualBulkSend(input: {
   due_at_he: string;
   dispatch_at_he: string;
   eta_finish_at_he: string;
+  pending_same_template_jobs: Array<{ job_id: string; pending: number; first_due_at: string | null }>;
 }> {
   const schedule = resolveManualBulkSchedule({
     scheduledAtRaw: input.scheduledAtRaw,
@@ -129,6 +130,7 @@ export async function previewManualBulkSend(input: {
     messages_pages: audience.messages_pages,
     customer_pages: audience.customer_pages,
     hit_message_page_cap: audience.hit_message_page_cap,
+    pending_same_template_jobs: audience.pending_same_template_jobs ?? [],
     ...scheduleJson,
   };
 }

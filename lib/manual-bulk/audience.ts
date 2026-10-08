@@ -39,6 +39,11 @@ import { applyAlreadySentSkip } from "@/lib/manual-bulk/recurrence";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { contactBlocksMarketingBulk } from "@/lib/wa-marketing-opt-out";
+import {
+  excludeQueuedRecipients,
+  loadQueuedOrSentRecipients,
+  type QueuedRecipients,
+} from "@/lib/manual-bulk/queued-exclusion";
 
 export type ManualBulkRecipient = {
   recipientKey: string;
@@ -63,6 +68,8 @@ export type ManualBulkAudienceResult = {
   messages_pages: number;
   customer_pages: number;
   hit_message_page_cap: boolean;
+  /** Other bulk jobs of this business with pending rows for the same template. */
+  pending_same_template_jobs?: QueuedRecipients["pendingJobs"];
 };
 
 type ContactRow = {
@@ -387,7 +394,7 @@ async function fetchMembershipAudienceRows(input: {
   return { ok: true, rows: [...byUser.values()], pages };
 }
 
-export async function buildManualBulkAudience(input: {
+type BuildManualBulkAudienceInput = {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   businessId: number;
   businessSlug: string;
@@ -398,7 +405,23 @@ export async function buildManualBulkAudience(input: {
   includePunchCards?: boolean;
   /** Weekly M1: do not skip people who already received this template. */
   skipAlreadySentLog?: boolean;
-}): Promise<ManualBulkAudienceResult> {
+};
+
+/** Audience minus anyone pending / sent for the same template in any bulk job of the business. */
+export async function buildManualBulkAudience(input: BuildManualBulkAudienceInput): Promise<ManualBulkAudienceResult> {
+  const [audience, queued] = await Promise.all([
+    buildAudienceBeforeQueueCheck(input),
+    loadQueuedOrSentRecipients(input.admin, {
+      businessId: input.businessId,
+      templateName: input.templateName,
+      recurring: Boolean(input.skipAlreadySentLog),
+    }),
+  ]);
+  audience.skipped.already_sent += excludeQueuedRecipients(audience, queued);
+  return { ...audience, pending_same_template_jobs: queued.pendingJobs };
+}
+
+async function buildAudienceBeforeQueueCheck(input: BuildManualBulkAudienceInput): Promise<ManualBulkAudienceResult> {
   const skipped = emptySkips();
   const skipAlreadySentLog = Boolean(input.skipAlreadySentLog);
   const alreadySent = skipAlreadySentLog
