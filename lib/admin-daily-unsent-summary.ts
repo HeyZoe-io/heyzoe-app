@@ -26,12 +26,65 @@ export type UnsentRow = {
   businessId: number;
   business: string;
   trigger: string;
+  /** template_triggers.template_name, for the per-rule history breakdown. */
+  rule?: string;
   contact: string;
   reason: string;
   at: string;
   future?: boolean;
   metaError?: string;
 };
+
+export type UnsentGroup = "problem" | "manual" | "expected";
+
+export const MANUAL_BLOCK_REASON = "נחסם ידנית";
+export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
+const FUTURE_SEED_REASON = "סומן לפני מועד השליחה";
+/** A rule that seeds more than this many rows in a day is listed by name in the summary. */
+export const HISTORY_RULE_BREAKDOWN_MIN = 10;
+
+/** Cancel reasons the code writes on purpose (opt-out, rule scope, schedule off). Not a failure. */
+const AUTO_STOP_REASONS = new Set([
+  "suppressed_opt_out",
+  "suppressed_alert_mute",
+  "schedule_disabled",
+  "call_day_rescheduled",
+  "rescheduled_to_call_day",
+  "product_filter_scope",
+  "active_product",
+  "class_started",
+]);
+const FAILURE_REASON = /send_failed|claim_held|claim_failed|claim_lost|outcome_unknown|error|timeout|failed|missing|not_found/;
+const STOP_TOKEN = /^[a-z][a-z0-9_]*(?:[|:][a-z0-9_]+)*$/;
+
+/**
+ * Why an abandoned / canceled row stopped. A Meta error, a send failure or an empty reason
+ * is a real failure. A known code reason is automatic. Any other snake_case token was
+ * written by a person or a one-off script to hold that send on purpose.
+ */
+function stopReasonKind(err: string): "auto" | "manual" | null {
+  if (!err || FAILURE_REASON.test(err) || !STOP_TOKEN.test(err)) return null;
+  return AUTO_STOP_REASONS.has(err) ? "auto" : "manual";
+}
+
+const EXPECTED_REASONS = new Set([
+  "סומן בלי שליחה",
+  "תקרת שימור יומית",
+  "דילוג",
+  "אימון בלי סימון",
+  "הקפאה",
+  "לא מנוי פעיל",
+  "אימון עתידי",
+  "צוות",
+  AUTO_CANCEL_REASON,
+]);
+
+/** problem: counted in the headline. manual / expected: listed apart, never as not sent. */
+export function unsentGroup(row: Pick<UnsentRow, "reason" | "future">): UnsentGroup {
+  if (row.reason === MANUAL_BLOCK_REASON) return "manual";
+  if (!row.future && EXPECTED_REASONS.has(row.reason)) return "expected";
+  return "problem";
+}
 
 const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
   { table: "arbox_trial_booking_confirm_log", trigger: "trial_booked" },
@@ -53,17 +106,6 @@ const SYNC_LOGS: Array<{ table: string; trigger: string }> = [
   { table: "arbox_expiring_sync_log", trigger: "membership_expiring" },
   { table: "arbox_trial_sync_log", trigger: "purchase" },
   { table: "arbox_new_lead_sync_log", trigger: "arbox_new_lead" },
-];
-
-const LOG_SELECTS = [
-  "business_id, status, processed_at, user_id, lead_id, trigger_id, contact_id, reason, class_date, class_time",
-  "business_id, status, processed_at, user_id, lead_id, trigger_id, contact_id, reason",
-  "business_id, status, processed_at, user_id, trigger_id, contact_id, channel",
-  "business_id, status, processed_at, user_id, trigger_id, contact_id",
-  "business_id, status, processed_at, user_id, contact_id",
-  "business_id, status, processed_at, user_id",
-  "business_id, status, processed_at, lead_id, trigger_id, contact_id, reason",
-  "business_id, status, processed_at, trigger_id, contact_id, reason",
 ];
 
 export function israelClock(now: Date): { hour: number; minute: number; ymd: string } {
@@ -122,6 +164,11 @@ export function unsentReason(input: {
   if (err.includes("pull_integrity")) return "סריקת ארבוקס לא שלמה";
   if (err === "expired") return "פג תוקף כי הסריקה נכשלה";
   if (err.includes("mass_change")) return "שינוי סטטוס המוני";
+  if (status === "canceled" || status === "cancelled" || status === "abandoned") {
+    const kind = stopReasonKind(err);
+    if (kind === "auto") return AUTO_CANCEL_REASON;
+    if (kind === "manual") return MANUAL_BLOCK_REASON;
+  }
   if (status === "canceled" || status === "cancelled") return "בוטל";
   if (status === "skipped") return "דילוג";
   if (status === "pending") return "ממתין אחרי 09:00";
@@ -137,56 +184,90 @@ function squashParam(text: string): string {
   return text.replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 
+function countedLines(counts: Map<string, number>): string[] {
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "he"))
+    .map(([key, count]) => squashParam(`${key} ${count}`));
+}
+
+/** Headline number: failed, unknown, stuck sending, missed. Manual holds and expected rows excluded. */
+export function unsentProblemCount(rows: readonly UnsentRow[]): number {
+  return rows.filter((row) => unsentGroup(row) === "problem").length;
+}
+
 export function unsentDetailParam(rows: readonly UnsentRow[]): string {
   const attention = new Map<string, number>();
+  const manual = new Map<string, number>();
+  const historyByRule = new Map<string, number>();
+  let manualTotal = 0;
   let history = 0;
   let cap = 0;
-  let started = 0;
+  let skipped = 0;
   let unmarked = 0;
   let frozen = 0;
   let inactive = 0;
   let booked = 0;
   let staff = 0;
+  let autoCancel = 0;
   for (const row of rows) {
-    const expected =
-      !row.future &&
-      (row.reason === "סומן בלי שליחה" ||
-        row.reason === "תקרת שימור יומית" ||
-        row.reason === "דילוג" ||
-        row.reason === "אימון בלי סימון" ||
-        row.reason === "הקפאה" ||
-        row.reason === "לא מנוי פעיל" ||
-        row.reason === "אימון עתידי" ||
-        row.reason === "צוות");
-    if (!expected) {
-      const reason = row.metaError ? `${row.reason} ${row.metaError}` : row.reason;
+    const group = unsentGroup(row);
+    if (group === "problem") {
+      const base = row.future && row.reason === "סומן בלי שליחה" ? FUTURE_SEED_REASON : row.reason;
+      const reason = row.metaError ? `${base} ${row.metaError}` : base;
       const key = `${row.business} · ${row.trigger} · ${reason}`;
       attention.set(key, (attention.get(key) ?? 0) + 1);
       continue;
     }
+    if (group === "manual") {
+      const key = `${row.business} · ${row.trigger}`;
+      manual.set(key, (manual.get(key) ?? 0) + 1);
+      manualTotal += 1;
+      continue;
+    }
     if (row.reason === "תקרת שימור יומית") cap += 1;
-    else if (row.reason === "דילוג") started += 1;
+    else if (row.reason === "דילוג") skipped += 1;
     else if (row.reason === "אימון בלי סימון") unmarked += 1;
     else if (row.reason === "הקפאה") frozen += 1;
     else if (row.reason === "לא מנוי פעיל") inactive += 1;
     else if (row.reason === "אימון עתידי") booked += 1;
     else if (row.reason === "צוות") staff += 1;
-    else history += 1;
+    else if (row.reason === AUTO_CANCEL_REASON) autoCancel += 1;
+    else {
+      history += 1;
+      const key = `${row.business} · ${row.trigger}${row.rule ? ` (${row.rule})` : ""}`;
+      historyByRule.set(key, (historyByRule.get(key) ?? 0) + 1);
+    }
   }
-  const lines = [...attention.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "he"))
-    .map(([key, count]) => squashParam(`${key} ${count}`));
-  const expectedLine = `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${started} שיעורים שכבר התחילו, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות`;
+  const lines = countedLines(attention);
+  const bigRules = countedLines(
+    new Map([...historyByRule].filter(([, count]) => count > HISTORY_RULE_BREAKDOWN_MIN))
+  );
+  // Detail level 2: everything. 1: manual holds as a count only. 0: no per-rule list either.
+  const manualLine = (level: number) =>
+    manualTotal === 0
+      ? ""
+      : level >= 2
+        ? `${MANUAL_BLOCK_REASON}: ${manualTotal} (${countedLines(manual).join(", ")})`
+        : `${MANUAL_BLOCK_REASON}: ${manualTotal}`;
+  const expectedLine = (level: number) => {
+    const byRule =
+      level >= 1 && bigRules.length ? `; מעל ${HISTORY_RULE_BREAKDOWN_MIN} לכלל: ${bigRules.join(", ")}` : "";
+    const auto = autoCancel ? `, ${autoCancel} ביטולים אוטומטיים` : "";
+    return `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר${byRule}), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${skipped} דילוגים, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות${auto}`;
+  };
   const pointer = "הפירוט המלא ב-/admin/unsent";
+  const join = (items: string[], level: number) =>
+    squashParam([...items, manualLine(level), expectedLine(level)].filter(Boolean).join(" | "));
+  let level = 2;
+  while (level > 0 && join(lines, level).length > DETAIL_CAP) level -= 1;
   let kept = lines;
-  const join = (items: string[]) => squashParam([...items, expectedLine].join(" | "));
-  while (kept.length > 0 && join(kept).length > DETAIL_CAP) kept = kept.slice(0, -1);
-  let detail = join(kept);
-  if (kept.length < lines.length) {
+  while (kept.length > 0 && join(kept, level).length > DETAIL_CAP) kept = kept.slice(0, -1);
+  let detail = join(kept, level);
+  if (kept.length < lines.length || level < 2) {
     const withPointer = squashParam(`${detail} | ${pointer}`);
     detail = withPointer.length <= DETAIL_CAP ? withPointer : detail;
   }
-  return detail || expectedLine;
+  return detail.length <= DETAIL_CAP ? detail : detail.slice(0, DETAIL_CAP);
 }
 
 function israelStamp(iso: string): string {
@@ -206,18 +287,12 @@ async function readLog(
   table: string,
   sinceIso: string
 ): Promise<Array<Record<string, unknown>>> {
-  for (const columns of LOG_SELECTS) {
-    const { data, error } = await admin
-      .from(table)
-      .select(columns)
-      .gte("processed_at", sinceIso)
-      .limit(2000);
-    if (!error) return (data ?? []) as unknown as Array<Record<string, unknown>>;
-    if (/column|schema cache/i.test(error.message)) continue;
-    if (/does not exist|42P01/i.test(error.message)) return [];
-    console.error("[admin-daily-unsent] log read failed", { table, error: error.message });
-    return [];
-  }
+  // Every column: the tables differ (lead_id, reason, class_date), and a narrower select
+  // that misses one column silently dropped reason and class time on most of them.
+  const { data, error } = await admin.from(table).select("*").gte("processed_at", sinceIso).limit(2000);
+  if (!error) return (data ?? []) as unknown as Array<Record<string, unknown>>;
+  if (/does not exist|42P01/i.test(error.message)) return [];
+  console.error("[admin-daily-unsent] log read failed", { table, error: error.message });
   return [];
 }
 
@@ -303,6 +378,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
   const userIds = [...new Set(raw.map((row) => Number(row.userId)).filter((id) => id > 0))];
   const names = new Map<number, string>();
   const triggers = new Map<string, string>();
+  const ruleNames = new Map<string, string>();
   const contacts = new Map<string, string>();
 
   if (businessIds.length) {
@@ -313,8 +389,15 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
     }
   }
   if (triggerIds.length) {
-    const { data } = await admin.from("template_triggers").select("id, trigger_type").in("id", triggerIds);
-    for (const row of data ?? []) triggers.set(String(row.id), String(row.trigger_type ?? ""));
+    const { data } = await admin
+      .from("template_triggers")
+      .select("id, trigger_type, template_name")
+      .in("id", triggerIds);
+    for (const row of data ?? []) {
+      triggers.set(String(row.id), String(row.trigger_type ?? ""));
+      const name = String(row.template_name ?? "").trim();
+      if (name) ruleNames.set(String(row.id), name);
+    }
   }
   for (let i = 0; i < userIds.length; i += 200) {
     const slice = userIds.slice(i, i + 200);
@@ -354,6 +437,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       businessId: row.businessId,
       business: names.get(row.businessId) || String(row.businessId),
       trigger,
+      rule: ruleNames.get(row.triggerId),
       contact,
       reason: row.reason,
       at: israelStamp(row.at),
@@ -476,8 +560,9 @@ export async function maybeSendAdminDailyUnsentSummary(input: {
   const rows = await loadAdminDailyUnsent(input.admin, now);
   if (!rows.length) return { ...empty, reason: "nothing_to_report" };
 
+  const problems = unsentProblemCount(rows);
   const detail = unsentDetailParam(rows);
-  const text = renderAdminDailyUnsentText(rows.length, detail);
+  const text = renderAdminDailyUnsentText(problems, detail);
   let templateStatus = "UNKNOWN";
   try {
     const wabaId = await resolveMarketingWabaId();
@@ -493,22 +578,22 @@ export async function maybeSendAdminDailyUnsentSummary(input: {
     console.error("[admin-daily-unsent] template lookup failed", error instanceof Error ? error.message : error);
   }
   if (templateStatus !== "APPROVED") {
-    console.info("[admin-daily-unsent] held until template is approved", { templateStatus, count: rows.length });
-    return { ...empty, count: rows.length, text, templateStatus, reason: "template_not_approved" };
+    console.info("[admin-daily-unsent] held until template is approved", { templateStatus, count: problems });
+    return { ...empty, count: problems, text, templateStatus, reason: "template_not_approved" };
   }
   if (input.dryRun) {
-    return { ...empty, count: rows.length, text, templateStatus, reason: "dry_run" };
+    return { ...empty, count: problems, text, templateStatus, reason: "dry_run" };
   }
 
   const sent = await sendAdminWhatsAppTemplate({
     to: ADMIN_SUPPORT_ALERT_WHATSAPP,
     templateName: ADMIN_DAILY_UNSENT_TEMPLATE,
     languageCode: "he",
-    bodyParams: [String(rows.length), detail],
+    bodyParams: [String(problems), detail],
   });
   if (!sent.ok) {
     console.error("[admin-daily-unsent] send failed", sent.error);
-    return { ...empty, count: rows.length, text, templateStatus, reason: sent.error || "send_failed" };
+    return { ...empty, count: problems, text, templateStatus, reason: sent.error || "send_failed" };
   }
   await logMarketingWhatsAppMessage({
     leadPhone: ADMIN_SUPPORT_ALERT_WHATSAPP,
@@ -516,6 +601,6 @@ export async function maybeSendAdminDailyUnsentSummary(input: {
     content: text,
     model_used: ADMIN_DAILY_UNSENT_MODEL,
   });
-  console.info("[admin-daily-unsent] sent", { count: rows.length });
-  return { ...empty, sent: true, count: rows.length, text, templateStatus, reason: "sent" };
+  console.info("[admin-daily-unsent] sent", { count: problems });
+  return { ...empty, sent: true, count: problems, text, templateStatus, reason: "sent" };
 }
