@@ -525,6 +525,7 @@ import {
   TRY_CLASS_OFFER_MODEL,
 } from "@/lib/wa-try-class-offer";
 import { decideWarmupExtraResendAction } from "@/lib/wa-warmup-extra-resend";
+import { isWarmupHandoffReply } from "@/lib/wa-warmup-handoff-reply";
 import {
   salesFlowOpeningResetPatch,
   salesFlowServiceSwitchResetPatch,
@@ -3018,6 +3019,42 @@ async function executeWarmupExtraPickAt(input: {
     String(current?.replies?.[input.pickedIdx] ?? ""),
     warmupServiceName
   );
+  if (isWarmupHandoffReply(replyRaw)) {
+    try {
+      await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, replyRaw, input.accountSid, input.authToken);
+    } catch (e) {
+      console.error("[WA Webhook] Send warmup-extra handoff reply failed:", e);
+    }
+    await logMessage({
+      business_slug: input.business_slug,
+      role: "assistant",
+      content: replyRaw,
+      model_used: "sales_flow_warmup_extra_handoff",
+      session_id: input.sessionId,
+    });
+    const { error: offErr } = await input.supabase
+      .from("contacts")
+      .update(withWarmupExtraAwaitingOff({}))
+      .eq("business_id", Number(input.businessId))
+      .in("phone", contactPhoneLookupVariants(input.msg.from));
+    if (offErr) console.error("[WA Webhook] warmup-extra handoff awaiting reset failed:", offErr.message);
+    try {
+      const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+      await handleLeadHumanRequested({
+        supabase: input.supabase,
+        businessId: Number(input.businessId),
+        businessSlug: input.business_slug,
+        phone: input.msg.from,
+        nowIso: new Date().toISOString(),
+        sessionId: input.sessionId,
+        callScheduleSlot: picked,
+      });
+    } catch (e) {
+      console.error("[WA Webhook] warmup-extra handoff human_requested failed:", e);
+    }
+    return { handled: true };
+  }
+
   const menuFooter = salesFlowMenuFooter(input.knowledge);
   const contentLang = resolveBusinessContentLanguageFromKnowledge(input.knowledge);
   const nextIdx = input.lastIdx + 1;
