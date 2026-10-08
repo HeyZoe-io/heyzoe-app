@@ -22,6 +22,7 @@ export const WA_REPLY_ROUTES = [
   "personal",
   "registration_check",
   "my_schedule",
+  "membership_purchase",
 ] as const;
 
 export type WaReplyRoute = (typeof WA_REPLY_ROUTES)[number];
@@ -41,7 +42,8 @@ export type ReplyRouteAction =
   | { kind: "class_move" }
   | { kind: "class_move_member" }
   | { kind: "class_move_trial" }
-  | { kind: "handoff" };
+  | { kind: "handoff" }
+  | { kind: "membership_purchase" };
 
 const LEADING_MARKS_RE = /^[\s\u200e\u200f\u202a-\u202e\u2066-\u2069]+/;
 
@@ -84,7 +86,8 @@ export function extractReplyRoute(raw: string): ExtractedReplyRoute {
       name === "booking_change_trial" ||
       name === "registration_check" ||
       name === "my_schedule" ||
-      name === "schedule"
+      name === "schedule" ||
+      name === "membership_purchase"
     ) {
       return { route: name, body: "", tagStatus: "ok" };
     }
@@ -120,6 +123,7 @@ export function decideReplyRouteAction(input: {
   if (input.extracted.route === "class_move_member") return { kind: "class_move_member" };
   if (input.extracted.route === "class_move_trial") return { kind: "class_move_trial" };
   if (input.extracted.route === "handoff") return { kind: "handoff" };
+  if (input.extracted.route === "membership_purchase") return { kind: "membership_purchase" };
   return { kind: "send_body" };
 }
 
@@ -199,6 +203,7 @@ export function buildReplyRoutePromptBlock(): string {
 - personal - הודעה אל הבעלים או המאמנת כאדם, לא אל שירות הסטודיו. סימנים: פנייה חמה (אהובה, מאמי, יקירה), אזכור של משהו שנאמר או סוכם מחוץ לצ'אט (אמרת לי, כמו שדיברנו, תודה על אתמול), עדכון אישי או הסבר על היעדרות שמופנה אליה, שאלה אישית עליה (מתי את חוזרת). הגוף ריק. אם יש גם בקשת שירות ממשית, תייגי לפי בקשת השירות ולא personal. אם לא בטוח שזו הודעה אישית, תייגי personal.
 - registration_check - היא בודקת שההרשמה שלה לשיעור או לאימון קיימת, בלי לבקש לשנות, לבטל או להזיז. «אני רק רוצה לוודא» לבד אינו registration_check. וידוא על מנוי, חיוב, הפסקת מנוי או ביטול מנוי אינו registration_check — זה handoff. «אני רשומה» בתוך בקשה להחליף שעה אינה registration_check.
 - my_schedule - היא שואלת מתי השיעור שהיא עצמה כבר קבעה, לא מה יש בלוח הכללי.
+- membership_purchase - היא רוצה עכשיו לקנות, לחדש או לשלם על מנוי או כרטיסייה, לעצמה או לבן משפחה: לעשות מנוי, להסדיר תשלום על מנוי, לקנות כרטיסייה, איך משלמים על המנוי. לפי הכוונה, לא לפי מילה. שאלה כמה עולה בלי כוונה לקנות עכשיו היא interest או answer. אימון ניסיון הוא signup. בעיה בחיוב, עדכון אמצעי תשלום, החזר, הנחה או מחיר אחר הם handoff. הגוף ריק.
 - member_or_trial_unclear - לא ברור אם היא כבר חברה. הרשמה נכשלה או «נרשמתי ולא עובד», בלי הפניה, בלי שיעור שהיא רוצה להתחיל, ובלי שאלה על עלות כדי להצטרף.
 
 דוגמאות answer:
@@ -276,6 +281,16 @@ export function buildReplyRoutePromptBlock(): string {
 - "היי, לא, אשמח להגיע בשישי לשיעור נסיון, ולא עלה באפשרויות" -> [[route:signup]]
 - "אשמח על פרטים ומה העלות כדי להצטרף" -> [[route:signup]] והגוף הוא פירוט המחיר מהידע, בלי תפריט
 - "היי אני שירה, אורית הפנתה אותי, אשמח ליוגה ביום שני בערב ומה העלות" -> [[route:signup]] והגוף רק על המחיר מהידע
+דוגמאות membership_purchase (הגוף ריק):
+- "ערב טוב, רוצה להסדיר תשלום עבור הבת שלי" -> [[route:membership_purchase]]
+- "אני רוצה לעשות מנוי" -> [[route:membership_purchase]]
+- "איך אני קונה כרטיסייה?" -> [[route:membership_purchase]]
+- "נגמר לי המנוי, אפשר לחדש?" -> [[route:membership_purchase]]
+- "היה לי אימון ניסיון מעולה, אני רוצה להמשיך פעם בשבוע" -> [[route:membership_purchase]]
+דוגמאות שאינן membership_purchase:
+- "כמה עולה מנוי?" -> [[route:interest]]
+- "החיוב שלי נכשל" -> [[route:handoff]]
+- "אפשר מחיר מיוחד על מנוי שנתי?" -> [[route:handoff]]
 דוגמאות member_or_trial_unclear:
 - "נרשמתי ולא עובד" -> [[route:member_or_trial_unclear]]
 - "לא מצליחה להירשם" בלי סימן שהיא חדשה -> [[route:member_or_trial_unclear]]

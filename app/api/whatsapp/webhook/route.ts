@@ -426,6 +426,10 @@ import {
   type MembershipLookupReply,
 } from "@/lib/wa-membership-lookup";
 import {
+  MEMBERSHIP_PURCHASE_LINK_MODEL,
+  resolveMembershipPurchaseReply,
+} from "@/lib/wa-membership-purchase";
+import {
   fetchLastQuoteableSessionMessage,
   formatWaReactionLogContent,
   WA_INBOUND_REACTION_MODEL,
@@ -15030,6 +15034,41 @@ async function processIncoming(
         business_slug,
         sessionId,
         nowIso,
+      });
+      return;
+    }
+    if (routeAction.kind === "membership_purchase") {
+      const purchase = resolveMembershipPurchaseReply({
+        membershipsUrl: knowledge.membershipsUrl,
+        lang: resolveBusinessContentLanguageFromKnowledge(knowledge),
+        linkAlreadySent: modelUsedBase(lastAssistForWarmupPriority) === MEMBERSHIP_PURCHASE_LINK_MODEL,
+      });
+      if (purchase.notifyTeam && businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] membership purchase human_requested failed:", e);
+        }
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, purchase.text, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send membership purchase reply failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: purchase.text,
+        model_used: appendRouteToModelUsed(purchase.model, waReplyRoute, fastPathHint?.category),
+        session_id: sessionId,
       });
       return;
     }
