@@ -8,6 +8,7 @@
  * Delay 0 fetches that bookingsReport only when a due row is still open in the log.
  * Seed 30d without WhatsApp.
  */
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
@@ -167,7 +168,8 @@ export type LostLeadDispatch =
   | "no_phone"
   | "skipped_active"
   | "skipped_recent_checkin"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type LostLeadSyncSummary = {
   skipped?: boolean;
@@ -429,28 +431,13 @@ async function upsertLostLeadSyncLog(input: {
     status: input.status,
     attempts: input.attempts,
   };
-  if (input.reason) row.reason = input.reason;
-  let { error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-    onConflict: "business_id,trigger_id,lead_id,lost_date",
-  });
-  if (error && input.reason && /reason|schema cache|PGRST204|could not find/i.test(error.message)) {
-    delete row.reason;
-    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-      onConflict: "business_id,trigger_id,lead_id,lost_date",
-    }));
-  }
-  if (error && row.status === "failed" && /23514|check constraint/i.test(error.message)) {
-    row.status = "pending";
-    row.reason = "failed";
-    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-      onConflict: "business_id,trigger_id,lead_id,lost_date",
-    }));
-  }
-  if (error) {
-    console.error("[leads/arbox-lost-lead] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_lost_lead_sync_log",
+    row,
+    "business_id,trigger_id,lead_id,lost_date",
+    input.reason || undefined
+  );
 }
 
 async function dispatchLostLeadTemplate(input: {
@@ -1180,7 +1167,7 @@ export async function syncArboxLostLeadForBusiness(input: {
         });
         companionGate.after(templateName, send.dispatch);
 
-        if (send.dispatch === "immediate" || send.dispatch === "deferred") {
+        if (send.dispatch === "immediate" || send.dispatch === "deferred" || send.dispatch === "send_unknown") {
           markRetentionSent(businessId, phone, now);
         }
         if (send.dispatch === "immediate") summary.notified += 1;
@@ -1199,7 +1186,7 @@ export async function syncArboxLostLeadForBusiness(input: {
           send.dispatch === "deferred" ||
           send.dispatch === "gated" ||
           send.dispatch === "skipped" ||
-          send.dispatch === "send_failed"
+          (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
         ) {
           const next = nextCancellationSyncLogAfterDispatch({
             dispatch: send.dispatch,

@@ -18,7 +18,12 @@ import {
   DUPLICATE_GUARD_ERROR,
   findRecentAutomatedTemplateSend,
 } from "@/lib/notifications/template-duplicate-guard";
-import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
+import {
+  postWhatsAppGraphMessage,
+  SEND_OUTCOME_UNKNOWN,
+  sendErrorBodyIsExplicit,
+  thrownSendOutcome,
+} from "@/lib/notifications/graph-whatsapp-send";
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
@@ -101,6 +106,8 @@ export async function sendOwnerNotification(input: {
     return { ok: false, error: msg };
   }
 }
+
+const BUSINESS_TEMPLATE_SEND_TIMEOUT_MS = 25_000;
 
 /**
  * שולח הודעת template WhatsApp ממספר עסק (phone_number_id) — לא מ-ZoeMaster.
@@ -251,9 +258,19 @@ export async function sendBusinessTemplate(input: {
   };
 
   try {
-    const res = await postWhatsAppGraphMessage({ phoneNumberId, to, token, body });
+    const res = await postWhatsAppGraphMessage({
+      phoneNumberId,
+      to,
+      token,
+      body,
+      timeoutMs: BUSINESS_TEMPLATE_SEND_TIMEOUT_MS,
+    });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      if (!sendErrorBodyIsExplicit(errText)) {
+        console.error("[sendBusinessTemplate] outcome unknown:", res.status, errText.slice(0, 300));
+        return { ok: false, error: `${SEND_OUTCOME_UNKNOWN}:http_${res.status}` };
+      }
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
       const formatted = formatMetaSendError(errText || `http_${res.status}`);
       await recordTemplateSendFailure({
@@ -295,6 +312,6 @@ export async function sendBusinessTemplate(input: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[sendBusinessTemplate] failed:", msg);
-    return { ok: false, error: msg };
+    return { ok: false, error: thrownSendOutcome(e) === "explicit" ? msg : `${SEND_OUTCOME_UNKNOWN}: ${msg}` };
   }
 }

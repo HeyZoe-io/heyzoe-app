@@ -12,6 +12,7 @@ import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { SYNC_LOG_SEND_ATTEMPT_CAP } from "@/lib/leads/sync-log-claim";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { SEND_OUTCOME_UNKNOWN } from "@/lib/notifications/graph-whatsapp-send";
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -23,6 +24,7 @@ export type CompanionDispatch =
   | "gated"
   | "skipped"
   | "send_failed"
+  | "send_unknown"
   | "no_rule";
 
 type NamedRule = {
@@ -83,6 +85,7 @@ export function rulesForCompanionSend<T extends NamedRule>(rules: T[]): T[] {
 
 export function combineCompanionDispatches(results: CompanionDispatch[]): CompanionDispatch {
   if (results.length === 0) return "no_rule";
+  if (results.some((dispatch) => dispatch === "send_unknown")) return "send_unknown";
   if (results.some((dispatch) => dispatch === "send_failed")) return "send_failed";
   if (results.some((dispatch) => dispatch === "gated")) return "gated";
   if (results.every((dispatch) => dispatch === "skipped" || dispatch === "no_rule")) return "skipped";
@@ -109,7 +112,7 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
   send: (rule: T, ctx: CompanionSendContext) => Promise<CompanionDispatch>;
   alreadyDelivered?: (rule: T) => Promise<boolean | null>;
   recordDelivered?: (rule: T) => Promise<boolean | null | void>;
-  settleDelivered?: (rule: T, status: "sent" | "failed" | "release") => Promise<void>;
+  settleDelivered?: (rule: T, status: "sent" | "failed" | "release" | "unknown") => Promise<void>;
 }): Promise<CompanionDispatch> {
   const rules = input.rules;
   if (rules.length === 0) return "no_rule";
@@ -160,7 +163,13 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
     results.push(dispatch);
     if (input.settleDelivered && !input.dryRun) {
       const settled =
-        dispatch === "immediate" ? "sent" : dispatch === "send_failed" ? "failed" : "release";
+        dispatch === "immediate"
+          ? "sent"
+          : dispatch === "send_failed"
+            ? "failed"
+            : dispatch === "send_unknown"
+              ? "unknown"
+              : "release";
       await input.settleDelivered(rule, settled);
     }
 
@@ -175,7 +184,7 @@ export async function runCompanionTemplateSends<T extends NamedRule>(input: {
       continue;
     }
 
-    if (dispatch === "send_failed" || dispatch === "gated") break;
+    if (dispatch === "send_failed" || dispatch === "send_unknown" || dispatch === "gated") break;
   }
 
   return combineCompanionDispatches(results);
@@ -197,7 +206,7 @@ export function createCompanionSendGate(dryRun = false) {
     after(templateName: string, dispatch: string) {
       const name = templateName.trim();
       if (dispatch === "immediate") lastImmediateName = name;
-      if (dispatch === "send_failed" || dispatch === "gated") blockedBase = name;
+      if (dispatch === "send_failed" || dispatch === "send_unknown" || dispatch === "gated") blockedBase = name;
     },
   };
 }
@@ -325,7 +334,7 @@ async function retakeFailedCompanionClaim(
 export async function settleCompanionTemplateSent(
   admin: AdminClient,
   dedupKey: string,
-  status: "sent" | "failed" | "release"
+  status: "sent" | "failed" | "release" | "unknown"
 ): Promise<void> {
   const key = dedupKey.trim();
   if (!key) return;
@@ -357,8 +366,14 @@ export async function settleCompanionTemplateSent(
   const { error } = await admin
     .from("scheduled_template_sends")
     .update({
-      status,
-      last_error: status === "failed" ? `send_failed:${companionClaimFailures(heldError) + 1}` : null,
+      // unknown stays canceled: the claim is kept and never taken again.
+      status: status === "unknown" ? "canceled" : status,
+      last_error:
+        status === "failed"
+          ? `send_failed:${companionClaimFailures(heldError) + 1}`
+          : status === "unknown"
+            ? SEND_OUTCOME_UNKNOWN
+            : null,
       updated_at: new Date().toISOString(),
     })
     .eq("dedup_key", key)

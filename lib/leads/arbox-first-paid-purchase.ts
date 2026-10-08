@@ -389,7 +389,7 @@ async function sendWelcome(input: {
   fullName: string | null;
   templateName: string;
   triggerId: string;
-}): Promise<"sent" | "gated" | "skipped" | "send_failed"> {
+}): Promise<"sent" | "gated" | "skipped" | "send_failed" | "send_unknown"> {
   const channel = await resolveSendChannelForContact(input.admin, input.businessId, input.phone);
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
   if (!phoneNumberId) return "gated";

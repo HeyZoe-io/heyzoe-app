@@ -84,7 +84,8 @@ export type TrialAttendedDispatch =
   | "not_attended"
   | "skipped_non_trial"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type TrialAttendedSyncSummary = {
   skipped?: boolean;
@@ -858,15 +859,17 @@ export async function syncArboxTrialAttendedForBusiness(input: {
       if (send.dispatch === "immediate") summary.notified += 1;
       else if (send.dispatch === "enqueued") summary.deferred += 1;
       else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
+      else if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") summary.errors += 1;
 
       console.info("[leads/arbox-trial-attended] dispatch", {
         ...logBase,
         dispatch: send.dispatch,
       });
 
+      // Any row is handled. An unknown outcome is written too so it is never sent again.
       if (
         send.dispatch === "skipped" ||
+        send.dispatch === "send_unknown" ||
         (send.ok && (send.dispatch === "immediate" || send.dispatch === "enqueued"))
       ) {
         const { error: logErr } = await input.admin.from("arbox_trial_attended_sync_log").upsert(

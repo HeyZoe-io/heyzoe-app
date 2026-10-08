@@ -97,6 +97,7 @@ export function unsentReason(input: {
 }): string | null {
   const status = String(input.status ?? "").trim().toLowerCase();
   const err = String(input.lastError ?? "").trim().toLowerCase();
+  if (status === "unknown" || err.includes("send_outcome_unknown")) return "תוצאה לא ידועה";
   if (status === "sending" || err === "sending") return "נשאר באמצע שליחה";
   if (err === "duplicate_guard") return "נחסם כפילות";
   if (status === "sent") return null;

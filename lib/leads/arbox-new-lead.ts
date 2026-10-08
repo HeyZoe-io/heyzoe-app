@@ -81,7 +81,8 @@ export type ArboxNewLeadDispatch =
   | "seeded"
   | "already"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type ArboxNewLeadSyncSummary = {
   skipped?: boolean;
@@ -947,7 +948,7 @@ export async function syncArboxNewLeadsForBusiness(input: {
         const send = claimed.value;
         companion.after(String(rule.template_name ?? ""), send.dispatch === "immediate" ? "immediate" : send.dispatch);
 
-        if (send.dispatch === "gated" || send.dispatch === "send_failed") {
+        if (send.dispatch === "gated" || send.dispatch === "send_failed" || send.dispatch === "send_unknown") {
           summary.processed += 1;
           if (send.dispatch === "gated") summary.gated += 1;
           else summary.errors += 1;

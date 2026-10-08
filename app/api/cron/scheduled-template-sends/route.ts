@@ -13,6 +13,7 @@ import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import {
   decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
+  nextScheduledSendAfterMetaError,
   decideScheduledSendGate,
   isDuePendingScheduledSend,
   NO_TEMPLATE_SKIPPED_ERROR,
@@ -93,8 +94,9 @@ function authorizeCron(req: NextRequest): boolean {
 
 type DispatchMark =
   | { status: "sent" }
-  | { status: "pending"; last_error: string }
-  | { status: "failed"; last_error: string }
+  | { status: "pending"; last_error: string; attempts?: number }
+  | { status: "failed"; last_error: string; attempts?: number }
+  | { status: "unknown"; last_error: string }
   | { status: "canceled"; last_error: string };
 
 async function markScheduledSend(
@@ -108,17 +110,30 @@ async function markScheduledSend(
     updated_at: nowIso,
     last_error: mark.status === "sent" ? null : mark.last_error,
   };
-  const { error } = await admin
-    .from("scheduled_template_sends")
-    .update(patch)
-    .eq("id", id)
-    .in("status", ["pending", "sending"]);
+  if ("attempts" in mark && mark.attempts != null) patch.attempts = mark.attempts;
+  const update = (body: Record<string, unknown>) =>
+    admin.from("scheduled_template_sends").update(body).eq("id", id).in("status", ["pending", "sending"]);
+  let { error } = await update(patch);
+  // Before scheduled_template_sends_unknown_attempts.sql: unknown is stored as failed (also final).
+  if (error && mark.status === "unknown" && /check constraint|23514/i.test(error.message)) {
+    ({ error } = await update({ ...patch, status: "failed" }));
+  }
   if (error) {
     console.error("[cron/scheduled-template-sends] status update failed:", error.message, {
       id,
       status: mark.status,
     });
   }
+}
+
+/** Meta errors already on this row. null when the attempts column is not there yet. */
+async function scheduledSendAttempts(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  id: string
+): Promise<number | null> {
+  const { data, error } = await admin.from("scheduled_template_sends").select("attempts").eq("id", id).maybeSingle();
+  if (error) return null;
+  return Math.max(0, Math.trunc(Number((data as { attempts?: unknown } | null)?.attempts) || 0));
 }
 
 async function lookupContactFullName(
@@ -500,10 +515,22 @@ async function dispatchOneScheduledSend(
     return "skipped";
   }
 
+  if (afterMeta.status === "unknown") {
+    console.error("[cron/scheduled-template-sends] send outcome unknown, not retried", {
+      id: row.id,
+      businessId,
+      error: afterMeta.last_error,
+    });
+    await markScheduledSend(admin, row.id, { status: "unknown", last_error: afterMeta.last_error });
+    return "failed";
+  }
+
   if (afterMeta.status === "failed") {
+    const next = nextScheduledSendAfterMetaError(await scheduledSendAttempts(admin, row.id));
     await markScheduledSend(admin, row.id, {
-      status: "failed",
+      status: next.status,
       last_error: afterMeta.last_error,
+      ...(next.attempts != null ? { attempts: next.attempts } : {}),
     });
     return "failed";
   }

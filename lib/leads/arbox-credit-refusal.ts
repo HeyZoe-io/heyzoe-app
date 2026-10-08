@@ -67,7 +67,8 @@ export type CreditRefusalDispatch =
   | "seeded"
   | "already"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type CreditRefusalSyncSummary = {
   skipped?: boolean;
@@ -829,7 +830,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
               send.dispatch === "deferred" ||
               send.dispatch === "gated" ||
               send.dispatch === "skipped" ||
-              send.dispatch === "send_failed"
+              (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
                 ? send.dispatch
                 : "skipped";
             dispatchByRule.set(rule.id, dispatch);
@@ -847,7 +848,7 @@ export async function syncArboxCreditRefusalsForBusiness(input: {
       if (send.dispatch === "immediate") summary.notified += 1;
       else if (send.dispatch === "deferred") summary.deferred += 1;
       else if (send.dispatch === "gated") summary.gated += 1;
-      else if (send.dispatch === "send_failed") summary.errors += 1;
+      else if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") summary.errors += 1;
 
       console.info("[leads/arbox-credit-refusal] dispatch", {
         businessId,

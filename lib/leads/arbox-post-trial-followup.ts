@@ -18,6 +18,7 @@
  * Decision day itself still sends on that run (even after 09:00), matching
  * lost-lead / cancellation new-rule activation.
  */
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
@@ -99,6 +100,7 @@ export type PostTrialTemplateDispatch =
   | "gated"
   | "skipped"
   | "send_failed"
+  | "send_unknown"
   | "no_rule";
 
 export type PostTrialOutcome = "registered" | "not_registered";
@@ -524,7 +526,9 @@ async function upsertFollowupSyncLog(input: {
   status: CancellationSyncLogStatus;
   nowIso: string;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_post_trial_followup_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_post_trial_followup_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -536,13 +540,8 @@ async function upsertFollowupSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,trigger_id,user_id,class_date" }
+    "business_id,trigger_id,user_id,class_date"
   );
-  if (error) {
-    console.error("[leads/arbox-post-trial-followup] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 /** @deprecated Use rulesForCompanionSend. Kept so existing tests import the pair order. */
@@ -1514,6 +1513,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
                   ? ("skipped" as const)
                   : send.dispatch === "send_failed"
                     ? ("send_failed" as const)
+                    : send.dispatch === "send_unknown"
+                    ? ("send_unknown" as const)
                     : ("gated" as const);
         const attemptsSoFar = parseCancellationSyncAttempts(
           (existing as { attempts?: unknown } | null)?.attempts
@@ -1534,12 +1535,12 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           status: next.status,
           nowIso,
         });
-        if (send.dispatch === "send_failed") {
+        if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") {
           if (next.hitCap) summary.abandoned += 1;
           else summary.errors += 1;
         }
 
-        if (send.dispatch === "send_failed" || send.dispatch === "gated") break;
+        if (send.dispatch === "send_failed" || send.dispatch === "send_unknown" || send.dispatch === "gated") break;
       }
 
       const sendDispatch = combinePostTrialTemplateDispatches(dispatches);

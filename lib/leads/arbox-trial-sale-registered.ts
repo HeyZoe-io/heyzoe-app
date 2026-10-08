@@ -44,8 +44,7 @@ import {
   sendWithSyncLogClaim,
   settleSyncLogClaim,
   syncLogRowRetryable,
-  type SyncLogSettle,
-} from "@/lib/leads/sync-log-claim";
+  type SyncLogSettle, settleForSendError } from "@/lib/leads/sync-log-claim";
 
 const SALE_LOG_SENTINEL_TRIGGER_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -536,7 +535,7 @@ async function sendOnePurchaseTemplate(input: {
       });
       if (!sendResult.ok) {
         return {
-          settle: isSendsHoldError(sendResult.error) ? ("release" as const) : ("failed" as const),
+          settle: settleForSendError(sendResult.error),
           reason: String(sendResult.error ?? "send_failed").slice(0, 200),
           value: sendResult,
         };
@@ -1115,7 +1114,7 @@ export async function handleArboxTrialSaleRegistered(input: {
         whatsapp = "sent";
       } else if (waResult.reason === "trial_template_already_sent") {
         whatsapp = "skipped_zoe_confirm";
-      } else if (waResult.reason === "send_failed") {
+      } else if (waResult.reason === "send_failed" || waResult.reason === "send_unknown") {
         whatsapp = "send_failed";
       } else if (waResult.reason === "sends_hold") {
         whatsapp = "send_failed";

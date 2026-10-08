@@ -1,5 +1,6 @@
 import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { isSendOutcomeUnknown } from "@/lib/notifications/graph-whatsapp-send";
 import { normalizePhone } from "@/lib/phone-normalize";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { evaluateLeadTemplateSend, SUPPRESSED_OPT_OUT_ERROR } from "@/lib/wa-marketing-opt-out";
@@ -488,13 +489,30 @@ export function decideScheduledSendGate(input: {
   return { action: "send" };
 }
 
-/** After a Meta send attempt on a sendable row. `held` leaves the row pending. */
+/** Meta errors on one queued row before it stays failed. Same cap as the sync logs. */
+export const SCHEDULED_SEND_ATTEMPT_CAP = 3;
+
+/** After a Meta error: back to pending for another drain, or failed at the cap. null: no attempts column yet. */
+export function nextScheduledSendAfterMetaError(attemptsSoFar: number | null): {
+  status: "pending" | "failed";
+  attempts: number | null;
+} {
+  if (attemptsSoFar == null) return { status: "failed", attempts: null };
+  const attempts = Math.max(0, Math.trunc(attemptsSoFar)) + 1;
+  return { status: attempts >= SCHEDULED_SEND_ATTEMPT_CAP ? "failed" : "pending", attempts };
+}
+
+/**
+ * After a Meta send attempt on a sendable row. `held` leaves the row pending.
+ * `unknown` (no answer from Meta) is final; `failed` is a Meta error the drain retries up to the cap.
+ */
 export function decideScheduledSendAfterMeta(input: {
   ok: boolean;
   error?: string | null;
 }):
   | { status: "sent"; last_error: null }
   | { status: "failed"; last_error: string }
+  | { status: "unknown"; last_error: string }
   | { status: "canceled"; last_error: string }
   | { status: "held"; last_error: "sends_hold" } {
   if (input.ok) return { status: "sent", last_error: null };
@@ -502,6 +520,7 @@ export function decideScheduledSendAfterMeta(input: {
   if (last_error === "sends_hold" || last_error.startsWith("sends_hold")) {
     return { status: "held", last_error: "sends_hold" };
   }
+  if (isSendOutcomeUnknown(last_error)) return { status: "unknown", last_error };
   if (last_error === SUPPRESSED_OPT_OUT_ERROR || last_error.includes(SUPPRESSED_OPT_OUT_ERROR)) {
     return { status: "canceled", last_error: SUPPRESSED_OPT_OUT_ERROR };
   }

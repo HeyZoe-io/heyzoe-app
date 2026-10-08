@@ -1,6 +1,8 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
-import { isMissingSyncLogReasonColumn } from "@/lib/leads/sync-log-reason";
+import { isMissingSyncLogReasonColumn, syncLogStatusFallbacks } from "@/lib/leads/sync-log-reason";
+import { isSendsHoldError } from "@/lib/business-sends-hold";
+import { isSendOutcomeUnknown, SEND_OUTCOME_UNKNOWN } from "@/lib/notifications/graph-whatsapp-send";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -145,7 +147,8 @@ async function updateRetryable(
   return "error";
 }
 
-export type SyncLogSettle = "sent" | "failed" | "skipped" | "release";
+/** unknown: the request may have reached Meta. Final, never retried. */
+export type SyncLogSettle = "sent" | "failed" | "skipped" | "release" | "unknown";
 
 /** A row the next run may claim again. Missing status (older tables) means handled. */
 export function syncLogRowRetryable(status: unknown): boolean {
@@ -160,13 +163,21 @@ export function syncLogRowRetryable(status: unknown): boolean {
 export function claimSettleForDispatch(dispatch: string): SyncLogSettle {
   if (dispatch === "immediate" || dispatch === "deferred") return "sent";
   if (dispatch === "send_failed") return "failed";
+  if (dispatch === "send_unknown") return "unknown";
   if (dispatch === "gated") return "release";
   return "skipped";
 }
 
+/** A send error → claim outcome: hold releases, unknown is final, a Meta error is retried. */
+export function settleForSendError(error: unknown): SyncLogSettle {
+  if (isSendsHoldError(error)) return "release";
+  if (isSendOutcomeUnknown(error)) return "unknown";
+  return "failed";
+}
+
 /**
  * Close a claim this worker won.
- * sent / skipped: final. failed: retried by the next run until the attempt cap,
+ * sent / skipped / unknown: final. failed: retried by the next run until the attempt cap,
  * then abandoned. release: the claim row is removed (a hold, not a send).
  */
 export async function settleSyncLogClaim(input: {
@@ -179,7 +190,8 @@ export async function settleSyncLogClaim(input: {
   attemptCap?: number;
 }): Promise<boolean> {
   if (input.outcome === "release") return releaseSyncLogClaim(input);
-  const attemptsSoFar = Math.max(0, Math.trunc(Number(input.row.attempts) || 0));
+  let attemptsSoFar = Math.max(0, Math.trunc(Number(input.row.attempts) || 0));
+  if (input.outcome === "failed") attemptsSoFar = Math.max(attemptsSoFar, await storedAttempts(input));
   let status: string = input.outcome;
   let attempts = attemptsSoFar;
   if (input.outcome === "failed") {
@@ -191,27 +203,37 @@ export async function settleSyncLogClaim(input: {
     writeWithoutMissingColumns(payload, identity(input.filters), (body) =>
       input.admin.from(input.table).upsert(body, { onConflict })
     );
-  const payload = {
-    ...input.row,
-    status,
-    attempts,
-    reason: input.reason ?? null,
-    processed_at: new Date().toISOString(),
-  };
-  const first = await upsert(payload);
-  if (!first.error) {
-    // No status column yet: a failed send leaves no row, as before the claim existed.
-    if (status !== "sent" && status !== "skipped" && first.dropped.has("status")) {
-      return releaseSyncLogClaim(input);
+  const processedAt = new Date().toISOString();
+  let lastMessage = "";
+  for (const attempt of syncLogStatusFallbacks(status, input.reason ?? null)) {
+    const result = await upsert({
+      ...input.row,
+      status: attempt.status,
+      attempts,
+      reason: attempt.reason ?? null,
+      processed_at: processedAt,
+    });
+    if (!result.error) {
+      // No status column yet: a failed send leaves no row, as before the claim existed.
+      if ((status === "failed" || status === "abandoned") && result.dropped.has("status")) {
+        return releaseSyncLogClaim(input);
+      }
+      return true;
     }
-    return true;
+    lastMessage = String(result.error.message ?? "");
+    if (classify(result.error) !== "check") break;
   }
-  if (status === "failed" && classify(first.error) === "check") {
-    const fallback = await upsert({ ...payload, status: "pending", reason: input.reason ?? "failed" });
-    if (!fallback.error) return true;
-  }
-  console.error(`[sync-log-claim] ${input.table} settle ${status} failed:`, first.error.message);
+  console.error(`[sync-log-claim] ${input.table} settle ${status} failed:`, lastMessage);
   return false;
+}
+
+/** Attempts already on the claimed row, so a caller that did not pass them still reaches the cap. */
+async function storedAttempts(input: { admin: Admin; table: string; filters: Filters }): Promise<number> {
+  let query = input.admin.from(input.table).select("attempts");
+  for (const [column, value] of input.filters) query = query.eq(column, value);
+  const { data, error } = await query.maybeSingle();
+  if (error) return 0;
+  return Math.max(0, Math.trunc(Number((data as { attempts?: unknown } | null)?.attempts) || 0));
 }
 
 async function releaseSyncLogClaim(input: {
@@ -305,29 +327,40 @@ export async function claimQueuedTemplateSend(admin: Admin, dedupKey: string): P
 
 /**
  * sent: final. failed / release: back to pending so the drain retries it
- * with `lastError` (failed defaults to send_failed). Only a row this worker
- * holds at `sending` moves.
+ * with `lastError` (failed defaults to send_failed). unknown: final
+ * (`unknown`, or `failed` + send_outcome_unknown before the status SQL).
+ * Only a row this worker holds at `sending` moves.
  */
 export async function settleQueuedTemplateSend(
   admin: Admin,
   dedupKey: string,
-  outcome: "sent" | "failed" | "release",
-  lastError?: string | null
+  outcome: "sent" | "failed" | "release" | "unknown",
+  lastError?: string | null,
+  /** The status this worker holds the row at. A path that sends without claiming passes pending. */
+  heldAt: "sending" | "pending" = "sending"
 ): Promise<boolean> {
   const key = dedupKey.trim();
   if (!key || isArboxDailyDryRun()) return true;
-  const patch =
+  const patches: Array<Record<string, unknown>> =
     outcome === "sent"
-      ? { status: "sent", last_error: null }
-      : { status: "pending", last_error: outcome === "failed" ? lastError || "send_failed" : lastError ?? null };
-  const { error } = await admin
-    .from("scheduled_template_sends")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("dedup_key", key)
-    .eq("status", "sending");
-  if (error) {
-    console.error("[sync-log-claim] queued settle failed:", error.message);
-    return false;
+      ? [{ status: "sent", last_error: null }]
+      : outcome === "unknown"
+        ? [
+            { status: "unknown", last_error: lastError || SEND_OUTCOME_UNKNOWN },
+            { status: "failed", last_error: lastError || SEND_OUTCOME_UNKNOWN },
+          ]
+        : [{ status: "pending", last_error: outcome === "failed" ? lastError || "send_failed" : lastError ?? null }];
+  let lastMessage = "";
+  for (const patch of patches) {
+    const { error } = await admin
+      .from("scheduled_template_sends")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("dedup_key", key)
+      .eq("status", heldAt);
+    if (!error) return true;
+    lastMessage = error.message;
+    if (classify(error) !== "check") break;
   }
-  return true;
+  console.error("[sync-log-claim] queued settle failed:", lastMessage);
+  return false;
 }
