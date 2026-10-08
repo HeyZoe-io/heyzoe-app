@@ -713,6 +713,7 @@ import {
 } from "@/lib/product-schedule-slots";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import {
+  hasTrialSignupNotice,
   loadTrialSignupNotice,
   stampTrialSignupNotice,
   zoeRegistrationConfirmBlockedByTrialTemplate,
@@ -14608,7 +14609,17 @@ async function processIncoming(
         });
         reaskPending = isFindClassBridgeModel(lastForReask);
       }
-      if (offerNow || reaskPending) {
+      const trialNoticeBlocksOffer =
+        (offerNow || reaskPending) &&
+        hasTrialSignupNotice(await loadTrialSignupNotice(supabase, Number(businessId), msg.from));
+      if (trialNoticeBlocksOffer) {
+        heldSalesFlowForQuestion = offerNow;
+        console.info("[WA Webhook] find-class offer skipped; trial signup notice already sent", {
+          business_slug,
+          sessionId,
+        });
+      }
+      if ((offerNow || reaskPending) && !trialNoticeBlocksOffer) {
         heldSalesFlowForQuestion = offerNow;
         const answer = resolveInterestQuestionAnswer({
           inbound: msg.text,
