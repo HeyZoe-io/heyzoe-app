@@ -612,6 +612,14 @@ async function dispatchTrialReminderTemplate(input: {
     computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now).getTime() +
       Math.max(0, input.dueOffsetMs ?? 0)
   );
+  const eventDedupKey = buildTrialReminderScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd,
+    input.classTime,
+    input.className
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -620,14 +628,7 @@ async function dispatchTrialReminderTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildTrialReminderScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd,
-        input.classTime,
-        input.className
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-reminder] enqueue failed:", enqueueResult.error);
@@ -697,6 +698,7 @@ async function dispatchTrialReminderTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

@@ -373,6 +373,7 @@ async function sendTrialBookedTemplate(input: {
     phoneNumberId,
     templateName: input.template.name,
     alertTriggerId: input.rule.id,
+    eventDedupKey: `trial_booked:${input.businessId}:${input.rule.id}:${input.classDate}:${encodeURIComponent(input.classTime)}#${encodeURIComponent(input.className)}`,
     languageCode: input.template.language,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

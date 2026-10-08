@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { claimPhoneKey, claimTemplateSend, releaseTemplateSendClaim } from "./template-send-claim";
+import {
+  claimPhoneKey,
+  claimTemplateSend,
+  releaseTemplateSendClaim,
+  templateClaimEventKey,
+  templateClaimName,
+} from "./template-send-claim";
+import {
+  buildTrainerTrialHeadsUpScheduledDedupKey,
+  buildTrialReminderScheduledDedupKey,
+} from "../scheduled-template-sends";
 import { excludeQueuedRecipients, foldQueuedRows } from "../manual-bulk/queued-exclusion";
 
 type Row = { claimed_at: number; claim_token: string };
@@ -116,6 +126,78 @@ async function main() {
     const admin = fakeAdmin({ rpcMissing: true });
     const r = await claimTemplateSend({ ...base, admin: admin as never, phone: "972501234567" });
     assert.equal(r.kind, "unclaimed");
+  }
+
+  // Event-scoped: OR-IA trainer Dorit, two trial heads-ups for two trainees on 8.10
+  {
+    const admin = fakeAdmin();
+    const dorit = "972521234567";
+    const headsUp = (userId: number, clientFirstName: string, classTime: string) =>
+      buildTrainerTrialHeadsUpScheduledDedupKey({
+        businessId: 3646,
+        triggerId: "056065bd",
+        trainerPhone: dorit,
+        userId,
+        classDateYmd: "2026-10-08",
+        classTime,
+        clientFirstName,
+        className: "פילאטיס",
+      });
+    const send = (dedupKey: string | null, params: string[]) =>
+      claimTemplateSend({
+        admin: admin as never,
+        businessId: 3646,
+        phoneNumberId: "111",
+        phone: dorit,
+        templateName: "trainer_trial_heads_up",
+        params,
+        eventKey: templateClaimEventKey(dedupKey),
+      });
+    const first = await send(headsUp(101, "נועה", "17:00"), ["נועה", "17:00"]);
+    const second = await send(headsUp(202, "מאיה", "18:00"), ["מאיה", "18:00"]);
+    assert.equal(first.kind, "claimed");
+    assert.equal(second.kind, "claimed", "a second trainee is a second event");
+    const repeat = await send(headsUp(101, "נועה", "17:00"), ["נועה", "17:00"]);
+    assert.equal(repeat.kind, "duplicate", "the same trainee twice is still blocked");
+    // The regression: without the event key the second trainee was blocked
+    const flat = fakeAdmin();
+    const flatSend = (params: string[]) =>
+      claimTemplateSend({ ...base, admin: flat as never, phone: dorit, templateName: "trainer_trial_heads_up", params });
+    assert.equal((await flatSend(["נועה"])).kind, "claimed");
+    assert.equal((await flatSend(["מאיה"])).kind, "duplicate");
+  }
+
+  // Event key: business and trigger dropped, so immediate vs queued and two rules on one event collide
+  {
+    const a = buildTrialReminderScheduledDedupKey(3646, "rule-a", 101, "2026-10-08", "17:00", "פילאטיס");
+    const b = buildTrialReminderScheduledDedupKey(3646, "rule-b", 101, "2026-10-08", "17:00", "פילאטיס");
+    const other = buildTrialReminderScheduledDedupKey(3646, "rule-a", 101, "2026-10-09", "17:00", "פילאטיס");
+    assert.equal(templateClaimEventKey(a), templateClaimEventKey(b));
+    assert.notEqual(templateClaimEventKey(a), templateClaimEventKey(other), "two bookings = two events");
+    assert.equal(templateClaimEventKey(a), "trial_reminder:101:2026-10-08:17%3A00#%D7%A4%D7%99%D7%9C%D7%90%D7%98%D7%99%D7%A1");
+    assert.equal(templateClaimName("trial_reminder", templateClaimEventKey(a)).startsWith("trial_reminder#trial_reminder:"), true);
+    assert.equal(templateClaimName("trial_reminder", null), "trial_reminder");
+    // Two cancelled classes for one customer
+    assert.notEqual(
+      templateClaimEventKey("class_cancelled:3646:r1:sched-1:101"),
+      templateClaimEventKey("class_cancelled:3646:r1:sched-2:101")
+    );
+    // Per-phone keys and non-event sends keep the param-independent claim
+    assert.equal(templateClaimEventKey("site_lead:3646:r1:972501234567:2026-10-08"), null);
+    assert.equal(templateClaimEventKey("no_response:3646:r1:972501234567:ep1"), null);
+    assert.equal(templateClaimEventKey(null), null);
+    assert.equal(templateClaimEventKey(""), null);
+    assert.equal(templateClaimEventKey("bad"), null);
+  }
+
+  // Release deletes the event-scoped row, not the plain template row
+  {
+    const admin = fakeAdmin();
+    const eventKey = templateClaimEventKey("class_cancelled:3646:r1:sched-1:101");
+    const claim = await claimTemplateSend({ ...base, admin: admin as never, phone: "972501234567", eventKey });
+    assert.equal(claim.kind, "claimed");
+    await releaseTemplateSendClaim(admin as never, claim);
+    assert.deepEqual(admin.deletes, [`3543|501234567|trial_reminder#${eventKey}`]);
   }
 
   // Bulk cross-job exclusion

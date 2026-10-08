@@ -18,6 +18,7 @@ import { DUPLICATE_GUARD_ERROR } from "@/lib/notifications/template-duplicate-gu
 import {
   claimTemplateSend,
   releaseTemplateSendClaim,
+  templateClaimEventKey,
   type TemplateSendClaim,
 } from "@/lib/notifications/template-send-claim";
 import {
@@ -140,6 +141,12 @@ export async function sendBusinessTemplate(input: {
   recipientKind?: "customer" | "staff";
   /** template_triggers.id for this send. Empty = a template that is not a trigger. */
   alertTriggerId?: string | null;
+  /**
+   * The trigger's per-event dedup key (scheduled_template_sends format). Event-scoped sends
+   * claim template + event, so two events for one phone within 20h each go out.
+   * Empty = the param-independent 20h claim (broadcast, bulk, non-event templates).
+   */
+  eventDedupKey?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
@@ -262,6 +269,7 @@ export async function sendBusinessTemplate(input: {
       phone: to,
       templateName,
       params,
+      eventKey: templateClaimEventKey(input.eventDedupKey),
     }).catch((e): TemplateSendClaim => {
       console.error("[sendBusinessTemplate] duplicate guard failed", e);
       return { kind: "unclaimed" };

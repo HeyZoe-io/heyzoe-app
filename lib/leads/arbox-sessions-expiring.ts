@@ -351,6 +351,13 @@ async function dispatchSessionsExpiringTemplate(input: {
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const sendImmediate = delayDays === 0 && dueAtIsTodayIsrael(input.dueAt, input.now);
 
+  const eventDedupKey = buildSessionsExpiringScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.startDateYmd,
+    input.endDateYmd
+  );
   if (!sendImmediate) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -359,13 +366,7 @@ async function dispatchSessionsExpiringTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt: input.dueAt,
-      dedupKey: buildSessionsExpiringScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.startDateYmd,
-        input.endDateYmd
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-sessions-expiring] enqueue failed:", enqueueResult.error);
@@ -420,6 +421,7 @@ async function dispatchSessionsExpiringTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
