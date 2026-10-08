@@ -647,6 +647,7 @@ export function applyKnownAssistantReplyFixes(
   s = applyIllnessPhilosophyFix(s);
   s = stripPolicyFluffPreamble(s);
   s = stripCoachingAndUnsolicitedRegisterPush(s);
+  s = s.replace(new RegExp(`${HEB_BOUND}(ש?)תוכלים${HEB_END}`, "gu"), "$1תוכלו");
   const addressingMode = resolveWaReplyAddressingMode(input.knowledge);
   s = fixNeutralGenderedWantAndHowTo(s, addressingMode);
   if (addressingMode !== "feminine") {
