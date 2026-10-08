@@ -12,7 +12,14 @@ import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
 } from "@/lib/arbox-membership-types";
-import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import {
+  activationCatchUpDue,
+  decideActivationEventAction,
+  markRulesSeeded,
+  ruleActivationMs,
+  ruleIdsActiveSinceActivation,
+} from "@/lib/rule-activation";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import {
   isTrialReminderDue,
   trialReminderHasConfiguredIds,
@@ -445,7 +452,12 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
     }
   }
   const varCountFor = (templateName: string) => varCountByTemplate.get(templateName.trim()) ?? 0;
-  if (slot === "evening" && !sendRules.some((rule) => varCountFor(String(rule.template_name ?? "")) === 5)) {
+  const activatedToday = (rule: PurchaseTemplateTriggerRule) =>
+    formatDateYmdIsrael(new Date(ruleActivationMs(rule))) === todayYmd;
+  if (
+    slot === "evening" &&
+    !sendRules.some((rule) => varCountFor(String(rule.template_name ?? "")) === 5 || activatedToday(rule))
+  ) {
     summary.skipped = true;
     summary.skip_reason = "evening_needs_date";
     return summary;
@@ -552,6 +564,19 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   }
   const trialDecision = (userId: number, classDate: string, classTime: string) =>
     classRun?.forKeys(userId, classDate, classTime);
+  /** Rule activated after this class's heads-up slot: send now instead of seeding (Part 7a). */
+  const catchUp = (rule: PurchaseTemplateTriggerRule, classDateYmd: string, classTime: string) =>
+    activationCatchUpDue({
+      sendAt: earlyCutoffNormalSendAt({
+        classDateYmd,
+        classTime,
+        delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+      }),
+      classStartAt: israelWallTimeToUtc(classDateYmd, classTime),
+      rule,
+      now,
+      sameDayOnly: varCountFor(String(rule.template_name ?? "")) !== 5,
+    });
 
   const activeRuleIds = await ruleIdsActiveSinceActivation(
     input.admin,
@@ -566,6 +591,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
   }
   const freshRules = sendRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if (freshRules.length) {
+    const seedErrorsBefore = summary.errors;
     for (const row of reportRows) {
       const userId = parseTrialReminderUserId(row.user_id);
       const classDateYmd = parseClassDateYmd(row.date);
@@ -583,6 +609,7 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
         });
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        if (catchUp(rule, classDateYmd, classTime)) continue;
         const dedupKey = buildTrainerTrialHeadsUpScheduledDedupKey({
           businessId,
           triggerId: rule.id,
@@ -611,6 +638,9 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
       }
     }
     for (const rule of freshRules) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(input.admin, freshRules.map((rule) => rule.id), now);
+    }
   }
 
   for (const row of reportRows) {
@@ -643,14 +673,16 @@ export async function syncArboxTrainerTrialHeadsUpForBusiness(input: {
           return false;
         }
       }
-      return trainerHeadsUpMatchesSlot({
-        classDateYmd,
-        classTime,
-        todayYmd,
-        delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
-        slot,
-        bodyVarCount: varCountFor(String(item.template_name ?? "")),
-      });
+      return (
+        trainerHeadsUpMatchesSlot({
+          classDateYmd,
+          classTime,
+          todayYmd,
+          delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
+          slot,
+          bodyVarCount: varCountFor(String(item.template_name ?? "")),
+        }) || catchUp(item, classDateYmd, classTime)
+      );
     });
     if (!dueRules.length) continue;
     summary.due += 1;
