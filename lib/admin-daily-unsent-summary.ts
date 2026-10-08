@@ -140,7 +140,9 @@ export function unsentReason(input: {
   const status = String(input.status ?? "").trim().toLowerCase();
   const err = String(input.lastError ?? "").trim().toLowerCase();
   if (status === "unknown" || err.includes("send_outcome_unknown")) return "תוצאה לא ידועה";
-  if (status === "sending" || err === "sending") return "נשאר באמצע שליחה";
+  if (status === "sending") return "נשאר באמצע שליחה";
+  if (status === "sent" && err === "sending") return null;
+  if (err === "sending") return "נשאר באמצע שליחה";
   if (err === "duplicate_guard") return "נחסם כפילות";
   if (status === "sent") return null;
   if (status === "pending" && !input.overdue) return null;

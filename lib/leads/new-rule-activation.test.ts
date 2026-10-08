@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { attendanceGapDueAction } from "@/lib/leads/arbox-attendance-gap";
 import { isDaysInClubDueToday } from "@/lib/leads/arbox-days-in-club";
 import { lostLeadNormalSendAt, lostLeadTargetYmd } from "@/lib/leads/arbox-lost-lead";
 import {
@@ -184,6 +185,64 @@ function clockAction(sendAt: Date | null): "seed" | "send" {
     }),
     "later"
   );
+}
+
+/** A run reaches a row seconds after its slot: due, not history. */
+{
+  const morningRun = new Date("2026-10-08T06:00:20.871Z");
+  const eveningRun = new Date("2026-10-07T17:30:20.000Z");
+
+  const irenaFreezeEnding = israelSlotInstant("2026-10-08", "09:00");
+  assert.equal(
+    decideActivationEventAction({ sendAt: irenaFreezeEnding, now: morningRun }),
+    "send",
+    "Irena: freeze_ending due 09:00, run at 09:00:20"
+  );
+
+  assert.equal(
+    attendanceGapDueAction({ lastYesYmd: "2026-09-30", tier: 8, now: morningRun }),
+    "send",
+    "Limitless: attendance_gap first run reaches a tier due today"
+  );
+  assert.equal(
+    attendanceGapDueAction({ lastYesYmd: "2026-09-29", tier: 8, now: morningRun }),
+    "seed",
+    "Limitless: a tier due yesterday is still history"
+  );
+
+  const linoySendAt = trialReminderNormalSendAt({
+    classDateYmd: "2026-10-08",
+    classTime: "17:00",
+    delayDays: 1,
+  });
+  assert.equal(
+    decideActivationEventAction({ sendAt: linoySendAt, now: eveningRun }),
+    "send",
+    "Linoy: trial_reminder 20:30 the evening before, run at 20:30:20"
+  );
+  assert.equal(
+    decideActivationEventAction({ sendAt: linoySendAt, now: morningRun }),
+    "seed",
+    "Linoy: the next morning that evening send is an earlier day"
+  );
+
+  assert.equal(
+    decideActivationEventAction({
+      sendAt: israelSlotInstant("2026-10-08", "09:00"),
+      now: new Date("2026-10-08T17:30:20.000Z"),
+    }),
+    "seed",
+    "the evening run does not pick up this morning's slot"
+  );
+  assert.equal(
+    decideActivationEventAction({
+      sendAt: israelSlotInstant("2026-10-08", "07:00"),
+      now: new Date("2026-10-08T05:00:00.000Z"),
+    }),
+    "send",
+    "before the first slot, earlier today is still today"
+  );
+  assert.equal(decideActivationEventAction({ sendAt: null, now: morningRun }), "seed");
 }
 
 console.log("new-rule-activation.test.ts: ok");
