@@ -2,6 +2,7 @@ import { resolveMetaAccessToken } from "@/lib/whatsapp";
 import { MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
 import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
+import { EMPTY_VARIABLE_ERROR, emptyTemplateVariable } from "@/lib/notifications/template-empty-variable";
 
 export const ADMIN_SUPPORT_ALERT_WHATSAPP =
   process.env.ADMIN_SUPPORT_ALERT_WHATSAPP || "972508318162";
@@ -23,6 +24,14 @@ export async function sendAdminWhatsAppTemplate(input: {
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
+
+  const empty = emptyTemplateVariable([
+    { type: "body", parameters: input.bodyParams.map((text) => ({ type: "text", text })) },
+  ]);
+  if (empty) {
+    console.error("[sendAdminWhatsAppTemplate] empty template variable, not sent", { templateName, empty });
+    return { ok: false, error: EMPTY_VARIABLE_ERROR };
+  }
 
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",

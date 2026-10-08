@@ -199,7 +199,7 @@ function bodyComponentsFromParams(params: string[]): OwnerTemplateComponent[] | 
   return [
     {
       type: "body",
-      parameters: params.map((text) => ({ type: "text" as const, text: text || "—" })),
+      parameters: params.map((text) => ({ type: "text" as const, text })),
     },
   ];
 }
@@ -830,11 +830,12 @@ export async function dispatchDueMarketingScheduledSend(
   async function mark(
     status: "sent" | "failed" | "canceled" | "pending",
     last_error: string | null,
-    attempts?: number | null
+    attempts?: number | null,
+    extra?: { body_params: string[] }
   ) {
     const { error } = await admin
       .from("scheduled_marketing_template_sends")
-      .update({ status, last_error, updated_at: nowIso, ...(attempts != null ? { attempts } : {}) })
+      .update({ status, last_error, updated_at: nowIso, ...(attempts != null ? { attempts } : {}), ...extra })
       .eq("id", row.id)
       .eq("status", "pending");
     if (error) {
@@ -943,8 +944,9 @@ export async function dispatchDueMarketingScheduledSend(
   }
   const callTimeHm = resolveCallTimeHm(bodyParams[1], liveSlot?.timeHm);
   const bodyText = bodyTextFromTemplateComponents(approved?.components);
+  const asSession = Boolean(callDateYmd) && shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm);
   const sent =
-    callDateYmd && shouldSendCallDayNoTimeAsSession(bodyText, callTimeHm)
+    asSession
       ? await sendMarketingCallDayNoTimeFallback({
           admin,
           phone,
@@ -976,7 +978,7 @@ export async function dispatchDueMarketingScheduledSend(
     await mark("canceled", after.last_error);
     return "canceled";
   }
-  await mark("sent", null);
+  await mark("sent", null, null, asSession ? undefined : { body_params: bodyParams });
   return "sent";
 }
 
