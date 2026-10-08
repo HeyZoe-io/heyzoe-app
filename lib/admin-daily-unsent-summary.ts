@@ -21,6 +21,7 @@ import { ARBOX_ERROR_REASON } from "@/lib/leads/arbox-error-retry";
 import { loadIncompleteRunsSince } from "@/lib/leads/arbox-daily-run-status";
 import { isMissingStatusTable, WA_MESSAGE_STATUSES_TABLE } from "@/lib/wa-message-status";
 import { BLOCKING_ALERT_MODEL } from "@/lib/wa-blocking-error-alert";
+import { CRM_TASK_AUDIT_SESSION, CRM_TASK_FAILED_MODEL } from "@/lib/crm/arbox-task-retry";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -52,6 +53,8 @@ export const UNDELIVERED_24H_REASON = "לא נמסר אחרי 24 שעות";
 export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
 /** Immediate blocking-error alert went out in the last 24h (payment, lock, template paused…). */
 export const BLOCKING_ALERT_REASON = "חסימה בחשבון וואטסאפ";
+/** POST /v3/tasks failed after retries: staff did not get the Arbox task. */
+export const CRM_TASK_FAILED_REASON = "משימה לא נפתחה";
 const FUTURE_SEED_REASON = "סומן לפני מועד השליחה";
 /** A rule that seeds more than this many rows in a day is listed by name in the summary. */
 export const HISTORY_RULE_BREAKDOWN_MIN = 10;
@@ -669,6 +672,31 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       contact: "",
       reason: "קריאה לא מ-cron-job.org",
       at: String((row as { created_at?: unknown }).created_at ?? ""),
+      metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
+    });
+  }
+  const { data: taskFailures, error: taskFailuresError } = await admin
+    .from("messages")
+    .select("content, created_at, model_used")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .eq("session_id", CRM_TASK_AUDIT_SESSION)
+    .like("model_used", `${CRM_TASK_FAILED_MODEL}%`)
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (taskFailuresError) {
+    console.error("[admin-daily-unsent] crm task failure lookup failed", taskFailuresError.message);
+  }
+  for (const row of taskFailures ?? []) {
+    const businessRaw = String((row as { model_used?: unknown }).model_used ?? "").split(":")[1] ?? "";
+    const businessId = Number(businessRaw);
+    out.push({
+      businessId: Number.isFinite(businessId) ? businessId : 0,
+      business: names.get(businessId) || (businessRaw ? `עסק ${businessRaw}` : "HeyZoe"),
+      trigger: "משימת ארבוקס",
+      contact: "",
+      reason: CRM_TASK_FAILED_REASON,
+      at: israelStamp(String((row as { created_at?: unknown }).created_at ?? "")),
       metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
     });
   }

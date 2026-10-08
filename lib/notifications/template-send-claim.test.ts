@@ -126,7 +126,8 @@ async function main() {
       { job_id: "j0", recipient_key: "membership:7", contact_phone: "972503333333", status: "sent", due_at: null },
     ]);
     assert.deepEqual(q.pendingJobs, [{ job_id: "j1", pending: 2, first_due_at: "2026-10-08T09:00:00Z" }]);
-    const audience = {
+    type R = { recipientKey: string; phone: string | null };
+    const audience: { withPhone: R[]; withoutPhone: R[] } = {
       withPhone: [
         { recipientKey: "talked:c1", phone: "972501111111" },
         { recipientKey: "membership:99", phone: "0502222222" },

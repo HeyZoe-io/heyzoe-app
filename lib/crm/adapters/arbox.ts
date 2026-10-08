@@ -5,6 +5,7 @@ import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { logArboxPublicFailure, noteArboxCall } from "@/lib/crm/arbox-call-counter-bridge";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { postArboxTaskWithRetry, recordArboxTaskFailure } from "@/lib/crm/arbox-task-retry";
 
 /** OpenAPI: https://arboxserver.arboxapp.com/docs/api */
 export const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/public";
@@ -546,6 +547,7 @@ async function createArboxTask(input: {
   userId: string;
   kind: CrmEventKind;
   noteText: string;
+  businessId?: number | null;
 }): Promise<boolean> {
   const userIdNum = Number.parseInt(input.userId, 10);
   if (!Number.isFinite(userIdNum) || userIdNum <= 0) {
@@ -560,18 +562,30 @@ async function createArboxTask(input: {
     description: buildArboxNoteDescription(input.kind, input.noteText),
   });
 
-  // קריאה אחת ל-Arbox לכל בקשת נציג (לא Claude/Meta) — זניח גם ב-10x לקוחות.
-  const res = await arboxPublicFetch("/v3/tasks", {
-    apiKey: input.apiKey,
-    method: "POST",
-    body,
-  });
+  // קריאה אחת ל-Arbox לכל בקשת נציג (לא Claude/Meta); עד 2 ניסיונות נוספים רק אחרי 5xx / 429 / רשת.
+  const res = await postArboxTaskWithRetry(() =>
+    arboxPublicFetch("/v3/tasks", {
+      apiKey: input.apiKey,
+      method: "POST",
+      body,
+    })
+  );
   if (res.ok) return true;
 
   console.error("[crm/arbox] create task failed", {
     status: res.status,
+    attempts: res.attempts,
+    businessId: input.businessId ?? null,
     userId: input.userId,
     taskTypeId: input.taskTypeId,
+  });
+  await recordArboxTaskFailure({
+    businessId: input.businessId ?? null,
+    userId: input.userId,
+    taskTypeId: input.taskTypeId,
+    kind: input.kind,
+    status: res.status,
+    attempts: res.attempts,
   });
   return false;
 }
@@ -584,6 +598,7 @@ export async function createArboxCrmTask(input: {
   userId: string;
   kind: CrmEventKind;
   noteText: string;
+  businessId?: number | null;
 }): Promise<boolean> {
   const apiKey = String(input.apiKey ?? "").trim();
   const taskTypeId = input.taskTypeId;
@@ -603,6 +618,7 @@ export async function createArboxCrmTask(input: {
     userId: input.userId,
     kind: input.kind,
     noteText: input.noteText,
+    businessId: input.businessId ?? null,
   });
 }
 
@@ -708,6 +724,7 @@ export async function submitArboxCrmEvent(input: {
         userId,
         kind: input.kind,
         noteText,
+        businessId: input.businessId,
       });
       if (taskOk) return { ok: true, createdHumanRequestTask: true };
       if (createdLead) {
