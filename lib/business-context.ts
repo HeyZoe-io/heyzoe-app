@@ -187,6 +187,11 @@ function formatMembershipsLinkLine(social: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
+/** Kept out of membershipsAndCardsText: playbook fact lookup quotes lines from there to leads. */
+export function membershipsPriceAskRule(url: string): string {
+  return `שאלה על מחיר מנוי או כרטיסייה: אם המחיר של המנוי או הכרטיסייה כתוב בידע (FAQ, עובדות, טווח מחירים, מנויים וכרטיסיות) — עני ממנו. מחיר אימון ניסיון אינו מחיר מנוי. אם המחיר לא כתוב — כתבי «המחירים מוצגים בדף המנויים והכרטיסיות:» ובשורה הבאה את הקישור ${url}. אסור להמציא מחיר.`;
+}
+
 function truncateText(value: string, max = 280): string {
   const clean = value.replace(/\s+/g, " ").trim();
   if (clean.length <= max) return clean;
@@ -1030,7 +1035,7 @@ ${formatBusinessFactsPromptBlock(knowledge, promptNow)}
 הנחות ומבצעים (אם יש כאן משפטים, «יש מבצע?» מצטטת אותם. אם כתוב «לא הוגדר», אין מבצע בשדה הזה): ${promotionsText || "לא הוגדר"}
 שירותים:
 ${annotateExpiredIsraelDates(knowledge?.servicesText ?? "", promptNow) || "לא הוגדר"}
-${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${annotateExpiredIsraelDates(knowledge.membershipsAndCardsText, promptNow)}\n` : ""}FAQ:
+${overflowCatalogRule ? `${overflowCatalogRule}\n` : ""}${knowledge?.membershipsAndCardsText ? `מנויים וכרטיסיות:\n${annotateExpiredIsraelDates(knowledge.membershipsAndCardsText, promptNow)}\n` : ""}${knowledge?.membershipsUrl?.trim() ? `${membershipsPriceAskRule(knowledge.membershipsUrl.trim())}\n` : ""}FAQ:
 ${annotateExpiredIsraelDates(knowledge?.faqsText ?? "", promptNow) || "לא הוגדר"}
 CTA: ${knowledge?.ctaText ?? "לא הוגדר"} | ${knowledge?.ctaLink ?? "לא הוגדר"}
 קהל יעד: ${knowledge?.targetAudienceText ?? "לא הוגדר"} | גיל: ${knowledge?.ageRangeText ?? "לא הוגדר"} | מגדר: ${knowledge?.genderText ?? "לא הוגדר"}

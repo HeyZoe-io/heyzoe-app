@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildSystemPrompt } from "@/lib/business-context";
+import { buildSystemPrompt, membershipsPriceAskRule } from "@/lib/business-context";
 import {
   appendRouteToModelUsed,
   decideReplyRouteAction,
@@ -112,6 +112,10 @@ assert.match(waPrompt, /\[\[route:booking_change_trial\]\]/);
 assert.match(waPrompt, /יש אפשרות לבטל את השיעור נסיון/);
 assert.match(waPrompt, /\[\[route:class_move\]\]/);
 assert.match(waPrompt, /שעה שהיא מציינת בתוך בקשת הביטול/);
+assert.equal(waPrompt.includes("המחירים מוצגים בדף המנויים והכרטיסיות"), false);
+const priceRule = membershipsPriceAskRule("https://x.arboxapp.com/membership");
+assert.match(priceRule, /«המחירים מוצגים בדף המנויים והכרטיסיות:» ובשורה הבאה את הקישור https:\/\/x\.arboxapp\.com\/membership/);
+assert.match(priceRule, /מחיר אימון ניסיון אינו מחיר מנוי/);
 const webPrompt = buildSystemPrompt(null, "tights", "web");
 assert.equal(webPrompt.includes("[[route:booking_change]]"), false);
 
