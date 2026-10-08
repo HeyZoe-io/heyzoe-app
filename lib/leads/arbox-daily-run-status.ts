@@ -1,7 +1,7 @@
 /**
  * Per business, per day, per slot: did the daily trigger run finish?
- * The 20:30 dispatcher retries an incomplete business once in the same run,
- * then records the outcome. The 20:50 pass (?slot=evening&pass=retry) reruns
+ * The 20:00 dispatcher (EVENING_SLOT_IL) retries an incomplete business once in the same run,
+ * then records the outcome. The 20:20 pass (EVENING_RETRY_SLOT_IL, ?slot=evening&pass=retry) reruns
  * only businesses still incomplete; sync-log claims keep it from sending twice.
  * IO: one upsert per business per run, one indexed read for the second pass.
  */

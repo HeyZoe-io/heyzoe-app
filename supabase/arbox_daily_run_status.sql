@@ -1,7 +1,7 @@
 -- Did the Arbox daily trigger run finish, per business / Israel day / slot.
--- Written by GET /api/cron/arbox-daily-triggers (cron-job.org). The 20:50 job
--- ?slot=evening&pass=retry reruns only businesses whose 20:30 run is 'incomplete'.
--- Until this runs, the in-run retry still works; the 20:50 pass finds nothing. Idempotent.
+-- Written by GET /api/cron/arbox-daily-triggers (cron-job.org). The 20:20 job
+-- ?slot=evening&pass=retry reruns only businesses whose 20:00 run is 'incomplete'.
+-- Until this runs, the in-run retry still works; the 20:20 pass finds nothing. Idempotent.
 
 create table if not exists public.arbox_daily_run_status (
   business_id bigint not null references public.businesses (id) on delete cascade,

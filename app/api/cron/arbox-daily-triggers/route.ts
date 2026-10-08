@@ -33,7 +33,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * catch-up clocks move to now (lib/arbox-background-pause.ts).
  * The evening run retries a failed business once in the same run and records
  * each business in arbox_daily_run_status. ?slot=evening&pass=retry (cron-job.org,
- * 20:50) reruns only the businesses still incomplete, before the 21:00 night hold.
+ * 20:20, EVENING_RETRY_SLOT_IL) reruns only the businesses still incomplete, before the 21:00 night hold.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
