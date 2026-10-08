@@ -10,7 +10,7 @@
  *   ALLOW_PROD_TEST=1 npx tsx --env-file=.env.local scripts/backfill-arbox-membership-badge.mts --live --slug all
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { arboxBackgroundPauseSelect, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { ARBOX_BACKGROUND_PAUSE_COLUMN, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { ARBOX_MEMBERSHIP_BADGE_REFRESH_MS } from "@/lib/arbox-membership-badge";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { resolveSupabaseServiceRoleKey, resolveSupabaseUrl } from "@/lib/server-env";
@@ -32,7 +32,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function loadBusinesses(admin: Admin, requested: string): Promise<Biz[]> {
-  const select = `id, slug, crm_type, is_active, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin as never)}`;
+  const select = `id, slug, crm_type, is_active, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`;
   if (requested === "all") {
     const { data, error } = await admin
       .from("businesses")

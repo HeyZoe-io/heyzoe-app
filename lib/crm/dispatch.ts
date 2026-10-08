@@ -1,5 +1,5 @@
 import {
-  arboxBackgroundPauseSelect,
+  ARBOX_BACKGROUND_PAUSE_COLUMN,
   isBackgroundCrmKind,
   rowArboxBackgroundPaused,
 } from "@/lib/arbox-background-pause";
@@ -85,7 +85,7 @@ export async function dispatchCrmEvent(input: {
     const { data: business, error } = await admin
       .from("businesses")
       .select(
-        `id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled, ${await arboxBackgroundPauseSelect(admin)}`
+        `id, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, crm_arbox_source_id, crm_arbox_status_id, crm_arbox_human_request_task_type_id, arbox_lead_creation_enabled, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`
       )
       .eq("id", businessId)
       .maybeSingle();

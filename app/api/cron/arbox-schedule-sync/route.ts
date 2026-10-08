@@ -7,7 +7,7 @@ import {
   pullArboxWeeklyTimetable,
 } from "@/lib/arbox-schedule-sync";
 import { runWithArboxCallCount } from "@/lib/crm/arbox-call-counter";
-import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { ARBOX_BACKGROUND_PAUSE_COLUMN, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { getArboxApiKey } from "@/lib/business-secrets";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin)}`)
+    .select(`id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null");
 

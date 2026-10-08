@@ -1,6 +1,6 @@
 import { resolveCronNow } from "@/lib/cron-clock";
 import {
-  arboxBackgroundPauseSelect,
+  ARBOX_BACKGROUND_PAUSE_COLUMN,
   ARBOX_BACKGROUND_PAUSED,
   rowArboxBackgroundPaused,
 } from "@/lib/arbox-background-pause";
@@ -370,7 +370,7 @@ export async function listArboxTrialSyncBusinessIds(
 ): Promise<{ ok: true; ids: number[]; paused: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`crm_type, ${BUSINESS_SELECT}, ${await arboxBackgroundPauseSelect(admin)}`)
+    .select(`crm_type, ${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
     .eq("crm_type", "arbox")
     .or("crm_api_key.not.is.null,crm_api_key_enc.not.is.null")
     .not("crm_box_id", "is", null);
@@ -437,7 +437,7 @@ export async function loadArboxTrialSyncBusiness(
 ): Promise<BusinessRow | null> {
   const { data, error } = await admin
     .from("businesses")
-    .select(`${BUSINESS_SELECT}, ${await arboxBackgroundPauseSelect(admin)}`)
+    .select(`${BUSINESS_SELECT}, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
     .eq("id", businessId)
     .eq("crm_type", "arbox")
     .maybeSingle();

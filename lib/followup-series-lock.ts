@@ -89,6 +89,31 @@ export async function claimFollowupSeriesStart(input: {
 }
 
 /**
+ * The send after a claim failed: give the series back. CAS on the exact value the claim
+ * wrote. Human involvement meanwhile keeps the lock (it was already set) but clears the
+ * due time, so when the row was picked with a due time, release also needs it still set.
+ */
+export async function releaseFollowupSeriesClaim(input: {
+  admin: Admin;
+  contactId: string | number;
+  claimedAtIso: string;
+  dueWasSet: boolean;
+}): Promise<{ released: boolean; error?: string }> {
+  let q = input.admin
+    .from("contacts")
+    .update({ [FOLLOWUP_SERIES_LOCK_COLUMN]: null })
+    .eq("id", input.contactId)
+    .eq(FOLLOWUP_SERIES_LOCK_COLUMN, input.claimedAtIso);
+  if (input.dueWasSet) q = q.not("wa_next_followup_at", "is", null);
+  const { data, error } = await q.select("id");
+  if (error) {
+    console.error("[followup-series-lock] release failed:", error.message, { contact_id: input.contactId });
+    return { released: false, error: error.message };
+  }
+  return { released: Boolean(data?.length) };
+}
+
+/**
  * Human involvement: lock (CAS, only when null) and cancel a pending series.
  * Stages 1–2 move to the hold stage (no «ללא מענה» paint); stage 0 loses its due time.
  * The DB trigger nulls wa_next_followup_at for stage >= 3 and does not fire on the

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
-import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { ARBOX_BACKGROUND_PAUSE_COLUMN, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { syncNoResponseReengageForBusiness } from "@/lib/leads/no-response-reengage";
 import { isBusinessSubscriptionActive } from "@/lib/notifications/business-notification-eligibility";
 import { resolveCronSecret } from "@/lib/server-env";
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 
   const { data: bizRows, error: bizErr } = await admin
     .from("businesses")
-    .select(`id, slug, is_active, ${await arboxBackgroundPauseSelect(admin)}`)
+    .select(`id, slug, is_active, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
     .in("id", businessIds);
 
   if (bizErr) {

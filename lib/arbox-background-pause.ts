@@ -1,7 +1,5 @@
 /**
  * Per-business pause of background Arbox work. Stored on businesses.arbox_background_paused.
- * Until that column exists, the legacy businesses.social_links.arbox_background_pause is
- * read instead; while both exist, either one being true pauses.
  *
  * Paused: Arbox crons, template triggers, scheduled syncs, queued trigger sends and
  * cron-raised CRM events make no Arbox call and send nothing.
@@ -18,54 +16,11 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
 export const ARBOX_BACKGROUND_PAUSE_COLUMN = "arbox_background_paused";
-/** Legacy social_links key, read only until the column migration has run. */
-export const ARBOX_BACKGROUND_PAUSE_KEY = "arbox_background_pause";
 export const ARBOX_BACKGROUND_PAUSED = "arbox_background_paused";
 
-/** PostgREST alias of the legacy key. The row gets `arbox_background_pause` as true / null. */
-export const ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT = `${ARBOX_BACKGROUND_PAUSE_KEY}:social_links->${ARBOX_BACKGROUND_PAUSE_KEY}`;
-
-const COLUMN_PROBE_TTL_MS = 5 * 60 * 1000;
-let columnProbe: { exists: boolean; at: number } | null = null;
-
-export function isMissingPauseColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
-  if (!error) return false;
-  if (String(error.code ?? "") === "42703") return true;
-  const message = String(error.message ?? "");
-  return message.includes(ARBOX_BACKGROUND_PAUSE_COLUMN) && /does not exist|schema cache|column/i.test(message);
-}
-
-/** True once businesses.arbox_background_paused exists. Cached per instance for 5 minutes. */
-export async function arboxBackgroundPauseColumnExists(admin: Admin): Promise<boolean> {
-  if (columnProbe && Date.now() - columnProbe.at < COLUMN_PROBE_TTL_MS) return columnProbe.exists;
-  const { error } = await admin.from("businesses").select(ARBOX_BACKGROUND_PAUSE_COLUMN).limit(1);
-  if (error && !isMissingPauseColumnError(error)) {
-    console.error("[arbox-background-pause] column probe failed:", error.message);
-    return false;
-  }
-  columnProbe = { exists: !error, at: Date.now() };
-  return columnProbe.exists;
-}
-
-/** Select fragment that reads the pause from the column and the legacy key. */
-export async function arboxBackgroundPauseSelect(admin: Admin): Promise<string> {
-  return (await arboxBackgroundPauseColumnExists(admin))
-    ? `${ARBOX_BACKGROUND_PAUSE_COLUMN}, ${ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT}`
-    : ARBOX_BACKGROUND_PAUSE_LEGACY_SELECT;
-}
-
-export function isArboxBackgroundPaused(socialLinks: unknown): boolean {
-  if (!socialLinks || typeof socialLinks !== "object" || Array.isArray(socialLinks)) return false;
-  return (socialLinks as Record<string, unknown>)[ARBOX_BACKGROUND_PAUSE_KEY] === true;
-}
-
-/** Reads the column, the legacy alias, or a full social_links on the row. */
 export function rowArboxBackgroundPaused(row: unknown): boolean {
   if (!row || typeof row !== "object") return false;
-  const record = row as Record<string, unknown>;
-  if (record[ARBOX_BACKGROUND_PAUSE_COLUMN] === true) return true;
-  if (record[ARBOX_BACKGROUND_PAUSE_KEY] === true) return true;
-  return isArboxBackgroundPaused(record.social_links);
+  return (row as Record<string, unknown>)[ARBOX_BACKGROUND_PAUSE_COLUMN] === true;
 }
 
 /** CRM kinds raised only by crons or the lead-form webhook, never by a live reply. */
@@ -89,7 +44,7 @@ export async function loadArboxBackgroundPausedIds(
   if (!ids.length) return paused;
   const { data, error } = await admin
     .from("businesses")
-    .select(`id, ${await arboxBackgroundPauseSelect(admin)}`)
+    .select(`id, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
     .in("id", ids);
   if (error) {
     console.error("[arbox-background-pause] lookup failed:", error.message, { ids });

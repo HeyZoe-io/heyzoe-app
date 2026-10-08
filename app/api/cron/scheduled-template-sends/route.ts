@@ -20,7 +20,7 @@ import {
 } from "@/lib/scheduled-template-sends";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { getArboxApiKey } from "@/lib/business-secrets";
-import { arboxBackgroundPauseSelect, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
+import { ARBOX_BACKGROUND_PAUSE_COLUMN, ARBOX_BACKGROUND_PAUSED, rowArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { resolveCronSecret } from "@/lib/server-env";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { canonicalizeTriggerType, isStaffRecipientTriggerType } from "@/lib/template-trigger-types";
@@ -186,7 +186,7 @@ async function dispatchOneScheduledSend(
   const [{ data: bizRow }, { data: approvedTpl }, { data: triggerRow }] = await Promise.all([
     admin
       .from("businesses")
-      .select(`id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id, ${await arboxBackgroundPauseSelect(admin)}`)
+      .select(`id, slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id, ${ARBOX_BACKGROUND_PAUSE_COLUMN}`)
       .eq("id", businessId)
       .maybeSingle(),
     admin

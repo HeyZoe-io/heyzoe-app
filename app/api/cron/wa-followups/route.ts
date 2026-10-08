@@ -31,6 +31,7 @@ import { contactPhoneLookupVariants, buildWaSessionId, waSessionIdLookupVariants
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import {
   claimFollowupSeriesStart,
+  releaseFollowupSeriesClaim,
   decideFollowupSeriesGate,
   FOLLOWUP_SERIES_LOCK_COLUMN,
   FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS,
@@ -573,6 +574,8 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    let claimedLockAt: string | null = null;
+    let followupDelivered = false;
     try {
       const channel = await resolveSendChannelForContact(admin, businessId, phone);
       if (!channel?.phoneNumberId || !channel?.businessSlug) {
@@ -816,7 +819,9 @@ export async function GET(req: NextRequest) {
       });
 
       if (seriesGate === "start_series" && contactId != null) {
-        const claim = await claimFollowupSeriesStart({ admin, contactId, nowIso: new Date().toISOString() });
+        const claimAtIso = new Date().toISOString();
+        const claim = await claimFollowupSeriesStart({ admin, contactId, nowIso: claimAtIso });
+        if (claim.claimed) claimedLockAt = claimAtIso;
         if (!claim.claimed) {
           logWaFollowupSkip("series_locked", {
             contact_id: contactId,
@@ -839,6 +844,7 @@ export async function GET(req: NextRequest) {
         accountSid,
         authToken
       );
+      followupDelivered = true;
 
       let logContent = `${bodyCore}${FOLLOWUP_FOOTER}`;
       if (cta?.mode === "url") logContent += `\n\n[כפתור: ${cta.label} → ${cta.url}]`;
@@ -882,6 +888,19 @@ export async function GET(req: NextRequest) {
         error: e instanceof Error ? e.message : String(e),
       });
       bumpSkip("send_failed");
+      if (claimedLockAt && !followupDelivered && contactId != null) {
+        const release = await releaseFollowupSeriesClaim({
+          admin,
+          contactId,
+          claimedAtIso: claimedLockAt,
+          dueWasSet: Boolean((c as { wa_next_followup_at?: string | null }).wa_next_followup_at),
+        });
+        console.info("[cron/wa-followups] series claim after failed send", {
+          contact_id: contactId,
+          released: release.released,
+          error: release.error ?? null,
+        });
+      }
     }
   }
 

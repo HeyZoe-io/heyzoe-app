@@ -9,6 +9,7 @@ import {
   FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS,
   isMissingFollowupLockColumnError,
   lockFollowupSeriesForHumanInvolvement,
+  releaseFollowupSeriesClaim,
   resetFollowupSeriesLockProbeForTests,
 } from "@/lib/followup-series-lock";
 import {
@@ -74,6 +75,27 @@ function cronTick(c: Contact, lockColumn = true): boolean {
   if (gate === "locked") return false;
   if (gate === "start_series") c.followup_series_locked_at = new Date().toISOString();
   c.wa_followup_stage += 1;
+  return true;
+}
+
+/** First send after a claim throws (Meta error): the cron releases its own claim by CAS. */
+function cronTickFailedFirstSend(c: Contact): boolean {
+  const gate = decideFollowupSeriesGate({
+    lockColumn: true,
+    lockedAt: c.followup_series_locked_at,
+    stageCurrent: c.wa_followup_stage,
+  });
+  if (gate !== "start_series") return false;
+  const claimAt = "2026-10-08T09:30:00.000Z";
+  c.followup_series_locked_at = claimAt;
+  const dueWasSet = Boolean(c.wa_next_followup_at);
+  return releaseInMemory(c, claimAt, dueWasSet);
+}
+
+function releaseInMemory(c: Contact, claimAt: string, dueWasSet: boolean): boolean {
+  if (c.followup_series_locked_at !== claimAt) return false;
+  if (dueWasSet && !c.wa_next_followup_at) return false;
+  c.followup_series_locked_at = null;
   return true;
 }
 
@@ -200,6 +222,28 @@ async function main() {
     assert.equal(sendsUntilSilent(c), 0);
   }
 
+  // Failed first send releases the claim; the lead still gets the whole series later.
+  {
+    const c = newLead();
+    assert.equal(cronTickFailedFirstSend(c), true);
+    assert.equal(c.followup_series_locked_at, null);
+    assert.equal(c.wa_followup_stage, 0);
+    assert.equal(sendsUntilSilent(c), 3);
+  }
+
+  // Staff reply lands while the first send is in flight and the send fails: lock stays.
+  {
+    const c = newLead();
+    const claimAt = "2026-10-08T09:30:00.000Z";
+    c.followup_series_locked_at = claimAt;
+    humanInvolvement(c);
+    c.wa_next_followup_at = null;
+    assert.equal(releaseInMemory(c, claimAt, true), false);
+    assert.equal(c.followup_series_locked_at, claimAt);
+    leadWrites(c, "2026-10-08T10:00:00.000Z");
+    assert.equal(sendsUntilSilent(c), 0);
+  }
+
   // Column missing: today's behavior, including a second series after a 48h reset.
   {
     const c = newLead();
@@ -221,6 +265,34 @@ async function main() {
     assert.deepEqual(ops[0]?.filters, [
       ["eq", "id", 7],
       ["is", "followup_series_locked_at", null],
+    ]);
+
+    ops.length = 0;
+    const released = await releaseFollowupSeriesClaim({
+      admin: fakeAdmin(ops, { claimRows: [{ id: 7 }] }),
+      contactId: 7,
+      claimedAtIso: T0,
+      dueWasSet: true,
+    });
+    assert.equal(released.released, true);
+    assert.deepEqual(ops[0]?.payload, { followup_series_locked_at: null });
+    assert.deepEqual(ops[0]?.filters, [
+      ["eq", "id", 7],
+      ["eq", "followup_series_locked_at", T0],
+      ["not", "wa_next_followup_at", "is", null],
+    ]);
+
+    ops.length = 0;
+    const notMine = await releaseFollowupSeriesClaim({
+      admin: fakeAdmin(ops, { claimRows: [] }),
+      contactId: 7,
+      claimedAtIso: T0,
+      dueWasSet: false,
+    });
+    assert.equal(notMine.released, false);
+    assert.deepEqual(ops[0]?.filters, [
+      ["eq", "id", 7],
+      ["eq", "followup_series_locked_at", T0],
     ]);
 
     ops.length = 0;
