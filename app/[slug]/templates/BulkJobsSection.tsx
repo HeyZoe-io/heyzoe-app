@@ -256,8 +256,7 @@ export default function BulkJobsSection(props: {
                 </div>
                 {dup ? (
                   <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800" role="alert">
-                    שימו לב: יש עוד {dup.jobs === 1 ? "שליחה ממתינה" : `${dup.jobs} שליחות ממתינות`} עם התבנית הזו (
-                    {dup.pending} הודעות בתור). אם זו כפילות, בטלו אחת מהן.
+                    {`שימו לב: יש עוד ${dup.jobs === 1 ? "שליחה ממתינה" : `${dup.jobs} שליחות ממתינות`} עם התבנית הזו (${dup.pending} הודעות בתור). אם זו כפילות, בטלו אחת מהן.`}
                   </p>
                 ) : null}
                 {bodyOpen ? (
