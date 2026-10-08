@@ -66,6 +66,9 @@ function israelDayStartIso(now: Date): string {
   return new Date(`${ymd}T00:00:00${sign}${hh}:${mm}`).toISOString();
 }
 
+/** A send that may have reached the contact counts: sent, a claim left at sending, an unknown outcome. */
+const RETENTION_COUNTED_STATUSES = ["sent", "sending", "unknown"];
+
 const RETENTION_SYNC_LOGS = [
   { table: "arbox_missed_class_sync_log", idColumn: "user_id" },
   { table: "arbox_attendance_gap_sync_log", idColumn: "user_id" },
@@ -109,7 +112,7 @@ async function retentionSyncLogSentToday(
         .from(source.table)
         .select("status")
         .eq("business_id", businessId)
-        .eq("status", "sent")
+        .in("status", RETENTION_COUNTED_STATUSES)
         .gte("processed_at", since)
         .in("contact_id", contactIds)
         .limit(1);
@@ -120,7 +123,7 @@ async function retentionSyncLogSentToday(
         .from(source.table)
         .select("status")
         .eq("business_id", businessId)
-        .eq("status", "sent")
+        .in("status", RETENTION_COUNTED_STATUSES)
         .gte("processed_at", since)
         .in(source.idColumn, userIds)
         .limit(1);
@@ -144,7 +147,7 @@ export async function retentionAlreadySentToday(
     .select("trigger_id")
     .eq("business_id", businessId)
     .eq("contact_phone", normalized)
-    .eq("status", "sent")
+    .in("status", RETENTION_COUNTED_STATUSES)
     .gte("updated_at", israelDayStartIso(now))
     .limit(20);
   if (!error && data?.length) {

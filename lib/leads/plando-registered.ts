@@ -280,7 +280,7 @@ export async function handlePlandoCustomerRegistered(input: {
 
   const whatsapp = waResult.sent
     ? "sent"
-    : waResult.reason === "sends_hold"
+    : waResult.reason === "sends_hold" || waResult.reason === "send_unknown"
       ? "send_failed"
       : waResult.reason;
   if (!waResult.sent) {

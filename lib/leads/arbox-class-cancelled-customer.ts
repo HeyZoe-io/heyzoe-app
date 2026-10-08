@@ -54,7 +54,8 @@ import {
 } from "@/lib/template-presets";
 import { createCompanionSendGate, rulesForCompanionSend } from "@/lib/same-trigger-template-order";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
-import { sendWithSyncLogClaim, type SyncLogSettle } from "@/lib/leads/sync-log-claim";
+import { sendWithSyncLogClaim, settleForSendError, type SyncLogSettle } from "@/lib/leads/sync-log-claim";
+import { isSendOutcomeUnknown } from "@/lib/notifications/graph-whatsapp-send";
 import { isSendsHoldError } from "@/lib/business-sends-hold";
 import type { OwnerTemplateComponent } from "@/lib/notifications/sendOwnerNotification";
 import { contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -1190,6 +1191,15 @@ async function recordCancelNotify(input: {
 }
 
 /**
+ * Any existing notify row means handled, so a Meta error releases the claim and
+ * the snapshot's attempts drive the retry. An unknown outcome keeps the row.
+ */
+function classCancelSettle(value: { ok: boolean; error?: string }): SyncLogSettle {
+  if (value.ok) return "sent";
+  return settleForSendError(value.error) === "unknown" ? "unknown" : "release";
+}
+
+/**
  * One cancelled class, one customer, one rule. Any existing row means handled:
  * a Meta failure releases the claim, and the snapshot's attempts drive the retry.
  */
@@ -1357,7 +1367,7 @@ async function sendPending(input: {
             skipOptOutGate: true,
             components: classCancelledCustomerBodyComponents(values),
           });
-          return { settle: value.ok ? ("sent" as const) : ("release" as const), value };
+          return { settle: classCancelSettle(value), value };
         },
       });
       if (claimed.claim !== "won" || !claimed.value) {
@@ -1379,6 +1389,17 @@ async function sendPending(input: {
           schedule_id: row.schedule_id,
           trigger_id: rule.id,
           phone: maskPhone(phone),
+        });
+        continue;
+      }
+      if (isSendOutcomeUnknown(send.error)) {
+        companion.after(rule.template_name, "send_unknown");
+        console.error("[leads/arbox-class-cancelled-customer] send outcome unknown", {
+          businessId: input.businessId,
+          schedule_id: row.schedule_id,
+          trigger_id: rule.id,
+          phone: maskPhone(phone),
+          error: String(send.error ?? "").slice(0, 300),
         });
         continue;
       }
@@ -1813,11 +1834,7 @@ async function notifySnapshottedTrainers(input: {
               recipientKind: "staff",
               components: classCancelledCustomerBodyComponents(values),
             });
-            const settle: SyncLogSettle = value.ok
-              ? "sent"
-              : isSendsHoldError(value.error) || isTransientMetaSendFailure(value.error)
-                ? "release"
-                : "failed";
+            const settle: SyncLogSettle = classCancelSettle(value);
             return { settle, value };
           },
         });
@@ -1841,6 +1858,17 @@ async function notifySnapshottedTrainers(input: {
             trigger_id: rule.id,
             staff_user_id: trainer.staff_user_id,
             phone: maskPhone(phone),
+          });
+          continue;
+        }
+        if (isSendOutcomeUnknown(send.error)) {
+          companion.after(rule.template_name, "send_unknown");
+          console.error("[leads/arbox-class-cancelled-customer] trainer send outcome unknown", {
+            businessId: input.businessId,
+            schedule_id: scheduleId,
+            trigger_id: rule.id,
+            phone: maskPhone(phone),
+            error: String(send.error ?? "").slice(0, 300),
           });
           continue;
         }

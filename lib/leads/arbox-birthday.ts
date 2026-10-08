@@ -41,6 +41,7 @@ import {
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 const ISRAEL_TZ = "Asia/Jerusalem";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -98,7 +99,8 @@ export type BirthdayDispatch =
   | "no_rule"
   | "no_phone"
   | "not_due"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type BirthdaySyncSummary = {
   skipped?: boolean;
@@ -618,14 +620,16 @@ export async function syncArboxBirthdaysForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-      prefetchedMembershipRows: input.prefetchedMembershipRows,
-    });
+    const products = await retryArboxOnce("leads/arbox-birthday", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+        prefetchedMembershipRows: input.prefetchedMembershipRows,
+      })
+    );
     if (!products.ok) {
       activeCheckFailed = true;
       summary.errors += 1;
@@ -768,11 +772,26 @@ export async function syncArboxBirthdaysForBusiness(input: {
       }
 
       if (kind === "former" && activeCheckFailed) {
+        await writeArboxErrorRows({
+          admin: input.admin,
+          table: "arbox_birthday_sync_log",
+          onConflict: "business_id,trigger_id,user_id,birthday_year",
+          rows: pendingRules.map((rule) => ({
+            business_id: businessId,
+            trigger_id: rule.id,
+            user_id: userId,
+            birthday_year: syncYear,
+            contact_id: resolved.contact?.id ?? null,
+            processed_at: now.toISOString(),
+            attempts: attemptsByRule.get(rule.id) ?? 0,
+          })),
+        });
         console.info("[leads/arbox-birthday] dispatch", {
           businessId,
           user_id: userId,
           audience: kind,
           dispatch: "active_check_failed",
+          reason: ARBOX_ERROR_REASON,
         });
         continue;
       }
@@ -866,7 +885,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
                 send.dispatch === "deferred" ||
                 send.dispatch === "gated" ||
                 send.dispatch === "skipped" ||
-                send.dispatch === "send_failed"
+                (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
                   ? send.dispatch
                   : "skipped";
               return { settle: claimSettleForDispatch(dispatch), value: dispatch };
@@ -888,7 +907,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") summary.errors += 1;
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-birthday] row threw", {

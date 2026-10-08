@@ -1467,6 +1467,11 @@ export async function runArboxDailyTriggersForBusiness(input: {
       boxId: business.crm_box_id,
       now,
       activeMembershipRows: expiryActiveRows,
+      trialMembershipTypeIds: Array.isArray(business.arbox_trial_membership_type_ids)
+        ? business.arbox_trial_membership_type_ids.filter(
+            (id): id is number => typeof id === "number" && Number.isFinite(id)
+          )
+        : [],
     }));
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

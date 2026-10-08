@@ -262,6 +262,7 @@ async function seedLate(input: {
         processed_at: nowIso,
         attempts: 0,
         status: "seeded",
+        reason: "product_filter_scope",
       },
       { onConflict: "business_id,trigger_id,user_id,class_date", ignoreDuplicates: true }
     );

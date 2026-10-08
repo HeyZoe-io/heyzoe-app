@@ -30,7 +30,9 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
+import { REGISTERED_VIA_ZOE_REASON, registeredViaZoe } from "@/lib/leads/registered-via-zoe";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import {
   bookingMatchesTrialScope,
@@ -75,6 +77,7 @@ import {
 } from "@/lib/template-triggers-match";
 import { delayDirectionForTrigger } from "@/lib/template-trigger-types";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MISSED_SEED_SPAN_DAYS = 30;
@@ -275,6 +278,8 @@ type ContactRow = {
   phone: string | null;
   full_name: string | null;
   arbox_user_id: string | null;
+  trial_registered?: boolean | null;
+  session_phase?: string | null;
 };
 
 async function resolveOrCreateContact(input: {
@@ -283,7 +288,7 @@ async function resolveOrCreateContact(input: {
   row: ArboxBookingReportRow;
   source: string;
 }): Promise<{ contact: ContactRow | null; phone: string | null }> {
-  const contactSelect = "id, phone, full_name, arbox_user_id";
+  const contactSelect = "id, phone, full_name, arbox_user_id, trial_registered, session_phase";
   const arboxUserId = String(input.row.user_id ?? "").trim();
   let phoneNorm = normalizePhone(input.row.phone);
   const fullName = resolveReportFullName(input.row);
@@ -394,7 +399,7 @@ async function dispatchMissedTemplate(input: {
   now: Date;
   dueOffsetMs?: number;
 }): Promise<{
-  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule";
+  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "send_unknown" | "no_rule";
   ok: boolean;
   reason?: string;
 }> {
@@ -794,13 +799,15 @@ export async function syncArboxMissedClassForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const products = await retryArboxOnce("leads/arbox-missed-class", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!products.ok) {
       missedTrialKeys = null;
       summary.errors += 1;
@@ -838,6 +845,7 @@ export async function syncArboxMissedClassForBusiness(input: {
   }
 
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   for (const row of rows) {
     if (!isBookingCheckInNo(row.check_in)) continue;
     if (isBookingCheckedIn(row.check_in)) continue;
@@ -1052,14 +1060,58 @@ export async function syncArboxMissedClassForBusiness(input: {
         continue;
       }
 
+      if (kind === "missed_trial" && registeredViaZoe(resolved.contact)) {
+        for (const rule of rulesToSend) {
+          await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: resolved.contact.id,
+            attempts: attemptsSoFar,
+            status: "skipped",
+            nowIso,
+            reason: REGISTERED_VIA_ZOE_REASON,
+          });
+        }
+        console.info("[leads/arbox-missed-class] dispatch", {
+          businessId,
+          kind,
+          user_id: userId,
+          dispatch: "skipped",
+          reason: REGISTERED_VIA_ZOE_REASON,
+        });
+        continue;
+      }
+
       if (kind === "missed_trial") {
         const activeKeys = await ensureMissedTrialActiveKeys();
         if (!activeKeys) {
+          for (const rule of rulesToSend) {
+            await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: resolved.contact.id,
+              attempts: attemptsSoFar,
+              status: "pending",
+              nowIso,
+              reason: ARBOX_ERROR_REASON,
+            });
+          }
           console.info("[leads/arbox-missed-class] dispatch", {
             businessId,
             kind,
             user_id: userId,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1121,6 +1173,36 @@ export async function syncArboxMissedClassForBusiness(input: {
           trigger: missedKind,
           businessId,
           user_id: userId,
+        });
+        continue;
+      }
+      const leave = await leaveRequest({ id: sendContact.id, phone: sendPhone, arbox_user_id: userId });
+      if (leave !== "clear") {
+        if (leave === "blocked") {
+          for (const rule of rulesToSend) {
+            await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: sendContact.id,
+              attempts: attemptsSoFar,
+              status: "skipped",
+              nowIso,
+              reason: LEAVE_REQUEST_REASON,
+            });
+          }
+          markRetentionSent(businessId, sendPhone, now);
+        }
+        console.info("[leads/arbox-missed-class] dispatch", {
+          businessId,
+          kind,
+          user_id: userId,
+          dispatch: "skipped",
+          reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
         });
         continue;
       }
@@ -1290,6 +1372,8 @@ export async function syncArboxMissedClassForBusiness(input: {
                 ? ("skipped" as const)
                 : sendDispatch === "send_failed"
                   ? ("send_failed" as const)
+                  : sendDispatch === "send_unknown"
+                  ? ("send_unknown" as const)
                   : ("gated" as const);
 
       const next = nextCancellationSyncLogAfterDispatch({
@@ -1315,13 +1399,13 @@ export async function syncArboxMissedClassForBusiness(input: {
       }
 
       summary.processed += 1;
-      if (sendDispatch === "immediate" || sendDispatch === "deferred") {
+      if (sendDispatch === "immediate" || sendDispatch === "deferred" || sendDispatch === "send_unknown") {
         markRetentionSent(businessId, sendPhone, now);
       }
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") {
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }
@@ -1346,6 +1430,21 @@ export async function syncArboxMissedClassForBusiness(input: {
         class_date: classDateYmd,
         error: e instanceof Error ? e.message : String(e),
       });
+      await writeArboxErrorRows({
+        admin: input.admin,
+        table: "arbox_missed_class_sync_log",
+        onConflict: "business_id,trigger_id,user_id,class_date,class_time,class_name",
+        rows: batch.map((rule) => ({
+          business_id: businessId,
+          trigger_id: rule.id,
+          user_id: userId,
+          class_date: classDateYmd,
+          class_time: classTime,
+          class_name: className,
+          processed_at: nowIso,
+          attempts: 0,
+        })),
+      }).catch((error) => console.error("[leads/arbox-missed-class] arbox_error row failed", error));
     }
   }
 

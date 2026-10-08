@@ -18,10 +18,16 @@ import {
   DUPLICATE_GUARD_ERROR,
   findRecentAutomatedTemplateSend,
 } from "@/lib/notifications/template-duplicate-guard";
-import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
+import {
+  postWhatsAppGraphMessage,
+  SEND_OUTCOME_UNKNOWN,
+  sendErrorBodyIsExplicit,
+  thrownSendOutcome,
+} from "@/lib/notifications/graph-whatsapp-send";
 import { formatMetaSendError, recordTemplateSendFailure } from "@/lib/meta-send-error";
 import { sanitizeZoeOutboundDeep } from "@/lib/zoe-text";
 import { applyStudioPurpleHeartPolicyDeep } from "@/lib/wa-studio-purple-heart";
+import { EMPTY_VARIABLE_ERROR, emptyTemplateVariable } from "@/lib/notifications/template-empty-variable";
 
 export type OwnerTemplateComponent = {
   type: "body" | "header";
@@ -56,6 +62,19 @@ export async function sendOwnerNotification(input: {
 
   const templateName = String(input.templateName ?? "").trim();
   if (!templateName) return { ok: false, error: "missing_template" };
+
+  const empty = emptyTemplateVariable(input.components);
+  if (empty) {
+    console.error("[sendOwnerNotification] empty template variable, not sent", { templateName, empty });
+    await recordTemplateSendFailure({
+      phoneNumberId,
+      phone: to,
+      templateName,
+      metaError: `${EMPTY_VARIABLE_ERROR}: ${empty}`,
+      raw: "",
+    }).catch((e) => console.error("[sendOwnerNotification] failure log failed:", e));
+    return { ok: false, error: EMPTY_VARIABLE_ERROR };
+  }
 
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
@@ -102,6 +121,8 @@ export async function sendOwnerNotification(input: {
   }
 }
 
+const BUSINESS_TEMPLATE_SEND_TIMEOUT_MS = 25_000;
+
 /**
  * שולח הודעת template WhatsApp ממספר עסק (phone_number_id) — לא מ-ZoeMaster.
  */
@@ -133,6 +154,26 @@ export async function sendBusinessTemplate(input: {
   if (!templateName) return { ok: false, error: "missing_template" };
 
   const isStaffRecipient = input.recipientKind === "staff";
+
+  const empty = emptyTemplateVariable(input.components);
+  if (empty) {
+    console.error("[sendBusinessTemplate] empty template variable, not sent", {
+      templateName,
+      empty,
+      phone: to.slice(-4),
+      triggerId: input.alertTriggerId ?? null,
+    });
+    if (isArboxDailyDryRun()) return { ok: false, error: EMPTY_VARIABLE_ERROR };
+    await recordTemplateSendFailure({
+      phoneNumberId,
+      phone: to,
+      templateName,
+      triggerId: input.alertTriggerId,
+      metaError: `${EMPTY_VARIABLE_ERROR}: ${empty}`,
+      raw: "",
+    }).catch((e) => console.error("[sendBusinessTemplate] failure log failed:", e));
+    return { ok: false, error: EMPTY_VARIABLE_ERROR };
+  }
 
   if (!input.skipOptOutGate && !isStaffRecipient) {
     const gate = await evaluateLeadTemplateSendByPhoneNumberId({
@@ -251,9 +292,19 @@ export async function sendBusinessTemplate(input: {
   };
 
   try {
-    const res = await postWhatsAppGraphMessage({ phoneNumberId, to, token, body });
+    const res = await postWhatsAppGraphMessage({
+      phoneNumberId,
+      to,
+      token,
+      body,
+      timeoutMs: BUSINESS_TEMPLATE_SEND_TIMEOUT_MS,
+    });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
+      if (!sendErrorBodyIsExplicit(errText)) {
+        console.error("[sendBusinessTemplate] outcome unknown:", res.status, errText.slice(0, 300));
+        return { ok: false, error: `${SEND_OUTCOME_UNKNOWN}:http_${res.status}` };
+      }
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
       const formatted = formatMetaSendError(errText || `http_${res.status}`);
       await recordTemplateSendFailure({
@@ -295,6 +346,6 @@ export async function sendBusinessTemplate(input: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[sendBusinessTemplate] failed:", msg);
-    return { ok: false, error: msg };
+    return { ok: false, error: thrownSendOutcome(e) === "explicit" ? msg : `${SEND_OUTCOME_UNKNOWN}: ${msg}` };
   }
 }

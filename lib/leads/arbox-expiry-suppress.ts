@@ -13,6 +13,7 @@
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchArboxActiveMembershipsReport, isArboxActiveCustomerMembershipStatus } from "@/lib/leads/arbox-customer-set";
 import { parseLeadIdFromUserId } from "@/lib/leads/arbox-all-leads-report";
+import { membershipTypeNameLooksLikeTrial, normalizeMembershipTypeName } from "@/lib/leads/arbox-trial-attended";
 
 export type ActiveMembershipRef = {
   userId: number;
@@ -26,12 +27,61 @@ export type ActiveMembershipIndex = {
 };
 
 /**
- * Intro class pack ("אימון היכרות" / "אימוני היכרות").
- * Final-nun singular and regular-nun plural are different letters.
+ * Intro class pack ("אימון היכרות" / "אימוני היכרות" / "שיעור הכרות - סטודיו tights").
+ * Final-nun singular and regular-nun plural are different letters; הכרות is spelled both ways.
  * Does not match a membership named "חודש היכרות".
  */
 export function isIntroWorkoutProductName(raw: unknown): boolean {
-  return /אימו(?:ן|ני)\s*היכרות/u.test(String(raw ?? ""));
+  return /(?:שיעור|אימו(?:ן|ני))\s*(?:היכרות|הכרות)/u.test(String(raw ?? ""));
+}
+
+/** Pack size written in the product name: "כרטיסיה של 10 כניסות" → 10, "כניסה בודדת" → 1. null when absent. */
+export function productNameTotalSessions(raw: unknown): number | null {
+  const name = String(raw ?? "");
+  if (/(?:כניסה|שיעור|אימון)\s*(?:אחת|אחד|בודד(?:ת)?)|single\s*(?:class|session|entry)/iu.test(name)) return 1;
+  const match = /(\d+)\s*(?:כניסות|כניסה|אימונים|אימון|שיעורים|שיעור|sessions?|classes?|entries)/iu.exec(name);
+  if (!match) return null;
+  const total = Number(match[1]);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+export type SessionsExpiringExcludedProduct = "intro_workout" | "trial_product" | "single_session";
+
+/**
+ * A sessions_expiring row that is not a real punch card: an intro class, a trial product
+ * (name, or a business trial membership type), or a one-session product.
+ * trialTypeNamesNormalized comes from rows already loaded in the run; no Arbox call here.
+ */
+export function sessionsExpiringExcludedProduct(input: {
+  name: unknown;
+  membershipTypeId?: unknown;
+  trialTypeIds?: readonly number[];
+  trialTypeNamesNormalized?: ReadonlySet<string>;
+}): SessionsExpiringExcludedProduct | null {
+  if (isIntroWorkoutProductName(input.name)) return "intro_workout";
+  if (membershipTypeNameLooksLikeTrial(input.name)) return "trial_product";
+  const typeId = Number(input.membershipTypeId);
+  if (Number.isFinite(typeId) && typeId > 0 && input.trialTypeIds?.includes(Math.trunc(typeId))) return "trial_product";
+  const normalized = normalizeMembershipTypeName(input.name);
+  if (normalized && input.trialTypeNamesNormalized?.has(normalized)) return "trial_product";
+  if (productNameTotalSessions(input.name) === 1) return "single_session";
+  return null;
+}
+
+/** Names of the business trial membership types, from membership rows already in hand. */
+export function trialTypeNamesFromRows(
+  rows: readonly Record<string, unknown>[] | null | undefined,
+  trialTypeIds: readonly number[]
+): Set<string> {
+  const names = new Set<string>();
+  if (!trialTypeIds.length) return names;
+  for (const row of rows ?? []) {
+    const typeId = Number(row.membership_type_id);
+    if (!Number.isFinite(typeId) || !trialTypeIds.includes(Math.trunc(typeId))) continue;
+    const normalized = normalizeMembershipTypeName(row.membership_type_name);
+    if (normalized) names.add(normalized);
+  }
+  return names;
 }
 
 export function indexActiveMemberships(rows: Record<string, unknown>[]): ActiveMembershipIndex {
@@ -115,7 +165,7 @@ export function membershipExpiringIdFromDedupKey(dedupKey: string): number | nul
   return parseLeadIdFromUserId(parts[3]);
 }
 
-export type ExpirySuppressReason = "intro_workout" | "active_membership";
+export type ExpirySuppressReason = SessionsExpiringExcludedProduct | "active_membership";
 
 export type ExpirySuppressCache = {
   indexByBox: Map<string, ActiveMembershipIndex | null>;
@@ -207,6 +257,7 @@ export async function decideScheduledExpirySuppression(input: {
   }
   if (packs === "failed") return { action: "send" };
   const match = packs.find((row) => row.start === identity.startDateYmd && row.end === identity.endDateYmd);
-  if (match && isIntroWorkoutProductName(match.name)) return { action: "cancel", reason: "intro_workout" };
+  const excluded = match ? sessionsExpiringExcludedProduct({ name: match.name }) : null;
+  if (excluded) return { action: "cancel", reason: excluded };
   return { action: "send" };
 }

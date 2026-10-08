@@ -23,6 +23,7 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { claimSyncLogBeforeSend } from "@/lib/leads/sync-log-claim";
@@ -748,7 +749,7 @@ async function dispatchGapTemplate(input: {
   rule: PurchaseTemplateTriggerRule;
   now: Date;
   dueOffsetMs?: number;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "send_unknown" | "no_rule"; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
@@ -1125,6 +1126,7 @@ export async function syncArboxAttendanceGapForBusiness(input: {
     existingRows: GapExistingRow[];
   };
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   const staffProducts = attendanceGapStaffProducts({
     membershipRows: input.activeMembershipRows ?? [],
     sessionRows: input.activeSessionRows ?? [],
@@ -1607,6 +1609,35 @@ export async function syncArboxAttendanceGapForBusiness(input: {
           });
           continue;
         }
+        const leave = await leaveRequest({ id: sendContact.id, phone: sendPhone, arbox_user_id: state.userId });
+        if (leave !== "clear") {
+          if (leave === "blocked") {
+            for (const rule of pendingRules) {
+              await upsertGapSyncLog({
+                admin: input.admin,
+                businessId,
+                triggerId: rule.id,
+                userId: state.userId,
+                gapStartDate: state.lastYesYmd,
+                tier,
+                contactId: sendContact.id,
+                attempts: attemptsSoFar,
+                status: "skipped",
+                nowIso,
+                reason: LEAVE_REQUEST_REASON,
+              });
+            }
+            markRetentionSent(businessId, sendPhone, now);
+          }
+          console.info("[leads/arbox-attendance-gap] dispatch", {
+            businessId,
+            user_id: state.userId,
+            tier,
+            dispatch: "skipped",
+            reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
+          });
+          continue;
+        }
         if (await retentionAlreadySentToday(input.admin, businessId, sendPhone, now)) {
           console.info("[leads/arbox-attendance-gap] dispatch", {
             businessId,
@@ -1750,6 +1781,8 @@ export async function syncArboxAttendanceGapForBusiness(input: {
                   ? ("skipped" as const)
                   : sendDispatch === "send_failed"
                     ? ("send_failed" as const)
+                    : sendDispatch === "send_unknown"
+                    ? ("send_unknown" as const)
                     : ("gated" as const);
 
         const next = nextCancellationSyncLogAfterDispatch({
@@ -1773,13 +1806,13 @@ export async function syncArboxAttendanceGapForBusiness(input: {
         }
 
         summary.processed += 1;
-        if (sendDispatch === "immediate" || sendDispatch === "deferred") {
+        if (sendDispatch === "immediate" || sendDispatch === "deferred" || sendDispatch === "send_unknown") {
           markRetentionSent(businessId, sendPhone, now);
         }
         if (sendDispatch === "immediate") summary.notified += 1;
         else if (sendDispatch === "deferred") summary.deferred += 1;
         else if (sendDispatch === "gated") summary.gated += 1;
-        else if (sendDispatch === "send_failed") {
+        else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") {
           if (next.hitCap) summary.abandoned += 1;
           else summary.errors += 1;
         }

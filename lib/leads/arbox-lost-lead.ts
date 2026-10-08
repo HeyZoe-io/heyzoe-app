@@ -8,9 +8,11 @@
  * Delay 0 fetches that bookingsReport only when a due row is still open in the log.
  * Seed 30d without WhatsApp.
  */
+import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { buildLostLeadScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
@@ -65,6 +67,7 @@ import {
   type PurchaseTemplateTriggerRule,
 } from "@/lib/template-triggers-match";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -167,7 +170,8 @@ export type LostLeadDispatch =
   | "no_phone"
   | "skipped_active"
   | "skipped_recent_checkin"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type LostLeadSyncSummary = {
   skipped?: boolean;
@@ -429,28 +433,13 @@ async function upsertLostLeadSyncLog(input: {
     status: input.status,
     attempts: input.attempts,
   };
-  if (input.reason) row.reason = input.reason;
-  let { error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-    onConflict: "business_id,trigger_id,lead_id,lost_date",
-  });
-  if (error && input.reason && /reason|schema cache|PGRST204|could not find/i.test(error.message)) {
-    delete row.reason;
-    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-      onConflict: "business_id,trigger_id,lead_id,lost_date",
-    }));
-  }
-  if (error && row.status === "failed" && /23514|check constraint/i.test(error.message)) {
-    row.status = "pending";
-    row.reason = "failed";
-    ({ error } = await input.admin.from("arbox_lost_lead_sync_log").upsert(row, {
-      onConflict: "business_id,trigger_id,lead_id,lost_date",
-    }));
-  }
-  if (error) {
-    console.error("[leads/arbox-lost-lead] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_lost_lead_sync_log",
+    row,
+    "business_id,trigger_id,lead_id,lost_date",
+    input.reason || undefined
+  );
 }
 
 async function dispatchLostLeadTemplate(input: {
@@ -695,13 +684,15 @@ export async function syncArboxLostLeadForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const fetched = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const fetched = await retryArboxOnce("leads/arbox-lost-lead", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!fetched.ok) {
       activeProductState = { kind: "failed" };
       summary.errors += 1;
@@ -896,6 +887,7 @@ export async function syncArboxLostLeadForBusiness(input: {
   }
 
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   for (const raw of reportRows) {
     const row = raw as ArboxLostLeadRow;
     const leadId = parseLostLeadId(row);
@@ -1058,10 +1050,24 @@ export async function syncArboxLostLeadForBusiness(input: {
 
         const activeKeys = await ensureActiveProductKeys();
         if (!activeKeys) {
+          const marked = await upsertLostLeadSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            leadId,
+            lostDate,
+            contactId: resolved.contact?.id ?? null,
+            nowIso,
+            status: "pending",
+            attempts: existingAttempts,
+            reason: ARBOX_ERROR_REASON,
+          });
+          if (!marked.ok) summary.errors += 1;
           console.info("[leads/arbox-lost-lead] dispatch", {
             ...logBase,
             contact: resolved.contact?.id ?? null,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1095,6 +1101,32 @@ export async function syncArboxLostLeadForBusiness(input: {
         }
 
         const templateName = String(rule.template_name ?? "").trim();
+        const leave = await leaveRequest({ id: resolved.contact?.id ?? null, phone });
+        if (leave !== "clear") {
+          if (leave === "blocked") {
+            const marked = await upsertLostLeadSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              leadId,
+              lostDate,
+              contactId: resolved.contact?.id ?? null,
+              nowIso,
+              status: "skipped",
+              attempts: existingAttempts,
+              reason: LEAVE_REQUEST_REASON,
+            });
+            if (!marked.ok) summary.errors += 1;
+            markRetentionSent(businessId, phone, now);
+          }
+          console.info("[leads/arbox-lost-lead] dispatch", {
+            ...logBase,
+            phone: maskPhoneForLog(phone),
+            dispatch: "skipped",
+            reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
+          });
+          continue;
+        }
         if (await retentionAlreadySentToday(input.admin, businessId, phone, now)) {
           const marked = await upsertLostLeadSyncLog({
             admin: input.admin,
@@ -1180,7 +1212,7 @@ export async function syncArboxLostLeadForBusiness(input: {
         });
         companionGate.after(templateName, send.dispatch);
 
-        if (send.dispatch === "immediate" || send.dispatch === "deferred") {
+        if (send.dispatch === "immediate" || send.dispatch === "deferred" || send.dispatch === "send_unknown") {
           markRetentionSent(businessId, phone, now);
         }
         if (send.dispatch === "immediate") summary.notified += 1;
@@ -1199,7 +1231,7 @@ export async function syncArboxLostLeadForBusiness(input: {
           send.dispatch === "deferred" ||
           send.dispatch === "gated" ||
           send.dispatch === "skipped" ||
-          send.dispatch === "send_failed"
+          (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
         ) {
           const next = nextCancellationSyncLogAfterDispatch({
             dispatch: send.dispatch,
@@ -1228,6 +1260,21 @@ export async function syncArboxLostLeadForBusiness(input: {
           lost_date: lostDate,
           error: e instanceof Error ? e.message : String(e),
         });
+        await writeArboxErrorRows({
+          admin: input.admin,
+          table: "arbox_lost_lead_sync_log",
+          onConflict: "business_id,trigger_id,lead_id,lost_date",
+          rows: [
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              lead_id: leadId,
+              lost_date: lostDate,
+              processed_at: nowIso,
+              attempts: 0,
+            },
+          ],
+        }).catch((error) => console.error("[leads/arbox-lost-lead] arbox_error row failed", error));
       }
     }
   }

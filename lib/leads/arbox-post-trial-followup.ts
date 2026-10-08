@@ -18,6 +18,8 @@
  * Decision day itself still sends on that run (even after 09:00), matching
  * lost-lead / cancellation new-rule activation.
  */
+import { REGISTERED_VIA_ZOE_REASON, registeredViaZoe } from "@/lib/leads/registered-via-zoe";
+import { isMissingSyncLogReasonColumn, upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
@@ -87,6 +89,7 @@ import {
 } from "@/lib/same-trigger-template-order";
 import { minDelayDaysForTrigger } from "@/lib/trigger-catalog";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
+import { ARBOX_ERROR_REASON, retryArboxOnce, writeArboxErrorRows } from "@/lib/leads/arbox-error-retry";
 
 export { SAME_TRIGGER_TEMPLATE_GAP_MS };
 
@@ -99,6 +102,7 @@ export type PostTrialTemplateDispatch =
   | "gated"
   | "skipped"
   | "send_failed"
+  | "send_unknown"
   | "no_rule";
 
 export type PostTrialOutcome = "registered" | "not_registered";
@@ -310,9 +314,10 @@ export function postTrialActivationInstant(input: {
   return parseReportEventInstant(input.classDateYmd);
 }
 
+/** Only no row, pending, or a Meta failure may send. Skipped / abandoned / canceled / unknown are final. */
 export function postTrialLogStatusBlocksSend(status: string | null | undefined): boolean {
   const value = String(status ?? "").trim();
-  return value === "seeded" || value === "sent" || value === "abandoned" || value === "no_phone";
+  return value !== "" && value !== "pending" && value !== "failed";
 }
 
 /**
@@ -320,15 +325,18 @@ export function postTrialLogStatusBlocksSend(status: string | null | undefined):
  * Catch-up only for that mistake: status seeded and decision day is today.
  * Intentional history seeds (decision day already past) stay blocked.
  * Already-sent rows stay blocked via status sent.
+ * A seeded row with a reason (a manual hold, a filter-scope seed) is never reopened.
  */
 export function postTrialSeededBlocksSend(input: {
   status: string | null | undefined;
+  reason?: string | null;
   classDateYmd: string;
   delayDays: number;
   todayYmd: string;
 }): boolean {
   const status = String(input.status ?? "").trim();
   if (status !== "seeded") return postTrialLogStatusBlocksSend(status);
+  if (String(input.reason ?? "").trim()) return true;
   return postTrialSeedAction({
     classDateYmd: input.classDateYmd,
     delayDays: input.delayDays,
@@ -443,6 +451,8 @@ type ContactRow = {
   phone: string | null;
   full_name: string | null;
   arbox_user_id: string | null;
+  trial_registered?: boolean | null;
+  session_phase?: string | null;
 };
 
 async function resolveOrCreateContact(input: {
@@ -451,7 +461,7 @@ async function resolveOrCreateContact(input: {
   row: ArboxBookingReportRow;
   source: string;
 }): Promise<{ contact: ContactRow | null; phone: string | null }> {
-  const contactSelect = "id, phone, full_name, arbox_user_id";
+  const contactSelect = "id, phone, full_name, arbox_user_id, trial_registered, session_phase";
   const arboxUserId = String(input.row.user_id ?? "").trim();
   let phoneNorm = normalizePhone(input.row.phone);
   const fullName = resolveReportFullName(input.row);
@@ -524,7 +534,9 @@ async function upsertFollowupSyncLog(input: {
   status: CancellationSyncLogStatus;
   nowIso: string;
 }): Promise<{ ok: boolean }> {
-  const { error } = await input.admin.from("arbox_post_trial_followup_sync_log").upsert(
+  return upsertOptionalReason(
+    input.admin,
+    "arbox_post_trial_followup_sync_log",
     {
       business_id: input.businessId,
       trigger_id: input.triggerId,
@@ -536,13 +548,8 @@ async function upsertFollowupSyncLog(input: {
       attempts: input.attempts,
       status: input.status,
     },
-    { onConflict: "business_id,trigger_id,user_id,class_date" }
+    "business_id,trigger_id,user_id,class_date"
   );
-  if (error) {
-    console.error("[leads/arbox-post-trial-followup] sync_log upsert failed:", error.message);
-    return { ok: false };
-  }
-  return { ok: true };
 }
 
 /** @deprecated Use rulesForCompanionSend. Kept so existing tests import the pair order. */
@@ -1113,13 +1120,15 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       .select("arbox_trial_membership_type_ids")
       .eq("id", businessId)
       .maybeSingle();
-    const products = await fetchArboxActiveProductKeys({
-      apiKey,
-      boxId,
-      now,
-      trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
-        ?.arbox_trial_membership_type_ids,
-    });
+    const products = await retryArboxOnce("leads/arbox-post-trial-followup", () =>
+      fetchArboxActiveProductKeys({
+        apiKey,
+        boxId,
+        now,
+        trialMembershipTypeIds: (bizRow as { arbox_trial_membership_type_ids?: unknown } | null)
+          ?.arbox_trial_membership_type_ids,
+      })
+    );
     if (!products.ok) {
       notRegisteredKeys = null;
       summary.errors += 1;
@@ -1279,14 +1288,61 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         continue;
       }
 
+      if (outcome === "not_registered" && registeredViaZoe(resolved.contact)) {
+        for (const rule of rulesToSend) {
+          await upsertOptionalReason(
+            input.admin,
+            "arbox_post_trial_followup_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: att.userId,
+              class_date: att.classDateYmd,
+              outcome,
+              contact_id: resolved.contact.id,
+              processed_at: nowIso,
+              attempts: 0,
+              status: "skipped",
+            },
+            "business_id,trigger_id,user_id,class_date",
+            REGISTERED_VIA_ZOE_REASON,
+            { ignoreDuplicates: true }
+          );
+        }
+        console.info("[leads/arbox-post-trial-followup] dispatch", {
+          businessId,
+          outcome,
+          user_id: att.userId,
+          dispatch: "skipped",
+          reason: REGISTERED_VIA_ZOE_REASON,
+        });
+        continue;
+      }
+
       if (outcome === "not_registered") {
         const activeKeys = await ensureNotRegisteredActiveKeys();
         if (!activeKeys) {
+          await writeArboxErrorRows({
+            admin: input.admin,
+            table: "arbox_post_trial_followup_sync_log",
+            onConflict: "business_id,trigger_id,user_id,class_date",
+            rows: rulesToSend.map((rule) => ({
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: att.userId,
+              class_date: att.classDateYmd,
+              outcome,
+              contact_id: resolved.contact?.id ?? null,
+              processed_at: nowIso,
+              attempts: 0,
+            })),
+          });
           console.info("[leads/arbox-post-trial-followup] dispatch", {
             businessId,
             outcome,
             user_id: att.userId,
             dispatch: "active_check_failed",
+            reason: ARBOX_ERROR_REASON,
           });
           continue;
         }
@@ -1325,14 +1381,19 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
       let sentImmediateThisRun = false;
       const trackEachTemplate = rulesToSend.length > 1;
       for (const rule of rulesToSend) {
-        const { data: existing, error: existingErr } = await input.admin
-          .from("arbox_post_trial_followup_sync_log")
-          .select("status, attempts")
-          .eq("business_id", businessId)
-          .eq("trigger_id", rule.id)
-          .eq("user_id", att.userId)
-          .eq("class_date", att.classDateYmd)
-          .maybeSingle();
+        const readExisting = (columns: string) =>
+          input.admin
+            .from("arbox_post_trial_followup_sync_log")
+            .select(columns)
+            .eq("business_id", businessId)
+            .eq("trigger_id", rule.id)
+            .eq("user_id", att.userId)
+            .eq("class_date", att.classDateYmd)
+            .maybeSingle();
+        let { data: existing, error: existingErr } = await readExisting("status, attempts, reason");
+        if (existingErr && isMissingSyncLogReasonColumn(existingErr.message)) {
+          ({ data: existing, error: existingErr } = await readExisting("status, attempts"));
+        }
         if (existingErr) {
           logDedupBlockedSend({
             log: "[leads/arbox-post-trial-followup]",
@@ -1347,6 +1408,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         if (
           postTrialSeededBlocksSend({
             status,
+            reason: String((existing as { reason?: unknown } | null)?.reason ?? ""),
             classDateYmd: att.classDateYmd,
             delayDays: effectivePostTrialDelayDays(rule.trigger_type, rule.delay_days),
             todayYmd,
@@ -1407,6 +1469,7 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
               .eq("user_id", att.userId)
               .eq("class_date", att.classDateYmd)
               .eq("status", "seeded")
+              .is("reason", null)
               .select("status");
             if (reopenErr) {
               logDedupBlockedSend({
@@ -1514,6 +1577,8 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
                   ? ("skipped" as const)
                   : send.dispatch === "send_failed"
                     ? ("send_failed" as const)
+                    : send.dispatch === "send_unknown"
+                    ? ("send_unknown" as const)
                     : ("gated" as const);
         const attemptsSoFar = parseCancellationSyncAttempts(
           (existing as { attempts?: unknown } | null)?.attempts
@@ -1534,12 +1599,12 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
           status: next.status,
           nowIso,
         });
-        if (send.dispatch === "send_failed") {
+        if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") {
           if (next.hitCap) summary.abandoned += 1;
           else summary.errors += 1;
         }
 
-        if (send.dispatch === "send_failed" || send.dispatch === "gated") break;
+        if (send.dispatch === "send_failed" || send.dispatch === "send_unknown" || send.dispatch === "gated") break;
       }
 
       const sendDispatch = combinePostTrialTemplateDispatches(dispatches);
@@ -1566,6 +1631,20 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
         class_date: att.classDateYmd,
         error: e instanceof Error ? e.message : String(e),
       });
+      await writeArboxErrorRows({
+        admin: input.admin,
+        table: "arbox_post_trial_followup_sync_log",
+        onConflict: "business_id,trigger_id,user_id,class_date",
+        rows: rulesToSend.map((rule) => ({
+          business_id: businessId,
+          trigger_id: rule.id,
+          user_id: att.userId,
+          class_date: att.classDateYmd,
+          outcome,
+          processed_at: nowIso,
+          attempts: 0,
+        })),
+      }).catch((error) => console.error("[leads/arbox-post-trial-followup] arbox_error row failed", error));
     }
   }
 

@@ -88,7 +88,8 @@ export type DaysInClubDispatch =
   | "seeded"
   | "already"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type DaysInClubSyncSummary = {
   skipped?: boolean;
@@ -761,7 +762,7 @@ export async function syncArboxDaysInClubForBusiness(input: {
           send.dispatch === "immediate" ||
           send.dispatch === "gated" ||
           send.dispatch === "skipped" ||
-          send.dispatch === "send_failed"
+          (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
         ) {
           const next = nextCancellationSyncLogAfterDispatch({
             dispatch: send.dispatch,

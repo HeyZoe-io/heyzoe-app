@@ -13,7 +13,7 @@ import {
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
-export type StaffTemplateDispatch = "sent" | "gated" | "send_failed";
+export type StaffTemplateDispatch = "sent" | "gated" | "send_failed" | "send_unknown";
 
 export async function dispatchStaffTemplateImmediate(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
