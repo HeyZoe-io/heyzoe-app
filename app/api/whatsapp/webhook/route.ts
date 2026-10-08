@@ -14118,6 +14118,20 @@ async function processIncoming(
     return;
   }
 
+  const logClosedHandoffRepeatSuppressed = async (sid: string) => {
+    console.info(`[WA Webhook] team handoff already sent — not repeating to ${msg.from}`, {
+      business_slug,
+      sessionId: sid,
+    });
+    await logMessage({
+      business_slug,
+      role: "event",
+      content: "[heyzoe:closed_handoff_repeat_suppressed]",
+      model_used: "wa_closed_handoff_repeat_suppressed",
+      session_id: sid,
+    });
+  };
+
   const unauthorizedBooking = resolveUnauthorizedBookingHandoff({
     inbound: msg.type === "text" ? msg.text : "",
     assistantReply: replyCoreClean,
@@ -14187,6 +14201,10 @@ async function processIncoming(
           text.replace(/\s+/g, " ").trim() === handoffText.replace(/\s+/g, " ").trim();
         const outbound = repeated && !sameAsHandoff ? handoffText : text;
         if (repeated) await notifyTeam();
+        if (repeated && sameAsHandoff) {
+          await logClosedHandoffRepeatSuppressed(sessionId);
+          return;
+        }
         try {
           await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
         } catch (e) {
@@ -14957,6 +14975,7 @@ async function processIncoming(
           ? replyCoreClean.trim()
           : resolveRouteBookingChangeReply(knowledge);
       let closedRepeat = false;
+      let suppressRepeatedHandoff = false;
       if (routeAction.kind !== "handoff") {
         closedRepeat = await lastClosedOutboundRepeats({
           admin: supabase,
@@ -14968,6 +14987,8 @@ async function processIncoming(
           const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
           if (outbound.replace(/\s+/g, " ").trim() !== handoffText.replace(/\s+/g, " ").trim()) {
             outbound = handoffText;
+          } else {
+            suppressRepeatedHandoff = true;
           }
         }
       }
@@ -14985,6 +15006,10 @@ async function processIncoming(
         } catch (e) {
           console.error("[WA Webhook] route handoff human_requested failed:", e);
         }
+      }
+      if (suppressRepeatedHandoff) {
+        await logClosedHandoffRepeatSuppressed(sessionId);
+        return;
       }
       try {
         await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
