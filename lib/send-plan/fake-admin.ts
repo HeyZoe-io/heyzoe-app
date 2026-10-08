@@ -42,12 +42,13 @@ export class FakeAdmin {
   }
 }
 
-export class FakeQuery implements PromiseLike<{ data: unknown; error: null | { message: string } }> {
+export class FakeQuery implements PromiseLike<{ data: unknown; error: null | { message: string }; count?: number }> {
   private filters: Filter[] = [];
   private mode: "select" | "update" | "upsert" | "insert" | "delete" = "select";
   private payload: Row[] = [];
   private patch: Row = {};
   private returning = false;
+  private head = false;
   private single: "none" | "maybe" | "one" = "none";
   private limitN: number | null = null;
   private orders: Array<{ col: string; asc: boolean }> = [];
@@ -58,7 +59,8 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: null | { m
     private readonly table: string
   ) {}
 
-  select(): this {
+  select(_cols?: string, opts?: { count?: string; head?: boolean }): this {
+    if (opts?.head) this.head = true;
     if (this.mode === "select") return this;
     this.returning = true;
     return this;
@@ -146,13 +148,14 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: null | { m
     return this.db.rows(this.table).filter((row) => this.filters.every((f) => f(row)));
   }
 
-  private run(): { data: unknown; error: null | { message: string } } {
+  private run(): { data: unknown; error: null | { message: string }; count?: number } {
     let out: Row[] = [];
     if (this.mode === "select") {
       out = [...this.matches()];
       for (const o of [...this.orders].reverse()) {
         out.sort((a, b) => (o.asc ? cmp(a[o.col], b[o.col]) : cmp(b[o.col], a[o.col])));
       }
+      if (this.head) return { data: null, error: null, count: out.length };
       if (this.limitN != null) out = out.slice(0, this.limitN);
     } else if (this.mode === "update") {
       out = this.matches();
@@ -191,8 +194,8 @@ export class FakeQuery implements PromiseLike<{ data: unknown; error: null | { m
     return { data: copy, error: null };
   }
 
-  then<A = { data: unknown; error: null | { message: string } }, B = never>(
-    onfulfilled?: ((value: { data: unknown; error: null | { message: string } }) => A | PromiseLike<A>) | null,
+  then<A = { data: unknown; error: null | { message: string }; count?: number }, B = never>(
+    onfulfilled?: ((value: { data: unknown; error: null | { message: string }; count?: number }) => A | PromiseLike<A>) | null,
     onrejected?: ((reason: unknown) => B | PromiseLike<B>) | null
   ): PromiseLike<A | B> {
     return Promise.resolve()

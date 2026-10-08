@@ -185,10 +185,16 @@ export async function releaseHeld(
   return result;
 }
 
-export async function resumeTriggerPause(admin: Admin, businessId: number, triggerKey: string, by: string): Promise<boolean> {
+export async function resumeTriggerPause(
+  admin: Admin,
+  businessId: number,
+  triggerKey: string,
+  by: string,
+  now: Date = new Date()
+): Promise<boolean> {
   const { error } = await admin
     .from("send_trigger_pauses")
-    .update({ resumed_at: new Date().toISOString(), resumed_by: by })
+    .update({ resumed_at: now.toISOString(), resumed_by: by })
     .eq("business_id", businessId)
     .eq("trigger_key", triggerKey);
   if (error) console.error("[send-plan] pause resume failed:", error.message, { businessId, triggerKey });

@@ -1,8 +1,9 @@
 /**
  * Event-driven sends (15-minute and hourly crons, incoming leads): no planning, the same
  * per-item checks inline right before the Graph call, plus a circuit breaker.
- * Empty variables, opt-out and the 20h duplicate claim already run in sendBusinessTemplate.
- * Here: staff / leave request (retention triggers), relative day words, blocked WABA, an
+ * Opt-out and the 20h duplicate claim run in sendBusinessTemplate after this gate.
+ * Here: an already released / sent copy of this event (duplicate), staff / leave request
+ * (retention triggers), an empty variable, relative day words, blocked WABA, an
  * admin-canceled hold, and the breaker (more than 3x the normal volume of that hour pauses the
  * trigger for the business until the end of the day; the rest is held; Lior is alerted once).
  *
@@ -49,7 +50,8 @@ import {
   loadWabaBlocked,
   type PlanReadCache,
 } from "@/lib/send-plan/data";
-import { sendHeldAlert } from "@/lib/send-plan/alerts";
+import { sendHeldAlert, type HeldAlertSend } from "@/lib/send-plan/alerts";
+import { emptyTemplateVariable } from "@/lib/notifications/template-empty-variable";
 import { addCalendarDaysYmd } from "@/lib/rule-activation";
 import type { PlanSendInput } from "@/lib/send-plan/types";
 
@@ -152,6 +154,7 @@ async function breakerHolds(input: {
   triggerId: string;
   triggerType: string | null;
   now: Date;
+  alert?: HeldAlertSend;
 }): Promise<boolean> {
   const pause = await triggerPause(input.admin, input.businessId, input.triggerId, input.now);
   if (pause === "paused") return true;
@@ -203,22 +206,31 @@ async function breakerHolds(input: {
       admin: input.admin,
       headline: `מפסק נפח: ${input.triggerType ?? "טריגר"} של ${name} נעצר עד סוף היום (${sentLastHour} בשעה האחרונה)`,
       rows: [{ business: name, reason: HOLD_REASONS.circuitBreaker, count: 1 }],
+      send: input.alert,
     });
   }
   return true;
 }
 
 /** null: send. Otherwise the result sendBusinessTemplate returns without calling Meta. */
-export async function eventSendGate(input: PlanSendInput): Promise<{ ok: false; error: string } | null> {
+export async function eventSendGate(
+  input: PlanSendInput,
+  /** Tests only: a fixed clock and a captured admin alert. */
+  deps: { now?: Date; alert?: HeldAlertSend } = {}
+): Promise<{ ok: false; error: string } | null> {
   try {
-    return await gate(input, new Date());
+    return await gate(input, deps.now ?? new Date(), deps.alert);
   } catch (e) {
     console.error("[send-plan] event gate threw, sending:", e instanceof Error ? e.message : e);
     return null;
   }
 }
 
-async function gate(input: PlanSendInput, now: Date): Promise<{ ok: false; error: string } | null> {
+async function gate(
+  input: PlanSendInput,
+  now: Date,
+  alert?: HeldAlertSend
+): Promise<{ ok: false; error: string } | null> {
   const admin = createSupabaseAdminClient();
   const phoneNumberId = String(input.phoneNumberId ?? "").trim();
   const businessId = await businessIdFor(admin, phoneNumberId);
@@ -277,7 +289,9 @@ async function gate(input: PlanSendInput, now: Date): Promise<{ ok: false; error
   });
   const eventMeta = eventMetaFromDedupKey(input.eventDedupKey);
   let hold: { reason: string; detail?: string } | null = null;
-  if (!skip) {
+  const empty = skip ? null : emptyTemplateVariable(input.components ?? []);
+  if (empty) hold = { reason: HOLD_REASONS.emptyVariable, detail: empty };
+  if (!skip && !hold) {
     const words = relativeWordMismatch({ body: renderedBody, eventYmd: eventMeta.ymd, sendAt: now });
     if (words) hold = { reason: HOLD_REASONS.relativeWords, detail: words };
   }
@@ -285,7 +299,7 @@ async function gate(input: PlanSendInput, now: Date): Promise<{ ok: false; error
     hold = { reason: HOLD_REASONS.wabaBlocked };
   }
   if (!skip && !hold && triggerId && recipientKind !== "staff") {
-    if (await breakerHolds({ admin, businessId, triggerId, triggerType, now })) {
+    if (await breakerHolds({ admin, businessId, triggerId, triggerType, now, alert })) {
       hold = { reason: HOLD_REASONS.circuitBreaker };
     }
   }

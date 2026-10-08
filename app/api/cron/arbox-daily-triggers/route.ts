@@ -43,7 +43,7 @@ import {
  * catch-up clocks move to now (lib/arbox-background-pause.ts).
  * The evening run retries a failed business once in the same run and records
  * each business in arbox_daily_run_status. ?slot=evening&pass=retry (cron-job.org,
- * 20:50) reruns only the businesses still incomplete, before the 21:00 night hold.
+ * 20:20, EVENING_RETRY_SLOT_IL) reruns only the businesses still incomplete, before the 21:00 night hold.
  * PLAN before send: ?phase=plan (cron-job.org 08:00 / 19:00) writes the plan. The 09:00 / 20:00
  * jobs (same URLs) then send the planned rows of businesses with a PLAN, and run the legacy
  * worker only for businesses without an ok PLAN. No PLAN at all = today's behavior.

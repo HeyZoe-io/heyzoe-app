@@ -180,6 +180,22 @@ export async function sendBusinessTemplate(input: {
 
   const isStaffRecipient = input.recipientKind === "staff";
 
+  // Event-driven trigger sends: an empty variable, wrong day words, a blocked WABA or the
+  // breaker hold the send (lib/send-plan/inline.ts) instead of failing it.
+  if (!input.skipSendChecks && input.alertTriggerId && !isArboxDailyDryRun()) {
+    const gate = await eventSendGate({
+      to,
+      phoneNumberId,
+      templateName,
+      languageCode: input.languageCode,
+      components: input.components,
+      recipientKind: input.recipientKind,
+      alertTriggerId: input.alertTriggerId,
+      eventDedupKey: input.eventDedupKey,
+    });
+    if (gate) return gate;
+  }
+
   const empty = emptyTemplateVariable(input.components);
   if (empty) {
     console.error("[sendBusinessTemplate] empty template variable, not sent", {
@@ -228,20 +244,6 @@ export async function sendBusinessTemplate(input: {
     noteArboxDailyWouldSend(line);
     console.info("[dry-run] template", line);
     return { ok: true };
-  }
-
-  if (!input.skipSendChecks && input.alertTriggerId) {
-    const gate = await eventSendGate({
-      to,
-      phoneNumberId,
-      templateName,
-      languageCode: input.languageCode,
-      components: input.components,
-      recipientKind: input.recipientKind,
-      alertTriggerId: input.alertTriggerId,
-      eventDedupKey: input.eventDedupKey,
-    });
-    if (gate) return gate;
   }
 
   if (

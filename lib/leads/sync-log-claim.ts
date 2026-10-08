@@ -1,5 +1,6 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { activeSendPlan, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
+import { PLAN_SUPERSEDED_REASON } from "@/lib/send-plan/errors";
 import { isMissingSyncLogReasonColumn, syncLogStatusFallbacks } from "@/lib/leads/sync-log-reason";
 import { isSendsHoldError } from "@/lib/business-sends-hold";
 import { isSendOutcomeUnknown, SEND_OUTCOME_UNKNOWN } from "@/lib/notifications/graph-whatsapp-send";
@@ -348,8 +349,11 @@ export async function settleQueuedTemplateSend(
 ): Promise<boolean> {
   const key = dedupKey.trim();
   if (!key || isArboxDailyDryRun()) return true;
+  const planned = outcome === "sent" && activeSendPlan()?.intercepts === true;
   const patches: Array<Record<string, unknown>> =
-    outcome === "sent"
+    planned
+      ? [{ status: "canceled", last_error: PLAN_SUPERSEDED_REASON }]
+      : outcome === "sent"
       ? [{ status: "sent", last_error: null }]
       : outcome === "unknown"
         ? [

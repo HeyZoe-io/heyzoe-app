@@ -17,6 +17,7 @@ import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { EMPTY_VARIABLE_ERROR } from "@/lib/notifications/template-empty-variable";
+import { PLAN_SUPERSEDED_REASON } from "@/lib/send-plan/errors";
 import { ARBOX_ERROR_REASON } from "@/lib/leads/arbox-error-retry";
 import { loadIncompleteRunsSince } from "@/lib/leads/arbox-daily-run-status";
 import { isMissingStatusTable, WA_MESSAGE_STATUSES_TABLE } from "@/lib/wa-message-status";
@@ -92,6 +93,8 @@ const EXPECTED_REASONS = new Set([
   "לא מנוי פעיל",
   "אימון עתידי",
   "צוות",
+  "הסיר את עצמו",
+  "בקשת עזיבה",
   AUTO_CANCEL_REASON,
 ]);
 
@@ -148,6 +151,34 @@ export function adminDailySummaryDue(now: Date): boolean {
   return clock.hour > 9 || (clock.hour === 9 && clock.minute >= 30);
 }
 
+/** DISPATCH runs at the slot; a planned row still unsent this long after its due time is a problem. */
+const PLAN_DISPATCH_GRACE_MS = 30 * 60_000;
+
+export const PLAN_HELD_REASON = "מוחזק לבדיקה";
+export const PLAN_NOT_DISPATCHED_REASON = "תוכנן ולא נשלח";
+
+/**
+ * Plan-before-send rows (lib/send-plan): the planned row is the send, so its own outcome is
+ * what counts. undefined: not a plan state, use the regular rules.
+ */
+function planRowReason(status: string, err: string, overdue: boolean): string | null | undefined {
+  if (err === PLAN_SUPERSEDED_REASON) return null;
+  if (status === "planned") return overdue ? PLAN_NOT_DISPATCHED_REASON : null;
+  if (status === "held") return PLAN_HELD_REASON;
+  if (status === "blocked") return "נחסם כפילות";
+  if (err === "not_dispatched") return PLAN_NOT_DISPATCHED_REASON;
+  if (err === "hold_expired") return "החזקה לא שוחררה ובוטלה";
+  if (err === "release_not_relevant") return "שוחרר אחרי שכבר לא רלוונטי";
+  if (err === "canceled_by_admin") return MANUAL_BLOCK_REASON;
+  if (status === "skipped") {
+    if (err.startsWith("opted_out") || err === "suppressed_opt_out") return "הסיר את עצמו";
+    if (err.startsWith("leave_request")) return "בקשת עזיבה";
+    if (err.startsWith("staff")) return "צוות";
+    if (err === "class_started" || err === "booking_canceled") return "דילוג";
+  }
+  return undefined;
+}
+
 export function unsentReason(input: {
   status: string;
   lastError?: string | null;
@@ -155,6 +186,8 @@ export function unsentReason(input: {
 }): string | null {
   const status = String(input.status ?? "").trim().toLowerCase();
   const err = String(input.lastError ?? "").trim().toLowerCase();
+  const plan = planRowReason(status, err, input.overdue);
+  if (plan !== undefined) return plan;
   if (status === "unknown" || err.includes("send_outcome_unknown")) return "תוצאה לא ידועה";
   if (err.includes(EMPTY_VARIABLE_ERROR)) return "משתנה ריק בטמפלייט";
   if (status === "sending") return "נשאר באמצע שליחה";
@@ -478,7 +511,10 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
   }
   for (const row of queued ?? []) {
     const dueAt = String((row as { due_at?: unknown }).due_at ?? "");
-    const overdue = String((row as { status?: unknown }).status ?? "") === "pending" && dueAt <= now.toISOString();
+    const rowStatus = String((row as { status?: unknown }).status ?? "");
+    const overdue =
+      (rowStatus === "pending" && dueAt <= now.toISOString()) ||
+      (rowStatus === "planned" && dueAt <= new Date(now.getTime() - PLAN_DISPATCH_GRACE_MS).toISOString());
     const reason = unsentReason({
       status: String((row as { status?: unknown }).status ?? ""),
       lastError: String((row as { last_error?: unknown }).last_error ?? ""),
