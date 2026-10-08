@@ -30,6 +30,7 @@ import {
   warnAbandonedCancellationSyncLog,
 } from "@/lib/leads/arbox-membership-cancelled";
 import { closeRetentionEvent, markRetentionSent, retentionAlreadySentToday } from "@/lib/leads/retention-daily-cap";
+import { createLeaveRequestGate, LEAVE_REQUEST_REASON } from "@/lib/leads/leave-request";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { REGISTERED_VIA_ZOE_REASON, registeredViaZoe } from "@/lib/leads/registered-via-zoe";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
@@ -841,6 +842,7 @@ export async function syncArboxMissedClassForBusiness(input: {
   }
 
   const staffIndex = await retentionStaffIndex(input.admin, businessId);
+  const leaveRequest = createLeaveRequestGate(input.admin, businessId, now);
   for (const row of rows) {
     if (!isBookingCheckInNo(row.check_in)) continue;
     if (isBookingCheckedIn(row.check_in)) continue;
@@ -1151,6 +1153,36 @@ export async function syncArboxMissedClassForBusiness(input: {
           trigger: missedKind,
           businessId,
           user_id: userId,
+        });
+        continue;
+      }
+      const leave = await leaveRequest({ id: sendContact.id, phone: sendPhone, arbox_user_id: userId });
+      if (leave !== "clear") {
+        if (leave === "blocked") {
+          for (const rule of rulesToSend) {
+            await upsertMissedSyncLog({
+              admin: input.admin,
+              businessId,
+              triggerId: rule.id,
+              userId,
+              classDateYmd,
+              classTime,
+              className,
+              contactId: sendContact.id,
+              attempts: attemptsSoFar,
+              status: "skipped",
+              nowIso,
+              reason: LEAVE_REQUEST_REASON,
+            });
+          }
+          markRetentionSent(businessId, sendPhone, now);
+        }
+        console.info("[leads/arbox-missed-class] dispatch", {
+          businessId,
+          kind,
+          user_id: userId,
+          dispatch: "skipped",
+          reason: leave === "blocked" ? LEAVE_REQUEST_REASON : "leave_check_failed",
         });
         continue;
       }
