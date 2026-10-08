@@ -40,7 +40,7 @@ import {
 import { logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import { rememberTrialBookingIdentities } from "@/lib/leads/arbox-trial-booking-identity";
 import { prepareTrialBookingClasses } from "@/lib/leads/trial-booking-class";
-import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, markRulesSeeded, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import { trialSendCapBlock } from "@/lib/leads/trial-booking-send-guard";
 import { sendWithSyncLogClaim } from "@/lib/leads/sync-log-claim";
@@ -373,6 +373,7 @@ async function sendTrialBookedTemplate(input: {
     phoneNumberId,
     templateName: input.template.name,
     alertTriggerId: input.rule.id,
+    eventDedupKey: `trial_booked:${input.businessId}:${input.rule.id}:${input.classDate}:${encodeURIComponent(input.classTime)}#${encodeURIComponent(input.className)}`,
     languageCode: input.template.language,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -614,6 +615,7 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   }
   const freshRules = trialRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if (freshRules.length) {
+    const seedErrorsBefore = summary.errors;
     for (const item of trials) {
       const triggerIds = freshRules.map((rule) => rule.id);
       if (freshRules.length === trialRules.length) triggerIds.push(SYNC_LOG_SENTINEL_TRIGGER_ID);
@@ -647,6 +649,9 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       }
     }
     for (const rule of freshRules) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(admin, freshRules.map((rule) => rule.id), now);
+    }
   }
 
   const { data: existing, error: existingErr } = await admin

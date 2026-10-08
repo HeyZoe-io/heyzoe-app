@@ -14,10 +14,13 @@ import {
   suppressMarketingOptOutFromSendError,
 } from "@/lib/wa-marketing-opt-out";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { DUPLICATE_GUARD_ERROR } from "@/lib/notifications/template-duplicate-guard";
 import {
-  DUPLICATE_GUARD_ERROR,
-  findRecentAutomatedTemplateSend,
-} from "@/lib/notifications/template-duplicate-guard";
+  claimTemplateSend,
+  releaseTemplateSendClaim,
+  templateClaimEventKey,
+  type TemplateSendClaim,
+} from "@/lib/notifications/template-send-claim";
 import {
   postWhatsAppGraphMessage,
   SEND_OUTCOME_UNKNOWN,
@@ -138,6 +141,12 @@ export async function sendBusinessTemplate(input: {
   recipientKind?: "customer" | "staff";
   /** template_triggers.id for this send. Empty = a template that is not a trigger. */
   alertTriggerId?: string | null;
+  /**
+   * The trigger's per-event dedup key (scheduled_template_sends format). Event-scoped sends
+   * claim template + event, so two events for one phone within 20h each go out.
+   * Empty = the param-independent 20h claim (broadcast, bulk, non-event templates).
+   */
+  eventDedupKey?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const token = resolveMetaAccessToken();
   if (!token) {
@@ -248,22 +257,24 @@ export async function sendBusinessTemplate(input: {
     }
   }
 
+  let claim: TemplateSendClaim = { kind: "unclaimed" };
   if (!isStaffRecipient && admin && businessId) {
     const params = (input.components ?? []).flatMap((component) =>
       component.type === "body" ? component.parameters.map((parameter) => parameter.text) : []
     );
-    const duplicate = await findRecentAutomatedTemplateSend({
+    claim = await claimTemplateSend({
       admin,
       businessId,
       phoneNumberId,
       phone: to,
       templateName,
       params,
-    }).catch((e) => {
+      eventKey: templateClaimEventKey(input.eventDedupKey),
+    }).catch((e): TemplateSendClaim => {
       console.error("[sendBusinessTemplate] duplicate guard failed", e);
-      return false;
+      return { kind: "unclaimed" };
     });
-    if (duplicate) {
+    if (claim.kind === "duplicate") {
       console.info("[sendBusinessTemplate] duplicate_guard", {
         businessId,
         templateName,
@@ -306,6 +317,7 @@ export async function sendBusinessTemplate(input: {
         return { ok: false, error: `${SEND_OUTCOME_UNKNOWN}:http_${res.status}` };
       }
       console.error("[sendBusinessTemplate] Meta error:", res.status, errText);
+      if (admin) await releaseTemplateSendClaim(admin, claim);
       const formatted = formatMetaSendError(errText || `http_${res.status}`);
       await recordTemplateSendFailure({
         phoneNumberId,
@@ -346,6 +358,8 @@ export async function sendBusinessTemplate(input: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[sendBusinessTemplate] failed:", msg);
-    return { ok: false, error: thrownSendOutcome(e) === "explicit" ? msg : `${SEND_OUTCOME_UNKNOWN}: ${msg}` };
+    const explicit = thrownSendOutcome(e) === "explicit";
+    if (explicit && admin) await releaseTemplateSendClaim(admin, claim);
+    return { ok: false, error: explicit ? msg : `${SEND_OUTCOME_UNKNOWN}: ${msg}` };
   }
 }

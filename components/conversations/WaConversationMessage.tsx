@@ -10,6 +10,7 @@ import {
 } from "@/lib/conversation-message-display";
 import { dashboardDateLocale, type DashboardLang } from "@/lib/dashboard-lang";
 import { parseModelUsed } from "@/lib/wa-reply-route";
+import { deliveryStateLabelHebrew, type MessageDelivery } from "@/lib/wa-delivery-errors";
 
 const i18n = {
   he: {
@@ -29,6 +30,50 @@ const i18n = {
 } as const;
 
 const IL_TZ = "Asia/Jerusalem";
+
+function TickIcon({ double, className }: { double: boolean; className: string }) {
+  return (
+    <svg viewBox="0 0 18 11" className={`h-[11px] w-[16px] ${className}`} aria-hidden fill="none">
+      <path d="M1 6.2 4.2 9.4 11 1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      {double ? (
+        <path d="M7.6 8.6 8.4 9.4 15.2 1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      ) : null}
+    </svg>
+  );
+}
+
+/** WhatsApp-style status for an outbound bubble. Failed shows the Hebrew reason on hover. */
+export function WaDeliveryIndicator({ delivery, lang }: { delivery: MessageDelivery; lang: DashboardLang }) {
+  const label =
+    lang === "he"
+      ? deliveryStateLabelHebrew(delivery.status)
+      : delivery.status === "read"
+        ? "Read"
+        : delivery.status === "delivered"
+          ? "Delivered"
+          : delivery.status === "failed"
+            ? "Failed"
+            : "Sent";
+  if (delivery.status === "failed") {
+    const reason = delivery.error_text || label;
+    return (
+      <span
+        className="inline-flex h-[14px] w-[14px] cursor-help items-center justify-center rounded-full bg-[#ea0038] text-[10px] font-bold leading-none text-white"
+        title={reason}
+        aria-label={`${label}: ${reason}`}
+        role="img"
+      >
+        !
+      </span>
+    );
+  }
+  const color = delivery.status === "read" ? "text-[#53bdeb]" : "text-[#8696a0]";
+  return (
+    <span title={label} aria-label={label} role="img" className="inline-flex items-center">
+      <TickIcon double={delivery.status !== "sent"} className={color} />
+    </span>
+  );
+}
 
 function formatTime(iso: string, lang: DashboardLang): string {
   const d = new Date(iso);
@@ -127,12 +172,16 @@ function BubbleShell({
   time,
   interactive,
   reactionEmoji,
+  delivery,
+  lang,
 }: {
   from: "user" | "assistant";
   children: React.ReactNode;
   time?: string;
   interactive?: boolean;
   reactionEmoji?: string;
+  delivery?: MessageDelivery;
+  lang: DashboardLang;
 }) {
   const outgoing = from === "assistant";
   const greenText = outgoing && !interactive;
@@ -145,9 +194,10 @@ function BubbleShell({
     <div className={`flex w-full ${outgoing ? "justify-start" : "justify-end"}`} dir="rtl">
       <div dir="rtl" className={`relative max-w-[min(100%,320px)] shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${bubbleClass}`}>
         {children}
-        {time ? (
-          <div className="flex items-end justify-end gap-1 px-2 pb-1 pt-0 text-[11px] leading-none text-[#667781]">
-            <span>{time}</span>
+        {time || (outgoing && delivery) ? (
+          <div className="flex items-center justify-end gap-1 px-2 pb-1 pt-0 text-[11px] leading-none text-[#667781]">
+            {time ? <span>{time}</span> : null}
+            {outgoing && delivery ? <WaDeliveryIndicator delivery={delivery} lang={lang} /> : null}
           </div>
         ) : null}
         {reactionEmoji ? (
@@ -255,6 +305,7 @@ export function WaConversationMessage({
   modelUsed,
   lang = "he",
   reactionEmoji,
+  delivery,
 }: {
   role: string;
   content: string;
@@ -263,6 +314,7 @@ export function WaConversationMessage({
   modelUsed?: string | null;
   lang?: DashboardLang;
   reactionEmoji?: string;
+  delivery?: MessageDelivery | null;
 }) {
   const t = i18n[lang];
   const modelEarly = parseModelUsed(modelUsed).model;
@@ -284,9 +336,21 @@ export function WaConversationMessage({
 
   return (
     <div className={`mb-2 ${reactionEmoji ? "mb-4" : ""}`}>
-      <BubbleShell from={from} time={time} interactive={interactive} reactionEmoji={reactionEmoji}>
+      <BubbleShell
+        from={from}
+        time={time}
+        interactive={interactive}
+        reactionEmoji={reactionEmoji}
+        delivery={delivery ?? undefined}
+        lang={lang}
+      >
         <MessageBody parsed={parsed} />
       </BubbleShell>
+      {from === "assistant" && delivery?.status === "failed" ? (
+        <p className="mt-0.5 text-end text-[10px] text-red-600" dir="rtl">
+          {delivery.error_text}
+        </p>
+      ) : null}
       {from === "assistant" && errorCode ? (
         <p className="mt-0.5 text-end text-[10px] text-red-600">
           {t.errorCode}: {errorCode}

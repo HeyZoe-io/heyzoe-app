@@ -600,6 +600,7 @@ async function dispatchFreezeTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey: input.dedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });

@@ -9,6 +9,7 @@ import {
 } from "@/lib/dashboard-business-access";
 import { isAdminAllowedEmail } from "@/lib/server-env";
 import { loadBusinessConversationSessions } from "@/lib/conversations-sessions";
+import { markSessionsWithFailedDelivery } from "@/lib/wa-message-delivery";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,11 @@ export async function GET(req: NextRequest) {
   const business = pickBusinessBySlug(accessible, slug) as DashboardBizRow | null;
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const sessions = await loadBusinessConversationSessions(admin, slug);
+  const loaded = await loadBusinessConversationSessions(admin, slug);
+  const businessId = Number(business.id);
+  const sessions =
+    Number.isFinite(businessId) && businessId > 0
+      ? await markSessionsWithFailedDelivery(admin, loaded, { businessId })
+      : loaded;
   return NextResponse.json({ sessions });
 }

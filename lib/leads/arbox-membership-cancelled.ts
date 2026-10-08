@@ -1,6 +1,7 @@
 import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
+import { buildMembershipCancelledScheduledDedupKey } from "@/lib/scheduled-template-sends";
 import {
   eventBeforeRuleActivation,
   israelSlotInstant,
@@ -535,6 +536,14 @@ async function dispatchMembershipCancelledTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey: buildMembershipCancelledScheduledDedupKey(
+      input.businessId,
+      input.rule.id,
+      input.userId,
+      input.cancelledTime,
+      input.endDateYmd,
+      input.membershipTypeName
+    ),
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -585,6 +594,8 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   activeProductKeys?: ActiveProductKeys;
   /** Test hook. Production uses the Arbox cancellations report. */
   fetchReport?: typeof fetchCanceledMembershipsReportRows;
+  /** Epoch ms from the worker's time budget. Paging stops before it; the next tick continues. */
+  deadlineMs?: number;
 }): Promise<MembershipCancelledSyncSummary> {
   const summary: MembershipCancelledSyncSummary = {
     fetched: 0,
@@ -644,11 +655,20 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     fromDate,
     toDate,
     locationId: boxId,
+    ...(input.deadlineMs != null ? { deadlineMs: input.deadlineMs } : {}),
   });
   summary.pages_fetched = report.pagesFetched;
   if (!report.ok) {
     summary.fetch_error = report.error;
     summary.errors += 1;
+    return summary;
+  }
+  if (report.stoppedForBudget && !input.cancellationSeeded) {
+    summary.fetch_error = "time_budget_before_seed";
+    console.warn("[leads/arbox-membership-cancelled] seed postponed to next tick (time budget)", {
+      businessId,
+      pages_fetched: report.pagesFetched,
+    });
     return summary;
   }
   summary.fetched = report.rows.length;

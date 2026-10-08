@@ -15,6 +15,7 @@ import {
 } from "@/lib/wa-zoe-admin-template-log";
 import { resolveBusinessSlugVariants } from "@/lib/conversations-sessions";
 import { waSessionIdVariantsFromSessionId } from "@/lib/phone-normalize";
+import { attachMessageDeliveries, selectMessagesWithWamid } from "@/lib/wa-message-delivery";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ type SessionMessage = {
   created_at: string;
   error_code?: string | null;
   model_used?: string | null;
+  wamid?: string | null;
 };
 
 async function requireUser() {
@@ -50,16 +52,16 @@ export async function GET(req: NextRequest) {
   if (!business) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const sessionIds = waSessionIdVariantsFromSessionId(sessionId);
-  let messagesQuery = admin
-    .from("messages")
-    .select("role, content, created_at, error_code, model_used")
-    .in("business_slug", slugVariants.length ? slugVariants : [slug])
-    .order("created_at", { ascending: true });
-  messagesQuery =
-    sessionIds.length === 1
+  const { data: messages } = await selectMessagesWithWamid((columns) => {
+    const messagesQuery = admin
+      .from("messages")
+      .select(columns)
+      .in("business_slug", slugVariants.length ? slugVariants : [slug])
+      .order("created_at", { ascending: true });
+    return sessionIds.length === 1
       ? messagesQuery.eq("session_id", sessionIds[0]!)
       : messagesQuery.in("session_id", sessionIds);
-  const { data: messages } = await messagesQuery;
+  });
 
   let out: SessionMessage[] = (messages ?? []).map((m) => ({
     role: String((m as { role?: string }).role ?? ""),
@@ -67,6 +69,7 @@ export async function GET(req: NextRequest) {
     created_at: String((m as { created_at?: string }).created_at ?? ""),
     error_code: ((m as { error_code?: string | null }).error_code as string | null) ?? null,
     model_used: ((m as { model_used?: string | null }).model_used as string | null) ?? null,
+    wamid: ((m as { wamid?: string | null }).wamid as string | null) ?? null,
   }));
 
   out = await appendLeadTemplateMessageFallback({
@@ -83,5 +86,5 @@ export async function GET(req: NextRequest) {
   });
   out = await enrichZoeAdminTemplatePlaceholderMessages({ admin, messages: out });
 
-  return NextResponse.json({ messages: out });
+  return NextResponse.json({ messages: await attachMessageDeliveries(admin, out) });
 }

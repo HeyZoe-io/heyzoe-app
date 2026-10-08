@@ -19,6 +19,7 @@ import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
   decideActivationEventAction,
   israelSlotInstant,
+  markRulesSeeded,
   ruleIdsActiveSinceActivation,
 } from "@/lib/rule-activation";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -403,6 +404,13 @@ async function sendBirthdayTemplate(input: {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
 
+  const eventDedupKey = buildBirthdayScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.birthdayYear,
+    input.triggerType
+  );
   if (input.rule.delay_days > 0) {
     const triggerYmd = computeBirthdayTriggerDateYmd(input.birthdayRaw, input.rule, input.now);
     const dueAt = triggerYmd
@@ -418,13 +426,7 @@ async function sendBirthdayTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildBirthdayScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.birthdayYear,
-        input.triggerType
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-birthday] enqueue failed:", enqueueResult.error);
@@ -478,6 +480,7 @@ async function sendBirthdayTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -688,6 +691,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
   const freshMember = memberRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   const freshFormer = formerRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if ((freshMember.length || freshFormer.length) && !isArboxDailyDryRun()) {
+    const seedErrorsBefore = summary.errors;
     for (const [userId] of rowsByUser) {
       const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
       const fresh = kind === "members" ? freshMember : freshFormer;
@@ -711,6 +715,9 @@ export async function syncArboxBirthdaysForBusiness(input: {
       }
     }
     for (const rule of [...freshMember, ...freshFormer]) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(input.admin, [...freshMember, ...freshFormer].map((rule) => rule.id), now);
+    }
   }
 
   for (const [userId, row] of rowsByUser) {

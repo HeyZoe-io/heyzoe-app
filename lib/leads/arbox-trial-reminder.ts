@@ -18,10 +18,13 @@
 import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import {
+  activationCatchUpDue,
   decideActivationEventAction,
   israelSlotInstant,
+  markRulesSeeded,
   ruleIdsActiveSinceActivation,
 } from "@/lib/rule-activation";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import {
   fetchAllArboxMembershipTypes,
   membershipTypeNameById,
@@ -574,6 +577,8 @@ async function dispatchTrialReminderTemplate(input: {
   now: Date;
   dueOffsetMs?: number;
   slot?: TrialReminderSlot;
+  /** Rule activated after the normal slot, class still ahead (activationCatchUpDue). */
+  catchUp?: boolean;
 }): Promise<{ dispatch: TrialReminderDispatch; ok: boolean; reason?: string }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
@@ -581,6 +586,7 @@ async function dispatchTrialReminderTemplate(input: {
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const slot: TrialReminderSlot = input.slot === "evening" ? "evening" : "morning";
   if (
+    !input.catchUp &&
     !trialReminderSendAllowedNow({
       classDateYmd: input.classDateYmd,
       classTime: input.classTime,
@@ -606,6 +612,14 @@ async function dispatchTrialReminderTemplate(input: {
     computeDueAt({ delay_days: 0, delay_direction: "after" }, input.now).getTime() +
       Math.max(0, input.dueOffsetMs ?? 0)
   );
+  const eventDedupKey = buildTrialReminderScheduledDedupKey(
+    input.businessId,
+    input.rule.id,
+    input.userId,
+    input.classDateYmd,
+    input.classTime,
+    input.className
+  );
   if (dueAt.getTime() > input.now.getTime() + 15_000) {
     const enqueueResult = await enqueueScheduledTemplateSend({
       admin: input.admin,
@@ -614,14 +628,7 @@ async function dispatchTrialReminderTemplate(input: {
       contactPhone: input.phone,
       templateName,
       dueAt,
-      dedupKey: buildTrialReminderScheduledDedupKey(
-        input.businessId,
-        input.rule.id,
-        input.userId,
-        input.classDateYmd,
-        input.classTime,
-        input.className
-      ),
+      dedupKey: eventDedupKey,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-reminder] enqueue failed:", enqueueResult.error);
@@ -691,6 +698,7 @@ async function dispatchTrialReminderTemplate(input: {
     phoneNumberId,
     templateName,
     alertTriggerId: input.rule.id,
+    eventDedupKey,
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
@@ -934,6 +942,19 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
   const trialDecision = (userId: number, classDate: string, classTime: string) =>
     classRun?.forKeys(userId, classDate, classTime);
+  /** Rule activated after this class's reminder slot: send in this run instead of seeding. */
+  const catchUp = (rule: PurchaseTemplateTriggerRule, classDateYmd: string, classTime: string) =>
+    activationCatchUpDue({
+      sendAt: trialReminderNormalSendAt({
+        classDateYmd,
+        classTime,
+        delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
+      }),
+      classStartAt: israelWallTimeToUtc(classDateYmd, classTime),
+      rule,
+      now,
+      sameDayOnly: true,
+    });
 
   const needsFullSeed = !input.trialReminderSeeded;
   let needsSoftSeed = false;
@@ -971,6 +992,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
         });
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        if (catchUp(rule, classDateYmd, classTime)) continue;
         seededRule = true;
         const up = await upsertTrialReminderSyncLog({
           admin: input.admin,
@@ -1054,6 +1076,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
   }
   const freshRules = sendRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if (freshRules.length) {
+    const seedErrorsBefore = summary.errors;
     for (const row of reportRows) {
       const userId = parseTrialReminderUserId(row.user_id);
       const classDateYmd = parseClassDateYmd(row.date);
@@ -1069,6 +1092,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
           delayDays: Math.max(0, Math.trunc(Number(rule.delay_days) || 0)),
         });
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
+        if (catchUp(rule, classDateYmd, classTime)) continue;
         const { error } = await input.admin.from("arbox_trial_reminder_sync_log").upsert(
           {
             business_id: businessId,
@@ -1091,6 +1115,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
       }
     }
     for (const rule of freshRules) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(input.admin, freshRules.map((rule) => rule.id), now);
+    }
   }
 
   for (const row of reportRows) {
@@ -1127,7 +1154,9 @@ export async function syncArboxTrialReminderForBusiness(input: {
           todayYmd,
           delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
           slot,
-        }) && ruleCoversRow(item)
+        }) &&
+        ruleCoversRow(item) &&
+        !catchUp(item, classDateYmd, classTime)
     );
     if (lateRules.length) {
       summary.booked_after_evening_run = (summary.booked_after_evening_run ?? 0) + 1;
@@ -1161,13 +1190,14 @@ export async function syncArboxTrialReminderForBusiness(input: {
     const dueRules = sendRules.filter(
       (item) =>
         ruleCoversRow(item) &&
-        trialReminderMatchesSlot({
+        (trialReminderMatchesSlot({
           classDateYmd,
           classTime,
           todayYmd,
           delayDays: Math.max(0, Math.trunc(Number(item.delay_days) || 0)),
           slot,
-        })
+        }) ||
+          catchUp(item, classDateYmd, classTime))
     );
     if (!dueRules.length) continue;
     summary.due += 1;
@@ -1303,6 +1333,7 @@ export async function syncArboxTrialReminderForBusiness(input: {
             now,
             dueOffsetMs: ctx.dueOffsetMs,
             slot,
+            catchUp: catchUp(item, classDateYmd, classTime),
           });
           if (send.reason === DUPLICATE_GUARD_ERROR) duplicateGuard = true;
           return send.dispatch as CompanionDispatch;

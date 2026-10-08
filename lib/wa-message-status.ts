@@ -108,6 +108,25 @@ async function businessIdsForPhoneNumberIds(
   return out;
 }
 
+async function alertBlockingStatusFailures(
+  admin: Admin,
+  failed: readonly MetaStatusEvent[],
+  businessByChannel: ReadonlyMap<string, number | null>,
+  now: Date
+): Promise<void> {
+  const { alertBusinessBlockingErrors, isBusinessBlockingError } = await import("@/lib/wa-blocking-error-alert");
+  const events = failed
+    .filter((e) => isBusinessBlockingError(e.errorCode))
+    .map((e) => ({
+      businessId: Number(businessByChannel.get(e.phoneNumberId) ?? 0),
+      errorCode: Number(e.errorCode),
+      detail: e.errorTitle,
+      source: "status_webhook" as const,
+    }))
+    .filter((e) => e.businessId > 0);
+  if (events.length) await alertBusinessBlockingErrors(events, { admin, now });
+}
+
 export function isMissingStatusTable(message: string): boolean {
   return /wa_message_statuses|does not exist|42P01|schema cache/i.test(message);
 }
@@ -154,6 +173,7 @@ export async function persistMetaStatusEvents(
         count: failed.length,
         codes: [...new Set(failed.map((e) => e.errorCode))],
       });
+      await alertBlockingStatusFailures(admin, failed, businessByChannel, now);
     }
     return { ok: true, rows: rows.length };
   } catch (e) {
