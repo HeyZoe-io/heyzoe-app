@@ -28,8 +28,9 @@ import {
 import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
-  isIntroWorkoutProductName,
   loadActiveMembershipIndex,
+  sessionsExpiringExcludedProduct,
+  trialTypeNamesFromRows,
 } from "@/lib/leads/arbox-expiry-suppress";
 import {
   buildSessionsExpiringScheduledDedupKey,
@@ -337,9 +338,15 @@ async function dispatchSessionsExpiringTemplate(input: {
   dueAt: Date;
   rule: PurchaseTemplateTriggerRule;
   now: Date;
+  /** Already checked at detection; checked again so no path enqueues or sends an intro / one-session pack. */
+  excludedProduct: ReturnType<typeof sessionsExpiringExcludedProduct>;
 }): Promise<{ dispatch: SessionsExpiringDispatch; ok: boolean }> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
+  if (input.excludedProduct) {
+    console.info("[leads/arbox-sessions-expiring] skip", { reason: input.excludedProduct, user_id: input.userId });
+    return { dispatch: "skipped", ok: false };
+  }
 
   const delayDays = Math.max(0, Math.trunc(Number(input.rule.delay_days) || 0));
   const sendImmediate = delayDays === 0 && dueAtIsTodayIsrael(input.dueAt, input.now);
@@ -452,6 +459,8 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
   boxId: string;
   now?: Date;
   activeMembershipRows?: Record<string, unknown>[] | null;
+  /** businesses.arbox_trial_membership_type_ids; names come from activeMembershipRows. */
+  trialMembershipTypeIds?: readonly number[];
 }): Promise<SessionsExpiringSyncSummary> {
   const summary: SessionsExpiringSyncSummary = {
     fetched: 0,
@@ -567,6 +576,9 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
   }
   for (const rule of freshRules) activeRuleIds.add(rule.id);
 
+  const trialTypeIds = (input.trialMembershipTypeIds ?? []).filter((id) => Number.isFinite(id) && id > 0);
+  const trialTypeNames = trialTypeNamesFromRows(input.activeMembershipRows, trialTypeIds);
+
   for (const row of report.rows) {
     const userIdRaw = Number(row.user_id);
     if (!Number.isFinite(userIdRaw) || userIdRaw <= 0) {
@@ -600,7 +612,13 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
       continue;
     }
 
-    if (isIntroWorkoutProductName(row.membership_type_name)) {
+    const excludedProduct = sessionsExpiringExcludedProduct({
+      name: row.membership_type_name,
+      membershipTypeId: (row as { membership_type_id?: unknown }).membership_type_id,
+      trialTypeIds,
+      trialTypeNamesNormalized: trialTypeNames,
+    });
+    if (excludedProduct) {
       summary.skipped_intro += 1;
       for (const rule of rules) {
         await cancelPendingScheduledTemplateSendByDedupKey({
@@ -612,12 +630,13 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
             startDateYmd,
             endDateYmd
           ),
-          reason: "intro_workout",
+          reason: excludedProduct,
         });
       }
       console.info("[leads/arbox-sessions-expiring] dispatch", {
         ...logBase,
         dispatch: "skipped_intro",
+        reason: excludedProduct,
       });
       continue;
     }
@@ -814,6 +833,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
                 dueAt: computeSessionsExpiringDueAt(endDateYmd, rule),
                 rule,
                 now,
+                excludedProduct,
               });
               const dispatch: CompanionDispatch =
                 send.dispatch === "enqueued"

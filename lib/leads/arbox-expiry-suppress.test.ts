@@ -3,6 +3,9 @@ import {
   hasAnotherActiveMembership,
   indexActiveMemberships,
   isIntroWorkoutProductName,
+  productNameTotalSessions,
+  sessionsExpiringExcludedProduct,
+  trialTypeNamesFromRows,
   membershipExpiringIdFromDedupKey,
   sessionsExpiringIdentityFromDedupKey,
 } from "@/lib/leads/arbox-expiry-suppress";
@@ -62,5 +65,32 @@ assert.equal(
   ),
   17557509
 );
+
+// Tights (3543) Oct 8: Adi 11632993 and Adi 11721062 were queued for sessions_expiring on this product.
+assert.equal(isIntroWorkoutProductName("שיעור הכרות - סטודיו tights"), true);
+assert.equal(sessionsExpiringExcludedProduct({ name: "שיעור הכרות - סטודיו tights" }), "intro_workout");
+assert.equal(sessionsExpiringExcludedProduct({ name: "שיעור היכרות" }), "intro_workout");
+assert.equal(sessionsExpiringExcludedProduct({ name: "חודש היכרות ללקוחות חדשים בלבד! ללא הגבלה" }), null);
+assert.equal(sessionsExpiringExcludedProduct({ name: "כרטיסיית ניסיון 3 כניסות" }), "trial_product");
+assert.equal(
+  sessionsExpiringExcludedProduct({ name: "Welcome pack", membershipTypeId: 77, trialTypeIds: [77] }),
+  "trial_product"
+);
+assert.equal(
+  sessionsExpiringExcludedProduct({
+    name: "Welcome pack",
+    trialTypeIds: [77],
+    trialTypeNamesNormalized: trialTypeNamesFromRows([{ membership_type_id: 77, membership_type_name: "Welcome pack" }], [77]),
+  }),
+  "trial_product"
+);
+assert.equal(sessionsExpiringExcludedProduct({ name: "אימון בודד פילאטיס מכשירים" }), "single_session");
+assert.equal(sessionsExpiringExcludedProduct({ name: "כניסה אחת" }), "single_session");
+assert.equal(sessionsExpiringExcludedProduct({ name: "כרטיסיה של 1 כניסות" }), "single_session");
+assert.equal(sessionsExpiringExcludedProduct({ name: "כרטיסיה של 10 כניסות - חיילת" }), null);
+assert.equal(sessionsExpiringExcludedProduct({ name: "4 כניסות פילאטיס מכשירים" }), null);
+assert.equal(productNameTotalSessions("כרטיסיה של 10 כניסות - חיילת"), 10);
+assert.equal(productNameTotalSessions("כרטיסייה"), null);
+assert.equal(trialTypeNamesFromRows([{ membership_type_id: 5, membership_type_name: "x" }], []).size, 0);
 
 console.log("arbox-expiry-suppress.test.ts: ok");
