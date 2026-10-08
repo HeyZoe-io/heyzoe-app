@@ -102,7 +102,8 @@ export type CancellationSyncLogStatus =
   | "no_phone"
   | "skipped"
   | "sending"
-  | "failed";
+  | "failed"
+  | "unknown";
 
 const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] = [
   "seeded",
@@ -111,6 +112,7 @@ const CANCELLATION_SYNC_TERMINAL_STATUSES: readonly CancellationSyncLogStatus[] 
   "no_phone",
   "skipped",
   "sending",
+  "unknown",
 ];
 
 export function isCancellationSyncLogTerminal(status: string | null | undefined): boolean {
@@ -139,11 +141,21 @@ export function parseCancellationSyncAttempts(raw: unknown): number {
  * `skipped` is terminal for this dedup key (no_valid_name). It does not increment attempts.
  */
 export function nextCancellationSyncLogAfterDispatch(input: {
-  dispatch: "gated" | "send_failed" | "immediate" | "deferred" | "no_phone" | "seeded" | "skipped";
+  dispatch:
+    | "gated"
+    | "send_failed"
+  | "send_unknown"
+    | "send_unknown"
+    | "immediate"
+    | "deferred"
+    | "no_phone"
+    | "seeded"
+    | "skipped";
   attemptsSoFar: number;
   cap?: number;
 }): { attempts: number; status: CancellationSyncLogStatus; hitCap: boolean } {
   const soFar = parseCancellationSyncAttempts(input.attemptsSoFar);
+  if (input.dispatch === "send_unknown") return { attempts: soFar, status: "unknown", hitCap: false };
   if (input.dispatch === "seeded") return { attempts: soFar, status: "seeded", hitCap: false };
   if (input.dispatch === "no_phone") return { attempts: soFar, status: "no_phone", hitCap: false };
   if (input.dispatch === "skipped") return { attempts: soFar, status: "skipped", hitCap: false };
@@ -199,7 +211,8 @@ export type MembershipCancelledDispatch =
   | "skipped_filter"
   | "skipped_rejoined"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type MembershipCancelledSyncSummary = {
   skipped?: boolean;
@@ -951,7 +964,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
         if (send.dispatch === "immediate") summary.notified += 1;
         else if (send.dispatch === "deferred") summary.deferred += 1;
         else if (send.dispatch === "gated") summary.gated += 1;
-        else if (send.dispatch === "send_failed") summary.errors += 1;
+        else if (send.dispatch === "send_failed" || send.dispatch === "send_unknown") summary.errors += 1;
 
         console.info("[leads/arbox-membership-cancelled] dispatch", {
           ...logBase,
@@ -963,7 +976,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           send.dispatch === "deferred" ||
           send.dispatch === "gated" ||
           send.dispatch === "skipped" ||
-          send.dispatch === "send_failed"
+          (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
         ) {
           const next = nextCancellationSyncLogAfterDispatch({
             dispatch: send.dispatch,

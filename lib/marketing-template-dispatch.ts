@@ -48,6 +48,7 @@ import {
   decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
+  nextScheduledSendAfterMetaError,
 } from "@/lib/scheduled-template-sends";
 import {
   evaluateMarketingLineSessionSend,
@@ -520,11 +521,17 @@ async function dispatchOrEnqueue(input: {
     });
     return;
   }
+  const retry =
+    afterImmediate.status === "failed"
+      ? nextScheduledSendAfterMetaError(await marketingSendAttempts(input.admin, "dedup_key", input.dedupKey))
+      : null;
   const { error: markErr } = await input.admin
     .from("scheduled_marketing_template_sends")
     .update({
-      status: afterImmediate.status,
+      // unknown is stored as failed: final on this table.
+      status: retry ? retry.status : afterImmediate.status === "unknown" ? "failed" : afterImmediate.status,
       last_error: afterImmediate.status === "sent" ? null : afterImmediate.last_error,
+      ...(retry?.attempts != null ? { attempts: retry.attempts } : {}),
       updated_at: nowIso,
     })
     .eq("dedup_key", input.dedupKey)
@@ -820,10 +827,14 @@ export async function dispatchDueMarketingScheduledSend(
   });
 
   const nowIso = new Date().toISOString();
-  async function mark(status: "sent" | "failed" | "canceled", last_error: string | null) {
+  async function mark(
+    status: "sent" | "failed" | "canceled" | "pending",
+    last_error: string | null,
+    attempts?: number | null
+  ) {
     const { error } = await admin
       .from("scheduled_marketing_template_sends")
-      .update({ status, last_error, updated_at: nowIso })
+      .update({ status, last_error, updated_at: nowIso, ...(attempts != null ? { attempts } : {}) })
       .eq("id", row.id)
       .eq("status", "pending");
     if (error) {
@@ -951,8 +962,14 @@ export async function dispatchDueMarketingScheduledSend(
     console.info("[marketing-template-dispatch] sends hold, left pending", { id: row.id });
     return "skipped";
   }
-  if (after.status === "failed") {
+  if (after.status === "unknown") {
+    console.error("[marketing-template-dispatch] send outcome unknown, not retried", { id: row.id });
     await mark("failed", after.last_error);
+    return "failed";
+  }
+  if (after.status === "failed") {
+    const retry = nextScheduledSendAfterMetaError(await marketingSendAttempts(admin, "id", row.id));
+    await mark(retry.status, after.last_error, retry.attempts);
     return "failed";
   }
   if (after.status === "canceled") {
@@ -961,6 +978,17 @@ export async function dispatchDueMarketingScheduledSend(
   }
   await mark("sent", null);
   return "sent";
+}
+
+/** Meta errors already on a queued marketing row. null before the attempts column exists. */
+async function marketingSendAttempts(admin: AdminClient, column: "id" | "dedup_key", value: string): Promise<number | null> {
+  const { data, error } = await admin
+    .from("scheduled_marketing_template_sends")
+    .select("attempts")
+    .eq(column, value)
+    .maybeSingle();
+  if (error) return null;
+  return Math.max(0, Math.trunc(Number((data as { attempts?: unknown } | null)?.attempts) || 0));
 }
 
 export async function enqueueMarketingBroadcast(input: {

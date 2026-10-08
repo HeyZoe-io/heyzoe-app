@@ -8,6 +8,7 @@ import {
   decideScheduledSendAfterMeta,
   decideScheduledSendGate,
   NO_TEMPLATE_SKIPPED_ERROR,
+  nextScheduledSendAfterMetaError,
 } from "@/lib/scheduled-template-sends";
 import { templateBodyUsesFirstNameSlot, templateSendPayload } from "@/lib/template-send-params";
 import { logMessage } from "@/lib/analytics";
@@ -31,13 +32,14 @@ export type ManualBulkQueuedSendRow = {
 async function markQueued(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   id: string,
-  mark: { status: "sent" | "failed" | "canceled"; last_error?: string | null }
+  mark: { status: "sent" | "failed" | "canceled" | "pending"; last_error?: string | null; attempts?: number | null }
 ): Promise<void> {
   const { error } = await admin
     .from("manual_bulk_queued_sends")
     .update({
       status: mark.status,
       last_error: mark.status === "sent" ? null : (mark.last_error ?? null),
+      ...(mark.attempts != null ? { attempts: mark.attempts } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -45,6 +47,13 @@ async function markQueued(
   if (error) {
     console.error("[manual-bulk] queue status update failed:", error.message, { id, status: mark.status });
   }
+}
+
+/** Meta errors already on this queued row. null before the attempts column exists. */
+async function queuedAttempts(admin: ReturnType<typeof createSupabaseAdminClient>, id: string): Promise<number | null> {
+  const { data, error } = await admin.from("manual_bulk_queued_sends").select("attempts").eq("id", id).maybeSingle();
+  if (error) return null;
+  return Math.max(0, Math.trunc(Number((data as { attempts?: unknown } | null)?.attempts) || 0));
 }
 
 async function lookupContactFullName(
@@ -157,8 +166,14 @@ async function dispatchOne(
     console.info("[manual-bulk] sends hold, left pending", { id: row.id, businessId });
     return "skipped";
   }
-  if (afterMeta.status === "failed") {
+  if (afterMeta.status === "unknown") {
+    console.error("[manual-bulk] send outcome unknown, not retried", { id: row.id, businessId });
     await markQueued(admin, row.id, { status: "failed", last_error: afterMeta.last_error });
+    return "failed";
+  }
+  if (afterMeta.status === "failed") {
+    const retry = nextScheduledSendAfterMetaError(await queuedAttempts(admin, row.id));
+    await markQueued(admin, row.id, { status: retry.status, last_error: afterMeta.last_error, attempts: retry.attempts });
     return "failed";
   }
   if (afterMeta.status === "canceled") {

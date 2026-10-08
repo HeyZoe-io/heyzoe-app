@@ -37,7 +37,9 @@ assert.equal(trialBookingConfirmEnabled(true), true);
 assert.equal(trialBookingAlreadyHandled("sent"), true);
 assert.equal(trialBookingAlreadyHandled("skipped"), true);
 assert.equal(trialBookingAlreadyHandled("pending"), true);
-assert.equal(trialBookingAlreadyHandled("failed"), true);
+assert.equal(trialBookingAlreadyHandled("failed"), false, "a Meta error is retried up to the cap");
+assert.equal(trialBookingAlreadyHandled("unknown"), true);
+assert.equal(trialBookingAlreadyHandled("abandoned"), true);
 assert.equal(trialBookingAlreadyHandled(undefined), false);
 
 const tenJerusalem = new Date("2026-10-05T07:00:00.000Z");
@@ -123,5 +125,6 @@ assert.equal(formatTrialBookingConfirmTime("19:00"), "19:00");
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "outside_24h_window" }), true);
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "no_user_session" }), true);
 assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "send_failed" }), false);
+assert.equal(trialBookingConfirmIsTerminalSkip({ sent: false, reason: "send_unknown" }), false);
 
 console.log("arbox-trial-booking-confirm.test.ts: ok");

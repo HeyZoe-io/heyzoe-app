@@ -394,7 +394,7 @@ async function dispatchMissedTemplate(input: {
   now: Date;
   dueOffsetMs?: number;
 }): Promise<{
-  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule";
+  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "send_unknown" | "no_rule";
   ok: boolean;
   reason?: string;
 }> {
@@ -1290,6 +1290,8 @@ export async function syncArboxMissedClassForBusiness(input: {
                 ? ("skipped" as const)
                 : sendDispatch === "send_failed"
                   ? ("send_failed" as const)
+                  : sendDispatch === "send_unknown"
+                  ? ("send_unknown" as const)
                   : ("gated" as const);
 
       const next = nextCancellationSyncLogAfterDispatch({
@@ -1315,13 +1317,13 @@ export async function syncArboxMissedClassForBusiness(input: {
       }
 
       summary.processed += 1;
-      if (sendDispatch === "immediate" || sendDispatch === "deferred") {
+      if (sendDispatch === "immediate" || sendDispatch === "deferred" || sendDispatch === "send_unknown") {
         markRetentionSent(businessId, sendPhone, now);
       }
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") {
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") {
         if (next.hitCap) summary.abandoned += 1;
         else summary.errors += 1;
       }

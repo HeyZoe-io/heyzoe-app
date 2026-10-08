@@ -98,7 +98,8 @@ export type BirthdayDispatch =
   | "no_rule"
   | "no_phone"
   | "not_due"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type BirthdaySyncSummary = {
   skipped?: boolean;
@@ -866,7 +867,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
                 send.dispatch === "deferred" ||
                 send.dispatch === "gated" ||
                 send.dispatch === "skipped" ||
-                send.dispatch === "send_failed"
+                (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
                   ? send.dispatch
                   : "skipped";
               return { settle: claimSettleForDispatch(dispatch), value: dispatch };
@@ -888,7 +889,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") summary.errors += 1;
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-birthday] row threw", {

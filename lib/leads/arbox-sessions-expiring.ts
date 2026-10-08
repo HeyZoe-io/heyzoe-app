@@ -96,7 +96,8 @@ export type SessionsExpiringDispatch =
   | "skipped_outside_horizon"
   | "no_rule"
   | "no_phone"
-  | "send_failed";
+  | "send_failed"
+  | "send_unknown";
 
 export type SessionsExpiringSyncSummary = {
   skipped?: boolean;
@@ -820,7 +821,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
                   : send.dispatch === "immediate" ||
                       send.dispatch === "gated" ||
                       send.dispatch === "skipped" ||
-                      send.dispatch === "send_failed"
+                      (send.dispatch === "send_failed" || send.dispatch === "send_unknown")
                     ? send.dispatch
                     : "skipped";
               return { settle: claimSettleForDispatch(dispatch), value: dispatch };
@@ -835,7 +836,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
       if (sendDispatch === "immediate") summary.notified += 1;
       else if (sendDispatch === "deferred") summary.deferred += 1;
       else if (sendDispatch === "gated") summary.gated += 1;
-      else if (sendDispatch === "send_failed") summary.errors += 1;
+      else if (sendDispatch === "send_failed" || sendDispatch === "send_unknown") summary.errors += 1;
     } catch (e) {
       summary.errors += 1;
       console.error("[leads/arbox-sessions-expiring] row threw", {

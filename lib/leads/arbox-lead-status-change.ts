@@ -1,3 +1,5 @@
+import { isSyncLogStatusCheck, syncLogStatusFallbacks } from "@/lib/leads/sync-log-reason";
+import { templateFailureDispatch } from "@/lib/business-sends-hold";
 /**
  * lead_status_changed: full leadsInProcessReport pull, diff against the snapshot.
  * fromDate/toDate are ignored by Arbox, so every scan reads all open leads.
@@ -651,9 +653,16 @@ async function upsertSync(input: {
   };
   if (input.dueDate) row.due_date = input.dueDate;
   if (input.sendSlot) row.send_slot = input.sendSlot;
-  const { error } = await input.admin.from(SYNC_TABLE).upsert(row, {
-    onConflict: "business_id,trigger_id,lead_id,lead_status,entered_at",
-  });
+  let error: { message: string; code?: string } | null = null;
+  for (const attempt of syncLogStatusFallbacks(input.status, input.reason)) {
+    ({ error } = await input.admin
+      .from(SYNC_TABLE)
+      .upsert(
+        { ...row, status: attempt.status, reason: attempt.reason ?? null },
+        { onConflict: "business_id,trigger_id,lead_id,lead_status,entered_at" }
+      ));
+    if (!error || !isSyncLogStatusCheck(error)) break;
+  }
   if (error) {
     if (/due_date|send_slot|schema cache|PGRST204|could not find/i.test(error.message)) {
       return { ok: false, missingColumn: true };
@@ -676,7 +685,10 @@ async function dispatchLeadStatusTemplate(input: {
   dedupKey: string;
   /** False once the pending log owns the delay. Stage C stays for every other trigger. */
   queueDelay?: boolean;
-}): Promise<{ dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "no_rule"; ok: boolean }> {
+}): Promise<{
+  dispatch: "immediate" | "deferred" | "gated" | "skipped" | "send_failed" | "send_unknown" | "no_rule";
+  ok: boolean;
+}> {
   const templateName = input.rule.template_name?.trim() || "";
   if (!templateName) return { dispatch: "no_rule", ok: false };
   if (input.queueDelay !== false && leadStatusSendIsQueued(input.rule.delay_days, input.now)) {
@@ -742,7 +754,7 @@ async function dispatchLeadStatusTemplate(input: {
     languageCode,
     ...(sendComponents ? { components: sendComponents } : {}),
   });
-  if (!sendResult.ok) return { dispatch: "send_failed", ok: false };
+  if (!sendResult.ok) return { dispatch: templateFailureDispatch(sendResult.error), ok: false };
   await logMessage({
     business_slug: input.businessSlug,
     role: "assistant",
@@ -1525,7 +1537,7 @@ async function sendOne(input: {
     dedupKey: scheduledKey(input.businessId, rule.id, person.leadId, person.status, input.enteredAt),
     queueDelay: input.queueDelay,
   });
-  if (send.dispatch === "immediate" || send.dispatch === "deferred") {
+  if (send.dispatch === "immediate" || send.dispatch === "deferred" || send.dispatch === "send_unknown") {
     markRetentionSent(input.businessId, phone, input.now);
   }
   if (send.dispatch === "immediate") summary.notified += 1;

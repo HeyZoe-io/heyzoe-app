@@ -126,7 +126,8 @@ const MEMBER_SYNC_LOGS: { table: string; userIdColumn: "user_id" | null }[] = [
   { table: "arbox_credit_refusal_sync_log", userIdColumn: null },
 ];
 
-export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped" | "send_failed";
+export type NoResponseDispatch = "immediate" | "deferred" | "gated" | "skipped" | "send_failed"
+  | "send_unknown";
 
 export type NoResponseReengageSummary = {
   examined: number;
@@ -867,7 +868,7 @@ export async function syncNoResponseReengageForBusiness(input: {
         await markReengagedAt(input.admin, contactId, now.toISOString());
       }
 
-      if (dispatch === "immediate" || dispatch === "deferred") {
+      if (dispatch === "immediate" || dispatch === "deferred" || dispatch === "send_unknown") {
         markRetentionSent(input.businessId, phoneNorm, now);
       }
       if (dispatch === "immediate") summary.sent += 1;
