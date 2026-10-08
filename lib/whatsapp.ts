@@ -145,8 +145,11 @@ export type WaIncomingText = {
   profileName?: string;
   /** Meta interactive reply `id` — use with {@link resolveMetaInteractiveLabel} for full label */
   metaInteractiveReplyId?: string;
-  /** Meta `interactive` subtype when inbound was button_reply / list_reply (not plain text). */
-  metaInteractiveReplyKind?: "button_reply" | "list_reply";
+  /**
+   * Meta `interactive` subtype when inbound was button_reply / list_reply (not plain text).
+   * `template_button` = quick-reply on a template; routed as free text, not as a menu pick.
+   */
+  metaInteractiveReplyKind?: "button_reply" | "list_reply" | "template_button";
   /** wamid of the message this button answered. */
   replyToWamid?: string;
 };
@@ -367,7 +370,7 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
       toNumber: phoneNumberId,
       text,
       profileName: profileName || undefined,
-      metaInteractiveReplyKind: "button_reply",
+      metaInteractiveReplyKind: "template_button",
       ...(contextId ? { replyToWamid: contextId } : {}),
     };
   }

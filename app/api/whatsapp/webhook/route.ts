@@ -7556,7 +7556,8 @@ async function processIncoming(
   // «הפסקת הודעות הקידום» below still stops every marketing template.
   if (
     msg.type === "text" &&
-    msg.metaInteractiveReplyKind === "button_reply" &&
+    (msg.metaInteractiveReplyKind === "template_button" ||
+      msg.metaInteractiveReplyKind === "button_reply") &&
     isTriggerAlertMuteButtonText(incomingTextRaw)
   ) {
     if (!processOpts?.skipUserLog) {
