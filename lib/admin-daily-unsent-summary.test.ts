@@ -32,8 +32,10 @@ assert.equal(unsentReason({ status: "failed", lastError: "empty_variable", overd
 assert.equal(unsentReason({ status: "pending", lastError: "empty_variable", overdue: false }), "משתנה ריק בטמפלייט");
 assert.equal(
   unsentReason({ status: "sent", lastError: "sending", overdue: true }),
-  "נשאר באמצע שליחה"
+  null,
+  "a claim stored as sent before the SQL counts as sent"
 );
+assert.equal(unsentReason({ status: "failed", lastError: "sending", overdue: true }), "נשאר באמצע שליחה");
 assert.equal(
   unsentReason({ status: "sent", lastError: "duplicate_guard", overdue: true }),
   "נחסם כפילות"
