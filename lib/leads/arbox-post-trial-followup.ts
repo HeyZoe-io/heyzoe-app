@@ -18,6 +18,7 @@
  * Decision day itself still sends on that run (even after 09:00), matching
  * lost-lead / cancellation new-rule activation.
  */
+import { REGISTERED_VIA_ZOE_REASON, registeredViaZoe } from "@/lib/leads/registered-via-zoe";
 import { isMissingSyncLogReasonColumn, upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
@@ -449,6 +450,8 @@ type ContactRow = {
   phone: string | null;
   full_name: string | null;
   arbox_user_id: string | null;
+  trial_registered?: boolean | null;
+  session_phase?: string | null;
 };
 
 async function resolveOrCreateContact(input: {
@@ -457,7 +460,7 @@ async function resolveOrCreateContact(input: {
   row: ArboxBookingReportRow;
   source: string;
 }): Promise<{ contact: ContactRow | null; phone: string | null }> {
-  const contactSelect = "id, phone, full_name, arbox_user_id";
+  const contactSelect = "id, phone, full_name, arbox_user_id, trial_registered, session_phase";
   const arboxUserId = String(input.row.user_id ?? "").trim();
   let phoneNorm = normalizePhone(input.row.phone);
   const fullName = resolveReportFullName(input.row);
@@ -1279,6 +1282,37 @@ export async function syncArboxPostTrialFollowupForBusiness(input: {
             nowIso,
           });
         }
+        continue;
+      }
+
+      if (outcome === "not_registered" && registeredViaZoe(resolved.contact)) {
+        for (const rule of rulesToSend) {
+          await upsertOptionalReason(
+            input.admin,
+            "arbox_post_trial_followup_sync_log",
+            {
+              business_id: businessId,
+              trigger_id: rule.id,
+              user_id: att.userId,
+              class_date: att.classDateYmd,
+              outcome,
+              contact_id: resolved.contact.id,
+              processed_at: nowIso,
+              attempts: 0,
+              status: "skipped",
+            },
+            "business_id,trigger_id,user_id,class_date",
+            REGISTERED_VIA_ZOE_REASON,
+            { ignoreDuplicates: true }
+          );
+        }
+        console.info("[leads/arbox-post-trial-followup] dispatch", {
+          businessId,
+          outcome,
+          user_id: att.userId,
+          dispatch: "skipped",
+          reason: REGISTERED_VIA_ZOE_REASON,
+        });
         continue;
       }
 
