@@ -585,6 +585,8 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
   activeProductKeys?: ActiveProductKeys;
   /** Test hook. Production uses the Arbox cancellations report. */
   fetchReport?: typeof fetchCanceledMembershipsReportRows;
+  /** Epoch ms from the worker's time budget. Paging stops before it; the next tick continues. */
+  deadlineMs?: number;
 }): Promise<MembershipCancelledSyncSummary> {
   const summary: MembershipCancelledSyncSummary = {
     fetched: 0,
@@ -644,11 +646,20 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
     fromDate,
     toDate,
     locationId: boxId,
+    ...(input.deadlineMs != null ? { deadlineMs: input.deadlineMs } : {}),
   });
   summary.pages_fetched = report.pagesFetched;
   if (!report.ok) {
     summary.fetch_error = report.error;
     summary.errors += 1;
+    return summary;
+  }
+  if (report.stoppedForBudget && !input.cancellationSeeded) {
+    summary.fetch_error = "time_budget_before_seed";
+    console.warn("[leads/arbox-membership-cancelled] seed postponed to next tick (time budget)", {
+      businessId,
+      pages_fetched: report.pagesFetched,
+    });
     return summary;
   }
   summary.fetched = report.rows.length;
