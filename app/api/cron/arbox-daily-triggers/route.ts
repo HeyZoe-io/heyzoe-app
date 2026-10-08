@@ -22,7 +22,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Returns immediately. Each eligible business runs in its own worker invocation
  * via after() → GET /api/cron/arbox-daily-triggers/business.
  * ?dry_run=1 awaits the workers in this request and does not send or write.
- * ?slot=evening is the 20:30 Asia/Jerusalem job (cron-job.org). The slot is the
+ * ?slot=evening is the EVENING_SLOT_IL (20:00) Asia/Jerusalem job (cron-job.org). The slot is the
  * query param, not the clock hour. It runs trial reminders, trainer heads-up,
  * nth_workout rules whose direction is before, post-trial C5/C6 catch-up, and
  * lead_status_changed. It must finish before the 21:00 night hold.

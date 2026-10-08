@@ -8,6 +8,7 @@
  * Delay 0 fetches that bookingsReport only when a due row is still open in the log.
  * Seed 30d without WhatsApp.
  */
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
 import { logMessage } from "@/lib/analytics";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
@@ -286,7 +287,7 @@ export function lostLeadNormalSendAt(
     return isLostLeadImmediateDue(eventYmd, todayYmd) ? new Date(now.getTime() + 60_000) : null;
   }
   const due = addCalendarDaysYmd(eventYmd, delay);
-  return due ? israelSlotInstant(due, "09:00") : null;
+  return due ? israelSlotInstant(due, MORNING_SLOT_IL) : null;
 }
 
 /** One lostLeadsReport day per distinct delay: fromDate = toDate = today - N. */

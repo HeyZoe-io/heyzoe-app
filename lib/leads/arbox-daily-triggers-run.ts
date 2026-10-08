@@ -334,7 +334,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
   business: ArboxDailyBusiness;
   now?: Date;
   /**
-   * 20:30 Asia/Jerusalem via ?slot=evening. Trial reminder, trainer heads-up,
+   * EVENING_SLOT_IL Asia/Jerusalem via ?slot=evening. Trial reminder, trainer heads-up,
    * nth_workout before-rules, post-trial C5/C6 catch-up, and lead_status_changed.
    * Clock hour is not checked here.
    */
@@ -528,6 +528,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       arbox_reports: [...(ctx?.arboxReports ?? [])],
       steps: timings,
       summary: entry,
+      would_send: ctx?.wouldSend ?? [],
     };
   }
 

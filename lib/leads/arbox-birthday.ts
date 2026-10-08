@@ -1,3 +1,4 @@
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
@@ -689,7 +690,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
       const fresh = kind === "members" ? freshMember : freshFormer;
       if (!fresh.length) continue;
       const syncYear = birthdaySyncLogYear(celebrationYear, kind);
-      const morning = israelSlotInstant(formatDateYmdIsrael(now), "09:00");
+      const morning = israelSlotInstant(formatDateYmdIsrael(now), MORNING_SLOT_IL);
       if (decideActivationEventAction({ sendAt: morning, now }) === "send") continue;
       for (const rule of fresh) {
         const { error } = await input.admin.from("arbox_birthday_sync_log").upsert(

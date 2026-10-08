@@ -1,3 +1,4 @@
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import {
@@ -48,7 +49,7 @@ const INHERITED_TRIAL_TYPES = new Set<string>([
   "trainer_trial_heads_up",
 ]);
 
-const MORNING_HM = "09:00";
+const MORNING_HM = MORNING_SLOT_IL;
 
 export type FilterScopeChangeMode =
   | { kind: "business_trial_ids"; previousIds: number[]; nextIds: number[] }

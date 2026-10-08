@@ -1,3 +1,4 @@
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { fetchAllArboxMembershipTypes, membershipTypeNameById } from "@/lib/arbox-membership-types";
 import { claimPendingSyncLog, logDedupBlockedSend } from "@/lib/leads/dedup-fail-closed";
 import {
@@ -887,7 +888,7 @@ export async function syncArboxMembershipCancelledForBusiness(input: {
           ? addCalendarDaysYmd(eventYmd, Math.max(0, Math.trunc(Number(rule.delay_days) || 0)))
           : null;
         const sendAt =
-          (dueYmd ? israelSlotInstant(dueYmd, "09:00") : null) ?? parseReportEventInstant(cancelledTime);
+          (dueYmd ? israelSlotInstant(dueYmd, MORNING_SLOT_IL) : null) ?? parseReportEventInstant(cancelledTime);
         if (eventBeforeRuleActivation(sendAt, rule)) {
           await upsertCancellationSyncLog({
             admin: input.admin,

@@ -5,6 +5,7 @@
  * on the 15-minute trial-sync worker (yesterday…today+60, two calls under the
  * 31-day cap, quiet 21:00–08:00). freeze_ending_* stays on the daily cron.
  */
+import { MORNING_SLOT_IL } from "@/lib/daily-run-slots";
 import { logMessage } from "@/lib/analytics";
 import { isRetentionStaff, retentionStaffIndex } from "@/lib/leads/arbox-staff";
 import { upsertOptionalReason } from "@/lib/leads/sync-log-reason";
@@ -1165,7 +1166,7 @@ export async function syncArboxFreezeForBusiness(input: {
       for (const rule of endingPool) {
         const days = Math.max(0, Math.trunc(Number(rule.delay_days) || 0));
         const notifyFrom = addCalendarDaysYmd(endYmd, -days);
-        const sendAt = notifyFrom ? israelSlotInstant(notifyFrom, "09:00") : null;
+        const sendAt = notifyFrom ? israelSlotInstant(notifyFrom, MORNING_SLOT_IL) : null;
         if (decideActivationEventAction({ sendAt, now }) === "send") continue;
         seededAny = true;
         const up = await upsertEndingLog({
@@ -1229,7 +1230,7 @@ export async function syncArboxFreezeForBusiness(input: {
           !eventBeforeRuleActivation(
             israelSlotInstant(
               addCalendarDaysYmd(endYmd, -Math.max(0, Math.trunc(Number(item.delay_days) || 0))) ?? "",
-              "09:00"
+              MORNING_SLOT_IL
             ) ?? parseReportEventInstant(startYmd),
             item
           )
