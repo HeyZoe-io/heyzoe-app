@@ -1,4 +1,5 @@
 import { EVENING_SLOT_IL, MORNING_SLOT_IL } from "@/lib/daily-run-slots";
+import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 
 /**
  * A rule may only act on events at or after it became active.
@@ -79,7 +80,66 @@ function asActivationReader(admin: unknown): ActivationReader {
   return admin as ActivationReader;
 }
 
-/** Rules that already wrote a dedup row at or after their activation. null = the read failed. */
+type SeededAtReader = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      in: (column: string, values: string[]) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+    };
+    update: (row: Record<string, unknown>) => {
+      in: (column: string, values: string[]) => PromiseLike<{ error: { message?: string } | null }>;
+    };
+  };
+};
+
+function isMissingSeededAtColumn(message: unknown): boolean {
+  return /seeded_at/i.test(String(message ?? "")) && /column|schema cache|PGRST204|42703/i.test(String(message ?? ""));
+}
+
+/**
+ * template_triggers.seeded_at per rule (supabase/template_triggers_seeded_at.sql).
+ * null result = column not there yet (or a test double without it): callers use the old row check.
+ * "error" = the read failed.
+ */
+async function loadRuleSeededAt(
+  admin: unknown,
+  ids: string[]
+): Promise<Map<string, number | null> | null | "error"> {
+  if (!ids.length) return new Map();
+  const db = admin as SeededAtReader;
+  if (typeof db?.from !== "function") return null;
+  let res: { data: unknown; error: { message?: string } | null };
+  try {
+    const query = db.from("template_triggers").select("id, seeded_at");
+    if (typeof query?.in !== "function") return null;
+    res = await query.in("id", ids);
+  } catch {
+    return null;
+  }
+  if (res.error) {
+    if (isMissingSeededAtColumn(res.error.message)) return null;
+    console.error("[rule-activation] seeded_at read failed", res.error.message);
+    return "error";
+  }
+  const rows = Array.isArray(res.data) ? (res.data as Array<Record<string, unknown>>) : [];
+  if (!rows.length || rows.some((row) => !("seeded_at" in row))) return null;
+  const out = new Map<string, number | null>();
+  for (const row of rows) {
+    const ms = Date.parse(String(row.seeded_at ?? ""));
+    out.set(String(row.id ?? ""), Number.isFinite(ms) ? ms : null);
+  }
+  return out;
+}
+
+/** A rule is seeded for its current activation when seeded_at >= max(created_at, updated_at). */
+export function ruleSeededForActivation(rule: ActivationRule, seededAtMs: number | null | undefined): boolean {
+  return seededAtMs != null && seededAtMs >= ruleActivationMs(rule);
+}
+
+/**
+ * Rules already seeded for their current activation. null = the read failed.
+ * Uses the explicit template_triggers.seeded_at marker: a rule with no queue rows is not "new".
+ * Until supabase/template_triggers_seeded_at.sql runs: a dedup row at or after activation.
+ */
 export async function ruleIdsActiveSinceActivation(
   admin: unknown,
   table: string,
@@ -87,6 +147,16 @@ export async function ruleIdsActiveSinceActivation(
   rules: readonly ActivationRule[],
   timeColumn = "processed_at"
 ): Promise<Set<string> | null> {
+  const ids = rules.map((rule) => String(rule.id ?? "").trim()).filter(Boolean);
+  const seeded = await loadRuleSeededAt(admin, ids);
+  if (seeded === "error") return null;
+  if (seeded) {
+    return new Set(
+      rules
+        .filter((rule) => rule.id && ruleSeededForActivation(rule, seeded.get(String(rule.id).trim())))
+        .map((rule) => String(rule.id).trim())
+    );
+  }
   const db = asActivationReader(admin);
   const active = new Set<string>();
   for (const rule of rules) {
@@ -104,6 +174,48 @@ export async function ruleIdsActiveSinceActivation(
     if (Array.isArray(data) && data.length > 0) active.add(id);
   }
   return active;
+}
+
+/**
+ * After the activation seed pass wrote its history rows. Never throws; skipped in a dry run.
+ * Must run after the seed rows, so a crash mid-seed leaves the rule unseeded and it seeds again.
+ */
+export async function markRulesSeeded(admin: unknown, ruleIds: readonly string[], now: Date): Promise<void> {
+  const ids = [...new Set(ruleIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (!ids.length || isArboxDailyDryRun()) return;
+  try {
+    const db = admin as SeededAtReader;
+    const { error } = await db.from("template_triggers").update({ seeded_at: now.toISOString() }).in("id", ids);
+    if (error && !isMissingSeededAtColumn(error.message)) {
+      console.error("[rule-activation] seeded_at stamp failed", { ids, reason: error.message });
+    }
+  } catch (e) {
+    console.error("[rule-activation] seeded_at stamp threw", e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * Class reminders and trainer heads-ups only. The rule became active after this booking's
+ * normal send slot, but the class has not started: send in the next run slot instead of
+ * closing it as history. A rule created 7.10 09:56 (delay 1) still covers a class 8.10 17:00.
+ * Bookings whose send slot passed while the rule was already active stay on the old path.
+ * sameDayOnly: the body has no date and may say «מחר», so only a later slot on the normal
+ * send day may carry it.
+ */
+export function activationCatchUpDue(input: {
+  sendAt: Date | null;
+  classStartAt: Date | null;
+  rule: ActivationRule;
+  now: Date;
+  sameDayOnly: boolean;
+}): boolean {
+  const sendMs = input.sendAt?.getTime();
+  const classMs = input.classStartAt?.getTime();
+  if (sendMs == null || !Number.isFinite(sendMs) || classMs == null || !Number.isFinite(classMs)) return false;
+  const activationMs = ruleActivationMs(input.rule);
+  const nowMs = input.now.getTime();
+  if (!(sendMs < activationMs && nowMs >= activationMs && classMs > nowMs)) return false;
+  return !input.sameDayOnly || israelYmdHm(input.sendAt!).ymd === israelYmdHm(input.now).ymd;
 }
 
 export type RuleActivationSnapshot = {

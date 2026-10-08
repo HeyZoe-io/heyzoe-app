@@ -25,7 +25,7 @@ import {
   sendWithSyncLogClaim,
   syncLogRowRetryable,
 } from "@/lib/leads/sync-log-claim";
-import { decideActivationEventAction, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
+import { decideActivationEventAction, markRulesSeeded, ruleIdsActiveSinceActivation } from "@/lib/rule-activation";
 import {
   hasAnotherActiveMembership,
   loadActiveMembershipIndex,
@@ -549,6 +549,7 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     return summary;
   }
   const freshRules = rules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
+  const seedErrorsBefore = summary.errors;
   if (freshRules.length && !isArboxDailyDryRun()) {
     for (const row of report.rows) {
       const userIdRaw = Number(row.user_id);
@@ -575,6 +576,9 @@ export async function syncArboxSessionsExpiringForBusiness(input: {
     }
   }
   for (const rule of freshRules) activeRuleIds.add(rule.id);
+  if (freshRules.length && summary.errors === seedErrorsBefore) {
+    await markRulesSeeded(input.admin, freshRules.map((rule) => rule.id), now);
+  }
 
   const trialTypeIds = (input.trialMembershipTypeIds ?? []).filter((id) => Number.isFinite(id) && id > 0);
   const trialTypeNames = trialTypeNamesFromRows(input.activeMembershipRows, trialTypeIds);

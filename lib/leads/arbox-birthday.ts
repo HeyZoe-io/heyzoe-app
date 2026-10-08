@@ -19,6 +19,7 @@ import { templateFailureDispatch } from "@/lib/business-sends-hold";
 import {
   decideActivationEventAction,
   israelSlotInstant,
+  markRulesSeeded,
   ruleIdsActiveSinceActivation,
 } from "@/lib/rule-activation";
 import { buildWaSessionId, contactPhoneLookupVariants, normalizePhone } from "@/lib/phone-normalize";
@@ -688,6 +689,7 @@ export async function syncArboxBirthdaysForBusiness(input: {
   const freshMember = memberRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   const freshFormer = formerRules.filter((rule) => rule.id && !activeRuleIds.has(rule.id));
   if ((freshMember.length || freshFormer.length) && !isArboxDailyDryRun()) {
+    const seedErrorsBefore = summary.errors;
     for (const [userId] of rowsByUser) {
       const kind = birthdayAudienceKindForUserId(userId, customerSet.userIds);
       const fresh = kind === "members" ? freshMember : freshFormer;
@@ -711,6 +713,9 @@ export async function syncArboxBirthdaysForBusiness(input: {
       }
     }
     for (const rule of [...freshMember, ...freshFormer]) activeRuleIds.add(rule.id);
+    if (summary.errors === seedErrorsBefore) {
+      await markRulesSeeded(input.admin, [...freshMember, ...freshFormer].map((rule) => rule.id), now);
+    }
   }
 
   for (const [userId, row] of rowsByUser) {
