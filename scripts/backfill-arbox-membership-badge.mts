@@ -8,6 +8,7 @@
  *   ALLOW_PROD_TEST=1 npx tsx --env-file=.env.local scripts/backfill-arbox-membership-badge.mts --live --slug acrobyjoe
  */
 import { createClient } from "@supabase/supabase-js";
+import { isArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import { ARBOX_MEMBERSHIP_BADGE_REFRESH_MS } from "@/lib/arbox-membership-badge";
 import { getArboxApiKey } from "@/lib/business-secret-read";
 import { resolveSupabaseServiceRoleKey, resolveSupabaseUrl } from "@/lib/server-env";
@@ -48,10 +49,14 @@ async function main() {
 
   const { data: biz, error: bizErr } = await admin
     .from("businesses")
-    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id")
+    .select("id, slug, crm_type, crm_api_key, crm_api_key_enc, crm_box_id, social_links")
     .ilike("slug", requested)
     .maybeSingle();
   if (bizErr || !biz) throw bizErr ?? new Error(`business not found: ${requested}`);
+  if (isArboxBackgroundPaused(biz.social_links)) {
+    console.log(`[backfill] ${requested} has social_links.arbox_background_pause — no Arbox calls.`);
+    return;
+  }
   if (String(biz.crm_type ?? "").trim().toLowerCase() !== "arbox") {
     throw new Error(`${requested} is not an Arbox business`);
   }

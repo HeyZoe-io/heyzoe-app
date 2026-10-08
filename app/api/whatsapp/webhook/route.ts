@@ -1,6 +1,7 @@
 import { NextRequest, after } from "next/server";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { getArboxApiKey } from "@/lib/business-secrets";
+import { isArboxBackgroundPaused } from "@/lib/arbox-background-pause";
 import {
   verifyTwilioSignature,
   parseTwilioWebhook,
@@ -7145,6 +7146,7 @@ async function processIncoming(
   let crmApiKey = "";
   let crmBoxId = "";
   let crmType = "";
+  let arboxBackgroundPaused = false;
   try {
     const { data: biz, error: bizErr } = await supabase
       .from("businesses")
@@ -7163,6 +7165,7 @@ async function processIncoming(
     crmApiKey = getArboxApiKey(biz as Record<string, unknown>);
     crmBoxId = String((biz as { crm_box_id?: unknown }).crm_box_id ?? "").trim();
     crmType = String((biz as { crm_type?: unknown }).crm_type ?? "").trim().toLowerCase();
+    arboxBackgroundPaused = isArboxBackgroundPaused((biz as { social_links?: unknown }).social_links);
     const { isBusinessServiceActive } = await import("@/lib/complimentary-dashboard-access");
     if (!isBusinessServiceActive(business_slug, biz as { is_active?: boolean; cancellation_effective_at?: string | null })) {
       const inactiveReply = buildInactiveBusinessAutoReply(
@@ -7433,6 +7436,7 @@ async function processIncoming(
       if (
         contactId != null &&
         crmType === "arbox" &&
+        !arboxBackgroundPaused &&
         crmApiKey &&
         crmBoxId &&
         badgeRow != null &&
