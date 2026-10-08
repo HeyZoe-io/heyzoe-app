@@ -48,6 +48,7 @@ type PreviewResult = {
   template_preview: string;
   template_name: string;
   hit_message_page_cap?: boolean;
+  pending_same_template_jobs?: Array<{ job_id: string; pending: number; first_due_at: string | null }>;
 };
 
 type ScheduleRow = {
@@ -565,6 +566,13 @@ export default function CampaignSendPanel(props: {
           </p>
           {preview.hit_message_page_cap ? (
             <p className="text-xs text-amber-700">חלון ההודעות גדול מהמגבלה — הספירה עלולה להיות חלקית.</p>
+          ) : null}
+          {preview.pending_same_template_jobs?.length ? (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800" role="alert">
+              שימו לב: כבר יש {preview.pending_same_template_jobs.length === 1 ? "שליחה ממתינה" : `${preview.pending_same_template_jobs.length} שליחות ממתינות`}{" "}
+              עם התבנית הזו ({preview.pending_same_template_jobs.reduce((n, j) => n + j.pending, 0)} הודעות בתור). מי שכבר
+              בתור לא ייכלל בשליחה החדשה, כדי שאף אחד לא יקבל אותה פעמיים.
+            </p>
           ) : null}
           <pre className="whitespace-pre-wrap rounded-xl bg-white p-3 text-sm text-zinc-800 text-right border border-zinc-200">
             {preview.template_preview}
