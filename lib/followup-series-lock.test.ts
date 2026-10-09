@@ -35,6 +35,8 @@ type Contact = {
 };
 
 const T0 = "2026-10-08T09:00:00.000Z";
+/** Fixed clock inside the 26-hour window after T0, so the idle rule does not depend on today's date. */
+const CLOCK_MS = Date.parse("2026-10-08T12:00:00.000Z");
 
 function newLead(): Contact {
   return {
@@ -109,7 +111,7 @@ function humanInvolvement(c: Contact): void {
 }
 
 function tag(c: Contact) {
-  return computeContactStatus(c);
+  return computeContactStatus(c, { nowMs: CLOCK_MS });
 }
 
 function sendsUntilSilent(c: Contact): number {

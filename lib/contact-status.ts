@@ -55,6 +55,8 @@ export type ComputeContactStatusOptions = {
    * העמודה נשארת לפי השלב הקודם. «ללא מענה» רק בסימון ידני.
    */
   ignoreAutoNoResponse?: boolean;
+  /** Tests pin the idle-window clock. Production omits this and uses the real time. */
+  nowMs?: number;
 };
 
 export function computeContactStatus(
@@ -76,7 +78,10 @@ export function computeContactStatus(
     // last_contact_at מתעדכן בהודעת user — 26ש׳+ בלי נרשם/הסר → ללא מענה (גם אם stage פולואפ תקוע)
     if (
       waNoResponseEligible(input) &&
-      isIdleAfterLastUserMessage(input.last_contact_at ? String(input.last_contact_at) : null)
+      isIdleAfterLastUserMessage(
+        input.last_contact_at ? String(input.last_contact_at) : null,
+        options?.nowMs
+      )
     ) {
       return "no_response";
     }
