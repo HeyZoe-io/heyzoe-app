@@ -3,6 +3,8 @@ import {
   matchCatalogServicesFromFreeText,
   matchCatalogServicesSharingDistinctiveToken,
 } from "@/lib/wa-unknown-class-slot";
+import { matchesArboxRegistrationVerifyAsk } from "@/lib/wa-arbox-registration-verify";
+import { isScheduleInquiryIntent } from "@/lib/wa-booking-lookup";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 import { matchesTrialTopicAdvanceIntent } from "@/lib/wa-trial-topic-intent";
 
@@ -174,6 +176,25 @@ export function assistantReplyMentionsCatalogService(
     .filter((w) => w.length >= 5 && !/^(אימוני|אימון|שיעור|שיעורי)$/u.test(w));
   if (!distinctive.length) return false;
   return distinctive.some((tok) => reply.includes(tok));
+}
+
+const SAVED_MY_SPOT_RE =
+  /(?:שמר(?:תם|ת|ו|תן)|שריינ(?:תם|ת|ו)|שיריינ(?:תם|ת|ו)|שיבצ(?:תם|ת|ו))\s+(?:לי|לנו|אותי|אותנו)(?=[^\p{L}]|$)/u;
+
+/**
+ * הליד שואל על הרשמה שכבר קיימת («שמרתם לי מקום?», «אני רשומה?»).
+ * זה לא כוונה לפרטים או להרשמה — לא פותחים פלואו מכירה על מוצר אחר.
+ */
+export function inboundAsksAboutExistingBooking(input: {
+  inboundText: string;
+  route?: string | null;
+}): boolean {
+  const route = String(input.route ?? "").trim();
+  if (route === "registration_check" || route === "my_schedule") return true;
+  const t = String(input.inboundText ?? "").trim();
+  if (!t) return false;
+  if (SAVED_MY_SPOT_RE.test(t)) return true;
+  return isScheduleInquiryIntent(t) || matchesArboxRegistrationVerifyAsk(t);
 }
 
 export type AssistantRecommendedOtherCatalogService =

@@ -14,6 +14,7 @@ import {
   resolveAmbiguousCatalogFamilyNames,
   resolveCatalogFamilyPickNames,
   resolveAssistantRecommendedOtherCatalogService,
+  inboundAsksAboutExistingBooking,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
 } from "@/lib/wa-opening-service-list-pick-bridge";
@@ -233,6 +234,18 @@ assert.equal(
   null,
   "no last pick → opening bridge handles this"
 );
+
+assert.equal(
+  inboundAsksAboutExistingBooking({ inboundText: "שמרתם לי בסוף מקום לאימון בראשון?" }),
+  true,
+  "asks whether her spot was saved → existing booking, no sales flow"
+);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "אני רשומה לשיעור של מחר?" }), true);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "מתי האימון הבא שלי?" }), true);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "כן", route: "registration_check" }), true);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "הבן שלי בן 11" }), false);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "תשמרי לי מקום בראשון" }), false);
+assert.equal(inboundAsksAboutExistingBooking({ inboundText: "מה יש ביום שני בבוקר?" }), false);
 
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס מזרן"), true);
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס"), true);
