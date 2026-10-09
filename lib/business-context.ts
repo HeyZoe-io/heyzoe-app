@@ -1086,6 +1086,7 @@ ${buildBehaviorJudgmentBlock({
   canSendMembershipLink: Boolean(knowledge?.membershipsUrl?.trim()),
   canScheduleCall: knowledge?.salesFlowCallSchedulingEnabled === true,
   canSendTrialLink: Boolean(knowledge?.ctaLink?.trim() || knowledge?.salesFlowConfig),
+  addressingMode: resolveWaReplyAddressingMode(knowledge),
 })}
 
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה של העסק):

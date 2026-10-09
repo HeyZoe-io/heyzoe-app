@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { matchComplaintPlaybook, matchRefundPlaybook } from "@/lib/wa-closed-playbook-intents";
 import { parseModelUsed } from "@/lib/wa-reply-route";
+import type { WaReplyAddressingMode } from "@/lib/wa-assistant-reply-fixes";
 
 /**
  * A short reply counts as answering the owner only when their manual message
@@ -190,11 +192,81 @@ export function decidePersonalInbound(input: PersonalInboundInput): Exclude<Pers
   return explainPersonalInbound(input).trigger;
 }
 
-/** A handoff must not open with casual agreement. The rest of the sentence stays. */
-export function stripCasualAgreementOpener(text: string): string {
-  return String(text ?? "")
-    .replace(/^\s*אין בעיה(?:\s*[,،!.])?\s*/u, "")
-    .trim();
+/** Casual openers that are wrong at the start of a complaint, refund, or credit reply. Longest first. */
+export const RULE3_CASUAL_OPENERS = ["אין בעיה בכלל", "אין שום בעיה", "אין בעיה", "סבבה", "בכיף"] as const;
+
+/** Sent when stripping the opener would leave an empty or too-short reply. */
+export const RULE3_ACK_FALLBACK: Record<WaReplyAddressingMode, string> = {
+  feminine: "תודה ששיתפת, אני מעבירה את זה לצוות 💜",
+  neutral: "תודה ששיתפת, זה עובר לצוות 💜",
+  plural: "תודה ששיתפתם, זה עובר לצוות 💜",
+};
+
+const RULE3_OPENER_TRAIL =
+  /^(?:[\s,،!.\-–—:;'"׳״“”«»…?]|[\p{Extended_Pictographic}\uFE0F\u200D])+/u;
+const RULE3_CREDIT_RE = /זיכוי|לזכות|תזכ(?:ו|י|ה)(?!ר)/u;
+const RULE3_MIN_WORDS = 3;
+
+export type ComplaintReplyContext = {
+  inbound: string;
+  hintCategory?: string | null;
+  route?: string | null;
+};
+
+/**
+ * Complaint context is the closed-playbook refund/complaint hit, a credit request
+ * (no playbook category), or Claude's handoff tag when no other hint already
+ * classified the turn. A bare handoff with a different hint stays out.
+ */
+export function isComplaintReplyContext(input: ComplaintReplyContext): boolean {
+  const hint = String(input.hintCategory ?? "").trim();
+  if (hint === "refund" || hint === "complaint") return true;
+  const inbound = String(input.inbound ?? "");
+  if (matchRefundPlaybook(inbound) || matchComplaintPlaybook(inbound)) return true;
+  if (RULE3_CREDIT_RE.test(inbound)) return true;
+  return input.route === "handoff" && !hint;
+}
+
+function complaintAckFallback(mode: WaReplyAddressingMode | undefined): string {
+  if (mode === "feminine" || mode === "plural") return RULE3_ACK_FALLBACK[mode];
+  return RULE3_ACK_FALLBACK.neutral;
+}
+
+function stripLeadingCasualOpener(text: string): { opener: string; rest: string } | null {
+  const raw = String(text ?? "").replace(/^\s+/u, "");
+  for (const opener of RULE3_CASUAL_OPENERS) {
+    if (!raw.startsWith(opener)) continue;
+    const after = raw.slice(opener.length);
+    if (after && /[\p{L}\p{N}]/u.test(after[0] ?? "")) continue;
+    return { opener, rest: after.replace(RULE3_OPENER_TRAIL, "").trim() };
+  }
+  return null;
+}
+
+function hebrewWordCount(text: string): number {
+  return text.trim().split(/\s+/u).filter(Boolean).length;
+}
+
+/**
+ * Safety net for a generated lead-facing reply. Runs only in complaint context.
+ * A phrase in the middle of the sentence stays.
+ */
+export function applyComplaintOpenerSafetyNet(
+  text: string,
+  input: ComplaintReplyContext & {
+    addressingMode?: WaReplyAddressingMode;
+    businessId?: string | number | null;
+  }
+): string {
+  if (!isComplaintReplyContext(input)) return text;
+  const hit = stripLeadingCasualOpener(text);
+  if (!hit) return text;
+  console.info("[rule3] stripped_opener", {
+    business_id: input.businessId ?? null,
+    opener: hit.opener,
+  });
+  if (hebrewWordCount(hit.rest) < RULE3_MIN_WORDS) return complaintAckFallback(input.addressingMode);
+  return hit.rest;
 }
 
 /** Rule 4: the booking_change policy replacement must not run. */
@@ -294,6 +366,7 @@ export type ZoeCapabilityFlags = {
   canSendMembershipLink?: boolean;
   canScheduleCall?: boolean;
   canSendTrialLink?: boolean;
+  addressingMode?: WaReplyAddressingMode;
 };
 
 export function describeZoeCapabilities(flags: ZoeCapabilityFlags): string {
@@ -306,22 +379,43 @@ export function describeZoeCapabilities(flags: ZoeCapabilityFlags): string {
   return can.join(", ");
 }
 
+function rule3AckExamples(mode: WaReplyAddressingMode | undefined): { ack: string; example: string } {
+  if (mode === "feminine") {
+    return {
+      ack: "תודה ששיתפת, מבינה, או מצטערת לשמוע כשזה מתאים",
+      example: "תודה ששיתפת, אני מעבירה את הבקשה לצוות.",
+    };
+  }
+  if (mode === "plural") {
+    return {
+      ack: "תודה ששיתפתם, או מצטערים לשמוע כשזה מתאים",
+      example: "תודה ששיתפתם, הבקשה עוברת לצוות.",
+    };
+  }
+  return {
+    ack: "תודה ששיתפת",
+    example: "תודה ששיתפת, הבקשה עוברת לצוות.",
+  };
+}
+
 /** Rules 1, 2, 3, 6, plus a short backup for 4 and 5. Route tags stay here. */
 export function buildBehaviorJudgmentBlock(flags: ZoeCapabilityFlags): string {
   const can = describeZoeCapabilities(flags);
+  const rule3 = rule3AckExamples(flags.addressingMode);
   return `שיפוט:
 - אסור לאשר או להכחיש מה שהבעלים או המאמנת אמרו, עשו או הבטיחו. הפנייה עוברת אליהם, בלי פסקת מכירה. דוגמה: «לא הגעתי כי אמרת לי שלא תהיי» -> [[route:personal]]
 - כאן אפשר: ${can}. אי אפשר לבצע מכאן: להעביר שיעור, לבטל הרשמה, לתת החזר או זיכוי, להוסיף לקבוצת וואטסאפ. תייגי class_move, booking_change או handoff, בלי להבטיח שזה יבוצע ובלי לשאול «לאיזה יום?». דוגמה: «אני חולה, אפשר להעביר את השיעור?» -> [[route:class_move]]
-- תלונה, משוב שלילי, או בקשת החזר או זיכוי: אסור לפתוח ב«אין בעיה» או בהסכמה קלילה. משפט קצר שמכיר בבקשה, ואז handoff. דוגמה: «אני רוצה החזר» -> [[route:handoff]] הבקשה להחזר עוברת לצוות.
+- תלונה, משוב שלילי, או בקשת החזר או זיכוי: פותחים בהכרה במה שנאמר (${rule3.ack}), ואז אומרים שהבקשה עוברת לצוות. דוגמה: «אני רוצה החזר» -> [[route:handoff]] ${rule3.example}
 - פרט עם יותר ממשמעות אחת (13 כשעה או כתאריך, יום או שם לא ברורים): אל תבחרי. שאלת הבהרה אחת, או handoff אם אי אפשר לבצע את הפעולה מכאן. דוגמה: «תמחקי את 13 ביום חמישי» -> [[route:handoff]] בלי להניח שזו השעה 13:00.`;
 }
 
 /** Same situations inside a flow, without route tags, because the text is sent as-is. */
 export function buildFreeQuestionBehaviorBlock(flags: ZoeCapabilityFlags): string {
   const can = describeZoeCapabilities(flags);
+  const rule3 = rule3AckExamples(flags.addressingMode);
   return `עני בעד 2-3 משפטים.
 - אסור לאשר או להכחיש מה שהבעלים או המאמנת אמרו, עשו או הבטיחו. כותבים שהפנייה עוברת לבעלים.
 - אפשר: ${can}. אי אפשר להעביר שיעור, לבטל הרשמה, לתת החזר או זיכוי, או להוסיף לקבוצת וואטסאפ. על אלה כותבים שהפנייה עוברת לצוות, בלי לשאול «לאיזה יום?».
-- בתלונה, במשוב שלילי, או בבקשת החזר או זיכוי: אסור «אין בעיה» או הסכמה קלילה. משפט קצר שמכיר בבקשה, והפנייה עוברת לצוות.
+- בתלונה, במשוב שלילי, או בבקשת החזר או זיכוי: פותחים בהכרה במה שנאמר (${rule3.ack}), ואז כותבים שהבקשה עוברת לצוות. דוגמה: «${rule3.example}»
 - פרט עם יותר ממשמעות אחת: אל תניחי. שאלה אחת קצרה, או העברה לצוות אם אי אפשר לבצע את הפעולה.`;
 }

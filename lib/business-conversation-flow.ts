@@ -2,7 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
-import { buildFreeQuestionBehaviorBlock } from "@/lib/wa-personal-inbound";
+import { applyComplaintOpenerSafetyNet, buildFreeQuestionBehaviorBlock } from "@/lib/wa-personal-inbound";
+import { resolveWaReplyAddressingMode } from "@/lib/wa-assistant-reply-fixes";
 import { isAnthropicCreditExhausted } from "@/lib/claude";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
@@ -357,7 +358,12 @@ async function productName(admin: SupabaseClient, businessId: number, slug: stri
   return String((data as { name?: unknown } | null)?.name ?? "").trim();
 }
 
-async function answerFreeQuestion(businessSlug: string, sessionId: string, question: string): Promise<string> {
+async function answerFreeQuestion(
+  businessSlug: string,
+  sessionId: string,
+  question: string,
+  businessId?: number
+): Promise<string> {
   const pack = await getBusinessKnowledgePack(businessSlug);
   const knowledge = [pack?.faqsText, pack?.servicesText, pack?.benefitsText, pack?.vibeText, pack?.targetAudienceText]
     .filter(Boolean)
@@ -373,6 +379,7 @@ async function answerFreeQuestion(businessSlug: string, sessionId: string, quest
       canSendMembershipLink: Boolean(pack?.membershipsUrl?.trim()),
       canScheduleCall: pack?.salesFlowCallSchedulingEnabled === true,
       canSendTrialLink: Boolean(pack?.ctaLink?.trim() || pack?.salesFlowConfig),
+      addressingMode: resolveWaReplyAddressingMode(pack),
     });
     const resp = await client.messages.create({
       ...params,
@@ -394,7 +401,11 @@ ${knowledge || "אין ידע נוסף."}
       businessSlug,
       conversationId: sessionId,
     });
-    return stripped.trim() || fallback;
+    return applyComplaintOpenerSafetyNet(stripped.trim() || fallback, {
+      inbound: question,
+      addressingMode: resolveWaReplyAddressingMode(pack),
+      businessId,
+    });
   } catch (e) {
     if (isAnthropicCreditExhausted(e)) {
       console.error("[business-conversation-flow] Anthropic credit exhausted; not replying");
@@ -669,7 +680,7 @@ export async function handleBusinessConversationFlowInbound(input: {
 
   if (session?.flow_completed && !restartFromStart) {
     if (!text) return { handled: true };
-    const answer = await answerFreeQuestion(input.businessSlug, input.sessionId, text);
+    const answer = await answerFreeQuestion(input.businessSlug, input.sessionId, text, input.businessId);
     await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, answer);
     return { handled: true };
   }

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { buildHaikuRequest } from "@/lib/ai-models";
 import {
   OWNER_SHORT_REPLY_WINDOW_MS,
-  stripCasualAgreementOpener,
+  RULE3_ACK_FALLBACK,
+  applyComplaintOpenerSafetyNet,
   buildBehaviorJudgmentBlock,
   buildFreeQuestionBehaviorBlock,
   claudePersonalTagStands,
@@ -36,9 +37,61 @@ function decide(text: string, turns: PersonalTurn[], arboxIsMember = false, owne
 }
 
 assert.equal(OWNER_SHORT_REPLY_WINDOW_MS, 72 * 60 * 60 * 1000);
-assert.equal(stripCasualAgreementOpener("אין בעיה, אני מעבירה את הבקשה לצוות"), "אני מעבירה את הבקשה לצוות");
-assert.equal(stripCasualAgreementOpener("אין בעיה אעביר את ההודעה לצוות!"), "אעביר את ההודעה לצוות!");
-assert.equal(stripCasualAgreementOpener("תודה ששיתפת, אני מעבירה לצוות"), "תודה ששיתפת, אני מעבירה לצוות");
+
+const complaint = { inbound: "אני רוצה החזר על השיעור", route: "answer" as const };
+const notComplaint = { inbound: "מאחרת בעשר דקות", route: "answer" as const };
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, אני מעבירה את הבקשה לצוות", complaint),
+  "אני מעבירה את הבקשה לצוות"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה בכלל 🙂 הבקשה עוברת לצוות עכשיו", complaint),
+  "הבקשה עוברת לצוות עכשיו"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("סבבה! 💜 אעביר את זה לצוות היום", { ...complaint, route: "handoff" }),
+  "אעביר את זה לצוות היום"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("בכיף - נטפל בזה יחד מול הצוות", complaint),
+  "נטפל בזה יחד מול הצוות"
+);
+assert.equal(applyComplaintOpenerSafetyNet("אין בעיה", complaint), RULE3_ACK_FALLBACK.neutral);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, תודה", { ...complaint, addressingMode: "feminine" }),
+  RULE3_ACK_FALLBACK.feminine
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("סבבה 🙂", { inbound: "תזכו אותי בבקשה", addressingMode: "plural" }),
+  RULE3_ACK_FALLBACK.plural
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, השיעור ב-18:00 הערב", notComplaint),
+  "אין בעיה, השיעור ב-18:00 הערב"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, נתראה בערב", { inbound: "תזכורת לשיעור מחר", route: "answer" }),
+  "אין בעיה, נתראה בערב"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, נציג יחזור אליך בקרוב", {
+    inbound: "אפשר נציג?",
+    route: "handoff",
+    hintCategory: "human_agent",
+  }),
+  "אין בעיה, נציג יחזור אליך בקרוב"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אני מבינה, ואין בעיה להעביר את זה לצוות", complaint),
+  "אני מבינה, ואין בעיה להעביר את זה לצוות"
+);
+assert.equal(
+  applyComplaintOpenerSafetyNet("אין בעיה, אני מעבירה את זה לצוות", {
+    inbound: "הסרטון בכלל לא מעורר חשק וחבל",
+    route: "handoff",
+  }),
+  "אני מעבירה את זה לצוות"
+);
 
 assert.equal(decide("היוש כן ❤️", [ownerTurn(HOUR)]), "owner_short_reply");
 assert.equal(decide("כן", [ownerTurn(HOUR)]), "owner_short_reply");
@@ -85,13 +138,20 @@ const judgment = buildBehaviorJudgmentBlock({
   canSendMembershipLink: true,
   canSendTrialLink: true,
 });
-assert.match(judgment, /אין בעיה/);
+assert.equal(judgment.includes("אין בעיה"), false);
+assert.match(judgment, /תודה ששיתפת/);
 assert.match(judgment, /לאיזה יום/);
 assert.match(judgment, /13:00/);
 assert.equal(judgment.includes("—"), false);
 assert.equal(judgment.includes("–"), false);
 assert.match(buildFreeQuestionBehaviorBlock({}), /2-3 משפטים/);
 assert.equal(buildFreeQuestionBehaviorBlock({}).includes("[[route:"), false);
+assert.equal(buildFreeQuestionBehaviorBlock({}).includes("אין בעיה"), false);
+assert.match(
+  buildBehaviorJudgmentBlock({ addressingMode: "feminine" }),
+  /מצטערת לשמוע/
+);
+assert.match(buildFreeQuestionBehaviorBlock({ addressingMode: "neutral" }), /תודה ששיתפת, הבקשה עוברת לצוות/);
 
 const free55 = buildHaikuRequest("conversation-flow-free-question", "claude-haiku-5-5");
 assert.deepEqual(free55, {

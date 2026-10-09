@@ -120,16 +120,15 @@ import {
   extractReplyRoute,
   modelUsedBase,
   parseModelUsed,
-  resolveRouteBookingChangeReply,
   type ExtractedReplyRoute,
 } from "@/lib/wa-reply-route";
 import {
+  applyComplaintOpenerSafetyNet,
   claudePersonalTagStands,
   completePersonalRoute,
   decidePersonalInbound,
   loadPersonalRouteTurns,
   ownerShortReplyBlocksBookingChange,
-  stripCasualAgreementOpener,
   type PersonalTurn,
 } from "@/lib/wa-personal-inbound";
 import {
@@ -245,6 +244,7 @@ import {
   applyKnownAssistantReplyFixes,
   buildPickedServiceScheduleLexiconForPrompt,
   getScheduleDayLabelsFromSlots,
+  resolveWaReplyAddressingMode,
 } from "@/lib/wa-assistant-reply-fixes";
 import {
   isMetaInteractiveMenuReply,
@@ -14278,6 +14278,16 @@ async function processIncoming(
     console.error("[WA Webhook] model reply empty after thought-strip; using unclear fallback");
   }
 
+  if (!isFallbackErrorReply) {
+    replyCoreClean = applyComplaintOpenerSafetyNet(replyCoreClean, {
+      inbound: incomingTextRaw,
+      hintCategory: fastPathHint?.category ?? null,
+      route: waReplyRoute.route,
+      addressingMode: resolveWaReplyAddressingMode(knowledge),
+      businessId,
+    });
+  }
+
   if (
     !isFallbackErrorReply &&
     didCallClaude &&
@@ -15404,10 +15414,7 @@ async function processIncoming(
       return;
     }
     if (routeAction.kind === "handoff") {
-      const withoutCasualOpener = stripCasualAgreementOpener(replyCoreClean);
-      const outbound = withoutCasualOpener
-        ? withoutCasualOpener
-        : resolveRouteBookingChangeReply(knowledge);
+      const outbound = String(replyCoreClean ?? "").trim();
       if (await suppressIfSimilarToLastAssistant(outbound)) return;
       if (businessId) {
         try {
