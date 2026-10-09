@@ -59,6 +59,14 @@ export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
 export const BLOCKING_ALERT_REASON = "חסימה בחשבון וואטסאפ";
 /** POST /v3/tasks failed after retries: staff did not get the Arbox task. */
 export const CRM_TASK_FAILED_REASON = "משימה לא נפתחה";
+/** Arbox studio with no handoff task type: tasks are never opened, and no owner WhatsApp is sent. */
+export const ARBOX_MISSING_TASK_TYPE_WARNING =
+  "לעסק אין סוג משימה מוגדר - פניות לנציג לא נפתחות בארבוקס";
+
+export function arboxHandoffTaskTypeIdMissing(taskTypeId: unknown): boolean {
+  const n = Number.parseInt(String(taskTypeId ?? "").trim(), 10);
+  return !Number.isFinite(n) || n <= 0;
+}
 const FUTURE_SEED_REASON = "סומן לפני מועד השליחה";
 /** A rule that seeds more than this many rows in a day is listed by name in the summary. */
 export const HISTORY_RULE_BREAKDOWN_MIN = 10;
@@ -704,6 +712,31 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       metaError: squashParam(
         crmTaskFailureSummaryDetail(String((row as { content?: unknown }).content ?? ""))
       ).slice(0, 180),
+    });
+  }
+  const { data: arboxBusinesses, error: arboxBusinessesError } = await admin
+    .from("businesses")
+    .select("id, name, is_active, crm_arbox_human_request_task_type_id")
+    .eq("crm_type", "arbox")
+    .limit(200);
+  if (arboxBusinessesError) {
+    console.error("[admin-daily-unsent] arbox task type lookup failed", arboxBusinessesError.message);
+  }
+  for (const row of arboxBusinesses ?? []) {
+    if ((row as { is_active?: unknown }).is_active === false) continue;
+    if (!arboxHandoffTaskTypeIdMissing((row as { crm_arbox_human_request_task_type_id?: unknown }).crm_arbox_human_request_task_type_id)) {
+      continue;
+    }
+    const businessId = Number((row as { id?: unknown }).id);
+    const businessName = String((row as { name?: unknown }).name ?? "").trim();
+    out.push({
+      businessId: Number.isFinite(businessId) ? businessId : 0,
+      business: businessName || (Number.isFinite(businessId) ? `עסק ${businessId}` : "HeyZoe"),
+      trigger: "משימת ארבוקס",
+      contact: "",
+      reason: ARBOX_MISSING_TASK_TYPE_WARNING,
+      at: "",
+      metaError: "",
     });
   }
   const { data: blocking, error: blockingError } = await admin

@@ -5,12 +5,31 @@ import {
   AUTO_CANCEL_REASON,
   MANUAL_BLOCK_REASON,
   renderAdminDailyUnsentText,
+  ARBOX_MISSING_TASK_TYPE_WARNING,
+  arboxHandoffTaskTypeIdMissing,
   unsentDetailParam,
   unsentGroup,
   unsentProblemCount,
   unsentReason,
   type UnsentRow,
 } from "@/lib/admin-daily-unsent-summary";
+
+assert.equal(arboxHandoffTaskTypeIdMissing(null), true);
+assert.equal(arboxHandoffTaskTypeIdMissing(""), true);
+assert.equal(arboxHandoffTaskTypeIdMissing("114001"), false);
+assert.match(
+  unsentDetailParam([
+    {
+      businessId: 3251,
+      business: "Limitless",
+      trigger: "משימת ארבוקס",
+      contact: "",
+      reason: ARBOX_MISSING_TASK_TYPE_WARNING,
+      at: "",
+    },
+  ]),
+  /Limitless · משימת ארבוקס · לעסק אין סוג משימה מוגדר - פניות לנציג לא נפתחות בארבוקס/
+);
 
 assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "09:29")), false);
 assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "09:30")), true);

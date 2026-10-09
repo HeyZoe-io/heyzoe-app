@@ -11,6 +11,10 @@ import type { ZoeAdminSessionSummary } from "@/lib/zoe-admin-conversations";
 import { resolveAdminPackage, type AdminPackageKind } from "@/lib/admin-package";
 import { getIsraelMonthStartUtc } from "@/lib/israel-time";
 import { fetchIcountInvrecTotals, sumCollectedByClient } from "@/lib/icount-v3";
+import {
+  ARBOX_MISSING_TASK_TYPE_WARNING,
+  arboxHandoffTaskTypeIdMissing,
+} from "@/lib/admin-daily-unsent-summary";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -153,7 +157,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
   const monthStartIso = getIsraelMonthStartUtc(new Date()).toISOString();
   const openedSinceIso = fromTs < monthStartIso ? fromTs : monthStartIso;
 
-  const [bizQuery, inquiriesQuery, opened, icount] = await Promise.all([
+  const [bizQuery, inquiriesQuery, opened, icount, arboxTaskTypeQuery] = await Promise.all([
     admin.from("businesses").select(bizSelectWithIntro).order("created_at", { ascending: true }).limit(5000),
     admin
       .from("business_inquiries")
@@ -165,6 +169,11 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       console.error("[admin/dashboard] iCount invrec search failed:", e);
       return { ok: false as const, error: "request_failed" };
     }),
+    admin
+      .from("businesses")
+      .select("id, name, is_active, crm_arbox_human_request_task_type_id")
+      .eq("crm_type", "arbox")
+      .limit(200),
   ]);
 
   let bizRows = (bizQuery.data ?? null) as BizRow[] | null;
@@ -182,6 +191,21 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
     if (fallback.error) console.error("[admin/dashboard] businesses query failed:", fallback.error.message);
   }
   const inquiries = inquiriesQuery.data;
+  if (arboxTaskTypeQuery.error) {
+    console.error("[admin/dashboard] arbox task type lookup failed", arboxTaskTypeQuery.error.message);
+  }
+  const arboxMissingTaskType = (arboxTaskTypeQuery.data ?? [])
+    .filter(
+      (row) =>
+        (row as { is_active?: unknown }).is_active !== false &&
+        arboxHandoffTaskTypeIdMissing(
+          (row as { crm_arbox_human_request_task_type_id?: unknown }).crm_arbox_human_request_task_type_id
+        )
+    )
+    .map((row) => ({
+      id: Number((row as { id?: unknown }).id),
+      name: String((row as { name?: unknown }).name ?? "").trim() || `עסק ${String((row as { id?: unknown }).id ?? "")}`,
+    }));
 
   const businesses = bizRows ?? [];
   const fromMs = new Date(fromTs).getTime();
@@ -322,6 +346,7 @@ export default async function AdminDashboardPage({ searchParams }: Props) {
       inquiries={(inquiries ?? []) as InquiryRow[]}
       businessOverview={businessOverview}
       health={health}
+      arboxMissingTaskType={arboxMissingTaskType}
     />
   );
 }
@@ -381,6 +406,7 @@ function DashboardV2(props: {
     conversations_range: number;
   }>;
   health: Array<{ key: string; label: string; status: "ok" | "warn" | "bad"; detail: string }>;
+  arboxMissingTaskType?: Array<{ id: number; name: string }>;
   marketingBusinesses?: ZoeBusinessOption[];
   marketingInitialAllSessions?: ZoeAdminSessionSummary[];
 }) {
@@ -452,6 +478,25 @@ function DashboardV2(props: {
           </div>
           <AdminNav active="dashboard" />
         </header>
+
+        {(props.arboxMissingTaskType ?? []).length > 0 ? (
+          <section
+            style={{
+              marginTop: 16,
+              background: "#fff7ed",
+              border: "1px solid #fdba74",
+              borderRadius: 16,
+              padding: "12px 14px",
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: "#9a3412" }}>{ARBOX_MISSING_TASK_TYPE_WARNING}</p>
+            <ul style={{ margin: "8px 0 0", paddingInlineStart: 18, color: "#9a3412" }}>
+              {(props.arboxMissingTaskType ?? []).map((biz) => (
+                <li key={biz.id}>{biz.name}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section
           style={{

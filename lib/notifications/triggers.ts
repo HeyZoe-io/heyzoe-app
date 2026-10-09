@@ -68,23 +68,13 @@ async function sendIfEnabled(input: {
   key: Parameters<typeof gateOwnerNotification>[1];
   templateName: string;
   components: OwnerTemplateComponent[];
-  /** Arbox task create failed: send even when this notification toggle is off. */
-  forceDespiteSetting?: boolean;
 }): Promise<void> {
   const gate = await gateOwnerNotification(input.businessId, input.key);
-  const bypassSetting =
-    input.forceDespiteSetting === true && gate.reason === "setting_disabled" && Boolean(gate.ownerPhone);
-  if (!gate.ownerPhone || (!gate.allowed && !bypassSetting)) {
+  if (!gate.allowed || !gate.ownerPhone) {
     if (gate.reason && gate.reason !== "setting_disabled") {
       console.info("[notifications] skip:", input.templateName, gate.reason, input.businessId);
     }
     return;
-  }
-  if (bypassSetting) {
-    console.info("[notifications] owner WhatsApp forced — Arbox task was not created", {
-      businessId: input.businessId,
-      templateName: input.templateName,
-    });
   }
 
   const result = await sendOwnerWaMirrored({
@@ -105,10 +95,8 @@ export async function triggerHumanRequestedNotification(input: {
   requestedAtIso?: string;
   /** מועד שיחה שנבחר בפלואו — לגוף המייל בלבד */
   callScheduleSlot?: string | null;
-  /** משימת ארבוקס נוצרה — בלי וואטסאפ «בקשת נציג» לבעלים */
+  /** עסק ארבוקס, או שמשימה נוצרה — בלי וואטסאפ «בקשת נציג» לבעלים */
   skipWhatsapp?: boolean;
-  /** יצירת המשימה נכשלה אחרי הניסיונות — וואטסאפ לבעלים גם אם ההתראה כבויה */
-  forceWhatsapp?: boolean;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);
   const requestedAtWa = formatRegisteredAtHe(input.requestedAtIso ?? new Date().toISOString());
@@ -121,10 +109,9 @@ export async function triggerHumanRequestedNotification(input: {
         leadPhoneDisplay: phoneDisplay,
         requestedAtHe: requestedAtWa,
       }),
-      forceDespiteSetting: input.forceWhatsapp === true,
     });
   } else {
-    console.info("[notifications] skip human_agent_request WhatsApp — Arbox task created", {
+    console.info("[notifications] skip human_agent_request WhatsApp — Arbox handoff", {
       businessId: input.businessId,
     });
   }
