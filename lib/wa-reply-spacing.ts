@@ -352,6 +352,38 @@ function joinPieces(pieces: Piece[]): string {
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * תיאור של כמה אימונים («Max power - …. Legs on fire - …»): כל אימון בפסקה משלו,
+ * ושאלת הסיום בפסקה נפרדת. רק כששמות האימונים מהידע מופיעים לפחות פעמיים עם מקף או נקודתיים.
+ */
+export function formatServiceDescriptionList(text: string, serviceNames: string[]): string {
+  const raw = String(text ?? "").replace(/\r\n/g, "\n").trim();
+  const names = [...new Set(serviceNames.map((n) => String(n ?? "").trim()).filter((n) => n.length >= 2))]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp);
+  if (!raw || !names.length) return raw;
+  const itemRe = new RegExp(
+    `(^|\\n|[.!?:)\\p{Extended_Pictographic}]\\uFE0F?)[ \\t]*\\n?[ \\t]*((?:${names.join("|")})[ \\t]*(?:[-–—:]))(?=[ \\t])`,
+    "giu"
+  );
+  const hits = [...raw.matchAll(itemRe)];
+  if (hits.length < 2) return raw;
+
+  let out = raw.replace(itemRe, (_m, before: string, item: string) => (before ? `${before}\n\n${item}` : item));
+  const paras = out.split(/\n{2,}/);
+  const last = paras[paras.length - 1] ?? "";
+  const tail = last.match(/^([\s\S]*?[.!])\s+([^.!?\n]+\?[^\n]*)$/u);
+  if (tail && new RegExp(`^(?:${names.join("|")})`, "iu").test(last.trim())) {
+    paras[paras.length - 1] = `${tail[1]!.trim()}\n\n${tail[2]!.trim()}`;
+  }
+  out = paras.map((p) => p.trim()).filter(Boolean).join("\n\n");
+  return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** שורה ריקה בין נושאים, וכל אימון עם השעה שלו בשורה נפרדת. */
 export function formatLongReplySpacing(text: string): string {
   const raw = String(text ?? "").replace(/\r\n/g, "\n").trim();

@@ -28,7 +28,7 @@ import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { assistantReplyRecommendsAnotherStudio } from "@/lib/wa-no-other-studio";
 import { pickKnowledgeGapNoDetailsReply } from "@/lib/analytics-knowledge-gaps";
 import { applyLeadAgeBandToReply, type LeadAgeBand } from "@/lib/wa-lead-audience";
-import { formatLongReplySpacing } from "@/lib/wa-reply-spacing";
+import { formatLongReplySpacing, formatServiceDescriptionList } from "@/lib/wa-reply-spacing";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -701,5 +701,5 @@ export function applyKnownAssistantReplyFixes(
     businessSlug: input.businessSlug ?? "",
     conversationId: input.conversationId ?? "",
   });
-  return formatLongReplySpacing(s);
+  return formatServiceDescriptionList(formatLongReplySpacing(s), serviceNames);
 }
