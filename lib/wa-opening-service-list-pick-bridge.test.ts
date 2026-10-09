@@ -14,7 +14,7 @@ import {
   resolveAmbiguousCatalogFamilyNames,
   resolveCatalogFamilyPickNames,
   resolveAssistantRecommendedOtherCatalogService,
-  inboundAsksAboutExistingBooking,
+  assistantConfirmedExistingBooking,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
 } from "@/lib/wa-opening-service-list-pick-bridge";
@@ -235,17 +235,45 @@ assert.equal(
   "no last pick → opening bridge handles this"
 );
 
+const shiraReply =
+  "כן 💜 את רשומה לשיעור ניסיון של פונקציונאלי נערות ביום ראשון בשעה 17:00. כל הפרטים נשלחו אלייך, וסופר מחכים לראותך!";
 assert.equal(
-  inboundAsksAboutExistingBooking({ inboundText: "שמרתם לי בסוף מקום לאימון בראשון?" }),
+  assistantConfirmedExistingBooking({ route: "registration_check", assistantReply: shiraReply }),
   true,
-  "asks whether her spot was saved → existing booking, no sales flow"
+  "registration check answered yes → no sales flow"
 );
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "אני רשומה לשיעור של מחר?" }), true);
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "מתי האימון הבא שלי?" }), true);
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "כן", route: "registration_check" }), true);
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "הבן שלי בן 11" }), false);
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "תשמרי לי מקום בראשון" }), false);
-assert.equal(inboundAsksAboutExistingBooking({ inboundText: "מה יש ביום שני בבוקר?" }), false);
+assert.equal(
+  assistantConfirmedExistingBooking({
+    route: "registration_check",
+    assistantReply: "כן, מקומך שמור ביום ראשון בשעה 17:00 לפונקציונאלי נערות 🙂",
+  }),
+  true
+);
+assert.equal(
+  assistantConfirmedExistingBooking({
+    route: "my_schedule",
+    assistantReply: "האימון שלך ביום ראשון בשעה 17:00, את משובצת 💜",
+  }),
+  true
+);
+assert.equal(
+  assistantConfirmedExistingBooking({
+    route: "registration_check",
+    assistantReply: "עדיין לא רשומה לשיעור, רוצה שנשריין לך מקום?",
+  }),
+  false,
+  "registration check answered no → redirect may still run"
+);
+assert.equal(
+  assistantConfirmedExistingBooking({ route: "answer", assistantReply: shiraReply }),
+  false,
+  "not a registration check → unchanged"
+);
+assert.equal(
+  assistantConfirmedExistingBooking({ route: null, assistantReply: shiraReply }),
+  false,
+  "missing route tag → unchanged"
+);
 
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס מזרן"), true);
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס"), true);

@@ -199,8 +199,8 @@ import {
   CATALOG_FAMILY_PICK_MODEL,
   CATALOG_FAMILY_PICK_QUESTION_HE,
   buildAmbiguousCatalogTrialPickMessage,
+  assistantConfirmedExistingBooking,
   ensureOpeningServiceListPickBridge,
-  inboundAsksAboutExistingBooking,
   isAffirmativeCatalogFamilyConfirm,
   looksLikeOutOfFlowCatalogClassPick,
   resolveAmbiguousCatalogFamilyNames,
@@ -15821,7 +15821,7 @@ async function processIncoming(
         Boolean(lastPickedServiceName?.trim()) &&
         contactTrialRegistered !== true &&
         !registeredInCurrentFlow &&
-        !inboundAsksAboutExistingBooking({ inboundText: incomingRaw, route: waReplyRoute.route }) &&
+        !assistantConfirmedExistingBooking({ route: waReplyRoute.route, assistantReply: replyCoreClean }) &&
         (contactSessionPhase === "schedule_date" ||
           contactSessionPhase === "schedule_time" ||
           contactSessionPhase === "cta")

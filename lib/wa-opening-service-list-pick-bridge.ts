@@ -3,8 +3,6 @@ import {
   matchCatalogServicesFromFreeText,
   matchCatalogServicesSharingDistinctiveToken,
 } from "@/lib/wa-unknown-class-slot";
-import { matchesArboxRegistrationVerifyAsk } from "@/lib/wa-arbox-registration-verify";
-import { isScheduleInquiryIntent } from "@/lib/wa-booking-lookup";
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 import { matchesTrialTopicAdvanceIntent } from "@/lib/wa-trial-topic-intent";
 
@@ -178,23 +176,24 @@ export function assistantReplyMentionsCatalogService(
   return distinctive.some((tok) => reply.includes(tok));
 }
 
-const SAVED_MY_SPOT_RE =
-  /(?:שמר(?:תם|ת|ו|תן)|שריינ(?:תם|ת|ו)|שיריינ(?:תם|ת|ו)|שיבצ(?:תם|ת|ו))\s+(?:לי|לנו|אותי|אותנו)(?=[^\p{L}]|$)/u;
+const BOOKING_DENIED_RE =
+  /(?:^|[^\p{L}])(?:לא|אין)\s+(?:\S+\s+){0,2}?(?:רשומ|שמור|שמרנו|שובצ|משובצ|הרשמה|מצאתי)/u;
+const BOOKING_AFFIRMED_RE =
+  /^(?:כן|yes|да)(?:[^\p{L}]|$)|(?:רשומ|שמור|שמרנו|שובצ|משובצ)/iu;
 
 /**
- * הליד שואל על הרשמה שכבר קיימת («שמרתם לי מקום?», «אני רשומה?»).
- * זה לא כוונה לפרטים או להרשמה — לא פותחים פלואו מכירה על מוצר אחר.
+ * זואי סיווגה בדיקת הרשמה קיימת וענתה שההרשמה קיימת.
+ * זו לא כוונה לפרטים או להרשמה — לא פותחים פלואו מכירה על מוצר אחר.
  */
-export function inboundAsksAboutExistingBooking(input: {
-  inboundText: string;
-  route?: string | null;
+export function assistantConfirmedExistingBooking(input: {
+  route: string | null | undefined;
+  assistantReply: string;
 }): boolean {
   const route = String(input.route ?? "").trim();
-  if (route === "registration_check" || route === "my_schedule") return true;
-  const t = String(input.inboundText ?? "").trim();
-  if (!t) return false;
-  if (SAVED_MY_SPOT_RE.test(t)) return true;
-  return isScheduleInquiryIntent(t) || matchesArboxRegistrationVerifyAsk(t);
+  if (route !== "registration_check" && route !== "my_schedule") return false;
+  const reply = String(input.assistantReply ?? "").trim();
+  if (!reply || BOOKING_DENIED_RE.test(reply)) return false;
+  return BOOKING_AFFIRMED_RE.test(reply);
 }
 
 export type AssistantRecommendedOtherCatalogService =
