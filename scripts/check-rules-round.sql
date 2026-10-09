@@ -17,6 +17,9 @@
 --
 -- answerFreeQuestion max_tokens hits are not in the database.
 -- They are Vercel logs: [ai-models] max_tokens site=answerFreeQuestion
+--
+-- Rule 3 opener strips are not in the database.
+-- They are Vercel logs: [rule3] stripped_opener with business_id and opener.
 
 with params as (
   select timestamptz '2026-10-09 17:00:00+00' as start_at

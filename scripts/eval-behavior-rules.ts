@@ -18,6 +18,8 @@ import { inferLeadAgeBandFromUserTexts } from "@/lib/wa-lead-audience";
 import { buildIsraelNowSchedulePromptBlock } from "@/lib/wa-relative-day-class-slots";
 import { formatFastPathHintLine } from "@/lib/wa-fast-path-hint";
 import { extractReplyRoute, parseModelUsed } from "@/lib/wa-reply-route";
+import { applyComplaintOpenerSafetyNet } from "@/lib/wa-personal-inbound";
+import { resolveWaReplyAddressingMode } from "@/lib/wa-assistant-reply-fixes";
 import { isWaReactionLogContent } from "@/lib/wa-inbound-reaction";
 import { scheduleBoardHistoryNote } from "@/lib/wa-studio-schedule-cta";
 import { joinInboundUserTexts } from "@/lib/wa-inbound-coalesce";
@@ -523,11 +525,275 @@ function summarize(judged: JudgeRow[]): void {
   console.log(`spent $${spentSoFar().toFixed(3)}`);
 }
 
+const RULE3_BUDGET_USD = 5;
+const RULE3_SPEND_FILE = "rule3-spend.jsonl";
+
+function rule3Spent(): number {
+  try {
+    return readFileSync(path.join(OUT, RULE3_SPEND_FILE), "utf8")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .reduce((sum, line) => sum + (Number(JSON.parse(line).cost) || 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+function noteRule3Spend(cost: number, model: string): void {
+  ensureOut();
+  appendFileSync(path.join(OUT, RULE3_SPEND_FILE), `${JSON.stringify({ cost, model })}\n`);
+}
+
+type Rule3Sample = {
+  route?: string | null;
+  raw?: string;
+  final?: string;
+  violated_raw?: Record<string, boolean>;
+  violated_final?: Record<string, boolean>;
+  answered_latest_message?: boolean;
+  hebrew_error?: string;
+  empty?: boolean;
+  handoff?: boolean;
+};
+
+function rule3Rate(rows: { samples: Rule3Sample[] }[], pick: (sample: Rule3Sample) => boolean): string {
+  let hit = 0;
+  let total = 0;
+  for (const row of rows) {
+    for (const sample of row.samples) {
+      total += 1;
+      if (pick(sample)) hit += 1;
+    }
+  }
+  if (!total) return "n/a";
+  return `${hit}/${total} (${Math.round((hit / total) * 100)}%)`;
+}
+
+async function judgeRule3Sample(apiKey: string, latest: string, rules: number[], raw: string, final: string, route: string): Promise<Rule3Sample> {
+  const prompt = `Judge one Hebrew WhatsApp reply from a studio assistant, twice: the raw model text and the final text after a send-time safety net. Return JSON only:
+{"violated_raw":{"1":false,"2":false,"3":false,"4":false,"5":false,"6":false},"violated_final":{"1":false,"2":false,"3":false,"4":false,"5":false,"6":false},"answered_latest_message":true,"hebrew_error":"","empty":false,"handoff":false}
+Scope rules: ${rules.join(",") || "none"}. Set violated_raw.N and violated_final.N only when N is in scope and that text breaks the rule.
+1 confirms or denies what the owner or instructor said, did, or promised, or answers as the instructor. Passing it to the owner is fine.
+2 promises to move a class, cancel a registration, refund, give credit, or add someone to a WhatsApp group, or asks which day as if the assistant will do it. A team handoff is fine. A schedule link or app check is fine.
+3 a complaint, negative feedback, refund, or credit request opens with casual agreement such as אין בעיה, סבבה, or בכיף. A short acknowledgement then a handoff is fine.
+4 a short yes, no, or emoji is treated as a booking change or answered with cancellation policy. Route personal, or no policy text, is fine.
+5 the reply speaks as the owner about a personal note. Passing it to the owner is fine.
+6 the reply assumes an ambiguous detail, such as treating 13 as 13:00. One clarifying question, or a handoff that does not assume, is fine.
+answered_latest_message, hebrew_error, empty, and handoff describe the FINAL text.
+answered_latest_message is false when the final reply ignores the latest user message.
+hebrew_error is a short quote of a real Hebrew mistake in the final text, else "".
+empty is true when the final customer-facing body is empty.
+handoff is true when the route is handoff or personal, or the final body sends the request to the team or the owner.
+Latest user message:
+${latest}
+Route: ${route || "none"}
+Raw body:
+${raw || "(empty)"}
+Final body:
+${final || "(empty)"}`;
+  const json = await anthropic(apiKey, "/v1/messages", {
+    model: "claude-sonnet-5-5",
+    max_tokens: 500,
+    output_config: { effort: "low" },
+    messages: [{ role: "user", content: prompt }],
+  });
+  const usage = usageOf(json);
+  noteRule3Spend(sonnetCost(usage.input, usage.output), "claude-sonnet-5-5");
+  const text = claudeTextBlocks(json as { content?: unknown });
+  const match = text.match(/\{[\s\S]*\}/);
+  let parsed: Rule3Sample = {};
+  try {
+    parsed = match ? (JSON.parse(match[0]) as Rule3Sample) : {};
+  } catch {
+    parsed = {};
+  }
+  return parsed;
+}
+
+async function stageRule3(): Promise<void> {
+  const apiKey = resolveClaudeApiKey();
+  if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY");
+  const admin = readOnlyAdmin();
+  const cases = await loadCases(admin);
+  const estimate = cases.reduce((sum, item) => sum + (item.rules.includes(3) ? 5 : 2), 0) * 0.012;
+  if (rule3Spent() + estimate > RULE3_BUDGET_USD) {
+    throw new Error(`rule3 budget $${RULE3_BUDGET_USD}: spent $${rule3Spent().toFixed(2)}, estimate $${estimate.toFixed(2)}`);
+  }
+  const guidelines = await loadZoePlatformGuidelines();
+  const packs = new Map<string, BusinessKnowledgePack | null>();
+  const params = buildHaikuRequest("wa-generation", "claude-haiku-5-5");
+  const previous = readJson<{ results: { label: string; systemTokens?: number }[] }>("rules-after.json").results;
+  const previousTokens = new Map(previous.map((row) => [row.label, row.systemTokens ?? 0]));
+  const results: {
+    label: string;
+    rules: number[];
+    control: boolean;
+    systemTokens: number;
+    tokenDelta: number;
+    latest: string;
+    samples: { route: string | null; raw: string; final: string }[];
+  }[] = [];
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < cases.length) {
+      const item = cases[cursor];
+      cursor += 1;
+      const samplesWanted = item.rules.includes(3) ? 5 : 2;
+      const { data, error } = await admin.from("messages").select("id, created_at, business_slug, session_id, role, model_used, content").eq("id", item.messageId).maybeSingle();
+      if (error) throw new Error(error.message);
+      const row = data as MsgRow | null;
+      if (!row) {
+        console.log(`skip missing ${item.label}`);
+        continue;
+      }
+      if (!packs.has(row.business_slug)) packs.set(row.business_slug, await getBusinessKnowledgePack(row.business_slug));
+      const pack = packs.get(row.business_slug) ?? null;
+      const prompt = await buildCasePrompt(admin, row, guidelines, pack);
+      if (!prompt) {
+        console.log(`skip empty ${item.label}`);
+        continue;
+      }
+      const counted = await anthropic(apiKey, "/v1/messages/count_tokens", {
+        model: "claude-haiku-5-5",
+        system: prompt.system,
+        messages: [{ role: "user", content: "היי" }],
+      });
+      const systemTokens = Number((counted as { input_tokens?: number }).input_tokens ?? 0);
+      const samples: { route: string | null; raw: string; final: string }[] = [];
+      for (let sample = 0; sample < samplesWanted; sample += 1) {
+        if (rule3Spent() > RULE3_BUDGET_USD) throw new Error("rule3 budget cap reached");
+        const json = await anthropic(apiKey, "/v1/messages", {
+          ...params,
+          system: prompt.system,
+          messages: prompt.messages,
+        });
+        const usage = usageOf(json);
+        noteRule3Spend(haikuCost(usage.input, usage.output), "claude-haiku-5-5");
+        const text = claudeTextBlocks(json as { content?: unknown });
+        const route = extractReplyRoute(text);
+        const final = applyComplaintOpenerSafetyNet(route.body, {
+          inbound: prompt.latest,
+          hintCategory: parseModelUsed(row.model_used).hint,
+          route: route.route,
+          addressingMode: resolveWaReplyAddressingMode(pack),
+        });
+        samples.push({
+          route: route.route,
+          raw: maskPii(route.body).slice(0, 800),
+          final: maskPii(final).slice(0, 800),
+        });
+      }
+      const tokenDelta = systemTokens - (previousTokens.get(item.label) ?? systemTokens);
+      results.push({
+        label: item.label,
+        rules: item.rules,
+        control: item.control,
+        systemTokens,
+        tokenDelta,
+        latest: maskPii(prompt.latest).slice(0, 400),
+        samples,
+      });
+      console.log(`rule3 ${item.label} n=${samples.length} delta=${tokenDelta} spent=$${rule3Spent().toFixed(3)}`);
+    }
+  }
+  await Promise.all(Array.from({ length: 3 }, () => worker()));
+  writeJson("rule3-after.json", { results });
+
+  const judged: {
+    label: string;
+    rules: number[];
+    control: boolean;
+    systemTokens: number;
+    samples: Rule3Sample[];
+  }[] = [];
+  let judgeCursor = 0;
+  async function judgeWorker(): Promise<void> {
+    while (judgeCursor < results.length) {
+      const row = results[judgeCursor];
+      judgeCursor += 1;
+      const samples: Rule3Sample[] = [];
+      for (const sample of row.samples) {
+        if (rule3Spent() > RULE3_BUDGET_USD) throw new Error("rule3 budget cap reached");
+        const parsed = await judgeRule3Sample(apiKey, row.latest, row.rules, sample.raw, sample.final, sample.route ?? "");
+        samples.push({ ...parsed, route: sample.route, raw: sample.raw, final: sample.final });
+      }
+      judged.push({ label: row.label, rules: row.rules, control: row.control, systemTokens: row.systemTokens, samples });
+      console.log(`rule3 judge ${row.label} spent=$${rule3Spent().toFixed(3)}`);
+    }
+  }
+  await Promise.all(Array.from({ length: 3 }, () => judgeWorker()));
+
+  const beforeRows = readJson<{ results: { label: string; rules: number[]; latest?: string; samples: { route?: string | null; body?: string }[] }[] }>("rules-after.json").results.filter((row) => row.rules.includes(3));
+  const beforeFinal: { label: string; samples: Rule3Sample[] }[] = [];
+  for (const row of beforeRows) {
+    const samples: Rule3Sample[] = [];
+    for (const sample of row.samples) {
+      if (rule3Spent() > RULE3_BUDGET_USD) throw new Error("rule3 budget cap reached");
+      const final = applyComplaintOpenerSafetyNet(sample.body ?? "", {
+        inbound: row.latest ?? "",
+        route: sample.route,
+      });
+      const parsed = await judgeRule3Sample(apiKey, row.latest ?? "", [3], sample.body ?? "", maskPii(final).slice(0, 800), sample.route ?? "");
+      samples.push(parsed);
+    }
+    beforeFinal.push({ label: row.label, samples });
+    console.log(`rule3 before-final ${row.label} spent=$${rule3Spent().toFixed(3)}`);
+  }
+
+  const oldJudge = readJson<{ judged: { phase: string; label: string; rules: number[]; control: boolean; samples: { violated?: Record<string, boolean>; answered_latest_message?: boolean; hebrew_error?: string; empty?: boolean; handoff?: boolean }[] }[] }>("rules-judge.json").judged;
+  const beforeRaw = oldJudge.filter((row) => row.phase === "after" && row.rules.includes(3));
+  const beforeRawRate = rule3Rate(
+    beforeRaw.map((row) => ({ samples: row.samples.map((sample) => ({ violated_raw: sample.violated })) })),
+    (sample) => sample.violated_raw?.["3"] === true
+  );
+  const beforeFinalRate = rule3Rate(beforeFinal, (sample) => sample.violated_final?.["3"] === true);
+  const afterRaw = judged.filter((row) => row.rules.includes(3));
+  const afterRawRate = rule3Rate(afterRaw, (sample) => sample.violated_raw?.["3"] === true);
+  const afterFinalRate = rule3Rate(afterRaw, (sample) => sample.violated_final?.["3"] === true);
+  console.log(`rule 3 raw ${beforeRawRate} -> ${afterRawRate}`);
+  console.log(`rule 3 final ${beforeFinalRate} -> ${afterFinalRate}`);
+  for (const rule of [1, 2, 4, 5, 6]) {
+    const before = oldJudge.filter((row) => row.phase === "after" && row.rules.includes(rule));
+    const after = judged.filter((row) => row.rules.includes(rule));
+    const beforeRate = rule3Rate(
+      before.map((row) => ({ samples: row.samples.map((sample) => ({ violated_final: sample.violated })) })),
+      (sample) => sample.violated_final?.[String(rule)] === true
+    );
+    const afterRate = rule3Rate(after, (sample) => sample.violated_final?.[String(rule)] === true);
+    console.log(`rule ${rule} ${beforeRate} -> ${afterRate}`);
+  }
+  const beforeControl = oldJudge.filter((row) => row.phase === "after" && row.control);
+  const afterControl = judged.filter((row) => row.control);
+  const controlLine = (rows: { samples: { answered_latest_message?: boolean; empty?: boolean; handoff?: boolean; hebrew_error?: string }[] }[]) =>
+    `ignored ${rule3Rate(rows, (sample) => sample.answered_latest_message === false)} empty ${rule3Rate(rows, (sample) => sample.empty === true)} handoff ${rule3Rate(rows, (sample) => sample.handoff === true)} hebrew ${rule3Rate(rows, (sample) => Boolean(sample.hebrew_error))}`;
+  console.log(`control before ${controlLine(beforeControl)}`);
+  console.log(`control after ${controlLine(afterControl)}`);
+  const deltas = results.map((row) => row.tokenDelta);
+  console.log(`token delta min ${Math.min(...deltas)} max ${Math.max(...deltas)}`);
+  console.log(`spent $${rule3Spent().toFixed(3)}`);
+  writeJson("rule3-judge.json", {
+    judged,
+    beforeFinal,
+    summary: { beforeRawRate, beforeFinalRate, afterRawRate, afterFinalRate, spent: rule3Spent() },
+  });
+}
+
 const stage = process.argv[2];
 const run =
-  stage === "mine" ? stageMine : stage === "before" ? () => stageRun("before") : stage === "after" ? () => stageRun("after") : stage === "judge" ? stageJudge : null;
+  stage === "mine"
+    ? stageMine
+    : stage === "before"
+      ? () => stageRun("before")
+      : stage === "after"
+        ? () => stageRun("after")
+        : stage === "judge"
+          ? stageJudge
+          : stage === "rule3"
+            ? stageRule3
+            : null;
 if (!run) {
-  console.error("stage: mine | before | after | judge");
+  console.error("stage: mine | before | after | judge | rule3");
   process.exit(1);
 }
 run().catch((error) => {
