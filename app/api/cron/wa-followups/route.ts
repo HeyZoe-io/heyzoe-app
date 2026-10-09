@@ -88,6 +88,8 @@ function maskPhone(phone: string): string {
 }
 
 const CONTACT_DEBUG_SELECT =
+  "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, marketing_opted_out, trial_registered, self_reported_registered_at, trial_signup_notice";
+const CONTACT_DEBUG_SELECT_NO_MARKETING =
   "id, phone, full_name, wa_no_response_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, last_contact_at, opted_out, trial_registered, self_reported_registered_at, trial_signup_notice";
 
 async function findContactByPhone(
@@ -98,15 +100,31 @@ async function findContactByPhone(
   const lookup_variants = contactPhoneLookupVariants(phoneInput);
   if (!lookup_variants.length) return { row: null, lookup_variants };
 
-  const { data, error } = await admin
+  const selected = await admin
     .from("contacts")
     .select(CONTACT_DEBUG_SELECT)
     .eq("business_id", businessId)
     .in("phone", lookup_variants)
     .limit(1);
 
-  if (error) throw error;
-  const row = (data?.[0] as Record<string, unknown> | undefined) ?? null;
+  const resolved =
+    selected.error && /marketing_opted_out/i.test(selected.error.message)
+      ? await admin
+          .from("contacts")
+          .select(CONTACT_DEBUG_SELECT_NO_MARKETING)
+          .eq("business_id", businessId)
+          .in("phone", lookup_variants)
+          .limit(1)
+      : selected;
+
+  if (selected.error && /marketing_opted_out/i.test(selected.error.message)) {
+    console.error(
+      "[cron/wa-followups] contacts.marketing_opted_out missing — run supabase/contacts_marketing_opted_out.sql"
+    );
+  }
+
+  if (resolved.error) throw resolved.error;
+  const row = (resolved.data?.[0] as Record<string, unknown> | undefined) ?? null;
   return { row, lookup_variants };
 }
 
@@ -336,6 +354,7 @@ export async function GET(req: NextRequest) {
         id?: string | number;
         wa_followup_stage?: number | null;
         opted_out?: boolean | null;
+        marketing_opted_out?: boolean | null;
         trial_registered?: boolean | null;
         self_reported_registered_at?: string | null;
         trial_signup_notice?: string | null;
@@ -390,8 +409,15 @@ export async function GET(req: NextRequest) {
   // Follow-up series runs once per contact: locked contacts are read only while their series is in progress.
   const lockColumn = await followupSeriesLockColumnExists(admin);
   const lockSelect = lockColumn ? `, ${FOLLOWUP_SERIES_LOCK_COLUMN}` : "";
-  const withSeriesLockGate = <Q extends { or: (filters: string) => Q }>(q: Q): Q =>
-    lockColumn ? q.or(FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS) : q;
+  let excludeMarketingOptOut = true;
+  const withSeriesLockGate = <
+    Q extends { or: (filters: string) => Q; eq: (column: string, value: boolean) => Q },
+  >(
+    q: Q
+  ): Q => {
+    const next = excludeMarketingOptOut ? q.eq("marketing_opted_out", false) : q;
+    return lockColumn ? next.or(FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS) : next;
+  };
   const followupSelect =
     "id, phone, full_name, business_id, wa_no_response_at, wa_next_followup_at, wa_followup_stage, wa_followup_1_sent_at, wa_followup_2_sent_at, wa_followup_3_sent_at, opted_out, trial_registered, session_phase, self_reported_registered_at, trial_signup_notice" +
     lockSelect;
@@ -400,7 +426,9 @@ export async function GET(req: NextRequest) {
     lockSelect;
 
   let contacts: any[] | null = null;
-  const { data: contactsData, error } = await withSeriesLockGate(
+  let error: { message?: string } | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const primary = await withSeriesLockGate(
     admin
     .from("contacts")
     .select(followupSelect)
@@ -417,7 +445,21 @@ export async function GET(req: NextRequest) {
     .gte("wa_next_followup_at", cutoff24hIso)
     )
     .limit(BATCH);
-  contacts = (contactsData as any[] | null) ?? null;
+    if (
+      primary.error &&
+      excludeMarketingOptOut &&
+      /marketing_opted_out/i.test(String(primary.error.message ?? ""))
+    ) {
+      console.error(
+        "[cron/wa-followups] contacts.marketing_opted_out missing — run supabase/contacts_marketing_opted_out.sql"
+      );
+      excludeMarketingOptOut = false;
+      continue;
+    }
+    error = primary.error;
+    contacts = (primary.data as any[] | null) ?? null;
+    break;
+  }
 
   if (error) {
     const msg = String(error.message ?? "");

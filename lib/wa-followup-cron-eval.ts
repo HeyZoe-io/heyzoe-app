@@ -11,6 +11,7 @@ import {
   WA_FOLLOWUP_MS_23_H,
 } from "@/lib/wa-sales-followup-defaults";
 import { hasTrialSignupNotice } from "@/lib/trial-signup-notice";
+import { contactBlocksWaFollowup } from "@/lib/wa-marketing-opt-out";
 
 export type WaFollowupSkipReason =
   | "time_window"
@@ -136,6 +137,7 @@ export async function evaluateBusinessWaFollowup(input: {
     id?: string | number;
     wa_followup_stage?: number | null;
     opted_out?: boolean | null;
+    marketing_opted_out?: boolean | null;
     not_relevant_at?: string | null;
     human_requested_at?: string | null;
     trial_registered?: boolean | null;
@@ -146,12 +148,14 @@ export async function evaluateBusinessWaFollowup(input: {
   const business_slug = input.business_slug.trim().toLowerCase();
   const phone = input.phone.trim();
 
-  if (input.contact.opted_out === true) {
+  if (contactBlocksWaFollowup(input.contact)) {
     return {
       skip_reason: "invalid_contact",
       session_id: "",
       business_slug,
-      detail: { filtered_reason: "opted_out" },
+      detail: {
+        filtered_reason: input.contact.opted_out === true ? "opted_out" : "marketing_opted_out",
+      },
     };
   }
   if (input.contact.not_relevant_at) {

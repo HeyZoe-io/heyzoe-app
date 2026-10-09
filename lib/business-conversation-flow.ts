@@ -944,14 +944,32 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
     }
 
     const variants = contactPhoneLookupVariants(phone);
-    const contact = await admin
+    const phoneLookup = variants.length ? variants : [phone];
+    const contactFull = await admin
       .from("contacts")
-      .select("opted_out, trial_registered")
+      .select("opted_out, marketing_opted_out, trial_registered")
       .eq("business_id", businessId)
-      .in("phone", variants.length ? variants : [phone])
+      .in("phone", phoneLookup)
       .limit(1);
-    const contactRow = (contact.data ?? [])[0] as { opted_out?: boolean | null; trial_registered?: boolean | null } | undefined;
-    if (contactRow?.opted_out || contactRow?.trial_registered) {
+    const contact = contactFull.error && /marketing_opted_out/i.test(contactFull.error.message)
+      ? await admin
+          .from("contacts")
+          .select("opted_out, trial_registered")
+          .eq("business_id", businessId)
+          .in("phone", phoneLookup)
+          .limit(1)
+      : contactFull;
+    if (contactFull.error && /marketing_opted_out/i.test(contactFull.error.message)) {
+      console.error(
+        "[business-conversation-flow] contacts.marketing_opted_out missing — run supabase/contacts_marketing_opted_out.sql"
+      );
+    }
+    const contactRow = (contact.data ?? [])[0] as {
+      opted_out?: boolean | null;
+      marketing_opted_out?: boolean | null;
+      trial_registered?: boolean | null;
+    } | undefined;
+    if (contactRow?.opted_out || contactRow?.marketing_opted_out || contactRow?.trial_registered) {
       await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
       cleared += 1;
       continue;

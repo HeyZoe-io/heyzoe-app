@@ -64,6 +64,14 @@ export function contactBlocksMarketingBulk(contact: {
   });
 }
 
+/** «הסר» או «הפסקת הודעות הקידום» — בלי פולואפ שיחה. */
+export function contactBlocksWaFollowup(contact: {
+  opted_out?: boolean | null;
+  marketing_opted_out?: boolean | null;
+}): boolean {
+  return contact.opted_out === true || contact.marketing_opted_out === true;
+}
+
 export function isMarketingOptOutErrorCode(code: unknown): boolean {
   return Number(code) === MARKETING_OPT_OUT_ERROR_CODE;
 }
@@ -245,10 +253,13 @@ export async function setContactMarketingOptedOut(input: {
 
   if (existing?.id) {
     const already = existing.marketing_opted_out === true;
-    if (input.optedOut === already) return "unchanged";
+    if (!input.optedOut && !already) return "unchanged";
+    const patch: Record<string, unknown> = { updated_at: nowIso };
+    if (input.optedOut !== already) patch.marketing_opted_out = input.optedOut;
+    if (input.optedOut) patch.wa_next_followup_at = null;
     const { error: updErr } = await input.admin
       .from("contacts")
-      .update({ marketing_opted_out: input.optedOut, updated_at: nowIso })
+      .update(patch)
       .eq("id", existing.id);
     if (updErr) {
       if (isMissingMarketingOptOutColumn(updErr.message)) {
@@ -266,7 +277,7 @@ export async function setContactMarketingOptedOut(input: {
       marketing_opted_out: input.optedOut,
       keyword_opted_out: existing.opted_out === true,
     });
-    return "updated";
+    return already ? "unchanged" : "updated";
   }
 
   if (!input.optedOut) return "unchanged";
@@ -288,7 +299,7 @@ export async function setContactMarketingOptedOut(input: {
     if (/duplicate|unique|23505/i.test(insErr.message)) {
       const { error: retryErr } = await input.admin
         .from("contacts")
-        .update({ marketing_opted_out: true, updated_at: nowIso })
+        .update({ marketing_opted_out: true, wa_next_followup_at: null, updated_at: nowIso })
         .eq("business_id", input.businessId)
         .in("phone", lookup);
       if (retryErr) {

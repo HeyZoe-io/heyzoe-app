@@ -7583,7 +7583,7 @@ async function processIncoming(
     }
     const { data: markedOut, error: optOutErr } = await supabase
       .from("contacts")
-      .update({ opted_out: true, opted_out_at: nowIso })
+      .update({ opted_out: true, opted_out_at: nowIso, wa_next_followup_at: null })
       .eq("business_id", businessId)
       .in("phone", optOutPhoneVariants)
       .or("opted_out.is.null,opted_out.eq.false")

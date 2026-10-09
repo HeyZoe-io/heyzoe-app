@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { parseMetaWebhook } from "@/lib/whatsapp";
 import {
   contactBlocksMarketingBulk,
+  contactBlocksWaFollowup,
   extractMetaErrorCode,
   isMarketingOptOutErrorCode,
   isMarketingTemplateCategory,
@@ -187,6 +188,10 @@ import {
   assert.equal(contactBlocksMarketingBulk({ opted_out: false, marketing_opted_out: true }), true);
   assert.equal(contactBlocksMarketingBulk({ opted_out: false, marketing_opted_out: false }), false);
   assert.equal(contactBlocksMarketingBulk({ opted_out: null, marketing_opted_out: null }), false);
+  assert.equal(contactBlocksWaFollowup({ opted_out: true, marketing_opted_out: false }), true);
+  assert.equal(contactBlocksWaFollowup({ opted_out: false, marketing_opted_out: true }), true);
+  assert.equal(contactBlocksWaFollowup({ opted_out: false, marketing_opted_out: false }), false);
+  assert.equal(contactBlocksWaFollowup({ opted_out: null, marketing_opted_out: null }), false);
 }
 
 {
