@@ -979,19 +979,21 @@ export default function ConversationsClient({
                   aria-pressed={failedOnly}
                   title={t.failedFilterHint}
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] transition-colors ${
+                    lang === "en" ? "flex-row-reverse" : ""
+                  } ${
                     failedOnly
                       ? "bg-[#fde8e8] font-medium text-[#ea0038]"
                       : "bg-[#f0f2f5] text-[#54656f] hover:bg-[#e9edef]"
                   }`}
                 >
                   <span
-                    aria-hidden
-                    className="inline-flex h-[14px] w-[14px] items-center justify-center rounded-full bg-[#ea0038] text-[10px] font-bold leading-none text-white"
+                    className={`inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full px-[3px] text-[10px] font-bold leading-none tabular-nums text-white ${
+                      failedSessionCount > 0 ? "bg-[#ea0038]" : "bg-[#667781]"
+                    }`}
                   >
-                    !
+                    {failedSessionCount}
                   </span>
                   {t.failedFilter}
-                  {failedSessionCount > 0 ? <span className="tabular-nums">({failedSessionCount})</span> : null}
                 </button>
               </div>
             </div>
