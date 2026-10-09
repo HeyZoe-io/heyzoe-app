@@ -21,6 +21,7 @@
 /.tmp_images/
 /remotion/
 /scripts/out/
+/eval-output/
 
 # production
 /build
