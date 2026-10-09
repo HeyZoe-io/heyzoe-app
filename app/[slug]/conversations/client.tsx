@@ -65,6 +65,8 @@ const i18n = {
     processing: "מעבד...",
     resumeBot: "הפעל בוט",
     pauseBot: "עצור בוט",
+    replayLastInbound: "המשך מההודעה האחרונה",
+    replayQueued: "זואי תענה להודעה האחרונה של הליד תוך כמה דקות.",
     leadPhoneFallback: "מספר הליד",
     windowExpired: (phone: string) =>
       `שליחה ידנית מהמערכת אפשרית רק בתוך 24 שעות מהודעת הלקוח האחרונה. אפשר לעצור את הבוט — וליצור קשר מהמספר שלכם: ${phone}`,
@@ -107,6 +109,8 @@ const i18n = {
     processing: "Processing...",
     resumeBot: "Resume Bot",
     pauseBot: "Pause Bot",
+    replayLastInbound: "Continue from last message",
+    replayQueued: "Zoe will answer the lead's last message within a few minutes.",
     leadPhoneFallback: "lead number",
     windowExpired: (phone: string) =>
       `Manual replies from the dashboard are only available within 24 hours of the customer's last message. You can still pause the bot and reach out from your number: ${phone}`,
@@ -416,6 +420,8 @@ export default function ConversationsClient({
   const [sending, setSending] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [pausing, setPausing] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState<string | null>(null);
+  const [replayQueuedFor, setReplayQueuedFor] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [failedOnly, setFailedOnly] = useState(false);
   // Mobile-first: starting as `true` made the first paint show both panels on phones,
@@ -771,6 +777,25 @@ export default function ConversationsClient({
       );
     } finally {
       setPausing(null);
+    }
+  }
+
+  async function replayLastInbound(sessionId: string) {
+    setReplaying(sessionId);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/whatsapp/replay-last-inbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_slug: slugForSession(sessionId), session_id: sessionId }),
+      });
+      if (!res.ok) {
+        setActionError(t.actionFailed);
+        return;
+      }
+      setReplayQueuedFor(sessionId);
+    } finally {
+      setReplaying(null);
     }
   }
 
@@ -1196,6 +1221,19 @@ export default function ConversationsClient({
                       ) : null}
                     </div>
                   </div>
+                  {!selected.isPaused &&
+                  selected.isOpen &&
+                  replayQueuedFor !== selected.session_id &&
+                  !isMarketingConversationsSlug(slugForSession(selected.session_id)) ? (
+                    <button
+                      type="button"
+                      onClick={() => void replayLastInbound(selected.session_id)}
+                      disabled={replaying === selected.session_id}
+                      className="shrink-0 rounded-full border border-[#00a884] bg-white px-3 py-1.5 text-[12px] font-medium text-[#00a884] transition-colors hover:bg-[#f0fdf9] disabled:opacity-50"
+                    >
+                      {replaying === selected.session_id ? t.processing : t.replayLastInbound}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void toggleBot(selected.session_id, !selected.isPaused)}
@@ -1217,6 +1255,12 @@ export default function ConversationsClient({
                 {manualSendBlocked ? (
                   <p className={`shrink-0 bg-[#fff8e6] px-4 py-2 text-[12px] leading-relaxed text-amber-800 ${textAlignClass}`}>
                     {manualWindowNotice}
+                  </p>
+                ) : null}
+
+                {replayQueuedFor === selected.session_id ? (
+                  <p className={`shrink-0 bg-[#e7f8f3] px-4 py-2 text-[12px] leading-relaxed text-[#00795f] ${textAlignClass}`}>
+                    {t.replayQueued}
                   </p>
                 ) : null}
 
