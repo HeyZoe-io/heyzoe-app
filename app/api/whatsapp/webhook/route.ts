@@ -393,10 +393,11 @@ import {
   registrationMemberFlagFollowupNeedsHandoff,
   resolveClassCancelWithTrialGate,
   resolveRescheduleHintWithTrialGate,
+  resolveBookingChangeSend,
+  knownMemberInsteadOfMembershipQuestion,
   rescheduleTagApplies,
 } from "@/lib/wa-registration-intent";
 import {
-  CLASS_CHANGE_TRIAL_TEAM_MODEL,
   claudeRouteMarksTrialClass,
   contactHasFutureTrialBooking,
 } from "@/lib/wa-class-change-trial";
@@ -406,6 +407,7 @@ import {
   BOOKING_LOOKUP_CLARIFY_MODEL,
   BOOKING_LOOKUP_CLARIFY_QUESTION,
   BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+  bookingLookupMemberAnswer,
   buildBookingLookupMembershipHandoffReply,
   isScheduleInquiryIntent,
 } from "@/lib/wa-booking-lookup";
@@ -10323,6 +10325,20 @@ async function processIncoming(
     lastAssistForWarmupPriority !== BOOKING_LOOKUP_CLARIFY_MODEL &&
     isScheduleInquiryIntent(msg.text)
   ) {
+    if (bookingLookupMemberAnswer({ arboxIsMember: contactArboxIsMember })) {
+      await sendBookingLookupTeamHandoff({
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        nowIso,
+      });
+      return;
+    }
     try {
       await sendWhatsAppMessage(
         msg.toNumber,
@@ -14409,6 +14425,14 @@ async function processIncoming(
         await sendClosed(REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY, REGISTRATION_INTENT_HAS_MEMBER_MODEL);
         return;
       } else if (hintCategory === "registration_clarify") {
+        const memberInstead = knownMemberInsteadOfMembershipQuestion({
+          arboxIsMember: contactArboxIsMember,
+          context: "registration_intent",
+        });
+        if (memberInstead) {
+          await sendClosed(memberInstead.reply, memberInstead.model);
+          return;
+        }
         await sendClosed(REGISTRATION_INTENT_CLARIFY_QUESTION, REGISTRATION_INTENT_CLARIFY_MODEL);
         return;
       } else if (
@@ -14921,6 +14945,34 @@ async function processIncoming(
         });
         return;
       }
+      const memberInstead = knownMemberInsteadOfMembershipQuestion({
+        arboxIsMember: contactArboxIsMember,
+        context: "registration_problem",
+      });
+      if (memberInstead) {
+        await sendMembershipLookupReply({
+          result: {
+            kind: "active",
+            text: memberInstead.reply,
+            modelUsed: memberInstead.model,
+            notifyHumanRequested: memberInstead.notifyTeam,
+          },
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          nowIso,
+          modelUsed: appendRouteToModelUsed(
+            memberInstead.model,
+            waReplyRoute,
+            fastPathHint?.category
+          ),
+        });
+        return;
+      }
       try {
         await sendWhatsAppMessage(
           msg.toNumber,
@@ -15123,70 +15175,69 @@ async function processIncoming(
       });
       return;
     }
-    if (routeAction.kind === "booking_change" || routeAction.kind === "handoff") {
-      if (routeAction.kind === "booking_change") {
-        const gatedCancel = resolveClassCancelWithTrialGate({
-          claudeSaysTrial: claudeRouteMarksTrialClass(waReplyRoute.route),
-          storedFutureTrial: await loadStoredFutureTrial(),
-          current: {
-            reply: resolveRouteBookingChangeReply(knowledge),
-            model: "class_reschedule_team_handoff",
-            notifyTeam: false,
-          },
-        });
-        if (gatedCancel.model === CLASS_CHANGE_TRIAL_TEAM_MODEL) {
-          if (businessId) {
-            try {
-              const { handleLeadHumanRequested } = await import("@/lib/human-requested");
-              await handleLeadHumanRequested({
-                supabase,
-                businessId: Number(businessId),
-                businessSlug: business_slug,
-                phone: msg.from,
-                nowIso,
-                sessionId,
-              });
-            } catch (e) {
-              console.error("[WA Webhook] trial class-cancel human_requested failed:", e);
-            }
-          }
-          try {
-            await sendWhatsAppMessage(msg.toNumber, msg.from, gatedCancel.reply, accountSid, authToken);
-          } catch (e) {
-            console.error("[WA Webhook] trial class-cancel send failed:", e);
-          }
-          await logMessage({
-            business_slug,
-            role: "assistant",
-            content: gatedCancel.reply,
-            model_used: appendRouteToModelUsed(gatedCancel.model, waReplyRoute, fastPathHint?.category),
-            session_id: sessionId,
-          });
-          return;
-        }
-      }
-      let outbound =
-        routeAction.kind === "handoff" && replyCoreClean.trim()
-          ? replyCoreClean.trim()
-          : resolveRouteBookingChangeReply(knowledge);
-      let closedRepeat = false;
+    if (routeAction.kind === "booking_change") {
+      const send = resolveBookingChangeSend({
+        knowledge,
+        claudeSaysTrial: claudeRouteMarksTrialClass(waReplyRoute.route),
+        storedFutureTrial: await loadStoredFutureTrial(),
+        arboxIsMember: contactArboxIsMember,
+        hintSaysClassCancel: fastPathHint?.category === "class_cancel",
+      });
+      let outbound = send.reply;
+      let modelBase = send.model;
+      const repeated = await lastClosedOutboundRepeats({
+        admin: supabase,
+        businessSlug: business_slug,
+        sessionId,
+        text: outbound,
+      });
       let suppressRepeatedHandoff = false;
-      if (routeAction.kind !== "handoff") {
-        closedRepeat = await lastClosedOutboundRepeats({
-          admin: supabase,
-          businessSlug: business_slug,
-          sessionId,
-          text: outbound,
-        });
-        if (closedRepeat) {
-          const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
-          if (outbound.replace(/\s+/g, " ").trim() !== handoffText.replace(/\s+/g, " ").trim()) {
-            outbound = handoffText;
-          } else {
-            suppressRepeatedHandoff = true;
-          }
+      if (repeated) {
+        const handoffText = buildClassRescheduleTeamHandoffReply(knowledge.botName);
+        if (outbound.replace(/\s+/g, " ").trim() !== handoffText.replace(/\s+/g, " ").trim()) {
+          outbound = handoffText;
+          modelBase = "wa_closed_copy_repeat_handoff";
+        } else {
+          suppressRepeatedHandoff = true;
         }
       }
+      if (send.notifyTeam && businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] booking_change human_requested failed:", e);
+        }
+      }
+      if (suppressRepeatedHandoff) {
+        await logClosedHandoffRepeatSuppressed(sessionId);
+        return;
+      }
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] Send booking_change reply failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: outbound,
+        model_used: appendRouteToModelUsed(modelBase, waReplyRoute, fastPathHint?.category),
+        session_id: sessionId,
+      });
+      return;
+    }
+    if (routeAction.kind === "handoff") {
+      const outbound = replyCoreClean.trim()
+        ? replyCoreClean.trim()
+        : resolveRouteBookingChangeReply(knowledge);
       if (businessId) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -15202,10 +15253,6 @@ async function processIncoming(
           console.error("[WA Webhook] route handoff human_requested failed:", e);
         }
       }
-      if (suppressRepeatedHandoff) {
-        await logClosedHandoffRepeatSuppressed(sessionId);
-        return;
-      }
       try {
         await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
       } catch (e) {
@@ -15215,15 +15262,7 @@ async function processIncoming(
         business_slug,
         role: "assistant",
         content: outbound,
-        model_used: appendRouteToModelUsed(
-          closedRepeat
-            ? "wa_closed_copy_repeat_handoff"
-            : routeAction.kind === "handoff"
-              ? "wa_route_handoff"
-              : "class_reschedule_team_handoff",
-          waReplyRoute,
-          fastPathHint?.category
-        ),
+        model_used: appendRouteToModelUsed("wa_route_handoff", waReplyRoute, fastPathHint?.category),
         session_id: sessionId,
       });
       return;

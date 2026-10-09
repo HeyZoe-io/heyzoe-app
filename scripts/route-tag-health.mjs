@@ -71,6 +71,7 @@ const USAGE_MODELS = new Set([
   "closed_playbook_fact_class_cancel",
   "closed_playbook_fact_reschedule",
   "booked_class_move_app",
+  "class_reschedule_team_handoff",
 ]);
 for (const row of rows) {
   const parsed = parseLoggedModel(row.model_used);

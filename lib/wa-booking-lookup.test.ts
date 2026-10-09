@@ -3,6 +3,7 @@ import {
   assistantAskedMembershipOrTrialClarify,
   assistantReplyDumpsAccountAccessToSelfServeCall,
   BOOKING_LOOKUP_CLARIFY_QUESTION,
+  bookingLookupMemberAnswer,
   buildBookingLookupMembershipHandoffReply,
   matchesBookingLookupPhrase,
   isScheduleInquiryIntent,
@@ -102,6 +103,15 @@ assert.equal(
   assistantAskedMembershipOrTrialClarify(BOOKING_LOOKUP_CLARIFY_QUESTION),
   true
 );
+const memberBooking = bookingLookupMemberAnswer({
+  arboxIsMember: true,
+  customerServicePhone: "0500000000",
+});
+assert.match(memberBooking?.reply ?? "", /מעבירה את הפנייה לצוות/);
+assert.equal(memberBooking?.model, "booking_lookup_membership_handoff");
+assert.equal((memberBooking?.reply ?? "").includes(BOOKING_LOOKUP_CLARIFY_QUESTION), false);
+assert.equal(bookingLookupMemberAnswer({ arboxIsMember: false }), null);
+assert.equal(bookingLookupMemberAnswer({ arboxIsMember: null }), null);
 assert.equal(
   assistantAskedMembershipOrTrialClarify(
     "היי! 👋 כדי שאוכל לעזור לך עם זה, אני צריכה קצת יותר פרטים. אתה מתכוון לאימון ניסיון שרשמת עכשיו, או שיש לך כבר מנוי קיים איתנו?"

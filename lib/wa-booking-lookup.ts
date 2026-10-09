@@ -9,6 +9,22 @@ export const BOOKING_LOOKUP_CLARIFY_QUESTION = REGISTRATION_INTENT_CLARIFY_QUEST
 export const BOOKING_LOOKUP_CLARIFY_MODEL = "booking_lookup_clarify";
 export const BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL = "booking_lookup_membership_handoff";
 
+/**
+ * Known member skips the member-or-trial question and takes the yes answer:
+ * the existing team handoff. false and null still get the question.
+ */
+export function bookingLookupMemberAnswer(input: {
+  arboxIsMember?: boolean | null;
+  customerServicePhone?: string | null;
+}): { reply: string; model: string; notifyTeam: true } | null {
+  if (input.arboxIsMember !== true) return null;
+  return {
+    reply: buildBookingLookupMembershipHandoffReply(input.customerServicePhone ?? ""),
+    model: BOOKING_LOOKUP_MEMBERSHIP_HANDOFF_MODEL,
+    notifyTeam: true,
+  };
+}
+
 export function buildBookingLookupMembershipHandoffReply(customerServicePhone: string): string {
   const phone = String(customerServicePhone ?? "").trim();
   const base = "תודה על הבהרה! 💜 אני מעבירה את הפנייה לצוות ויצרו איתך קשר בקרוב.";

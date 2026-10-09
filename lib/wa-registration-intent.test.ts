@@ -18,6 +18,9 @@ import {
   membershipQuestionAnswerContext,
   registrationIntentMemberFlagReply,
   registrationIntentMembershipAnswer,
+  knownMemberInsteadOfMembershipQuestion,
+  resolveBookingChangeSend,
+  BOOKING_CHANGE_FACT_MODEL,
   registrationMemberFlagFollowupNeedsHandoff,
   rescheduleTagApplies,
   resolveArboxClassMoveOutcome,
@@ -317,6 +320,66 @@ const stillUnknown = resolveRescheduleWithMemberFlag("אפשר להזיז את �
   hasArboxConnection: true,
 });
 assert.equal(stillUnknown.model, RESCHEDULE_UNKNOWN_TEAM_MODEL);
+
+const FACT = "ביטול/החלפת אימון ניתן לבצע עד 12 שעות לפני. ניתן להיכנס לאפליקציה, לבטל את הרישום.";
+const factKnowledge = {
+  botName: "זואי",
+  knowledgeQa: [{ question: "החלפת אימון", answer: FACT }],
+};
+for (const context of ["registration_problem", "registration_intent", "reschedule"] as const) {
+  assert.equal(knownMemberInsteadOfMembershipQuestion({ arboxIsMember: false, context }), null);
+  assert.equal(knownMemberInsteadOfMembershipQuestion({ arboxIsMember: null, context }), null);
+}
+const problem = knownMemberInsteadOfMembershipQuestion({
+  arboxIsMember: true,
+  context: "registration_problem",
+});
+assert.equal(problem?.model, "membership_lookup_active");
+assert.match(problem?.reply ?? "", /מעבירה לצוות/);
+assert.equal((problem?.reply ?? "").includes("או שמדובר באימון ניסיון"), false);
+assert.equal(problem?.notifyTeam, true);
+const intent = knownMemberInsteadOfMembershipQuestion({
+  arboxIsMember: true,
+  context: "registration_intent",
+});
+assert.equal(intent?.reply, REGISTRATION_INTENT_HAS_MEMBERSHIP_REPLY);
+assert.equal(intent?.model, REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL);
+assert.equal((intent?.reply ?? "").includes("או שמדובר באימון ניסיון"), false);
+const move = knownMemberInsteadOfMembershipQuestion({
+  arboxIsMember: true,
+  context: "reschedule",
+  inbound: "אפשר להזיז את האימון שלי?",
+});
+assert.equal(move?.model, RESCHEDULE_MEMBER_BY_FLAG_MODEL);
+assert.equal((move?.reply ?? "").includes("או שמדובר באימון ניסיון"), false);
+
+const cancelSend = resolveBookingChangeSend({
+  knowledge: factKnowledge,
+  arboxIsMember: false,
+  hintSaysClassCancel: true,
+});
+assert.equal(cancelSend.reply, FACT);
+assert.equal(cancelSend.model, BOOKING_CHANGE_FACT_MODEL);
+assert.equal(/handoff/.test(cancelSend.model), false);
+const yesSend = resolveBookingChangeSend({ knowledge: factKnowledge, arboxIsMember: null });
+assert.equal(yesSend.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(yesSend.model, RESCHEDULE_UNKNOWN_TEAM_MODEL);
+assert.equal(yesSend.notifyTeam, true);
+const noSend = resolveBookingChangeSend({ knowledge: factKnowledge, arboxIsMember: false });
+assert.equal(noSend.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(noSend.model, RESCHEDULE_UNKNOWN_TEAM_MODEL);
+const memberSend = resolveBookingChangeSend({ knowledge: factKnowledge, arboxIsMember: true });
+assert.equal(memberSend.reply, FACT);
+assert.equal(/handoff/.test(memberSend.model), false);
+const trialSend = resolveBookingChangeSend({
+  knowledge: factKnowledge,
+  arboxIsMember: true,
+  claudeSaysTrial: true,
+  hintSaysClassCancel: true,
+});
+assert.equal(trialSend.model, "class_change_trial_team_handoff");
+assert.equal(trialSend.reply, RESCHEDULE_UNKNOWN_TEAM_REPLY);
+assert.equal(trialSend.notifyTeam, true);
 
 const prompt = buildReplyRoutePromptBlock();
 assert.equal(prompt.includes("גם תשובה לשאלה"), false);

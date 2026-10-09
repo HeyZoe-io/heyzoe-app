@@ -3,7 +3,9 @@ import { buildClassRescheduleTeamHandoffReply } from "@/lib/wa-class-reschedule"
 import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
 import { parseModelUsed } from "@/lib/wa-reply-route";
 import { lookupPlaybookFact } from "@/lib/wa-closed-playbook-facts";
+import { buildClosedPlaybookDefaultReply } from "@/lib/wa-closed-playbook-copy";
 import type { ClosedPlaybookKnowledge } from "@/lib/wa-closed-playbook-types";
+import { mapMembershipLookupReply } from "@/lib/wa-membership-lookup";
 import {
   isExistingTrialEnrollmentMention,
   matchesCantAttendScheduledClass,
@@ -171,6 +173,74 @@ export function resolveRescheduleHintWithTrialGate(input: {
     notifyTeam: true,
   };
 }
+/** Fact sent by the booking_change fallback. Never a *_handoff tag. */
+export const BOOKING_CHANGE_FACT_MODEL = "closed_playbook_fact_reschedule";
+
+/**
+ * booking_change after Claude, when no playbook hint already consumed the turn.
+ * Trial first. A known member, or a class-cancel hint, keeps the knowledge fact.
+ * Anyone else gets the rule A unknown handoff. A fact is never tagged as a handoff.
+ */
+export function resolveBookingChangeSend(input: {
+  knowledge?: ClosedPlaybookKnowledge | null;
+  claudeSaysTrial?: boolean;
+  storedFutureTrial?: boolean;
+  arboxIsMember?: boolean | null;
+  /** Hint category class_cancel. Not a scan of the message. */
+  hintSaysClassCancel?: boolean;
+}): ClassChangeSend {
+  if (input.claudeSaysTrial || input.storedFutureTrial) return trialClassChangeHandoff();
+  const fact = lookupPlaybookFact("reschedule", input.knowledge)?.trim() ?? "";
+  const keepFact = input.arboxIsMember === true || input.hintSaysClassCancel === true;
+  if (keepFact && fact) {
+    return { reply: fact, model: BOOKING_CHANGE_FACT_MODEL, notifyTeam: true };
+  }
+  if (keepFact) {
+    return {
+      reply: buildClosedPlaybookDefaultReply("reschedule", input.knowledge?.botName),
+      model: "class_reschedule_team_handoff",
+      notifyTeam: true,
+    };
+  }
+  return {
+    reply: RESCHEDULE_UNKNOWN_TEAM_REPLY,
+    model: RESCHEDULE_UNKNOWN_TEAM_MODEL,
+    notifyTeam: true,
+  };
+}
+
+export type KnownMemberQuestionContext =
+  | "registration_problem"
+  | "registration_intent"
+  | "reschedule";
+
+/**
+ * A known member never hears the member-or-trial question.
+ * false and null stay on today's question. No Arbox call: the daily flag is already loaded.
+ */
+export function knownMemberInsteadOfMembershipQuestion(input: {
+  arboxIsMember?: boolean | null;
+  context: KnownMemberQuestionContext;
+  knowledge?: ClosedPlaybookKnowledge | null;
+  inbound?: string;
+}): ClassChangeSend | null {
+  if (input.arboxIsMember !== true) return null;
+  if (input.context === "registration_problem") {
+    const active = mapMembershipLookupReply("active");
+    return { reply: active.text, model: active.modelUsed, notifyTeam: active.notifyHumanRequested };
+  }
+  if (input.context === "registration_intent") {
+    const member = registrationIntentMemberFlagReply(true);
+    return member ? { reply: member.reply, model: member.model, notifyTeam: false } : null;
+  }
+  const reschedule = resolveRescheduleWithMemberFlag(input.inbound ?? "", {
+    knowledge: input.knowledge,
+    arboxIsMember: true,
+    hasArboxConnection: true,
+  });
+  return { reply: reschedule.reply, model: reschedule.model, notifyTeam: reschedule.notifyTeam };
+}
+
 export const REGISTRATION_INTENT_MEMBER_BY_FLAG_MODEL = "registration_intent_member_by_flag";
 export const REGISTRATION_INTENT_MEMBER_HELP_HANDOFF_MODEL = "registration_intent_member_help_handoff";
 
