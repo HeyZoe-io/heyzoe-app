@@ -99,19 +99,29 @@ export function shouldPromptAmbiguousCatalogTrialPick(input: {
 }
 
 /**
- * תפריט משפחה רק כשאין התאמה יחידה לקטלוג.
+ * שני שיעורים ומעלה עם אותה מילה — רק הם. התאמה יחידה לא נכנסת לכאן.
  * «שיעור יוגה נשים» לא ייפול למשפחת «יוגה» רק כי השם מכיל את הטוקן.
+ */
+export function resolveCatalogFamilyPickNames(input: {
+  inboundText: string;
+  services: { name: string }[];
+}): string[] {
+  const catalogMatches = matchCatalogServicesFromFreeText(input.inboundText, input.services);
+  if (catalogMatches.length === 1) return [];
+  if (catalogMatches.length >= 2) return catalogMatches;
+  const familyMatches = matchCatalogServicesSharingDistinctiveToken(input.inboundText, input.services);
+  return familyMatches.length >= 2 ? familyMatches : [];
+}
+
+/**
+ * תפריט משפחה רק כשממתינים לבחירת מוצר ואין התאמה יחידה לקטלוג.
  */
 export function resolveAmbiguousCatalogFamilyNames(input: {
   inboundText: string;
   services: { name: string }[];
   awaitingOpeningServicePick: boolean;
 }): string[] {
-  const catalogMatches = matchCatalogServicesFromFreeText(input.inboundText, input.services);
-  if (catalogMatches.length === 1) return [];
-  const familyMatches = matchCatalogServicesSharingDistinctiveToken(input.inboundText, input.services);
-  const ambiguous =
-    catalogMatches.length >= 2 ? catalogMatches : familyMatches.length >= 2 ? familyMatches : [];
+  const ambiguous = resolveCatalogFamilyPickNames(input);
   if (
     ambiguous.length >= 2 &&
     shouldPromptAmbiguousCatalogTrialPick({

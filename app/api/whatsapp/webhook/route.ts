@@ -202,6 +202,7 @@ import {
   isAffirmativeCatalogFamilyConfirm,
   looksLikeOutOfFlowCatalogClassPick,
   resolveAmbiguousCatalogFamilyNames,
+  resolveCatalogFamilyPickNames,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
@@ -1106,6 +1107,8 @@ async function beginSalesFlowAtProductPick(input: {
   instagramFollowPromptSent?: boolean;
   /** «אני מבינה שבא לך להירשם…» — לפני סשן בחירת מוצר. */
   preambleText?: string | null;
+  /** כשהטקסט מזהה שני שיעורים עם אותה מילה — רק הם, לא כל הקטלוג. */
+  familyPickText?: string | null;
 }): Promise<{ contactSessionPhase: HeyzoeSessionPhase; contactFlowStep: number }> {
   const resetState = input.resetState !== false;
   const logEntry = input.logEntry !== false;
@@ -1178,6 +1181,7 @@ async function beginSalesFlowAtProductPick(input: {
     allowTrialCta: input.allowTrialCta ?? true,
     sfConsumedKinds: resetState ? [] : input.sfConsumedKinds ?? [],
     instagramFollowPromptSent: resetState ? false : input.instagramFollowPromptSent ?? false,
+    familyPickText: input.familyPickText,
   });
 
   const nextPhase =
@@ -2702,6 +2706,7 @@ async function advanceAfterWarmupSessionComplete(input: {
   allowTrialCta: boolean;
   sfConsumedKinds?: string[];
   instagramFollowPromptSent?: boolean;
+  familyPickText?: string | null;
 }): Promise<void> {
   const {
     knowledge,
@@ -2734,6 +2739,35 @@ async function advanceAfterWarmupSessionComplete(input: {
           business_slug,
           sessionId,
         });
+        return;
+      }
+    }
+
+    const familyNames = resolveCatalogFamilyPickNames({
+      inboundText: String(input.familyPickText ?? ""),
+      services: salesFlowServices,
+    });
+    const familyRows =
+      familyNames.length >= 2
+        ? salesFlowServices.filter((service) => familyNames.includes(service.name))
+        : [];
+    if (familyRows.length >= 2) {
+      const sentFamily = await sendOpeningServicePickMenu({
+        knowledge,
+        salesFlowServices,
+        menuServices: familyRows,
+        questionOverride: CATALOG_FAMILY_PICK_QUESTION_HE,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+        blockMedia: blockTrialPickMedia,
+        skipScheduleBoard: true,
+        modelUsed: CATALOG_FAMILY_PICK_MODEL,
+      });
+      if (sentFamily) {
+        await updateContactSessionPhase({ supabase, businessId, phone: msg.from, phase: "opening" });
         return;
       }
     }
@@ -3364,6 +3398,12 @@ async function attemptWarmupExtraMenuPick(input: {
     lastIdx,
     pickedIdx,
   });
+}
+
+function catalogFamilyRowsForText(inboundText: string, services: SfServiceRow[]): SfServiceRow[] {
+  const names = resolveCatalogFamilyPickNames({ inboundText, services });
+  if (names.length < 2) return [];
+  return services.filter((service) => names.includes(service.name));
 }
 
 async function sendOpeningServicePickMenu(input: {
@@ -4130,6 +4170,7 @@ async function maybeHandleLeadDayTrialTurn(input: {
         allowTrialCta: input.allowTrialCta,
         sfConsumedKinds: input.sfConsumedKinds,
         instagramFollowPromptSent: input.instagramFollowPromptSent,
+        familyPickText: text,
       });
       return true;
     }
@@ -8457,6 +8498,7 @@ async function processIncoming(
           blockTrialPickMedia: starterBlocksMedia,
           allowTrialCta: true,
           preambleText: trialSignupAckForInbound(msg.text),
+          familyPickText: msg.text,
         });
       } catch (e) {
         console.error("[WA Webhook] try-class offer → product pick failed:", e);
@@ -8544,6 +8586,7 @@ async function processIncoming(
             sessionId,
             blockTrialPickMedia: starterBlocksMedia,
             allowTrialCta: true,
+            familyPickText: msg.text,
           });
         } catch (e) {
           console.error("[WA Webhook] find-class yes → product pick failed:", e);
@@ -8667,9 +8710,12 @@ async function processIncoming(
           phase: "opening",
         });
         contactSessionPhase = "opening";
+        const familyRows = catalogFamilyRowsForText(msg.text, salesFlowServices);
         await sendOpeningServicePickMenu({
           knowledge,
           salesFlowServices,
+          menuServices: familyRows.length >= 2 ? familyRows : undefined,
+          questionOverride: familyRows.length >= 2 ? CATALOG_FAMILY_PICK_QUESTION_HE : undefined,
           msg,
           accountSid,
           authToken,
@@ -8677,7 +8723,8 @@ async function processIncoming(
           sessionId,
           blockMedia: starterBlocksMedia,
           skipScheduleBoard: true,
-          modelUsed: REGISTRATION_CTA_ASK_CLASS_MODEL,
+          modelUsed:
+            familyRows.length >= 2 ? CATALOG_FAMILY_PICK_MODEL : REGISTRATION_CTA_ASK_CLASS_MODEL,
         });
         return;
       }
@@ -8690,9 +8737,12 @@ async function processIncoming(
         phase: "opening",
       });
       contactSessionPhase = "opening";
+      const familyRows = catalogFamilyRowsForText(msg.text, salesFlowServices);
       await sendOpeningServicePickMenu({
         knowledge,
         salesFlowServices,
+        menuServices: familyRows.length >= 2 ? familyRows : undefined,
+        questionOverride: familyRows.length >= 2 ? CATALOG_FAMILY_PICK_QUESTION_HE : undefined,
         msg,
         accountSid,
         authToken,
@@ -8700,7 +8750,8 @@ async function processIncoming(
         sessionId,
         blockMedia: starterBlocksMedia,
         skipScheduleBoard: true,
-        modelUsed: REGISTRATION_CTA_ASK_CLASS_MODEL,
+        modelUsed:
+          familyRows.length >= 2 ? CATALOG_FAMILY_PICK_MODEL : REGISTRATION_CTA_ASK_CLASS_MODEL,
       });
       return;
     }
@@ -8830,6 +8881,7 @@ async function processIncoming(
             sfConsumedKinds: sfClickedCtaKinds,
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
             preambleText: trialSignupAck,
+            familyPickText: msg.text,
           });
           contactSessionPhase = started.contactSessionPhase;
           contactFlowStep = started.contactFlowStep;
@@ -10276,6 +10328,7 @@ async function processIncoming(
             sessionId,
             blockTrialPickMedia: starterBlocksMedia,
             allowTrialCta: true,
+            familyPickText: msg.text,
           });
           contactSessionPhase = started.contactSessionPhase;
           contactFlowStep = started.contactFlowStep;
@@ -10790,6 +10843,7 @@ async function processIncoming(
           sessionId,
           blockTrialPickMedia: starterBlocksMedia,
           allowTrialCta: true,
+          familyPickText: msg.text,
         });
         return;
       }
@@ -14479,6 +14533,7 @@ async function processIncoming(
             allowTrialCta: true,
             logEntry: hintCategory === "signup",
             preambleText: hintCategory === "signup" ? trialSignupAckForInbound(msg.text) : undefined,
+            familyPickText: msg.text,
           });
           contactSessionPhase = started.contactSessionPhase;
           contactFlowStep = started.contactFlowStep;
@@ -14868,6 +14923,7 @@ async function processIncoming(
             allowTrialCta: true,
             logEntry: true,
             preambleText: preamble || undefined,
+            familyPickText: msg.text,
           });
           contactSessionPhase = started.contactSessionPhase;
           contactFlowStep = started.contactFlowStep;

@@ -402,8 +402,16 @@ export function matchCatalogServicesSharingDistinctiveToken(
     ...new Set(
       foldedUser
         .split(" ")
-        .map((w) => stripCatalogTokenPunctuation(foldHebrewServiceToken(w)))
-        .filter((w) => w.length >= 4 && !isGenericCatalogMatchToken(w))
+        .map((w) => {
+          const raw = stripCatalogTokenPunctuation(w);
+          const folded = stripCatalogTokenPunctuation(foldHebrewServiceToken(w));
+          if (!folded || folded.length < 3) return "";
+          if (isGenericCatalogMatchToken(raw) || isGenericCatalogMatchToken(folded)) return "";
+          // «נערות» מתקפל ל«נער». המילה המקורית עדיין מזהה משפחה.
+          if (raw.length < 4 && folded.length < 4) return "";
+          return folded;
+        })
+        .filter((w) => w.length >= 3)
     ),
   ];
   if (!tokens.length) return [];
@@ -415,11 +423,13 @@ export function matchCatalogServicesSharingDistinctiveToken(
       const name = String(s.name ?? "").trim();
       if (!name) continue;
       const folded = foldClassName(name);
-      const foldedToks = folded
-        .split(" ")
-        .map((w) => foldHebrewServiceToken(w))
-        .join(" ");
-      if (folded.includes(tok) || foldedToks.includes(tok)) names.push(name);
+      const foldedParts = folded.split(" ").map((w) => foldHebrewServiceToken(w));
+      const foldedToks = foldedParts.join(" ");
+      const hit =
+        tok.length >= 4
+          ? folded.includes(tok) || foldedToks.includes(tok)
+          : foldedParts.some((w) => catalogTokensAlign(w, tok));
+      if (hit) names.push(name);
     }
     if (names.length > best.length) best = names;
   }

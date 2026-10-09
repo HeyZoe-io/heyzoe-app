@@ -12,6 +12,7 @@ import {
   pendingServiceMenuReply,
   PENDING_SERVICE_MENU_NUDGE,
   resolveAmbiguousCatalogFamilyNames,
+  resolveCatalogFamilyPickNames,
   resolveAssistantRecommendedOtherCatalogService,
   shouldAttachOpeningServiceListPickBridge,
   shouldPromptAmbiguousCatalogTrialPick,
@@ -269,6 +270,18 @@ assert.ok(
     awaitingOpeningServicePick: true,
   }).length >= 2,
   "bare yoga family still prompts"
+);
+assert.deepEqual(
+  resolveCatalogFamilyPickNames({
+    inboundText: "אני רוצה להירשם ל 1130 לאימון נערות",
+    services: [
+      { name: "נערות ה׳-ז׳" },
+      { name: "נערות ח׳-יא׳" },
+      { name: "Friday power" },
+    ],
+  }).sort(),
+  ["נערות ה׳-ז׳", "נערות ח׳-יא׳"].sort(),
+  "two classes sharing נערות are offered, not the whole catalog"
 );
 assert.equal(isAffirmativeCatalogFamilyConfirm("כן"), true);
 assert.equal(isAffirmativeCatalogFamilyConfirm("כן!"), true);

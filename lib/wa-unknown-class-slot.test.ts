@@ -352,6 +352,22 @@ assert.deepEqual(
 );
 assert.equal(matchCatalogServiceFromFreeText("פילאטיס מזרן", apexPilatesLike), "פילאטיס מזרן");
 
+const girlsClasses = [
+  svc("נערות ה׳-ז׳", []),
+  svc("נערות ח׳-יא׳", []),
+  svc("Friday power", [{ day: "ו", time: "10:30" }]),
+];
+assert.deepEqual(
+  matchCatalogServicesSharingDistinctiveToken("אני רוצה להירשם ל 1130 לאימון נערות", girlsClasses).sort(),
+  ["נערות ה׳-ז׳", "נערות ח׳-יא׳"].sort(),
+  "נערות stays a family after the plural suffix folds to a short stem"
+);
+assert.deepEqual(
+  matchCatalogServicesSharingDistinctiveToken("נער", girlsClasses),
+  [],
+  "a three-letter stem typed alone is not a family word"
+);
+
 const semyonMakeup = `שון שכח מהאימון ביום שישי
 האם יש אפשרות להחזיר את השיעור ?
 
