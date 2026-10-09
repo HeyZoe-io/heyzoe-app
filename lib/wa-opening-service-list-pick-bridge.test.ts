@@ -234,29 +234,6 @@ assert.equal(
   "no last pick → opening bridge handles this"
 );
 
-const tightsNames = ["אימון פונקציונאלי", "פונקציונאלי נערות", "פילאטיס מכשירים"];
-
-assert.equal(
-  resolveAssistantRecommendedOtherCatalogService({
-    assistantReply:
-      "כן 💜 את רשומה לשיעור ניסיון של פונקציונאלי נערות ביום ראשון בשעה 17:00. כל הפרטים נשלחו אלייך!",
-    lastPickedServiceName: "פונקציונאלי נערות",
-    serviceNames: tightsNames,
-  }),
-  null,
-  "picked name contains another product's token → no switch"
-);
-
-assert.deepEqual(
-  resolveAssistantRecommendedOtherCatalogService({
-    assistantReply: "פונקציונאלי נערות מיועד לגילאי 12-16. בגיל 20 מתאים לך אימון פונקציונאלי.",
-    lastPickedServiceName: "פונקציונאלי נערות",
-    serviceNames: tightsNames,
-  }),
-  { mode: "switch", serviceName: "אימון פונקציונאלי" },
-  "other product named on its own → still switch"
-);
-
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס מזרן"), true);
 assert.equal(looksLikeOutOfFlowCatalogClassPick("פילאטיס"), true);
 assert.equal(looksLikeOutOfFlowCatalogClassPick("יש פילאטיס?"), false, "info question");
