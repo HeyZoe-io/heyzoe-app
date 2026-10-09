@@ -10,6 +10,14 @@ export const AI_PRICING: Record<string, { inputPerMTok: number; outputPerMTok: n
   "claude-sonnet-4-6": { inputPerMTok: 3, outputPerMTok: 15 },
 };
 
+/** Haiku 5.5 prompt-length tiers. Prompt size here is the request's input tokens (no cache on generation). */
+const HAIKU_55_TIER = {
+  model: "claude-haiku-5-5",
+  promptLimit: 100_000,
+  base: { inputPerMTok: 0.1, outputPerMTok: 0.5 },
+  over: { inputPerMTok: 0.5, outputPerMTok: 2.5 },
+} as const;
+
 /**
  * Estimate USD cost from token counts. Unknown model → 0 (debug warn, never throws).
  */
@@ -20,13 +28,20 @@ export function estimateCostUsd(
 ): number {
   try {
     const key = String(model ?? "").trim();
-    const rates = key ? AI_PRICING[key] : undefined;
+    const inn = Number.isFinite(inputTokens) && inputTokens > 0 ? inputTokens : 0;
+    const out = Number.isFinite(outputTokens) && outputTokens > 0 ? outputTokens : 0;
+    const rates =
+      key === HAIKU_55_TIER.model
+        ? inn > HAIKU_55_TIER.promptLimit
+          ? HAIKU_55_TIER.over
+          : HAIKU_55_TIER.base
+        : key
+          ? AI_PRICING[key]
+          : undefined;
     if (!rates) {
       console.debug("[ai-pricing] unknown model:", key || "(empty)");
       return 0;
     }
-    const inn = Number.isFinite(inputTokens) && inputTokens > 0 ? inputTokens : 0;
-    const out = Number.isFinite(outputTokens) && outputTokens > 0 ? outputTokens : 0;
     return (inn / 1e6) * rates.inputPerMTok + (out / 1e6) * rates.outputPerMTok;
   } catch (e) {
     console.debug("[ai-pricing] estimateCostUsd threw:", e);

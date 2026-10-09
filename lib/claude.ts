@@ -44,6 +44,57 @@ export function sleepMs(ms: number): Promise<void> {
 export const CLAUDE_WHATSAPP_MODEL = "claude-haiku-4-5" as const;
 export const CLAUDE_WHATSAPP_MAX_TOKENS = 768 as const;
 
+/** WA free-text generation only. Other Haiku call sites keep CLAUDE_WHATSAPP_MODEL. */
+export const CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT = "claude-haiku-5-5" as const;
+/** Eval haiku55-low cap. Thinking tokens count toward this and are billed as output. */
+export const CLAUDE_WHATSAPP_HAIKU_55_MAX_TOKENS = 4096 as const;
+
+const WHATSAPP_GENERATION_MODELS = new Set<string>([
+  CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT,
+  CLAUDE_WHATSAPP_MODEL,
+]);
+
+/**
+ * Env CLAUDE_WHATSAPP_MODEL overrides generation only.
+ * Unset → claude-haiku-5-5. claude-haiku-4-5 restores the previous request.
+ */
+export function resolveWhatsAppGenerationModel(raw = process.env.CLAUDE_WHATSAPP_MODEL): string {
+  const model = String(raw ?? "").trim() || CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT;
+  if (!WHATSAPP_GENERATION_MODELS.has(model)) {
+    throw new Error(
+      `Unsupported CLAUDE_WHATSAPP_MODEL "${model}". Use claude-haiku-5-5 or claude-haiku-4-5.`
+    );
+  }
+  return model;
+}
+
+export type WhatsAppGenerationParams = {
+  model: string;
+  max_tokens: number;
+  output_config?: { effort: "low" };
+};
+
+/**
+ * haiku-5-5 matches the eval haiku55-low call: effort low, max_tokens 4096,
+ * no temperature/top_p/top_k, and no thinking field (adaptive thinking stays on).
+ * haiku-4-5 is the previous call: max_tokens 768, no effort, no thinking.
+ */
+export function buildWhatsAppGenerationParams(model = resolveWhatsAppGenerationModel()): WhatsAppGenerationParams {
+  if (model === CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT) {
+    return {
+      model,
+      max_tokens: CLAUDE_WHATSAPP_HAIKU_55_MAX_TOKENS,
+      output_config: { effort: "low" },
+    };
+  }
+  if (model === CLAUDE_WHATSAPP_MODEL) {
+    return { model, max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS };
+  }
+  throw new Error(
+    `Unsupported CLAUDE_WHATSAPP_MODEL "${model}". Use claude-haiku-5-5 or claude-haiku-4-5.`
+  );
+}
+
 /** סריקת אתר בדשבורד — Haiku מהיר וזול מספיק לחילוץ JSON מובנה */
 export const CLAUDE_FETCH_SITE_MODEL = CLAUDE_WHATSAPP_MODEL;
 /** JSON ארוך (מוצרים + traits) — מניעת קטיעה שגורמת ל־ai_parse_failed */

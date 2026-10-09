@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { extractReplyRoute } from "@/lib/wa-reply-route";
-import { resolveWhatsAppModelReply } from "@/lib/wa-model-fallback";
+import { resolveWhatsAppModelReply, whatsAppClaudeReplyText } from "@/lib/wa-model-fallback";
 import { noteAiModelFailure } from "@/lib/wa-model-failure-alert";
 
 type Row = {
@@ -57,6 +57,76 @@ function memoryAdmin(alerts: string[][]) {
 }
 
 async function main() {
+  const joined = whatsAppClaudeReplyText({
+    content: [
+      { type: "thinking", thinking: "should not leak" },
+      { type: "text", text: "[[route:answer]]" },
+      { type: "text", text: "היי, מה השעה שנוחה?" },
+    ],
+  });
+  assert.equal(joined, "[[route:answer]]\nהיי, מה השעה שנוחה?");
+  assert.equal(joined.includes("should not leak"), false);
+
+  let claudeCalls = 0;
+  let geminiCalls = 0;
+  const thinkingFirst = await resolveWhatsAppModelReply({
+    runClaude: async () => {
+      claudeCalls += 1;
+      return {
+        stop_reason: "end_turn",
+        content: [
+          { type: "thinking", thinking: "internal" },
+          { type: "text", text: "[[route:answer]]\nאפשר לבוא מחר." },
+        ],
+        usage: { input_tokens: 12, output_tokens: 40 },
+      };
+    },
+    runGemini: async () => {
+      geminiCalls += 1;
+      return { text: "fallback" };
+    },
+  });
+  assert.equal(thinkingFirst.ok, true);
+  if (thinkingFirst.ok) {
+    assert.equal(thinkingFirst.provider, "anthropic");
+    assert.equal(thinkingFirst.text, "[[route:answer]]\nאפשר לבוא מחר.");
+    assert.equal(thinkingFirst.usage?.output_tokens, 40);
+  }
+  assert.equal(claudeCalls, 1);
+  assert.equal(geminiCalls, 0);
+
+  claudeCalls = 0;
+  geminiCalls = 0;
+  const capped = await resolveWhatsAppModelReply({
+    runClaude: async () => {
+      claudeCalls += 1;
+      if (claudeCalls === 1) {
+        return {
+          stop_reason: "max_tokens",
+          content: [
+            { type: "thinking", thinking: "cut" },
+            { type: "text", text: "[[route:answer]]\nחצי משפט" },
+          ],
+        };
+      }
+      return {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "[[route:answer]]\nהנה התשובה המלאה." }],
+      };
+    },
+    runGemini: async () => {
+      geminiCalls += 1;
+      return { text: "fallback" };
+    },
+  });
+  assert.equal(capped.ok, true);
+  if (capped.ok) {
+    assert.equal(capped.provider, "anthropic");
+    assert.equal(capped.text, "[[route:answer]]\nהנה התשובה המלאה.");
+  }
+  assert.equal(claudeCalls, 2);
+  assert.equal(geminiCalls, 0);
+
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ messages: [{ id: "wamid.test" }] }), { status: 200 });

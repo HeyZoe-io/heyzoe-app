@@ -17,6 +17,12 @@ export type AiUsageGroupedRow = {
   call_type: string;
   input_tokens: number;
   output_tokens: number;
+  /**
+   * Sum of per-request costs. Set only for tiered models (Haiku 5.5), where
+   * pricing the summed tokens would pick the wrong tier. Flat-rate models omit
+   * this and stay priced from the token sums.
+   */
+  costUsd?: number;
 };
 
 export type AiUsageTokenCostBreakdown = {
@@ -164,6 +170,14 @@ export async function fetchAiUsageGroupedRows(input: {
     if (batch.length < pageSize) break;
   }
 
+  return groupRawAiUsageRows(raw, granularity);
+}
+
+/** Pure grouper. Haiku 5.5 cost is summed per request so a month of small prompts stays on the base tier. */
+export function groupRawAiUsageRows(
+  raw: RawUsageRow[],
+  granularity: AiUsageGranularity
+): AiUsageGroupedRow[] {
   const grouped = new Map<string, AiUsageGroupedRow>();
   for (const row of raw) {
     const businessId = Number(row.business_id);
@@ -176,9 +190,12 @@ export async function fetchAiUsageGroupedRows(input: {
     const prev = grouped.get(mapKey);
     const inn = Number(row.input_tokens) || 0;
     const out = Number(row.output_tokens) || 0;
+    const tiered = model === "claude-haiku-5-5";
+    const rowCost = tiered ? estimateCostUsd(model, inn, out) : undefined;
     if (prev) {
       prev.input_tokens += inn;
       prev.output_tokens += out;
+      if (rowCost != null) prev.costUsd = (prev.costUsd ?? 0) + rowCost;
     } else {
       grouped.set(mapKey, {
         business_id: businessId,
@@ -187,6 +204,7 @@ export async function fetchAiUsageGroupedRows(input: {
         call_type: callType,
         input_tokens: inn,
         output_tokens: out,
+        ...(rowCost != null ? { costUsd: rowCost } : {}),
       });
     }
   }
@@ -235,7 +253,8 @@ export async function buildAiUsageBusinessReports(input: {
   const byBusiness = new Map<number, Acc>();
 
   for (const row of rows) {
-    const cost = estimateCostUsd(row.model, row.input_tokens, row.output_tokens);
+    const cost =
+      row.costUsd != null ? row.costUsd : estimateCostUsd(row.model, row.input_tokens, row.output_tokens);
     let acc = byBusiness.get(row.business_id);
     if (!acc) {
       acc = {

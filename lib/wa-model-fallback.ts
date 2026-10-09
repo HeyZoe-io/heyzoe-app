@@ -13,7 +13,7 @@ export type WhatsAppModelReply =
     }
   | { ok: false; billing: boolean; errorType: string };
 
-function claudeText(response: { content?: unknown } | null | undefined): string {
+export function whatsAppClaudeReplyText(response: { content?: unknown } | null | undefined): string {
   const content = response?.content;
   if (!Array.isArray(content)) return "";
   return content
@@ -54,7 +54,7 @@ export function claudeErrorType(error: unknown): string {
  * Billing still tries Gemini. Neither success returns no lead text.
  */
 export async function resolveWhatsAppModelReply(input: {
-  runClaude: () => Promise<{ content?: unknown; usage?: AiUsageTokens }>;
+  runClaude: () => Promise<{ content?: unknown; usage?: AiUsageTokens; stop_reason?: string | null }>;
   runGemini: () => Promise<{ text: string; usageMetadata?: AiUsageTokens }>;
 }): Promise<WhatsAppModelReply> {
   let billing = false;
@@ -62,7 +62,11 @@ export async function resolveWhatsAppModelReply(input: {
 
   const attemptClaude = async (): Promise<ModelAttempt | null> => {
     const response = await input.runClaude();
-    const text = claudeText(response);
+    const text = whatsAppClaudeReplyText(response);
+    if (response.stop_reason === "max_tokens") {
+      console.error("[wa-model-fallback] Claude hit max_tokens", { textChars: text.length });
+      return null;
+    }
     if (!text) return null;
     return { text, usage: response.usage };
   };

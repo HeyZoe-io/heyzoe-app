@@ -649,8 +649,9 @@ function warnInteractiveReplyRoutedToClaude(input: {
   });
 }
 import {
+  CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT,
   CLAUDE_WHATSAPP_MODEL,
-  CLAUDE_WHATSAPP_MAX_TOKENS,
+  buildWhatsAppGenerationParams,
   resolveClaudeApiKey,
   sleepMs,
 } from "@/lib/claude";
@@ -958,7 +959,7 @@ const CTA_MENU_SENT_MODELS = new Set([
 
 function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
   const m = modelUsedBase(model);
-  return m === CLAUDE_WHATSAPP_MODEL || m === GEMINI_WHATSAPP_MODEL;
+  return m === CLAUDE_WHATSAPP_MODEL || m === CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT || m === GEMINI_WHATSAPP_MODEL;
 }
 
 type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
@@ -13640,7 +13641,13 @@ async function processIncoming(
         .eq("business_slug", business_slug)
         .eq("session_id", sessionId)
         .eq("role", "assistant")
-        .or(assistantModelOrFilter([CLAUDE_WHATSAPP_MODEL, GEMINI_WHATSAPP_MODEL]))
+        .or(
+          assistantModelOrFilter([
+            CLAUDE_WHATSAPP_MODEL,
+            CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT,
+            GEMINI_WHATSAPP_MODEL,
+          ])
+        )
         .gte("created_at", sinceIso);
       const recentAiCount = typeof count === "number" ? count : 0;
       if (recentAiCount >= WA_AI_REPLIES_PER_ROLLING_24H && !isWaAi24hLimitExempt(msg.from)) {
@@ -14030,10 +14037,11 @@ async function processIncoming(
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       didCallClaude = true;
+      const generationParams = buildWhatsAppGenerationParams();
+      replyModelUsed = generationParams.model;
       const runClaude = async () =>
         client.messages.create({
-          model: CLAUDE_WHATSAPP_MODEL,
-          max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+          ...generationParams,
           system: systemPrompt,
           messages: claudeMessages,
         });
@@ -14069,7 +14077,7 @@ async function processIncoming(
       const modelReply = await resolveWhatsAppModelReply({
         runClaude: async () => {
           const response = await runClaude();
-          return { content: response.content, usage: response.usage };
+          return { content: response.content, usage: response.usage, stop_reason: response.stop_reason };
         },
         runGemini,
       });
@@ -14083,7 +14091,7 @@ async function processIncoming(
         if (modelReply.provider === "google") replyModelUsed = GEMINI_WHATSAPP_MODEL;
         const usageProvider = modelReply.provider;
         const usageModel =
-          usageProvider === "google" ? GEMINI_WHATSAPP_MODEL : CLAUDE_WHATSAPP_MODEL;
+          usageProvider === "google" ? GEMINI_WHATSAPP_MODEL : replyModelUsed;
         const usage = modelReply.usage;
         after(() =>
           recordAiUsage({
