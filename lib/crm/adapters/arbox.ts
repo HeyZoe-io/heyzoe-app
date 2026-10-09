@@ -5,7 +5,11 @@ import { contactPhoneLookupVariants } from "@/lib/phone-normalize";
 import { logArboxPublicFailure, noteArboxCall } from "@/lib/crm/arbox-call-counter-bridge";
 import { arboxDailyContext } from "@/lib/leads/arbox-daily-run-flag";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { postArboxTaskWithRetry, recordArboxTaskFailure } from "@/lib/crm/arbox-task-retry";
+import {
+  formatArboxTaskError,
+  postArboxTaskWithRetry,
+  recordArboxTaskFailure,
+} from "@/lib/crm/arbox-task-retry";
 
 /** OpenAPI: https://arboxserver.arboxapp.com/docs/api */
 export const ARBOX_API_BASE = "https://arboxserver.arboxapp.com/api/public";
@@ -80,6 +84,20 @@ export function formatArboxTaskReminder(now: Date): { date: string; time: string
   return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}` };
 }
 
+/**
+ * Arbox's task text column rejects 4-byte UTF-8. An emoji in `description`
+ * makes POST /v3/tasks return 500 ("An unexpected server error occurred.")
+ * while the same body without that character returns 200. Confirmed 9.10.2026
+ * on Apex: the production handoff text with 🙋 failed; the same text without it succeeded.
+ */
+export function sanitizeArboxTaskDescription(description: string): string {
+  return description
+    .replace(/[\u{10000}-\u{10FFFF}]/gu, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .trim();
+}
+
 export function buildArboxCreateTaskBody(input: {
   locationId: number;
   taskTypeId: number;
@@ -91,7 +109,7 @@ export function buildArboxCreateTaskBody(input: {
     location_id: input.locationId,
     task_type_id: input.taskTypeId,
     user_id: input.userId,
-    description: input.description,
+    description: sanitizeArboxTaskDescription(input.description),
     reminder: formatArboxTaskReminder(input.now ?? new Date()),
   };
 }
@@ -579,13 +597,18 @@ async function createArboxTask(input: {
   });
 
   // קריאה אחת ל-Arbox לכל בקשת נציג (לא Claude/Meta); עד 2 ניסיונות נוספים רק אחרי 5xx / 429 / רשת.
-  const res = await postArboxTaskWithRetry(() =>
-    arboxPublicFetch("/v3/tasks", {
+  const res = await postArboxTaskWithRetry(async () => {
+    const posted = await arboxPublicFetch("/v3/tasks", {
       apiKey: input.apiKey,
       method: "POST",
       body,
-    })
-  );
+    });
+    return {
+      ok: posted.ok,
+      status: posted.status,
+      errorText: posted.ok ? "" : formatArboxTaskError(posted.json, posted.rawText),
+    };
+  });
   if (res.ok) return true;
 
   console.error("[crm/arbox] create task failed", {
@@ -594,6 +617,7 @@ async function createArboxTask(input: {
     businessId: input.businessId ?? null,
     userId: input.userId,
     taskTypeId: input.taskTypeId,
+    errorText: res.errorText,
   });
   await recordArboxTaskFailure({
     businessId: input.businessId ?? null,
@@ -602,6 +626,7 @@ async function createArboxTask(input: {
     kind: input.kind,
     status: res.status,
     attempts: res.attempts,
+    errorText: res.errorText,
   });
   return false;
 }
@@ -653,7 +678,10 @@ export async function submitArboxCrmEvent(input: {
   fullName?: string | null;
   noteText: string;
   kind: CrmEventKind;
-}): Promise<{ ok: true; createdHumanRequestTask: boolean } | { ok: false; error: string; detail?: string }> {
+}): Promise<
+  | { ok: true; createdHumanRequestTask: boolean; humanRequestTaskFailed?: boolean }
+  | { ok: false; error: string; detail?: string; humanRequestTaskFailed?: boolean }
+> {
   const apiKey = String(input.apiKey ?? "").trim();
   const boxId = String(input.boxId ?? "").trim();
   const noteText = String(input.noteText ?? "").trim();
@@ -679,6 +707,7 @@ export async function submitArboxCrmEvent(input: {
     let profileId: string | null = null;
     let leadId: string | null = null;
     let createdLead = false;
+    let humanRequestTaskFailed = false;
 
     if (!userId) {
       const found = await lookupArboxUserByPhone({ apiKey, locationId, phone: input.phone });
@@ -742,9 +771,10 @@ export async function submitArboxCrmEvent(input: {
         noteText,
         businessId: input.businessId,
       });
-      if (taskOk) return { ok: true, createdHumanRequestTask: true };
+      if (taskOk) return { ok: true, createdHumanRequestTask: true, humanRequestTaskFailed: false };
+      humanRequestTaskFailed = true;
       if (createdLead) {
-        return { ok: false, error: "task_create_failed" };
+        return { ok: false, error: "task_create_failed", humanRequestTaskFailed: true };
       }
       console.warn("[crm/arbox] task create failed — falling back to note", {
         businessId: input.businessId,
@@ -764,9 +794,9 @@ export async function submitArboxCrmEvent(input: {
     });
 
     if (!noteOk) {
-      return { ok: false, error: "note_create_failed" };
+      return { ok: false, error: "note_create_failed", humanRequestTaskFailed };
     }
-    return { ok: true, createdHumanRequestTask: false };
+    return { ok: true, createdHumanRequestTask: false, humanRequestTaskFailed };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error("[crm/arbox] request failed", {

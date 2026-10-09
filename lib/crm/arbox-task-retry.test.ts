@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
   arboxTaskStatusIsRetryable,
+  crmTaskFailureSummaryDetail,
+  formatArboxTaskError,
   postArboxTaskWithRetry,
   renderCrmTaskFailureContent,
 } from "./arbox-task-retry";
@@ -14,13 +16,13 @@ async function main() {
     // 500 then ok → task created on the second try (the 8.10 Tights case)
     let n = 0;
     const r1 = await postArboxTaskWithRetry(async () => (++n === 1 ? { ok: false, status: 500 } : { ok: true, status: 201 }), { sleep });
-    assert.deepEqual(r1, { ok: true, status: 201, attempts: 2 });
+    assert.deepEqual(r1, { ok: true, status: 201, attempts: 2, errorText: "" });
     assert.deepEqual(sleeps, [1000]);
 
     // 500 three times → gives up after 3 attempts, delays 1s then 3s
     sleeps.length = 0;
     const r2 = await postArboxTaskWithRetry(async () => ({ ok: false, status: 500 }), { sleep });
-    assert.deepEqual(r2, { ok: false, status: 500, attempts: 3 });
+    assert.deepEqual(r2, { ok: false, status: 500, attempts: 3, errorText: "" });
     assert.deepEqual(sleeps, [1000, 3000]);
 
     // 400 is final: no retry
@@ -44,6 +46,28 @@ async function main() {
     renderCrmTaskFailureContent({ businessId: 3543, userId: "4454870", taskTypeId: 64307, kind: "human_requested", status: 500, attempts: 3 }),
     /3543.*4454870.*64307.*500/
   );
+  const withError = renderCrmTaskFailureContent({
+    businessId: 3445,
+    userId: "11204549",
+    taskTypeId: 88434,
+    kind: "human_requested",
+    status: 500,
+    attempts: 3,
+    errorText: "INTERNAL SERVER ERROR: An unexpected server error occurred.",
+  });
+  assert.match(withError, /שגיאת ארבוקס: 500 INTERNAL SERVER ERROR/);
+  assert.equal(
+    crmTaskFailureSummaryDetail(withError),
+    "500 INTERNAL SERVER ERROR: An unexpected server error occurred."
+  );
+  assert.equal(
+    formatArboxTaskError(
+      { statusCode: 500, error: { name: "INTERNAL SERVER ERROR", code: 500, message: "An unexpected server error occurred." } },
+      ""
+    ),
+    "INTERNAL SERVER ERROR: An unexpected server error occurred."
+  );
+  assert.equal(formatArboxTaskError({ message: "mail a@b.co and 972508318162" }, ""), "mail [email] and …8162");
   console.log("arbox-task-retry tests passed");
 }
 

@@ -21,7 +21,11 @@ import { ARBOX_ERROR_REASON } from "@/lib/leads/arbox-error-retry";
 import { loadIncompleteRunsSince } from "@/lib/leads/arbox-daily-run-status";
 import { isMissingStatusTable, WA_MESSAGE_STATUSES_TABLE } from "@/lib/wa-message-status";
 import { BLOCKING_ALERT_MODEL } from "@/lib/wa-blocking-error-alert";
-import { CRM_TASK_AUDIT_SESSION, CRM_TASK_FAILED_MODEL } from "@/lib/crm/arbox-task-retry";
+import {
+  CRM_TASK_AUDIT_SESSION,
+  CRM_TASK_FAILED_MODEL,
+  crmTaskFailureSummaryDetail,
+} from "@/lib/crm/arbox-task-retry";
 
 const IL_TZ = "Asia/Jerusalem";
 export const ADMIN_DAILY_UNSENT_TEMPLATE = "zoe_admin_daily_unsent";
@@ -697,7 +701,9 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       contact: "",
       reason: CRM_TASK_FAILED_REASON,
       at: israelStamp(String((row as { created_at?: unknown }).created_at ?? "")),
-      metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
+      metaError: squashParam(
+        crmTaskFailureSummaryDetail(String((row as { content?: unknown }).content ?? ""))
+      ).slice(0, 180),
     });
   }
   const { data: blocking, error: blockingError } = await admin

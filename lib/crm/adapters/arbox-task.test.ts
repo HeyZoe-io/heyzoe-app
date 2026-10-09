@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildArboxCreateTaskBody,
   formatArboxTaskReminder,
+  sanitizeArboxTaskDescription,
   parseArboxTaskTypes,
   arboxTrialTaskTypeIdFromSocial,
   shouldCreateArboxHumanRequestTask,
@@ -56,9 +57,11 @@ import {
     location_id: 3959,
     task_type_id: 7,
     user_id: 11009462,
-    description: "זואי — בקשת נציג\n\n🙋 זואי: הליד ביקש לדבר עם נציג",
+    description: "זואי — בקשת נציג\n\nזואי: הליד ביקש לדבר עם נציג",
     reminder: { date: "2026-09-01", time: "13:30" },
   });
+  assert.equal(body.description, sanitizeArboxTaskDescription("זואי — בקשת נציג\n\n🙋 זואי: הליד ביקש לדבר עם נציג"));
+  assert.equal(String(body.description).includes("🙋"), false);
 }
 
 {

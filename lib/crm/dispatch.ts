@@ -75,10 +75,10 @@ export async function dispatchCrmEvent(input: {
   notRelevantReason?: string | null;
   /** ליד כבר נרשם — רק הערת CRM, בלי ליד חדש שיפעיל אישור הרשמה. */
   skipLeadCreation?: boolean;
-}): Promise<{ createdHumanRequestTask: boolean }> {
+}): Promise<{ createdHumanRequestTask: boolean; humanRequestTaskFailed: boolean }> {
   const businessId = Number(input.businessId);
   const leadPhone = String(input.leadPhone ?? "").trim();
-  if (!businessId || !leadPhone) return { createdHumanRequestTask: false };
+  if (!businessId || !leadPhone) return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
 
   try {
     const admin = createSupabaseAdminClient();
@@ -92,7 +92,7 @@ export async function dispatchCrmEvent(input: {
 
     if (error) {
       console.error("[crm/dispatch] business load failed", { businessId, error: error.message });
-      return { createdHumanRequestTask: false };
+      return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
     }
 
     const crmType = normalizeCrmType((business as { crm_type?: unknown } | null)?.crm_type);
@@ -110,7 +110,7 @@ export async function dispatchCrmEvent(input: {
     ).trim();
     const arboxLeadCreationEnabled =
       (business as { arbox_lead_creation_enabled?: unknown } | null)?.arbox_lead_creation_enabled === true;
-    if (!crmType || !apiKey) return { createdHumanRequestTask: false };
+    if (!crmType || !apiKey) return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
 
     const eventAtIso = String(input.eventAtIso ?? new Date().toISOString()).trim();
     const noteText = buildCrmEventNote(
@@ -143,7 +143,7 @@ export async function dispatchCrmEvent(input: {
           detail: result.detail,
         });
       }
-      return { createdHumanRequestTask: false };
+      return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
     }
 
     if (crmType === "arbox") {
@@ -153,7 +153,7 @@ export async function dispatchCrmEvent(input: {
           kind: input.kind,
           phone: maskPhoneForLog(leadPhone),
         });
-        return { createdHumanRequestTask: false };
+        return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
       }
       const result = await submitArboxCrmEvent({
         businessId,
@@ -177,13 +177,19 @@ export async function dispatchCrmEvent(input: {
           error: result.error,
           detail: result.detail,
         });
-        return { createdHumanRequestTask: false };
+        return {
+          createdHumanRequestTask: false,
+          humanRequestTaskFailed: result.humanRequestTaskFailed === true,
+        };
       }
-      return { createdHumanRequestTask: result.createdHumanRequestTask === true };
+      return {
+        createdHumanRequestTask: result.createdHumanRequestTask === true,
+        humanRequestTaskFailed: result.humanRequestTaskFailed === true,
+      };
     }
 
     console.warn("[crm/dispatch] adapter not implemented", { businessId, crmType, kind: input.kind });
-    return { createdHumanRequestTask: false };
+    return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
   } catch (e) {
     console.error("[crm/dispatch] unexpected error", {
       businessId: input.businessId,
@@ -191,6 +197,6 @@ export async function dispatchCrmEvent(input: {
       phone: maskPhoneForLog(input.leadPhone),
       error: e instanceof Error ? e.message : String(e),
     });
-    return { createdHumanRequestTask: false };
+    return { createdHumanRequestTask: false, humanRequestTaskFailed: false };
   }
 }
