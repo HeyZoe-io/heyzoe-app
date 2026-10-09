@@ -10,7 +10,8 @@
  * arbox_class_trainer_snapshot. A missing table skips trainer capture and
  * trainer sends; registered customers still go out.
  * Scheduling: cron-job.org hourly → /api/cron/arbox-class-cancel-notify.
- * IO (10 businesses, rule enabled): 3–5 Arbox GETs/business/hour
+ * IO (10 businesses, rule enabled): 3–5 Arbox GETs/business/hour, plus one
+ * cancelledSessionsReport re-read when a pending row is about to send
  * (cancelled + bookings + summary, bookings may be 2 pages). No extra Arbox
  * call for the trainer. Extra Supabase: one indexed read, one upsert of the
  * active classes in the horizon, and the same retention delete. No Claude.
@@ -23,6 +24,11 @@ import {
   decideScheduledSendGate,
 } from "@/lib/scheduled-template-sends";
 import { isCancelledSessionStatus } from "@/lib/leads/arbox-class-cancelled-staff";
+import {
+  classCancelLiveStatusBySchedule,
+  decideClassCancelPreSend,
+  type ClassCancelLiveStatus,
+} from "@/lib/leads/arbox-class-cancel-send-gate";
 import {
   CLASS_TRAINER_SNAPSHOT_TABLE,
   activeScheduleIdsFromSummary,
@@ -69,6 +75,7 @@ import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
 export const CLASS_CANCEL_SNAPSHOT_HORIZON_DAYS = 7;
 export const CLASS_CANCEL_NOTIFY_ATTEMPT_CAP = 3;
 export const CLASS_CANCEL_RETENTION_DAYS = 7;
+export { CLASS_CANCEL_GRACE_MS, decideClassCancelLiveStatus, decideClassCancelPreSend } from "@/lib/leads/arbox-class-cancel-send-gate";
 const PAGE_TIMEOUT_MS = 25_000;
 const NAME_FALLBACK = "🙂";
 const CLASS_NAME_FALLBACK = "השיעור";
@@ -716,6 +723,8 @@ export type ClassCancelSyncSummary = {
   skipped_opted_out: number;
   skipped_gate: number;
   held_quiet_hours: number;
+  held_grace: number;
+  restored_before_send: number;
   failed: number;
   retained: number;
   trainer_sent: number;
@@ -745,6 +754,8 @@ function emptySummary(): ClassCancelSyncSummary {
     skipped_opted_out: 0,
     skipped_gate: 0,
     held_quiet_hours: 0,
+    held_grace: 0,
+    restored_before_send: 0,
     failed: 0,
     retained: 0,
     trainer_sent: 0,
@@ -1052,22 +1063,67 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
   }
 
   const inSendWindow = classCancelQuietHoursDecision(now) === "send";
-  if (!inSendWindow) {
-    const held = rows.filter((r) => r.notify_status === "pending").length;
-    summary.held_quiet_hours = held;
-    console.info("[leads/arbox-class-cancelled-customer] quiet hours — leave pending", {
-      businessId,
-      pending: held,
+  const pendingRows = rows.filter((r) => r.notify_status === "pending");
+  let liveCancelledIds = cancelledIds;
+  let liveVerifyOk = true;
+  if (pendingRows.length) {
+    const liveCancelled = await fetchReport({
+      apiKey,
+      locationId: boxId,
+      report: "cancelledSessionsReport",
+      buildPath: (page) =>
+        buildCancelledSessionsReportPath({
+          fromDate: window.fromDate,
+          toDate: window.toDate,
+          locationId: boxId,
+          page,
+        }),
     });
-  } else if (!dryRun) {
+    summary.pages.push(...liveCancelled.pages);
+    if (!liveCancelled.ok) {
+      liveVerifyOk = false;
+      console.error("[leads/arbox-class-cancelled-customer] pre-send cancelledSessionsReport failed", {
+        businessId,
+        error: liveCancelled.error,
+      });
+    } else {
+      liveCancelledIds = new Set(cancelledOccurrencesFromRows(liveCancelled.rows).map((occ) => occ.scheduleId));
+    }
+  }
+  const liveActiveIds = summaryReport.ok
+    ? activeScheduleIdsFromSummary(summaryReport.rows as ClassCancelSummaryInput[])
+    : new Set<string>();
+  const liveBySchedule = classCancelLiveStatusBySchedule({
+    scheduleIds: [
+      ...pendingRows.map((row) => row.schedule_id),
+      ...occurrences.map((occ) => occ.scheduleId),
+    ],
+    cancelledIds: liveCancelledIds,
+    activeScheduleIds: liveActiveIds,
+    verifyOk: liveVerifyOk,
+  });
+
+  if (!dryRun && pendingRows.length) {
     await sendPending({
       admin: input.admin,
       businessId,
       rules,
-      rows: rows.filter((r) => r.notify_status === "pending"),
+      rows: pendingRows,
       now,
       summary,
+      inSendWindow,
+      liveBySchedule,
     });
+  }
+  if (!inSendWindow) {
+    const held = rows.filter((r) => r.notify_status === "pending").length;
+    summary.held_quiet_hours = held;
+    if (held) {
+      console.info("[leads/arbox-class-cancelled-customer] quiet hours — leave pending", {
+        businessId,
+        pending: held,
+      });
+    }
   }
 
   if (!dryRun) {
@@ -1081,6 +1137,7 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
       now,
       summary,
       inSendWindow,
+      liveBySchedule,
       store: trainerStore,
       todayYmd,
       preloaded: trainerRowsThisRun,
@@ -1122,6 +1179,8 @@ export async function syncArboxClassCancelledCustomerForBusiness(input: {
     inserted: summary.inserted,
     disappeared: summary.disappeared,
     sent: summary.sent,
+    held_grace: summary.held_grace,
+    restored_before_send: summary.restored_before_send,
     trainer_sent: summary.trainer_sent,
     trainer_skipped_no_phone: summary.trainer_skipped_no_phone,
     trainer_skipped_no_snapshot: summary.trainer_skipped_no_snapshot,
@@ -1243,6 +1302,8 @@ async function sendPending(input: {
   rows: SnapshotDbRow[];
   now: Date;
   summary: ClassCancelSyncSummary;
+  inSendWindow: boolean;
+  liveBySchedule: ReadonlyMap<string, ClassCancelLiveStatus>;
 }): Promise<void> {
   if (!input.rows.length || !input.rules.length) return;
   const { data: bizRow } = await input.admin
@@ -1295,6 +1356,27 @@ async function sendPending(input: {
       input.summary.failed += 1;
       continue;
     }
+    const cancelledAt = row.class_cancelled_at ? new Date(String(row.class_cancelled_at)) : null;
+    const preSend = decideClassCancelPreSend({
+      now: input.now,
+      cancelledAt,
+      inSendWindow: input.inSendWindow,
+      live: input.liveBySchedule.get(row.schedule_id) ?? "unknown",
+    });
+    if (preSend.action === "wait") {
+      if (preSend.reason === "grace") input.summary.held_grace += 1;
+      continue;
+    }
+    if (preSend.action === "close") {
+      await closeAll("restored_before_send");
+      row.notify_status = "restored_before_send";
+      input.summary.restored_before_send += 1;
+      console.info("[leads/arbox-class-cancelled-customer] restored before send", {
+        businessId: input.businessId,
+        schedule_id: row.schedule_id,
+      });
+      continue;
+    }
     if (classStartHasPassed(row.class_date, row.class_time, input.now)) {
       await closeAll("skipped_past");
       input.summary.skipped_past += 1;
@@ -1318,7 +1400,6 @@ async function sendPending(input: {
       (await resolveSendChannelForContact(input.admin, input.businessId, phone)) ??
       (await resolveDefaultSendChannel(input.admin, input.businessId));
     const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
-    const cancelledAt = row.class_cancelled_at ? new Date(String(row.class_cancelled_at)) : null;
     const pending = input.rules.filter((rule) => {
       if (logged.has(rule.id)) return false;
       if (!cancelledAt || Number.isNaN(cancelledAt.getTime())) return false;
@@ -1605,6 +1686,7 @@ async function notifySnapshottedTrainers(input: {
   now: Date;
   summary: ClassCancelSyncSummary;
   inSendWindow: boolean;
+  liveBySchedule: ReadonlyMap<string, ClassCancelLiveStatus>;
   store: TrainerStoreFlag;
   todayYmd: string;
   preloaded: TrainerSnapshotRow[] | null;
@@ -1669,6 +1751,40 @@ async function notifySnapshottedTrainers(input: {
     if (!open) continue;
     const pendingReady = customers.filter((row) => row.notify_status === "pending" && row.class_cancelled_at);
     if (customers.length > 0 && pendingReady.length === 0) continue;
+    const cancelledAt =
+      cancelledAtBySchedule.get(scheduleId) ??
+      (() => {
+        const raw = customers.find((row) => row.class_cancelled_at)?.class_cancelled_at;
+        const parsed = raw ? new Date(raw) : null;
+        return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+      })();
+    const trainerGate = decideClassCancelPreSend({
+      now: input.now,
+      cancelledAt,
+      inSendWindow: input.inSendWindow,
+      live:
+        input.liveBySchedule.get(scheduleId) ??
+        (input.newlyMarkedSchedules.has(scheduleId) ? "still_cancelled" : "unknown"),
+    });
+    if (trainerGate.action === "close") {
+      console.info("[leads/arbox-class-cancelled-customer] trainer skip", {
+        businessId: input.businessId,
+        schedule_id: scheduleId,
+        reason: "restored_before_send",
+      });
+      continue;
+    }
+    if (trainerGate.action === "wait") {
+      if (trainerRows.length > 0 && trainerGate.reason === "night_hold") {
+        input.summary.trainer_held_quiet_hours += trainerRows.length;
+        console.info("[leads/arbox-class-cancelled-customer] trainer skip", {
+          businessId: input.businessId,
+          schedule_id: scheduleId,
+          reason: "outside_window",
+        });
+      }
+      continue;
+    }
     if (!input.inSendWindow) {
       if (trainerRows.length > 0) {
         input.summary.trainer_held_quiet_hours += trainerRows.length;
@@ -1693,13 +1809,6 @@ async function notifySnapshottedTrainers(input: {
       continue;
     }
 
-    const cancelledAt =
-      cancelledAtBySchedule.get(scheduleId) ??
-      (() => {
-        const raw = customers.find((row) => row.class_cancelled_at)?.class_cancelled_at;
-        const parsed = raw ? new Date(raw) : null;
-        return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
-      })();
     if (!cancelledAt) continue;
 
     const coveredPhones = customers.filter((row) => row.notify_status != null).map((row) => row.phone);

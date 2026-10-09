@@ -10,6 +10,9 @@
  * rule is enabled. No Claude. No contacts insert. No Conversations log.
  */
 import { settleQueuedTemplateSend } from "@/lib/leads/sync-log-claim";
+import { decideClassCancelLiveStatus, decideClassCancelPreSend } from "@/lib/leads/arbox-class-cancel-send-gate";
+import { activeScheduleIdsFromSummary } from "@/lib/leads/arbox-class-trainer-snapshot";
+import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import { arboxPublicFetch } from "@/lib/crm/adapters/arbox";
 import { fetchArboxPagedReportRows } from "@/lib/leads/arbox-paged-report";
 import {
@@ -24,6 +27,7 @@ import { normalizePhone } from "@/lib/phone-normalize";
 import {
   buildClassCancelledStaffScheduledDedupKey,
   computeDueAt,
+  decideScheduledDrainDispatch,
   enqueueScheduledTemplateSend,
   markScheduledTemplateSendSentByDedupKey,
 } from "@/lib/scheduled-template-sends";
@@ -44,7 +48,9 @@ export type ClassCancelledStaffDispatch =
   | "no_phone"
   | "gated"
   | "send_failed"
-  | "send_unknown";
+  | "send_unknown"
+  | "held_grace"
+  | "restored_before_send";
 
 export type ClassCancelledStaffSyncSummary = {
   skipped?: boolean;
@@ -60,6 +66,8 @@ export type ClassCancelledStaffSyncSummary = {
   notified: number;
   gated: number;
   no_phone: number;
+  held_grace: number;
+  restored_before_send: number;
   errors: number;
   fetch_error?: string;
 };
@@ -71,6 +79,7 @@ export type CancelledSessionReportRow = {
   start_time?: unknown;
   time?: unknown;
   status?: unknown;
+  cancelled_time?: unknown;
   staff_member_phone?: unknown;
 };
 
@@ -108,6 +117,14 @@ export function isCancelledSessionStatus(raw: unknown): boolean {
 export function parseScheduleId(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
   return s || null;
+}
+
+function parseStaffCancelledTime(raw: unknown): Date | null {
+  const s = String(raw ?? "").trim();
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/.exec(s);
+  if (!m) return null;
+  const dt = israelWallTimeToUtc(m[1]!, m[2]!);
+  return Number.isFinite(dt.getTime()) ? dt : null;
 }
 
 export function staffPhoneFromReportValue(raw: unknown): string | null {
@@ -315,6 +332,8 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
     notified: 0,
     gated: 0,
     no_phone: 0,
+    held_grace: 0,
+    restored_before_send: 0,
     errors: 0,
   };
 
@@ -382,6 +401,16 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
   summary.fetched_summary = summaryReport.rows.length;
 
   const phoneBySchedule = staffPhoneByScheduleId(summaryReport.rows);
+  const cancelledIds = new Set(
+    cancelled.rows.flatMap((row) => {
+      if (!isCancelledSessionStatus(row.status)) return [];
+      const id = parseScheduleId(row.schedule_id);
+      return id ? [id] : [];
+    })
+  );
+  const activeScheduleIds = activeScheduleIdsFromSummary(summaryReport.rows);
+  const inSendWindow =
+    decideScheduledDrainDispatch(now, { triggerType: "class_cancelled_staff" }).action === "dispatch";
 
   for (const row of cancelled.rows) {
     if (!isCancelledSessionStatus(row.status)) continue;
@@ -399,6 +428,36 @@ export async function syncArboxClassCancelledStaffForBusiness(input: {
     }
 
     summary.processed += 1;
+    const live = decideClassCancelLiveStatus({
+      scheduleId,
+      cancelledIds,
+      activeScheduleIds,
+      verifyOk: true,
+    });
+    const cancelledAt = parseStaffCancelledTime(row.cancelled_time) ?? new Date(0);
+    const gate = decideClassCancelPreSend({
+      now,
+      cancelledAt,
+      inSendWindow,
+      live,
+    });
+    if (gate.action === "wait") {
+      if (gate.reason === "grace") summary.held_grace += 1;
+      console.info("[leads/arbox-class-cancelled-staff] hold", {
+        businessId,
+        schedule_id: scheduleId,
+        reason: gate.reason,
+      });
+      continue;
+    }
+    if (gate.action === "close") {
+      summary.restored_before_send += 1;
+      console.info("[leads/arbox-class-cancelled-staff] restored before send", {
+        businessId,
+        schedule_id: scheduleId,
+      });
+      continue;
+    }
     const trainerPhone =
       staffPhoneFromReportValue(row.staff_member_phone) ?? phoneBySchedule.get(scheduleId) ?? null;
     if (!trainerPhone) {

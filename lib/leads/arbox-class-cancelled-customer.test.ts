@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { israelWallTimeToUtc } from "@/lib/marketing-call-time";
 import {
+  CLASS_CANCEL_GRACE_MS,
   classCancelQuietHoursDecision,
   classCancelledCustomerBodyParams,
   classStartHasPassed,
+  decideClassCancelLiveStatus,
+  decideClassCancelPreSend,
   formatClassDateDdMm,
   nextNotifyStatusAfterSendFailure,
   planSnapshotPresence,
@@ -537,6 +540,131 @@ const trainer = (
       classTime: "18:00",
     }),
     ["דנה", "פילאטיס", "08/10", "18:00"]
+  );
+}
+
+/** Apex 56610169: cancelled, texted, then restored — must close, not send. */
+{
+  const scheduleId = "56610169";
+  const cancelledAt = israelWallTimeToUtc("2026-10-09", "20:01");
+  const sendAt = israelWallTimeToUtc("2026-10-09", "21:07");
+  assert.equal(
+    decideClassCancelLiveStatus({
+      scheduleId,
+      cancelledIds: new Set(),
+      activeScheduleIds: new Set([scheduleId]),
+      verifyOk: true,
+    }),
+    "restored"
+  );
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: sendAt,
+      cancelledAt,
+      inSendWindow: true,
+      live: "restored",
+    }),
+    { action: "close", reason: "restored_before_send" }
+  );
+}
+
+{
+  const scheduleId = "56610169";
+  assert.equal(
+    decideClassCancelLiveStatus({
+      scheduleId,
+      cancelledIds: new Set([scheduleId]),
+      activeScheduleIds: new Set(),
+      verifyOk: true,
+    }),
+    "still_cancelled"
+  );
+  const cancelledAt = israelWallTimeToUtc("2026-10-09", "20:01");
+  const sendAt = new Date(cancelledAt.getTime() + CLASS_CANCEL_GRACE_MS);
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: sendAt,
+      cancelledAt,
+      inSendWindow: true,
+      live: "still_cancelled",
+    }),
+    { action: "send" }
+  );
+}
+
+{
+  const cancelledAt = israelWallTimeToUtc("2026-10-09", "20:01");
+  const insideGrace = new Date(cancelledAt.getTime() + CLASS_CANCEL_GRACE_MS - 1);
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: insideGrace,
+      cancelledAt,
+      inSendWindow: true,
+      live: "still_cancelled",
+    }),
+    { action: "wait", reason: "grace" }
+  );
+}
+
+{
+  const satMorning = israelWallTimeToUtc("2026-10-10", "09:00");
+  const cancelledAt = new Date(satMorning.getTime() - CLASS_CANCEL_GRACE_MS);
+  assert.equal(classCancelQuietHoursDecision(satMorning), "send");
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: satMorning,
+      cancelledAt,
+      inSendWindow: classCancelQuietHoursDecision(satMorning) === "send",
+      live: "still_cancelled",
+    }),
+    { action: "send" }
+  );
+}
+
+{
+  const night = israelWallTimeToUtc("2026-10-08", "02:00");
+  const morning = israelWallTimeToUtc("2026-10-08", "08:30");
+  const cancelledAt = israelWallTimeToUtc("2026-10-07", "21:30");
+  assert.equal(classCancelQuietHoursDecision(night), "hold");
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: night,
+      cancelledAt,
+      inSendWindow: classCancelQuietHoursDecision(night) === "send",
+      live: "still_cancelled",
+    }),
+    { action: "wait", reason: "night_hold" }
+  );
+  assert.equal(classCancelQuietHoursDecision(morning), "send");
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: morning,
+      cancelledAt,
+      inSendWindow: classCancelQuietHoursDecision(morning) === "send",
+      live: "restored",
+    }),
+    { action: "close", reason: "restored_before_send" }
+  );
+}
+
+{
+  assert.equal(
+    decideClassCancelLiveStatus({
+      scheduleId: "56610169",
+      cancelledIds: new Set(["56610169"]),
+      activeScheduleIds: new Set(),
+      verifyOk: false,
+    }),
+    "unknown"
+  );
+  assert.deepEqual(
+    decideClassCancelPreSend({
+      now: israelWallTimeToUtc("2026-10-09", "21:07"),
+      cancelledAt: israelWallTimeToUtc("2026-10-09", "20:01"),
+      inSendWindow: true,
+      live: "unknown",
+    }),
+    { action: "wait", reason: "verify_unknown" }
   );
 }
 
