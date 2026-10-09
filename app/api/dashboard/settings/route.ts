@@ -17,6 +17,7 @@ import {
   preserveSalesFlowExtraStepsInSocial,
   settingsUpdatedAtConflicts,
 } from "@/lib/dashboard-settings-save-guard";
+import { explicitProductDeleteDecision } from "@/lib/dashboard-settings-service-save";
 import {
   applyProductFilterScopeChange,
   normalizeProductIdList,
@@ -334,6 +335,39 @@ export async function POST(req: NextRequest) {
     })(),
   };
 
+  let approvedServiceDeletes: string[] = [];
+  if (existingForUser && shouldReplaceServices) {
+    const { data: existingForDelete, error: existingForDeleteErr } = await admin
+      .from("services")
+      .select("service_slug")
+      .eq("business_id", existingForUser.id);
+    if (existingForDeleteErr) {
+      console.error("[api/dashboard/settings] services read before delete failed", {
+        slug,
+        error: existingForDeleteErr.message,
+      });
+      return NextResponse.json({ error: "services_read_failed" }, { status: 500 });
+    }
+    const decision = explicitProductDeleteDecision({
+      existingSlugs: (existingForDelete ?? []).map((row) =>
+        String((row as { service_slug?: unknown }).service_slug ?? "")
+      ),
+      requestedDeletes: Array.isArray(body.deleted_slugs) ? body.deleted_slugs : [],
+      confirm: body.confirm_bulk_product_delete === true,
+    });
+    if (!decision.ok) {
+      return NextResponse.json(
+        {
+          error: decision.error,
+          delete_count: decision.deleteCount,
+          product_count: decision.productCount,
+        },
+        { status: 400 }
+      );
+    }
+    approvedServiceDeletes = decision.slugs;
+  }
+
   const nowIso = new Date().toISOString();
   if (existingForUser) {
     const currentUpdatedAt = (existingForUser as { updated_at?: unknown }).updated_at;
@@ -402,11 +436,8 @@ export async function POST(req: NextRequest) {
 
   let insertedServices: Array<{ id: number; service_slug: string }> = [];
   if (shouldReplaceServices) {
-    // Safety: never wipe services due to an empty payload (can happen if the client autosaves before hydrating,
-    // or if a transient load issue results in an empty services array).
-    // If the user truly wants to remove all services, we should add an explicit "danger" action + flag.
     const hasNamedService = services.some((s) => String(s.name ?? "").trim());
-    if (!hasNamedService) {
+    if (!hasNamedService && approvedServiceDeletes.length === 0) {
       console.warn(
         "[api/dashboard/settings] Skipping services replace: empty services payload",
         JSON.stringify({ slug, user_id: user.id })
@@ -416,13 +447,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (shouldReplaceServices) {
-    const { data: existingServices } = await admin
-      .from("services")
-      .select("id, service_slug")
-      .eq("business_id", savedBiz.id);
-
+    const deleteSet = new Set(approvedServiceDeletes);
     const namedRows = services
       .filter((s) => String(s.name ?? "").trim())
+      .filter((s) => !deleteSet.has(String(s.service_slug ?? "").trim()))
       .slice(0, DASHBOARD_MAX_PRODUCTS);
     const usedServiceSlugs = new Set<string>();
     const servicesPayload = namedRows.map((s, index) => {
@@ -447,38 +475,32 @@ export async function POST(req: NextRequest) {
     });
 
     if (servicesPayload.length) {
-      const { data } = await admin
+      const { data, error: upsertErr } = await admin
         .from("services")
         .upsert(servicesPayload, { onConflict: "business_id,service_slug" })
         .select("id, service_slug");
-      insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
-
-      const incomingSlugs = new Set(servicesPayload.map((s) => s.service_slug));
-      const slugsToDelete = (existingServices ?? [])
-        .filter((s) => !incomingSlugs.has(String((s as { service_slug: string }).service_slug)))
-        .map((s) => String((s as { service_slug: string }).service_slug));
-      if (slugsToDelete.length > 0) {
-        await admin
-          .from("services")
-          .delete()
-          .eq("business_id", savedBiz.id)
-          .in("service_slug", slugsToDelete);
+      if (upsertErr) {
+        console.error("[api/dashboard/settings] services upsert failed", {
+          slug,
+          error: upsertErr.message,
+        });
+        return NextResponse.json({ error: "services_save_failed" }, { status: 500 });
       }
-    } else {
-      const slugsToDelete = (existingServices ?? []).map((s) =>
-        String((s as { service_slug: string }).service_slug)
-      );
-      if (slugsToDelete.length > 0) {
-        await admin
-          .from("services")
-          .delete()
-          .eq("business_id", savedBiz.id)
-          .in("service_slug", slugsToDelete);
-      } else {
-        console.warn(
-          "[api/dashboard/settings] Skipping services replace: computed empty servicesPayload",
-          JSON.stringify({ slug, user_id: user.id })
-        );
+      insertedServices = (data ?? []) as Array<{ id: number; service_slug: string }>;
+    }
+    if (approvedServiceDeletes.length > 0) {
+      const { error: deleteErr } = await admin
+        .from("services")
+        .delete()
+        .eq("business_id", savedBiz.id)
+        .in("service_slug", approvedServiceDeletes);
+      if (deleteErr) {
+        console.error("[api/dashboard/settings] explicit service delete failed", {
+          slug,
+          error: deleteErr.message,
+          count: approvedServiceDeletes.length,
+        });
+        return NextResponse.json({ error: "services_delete_failed" }, { status: 500 });
       }
     }
   } else if (shouldReplaceFaqs) {

@@ -57,6 +57,12 @@ import {
   isSettingsConflictResponse,
   settingsUpdatedAtFromPayload,
 } from "@/lib/dashboard-settings-save-guard";
+import {
+  isBulkProductDeleteResponse,
+  mergeProductsAfterConflict,
+  preserveArboxDescriptionKeys,
+  productEditFingerprint,
+} from "@/lib/dashboard-settings-service-save";
 import { compressImageForWhatsAppIfNeeded } from "@/lib/compress-image-for-whatsapp";
 import { buildCourseSchedulePhraseForCta } from "@/lib/product-schedule-slots";
 import {
@@ -372,23 +378,6 @@ function servicePersistenceKey(s: { service_slug?: string; name: string; ui_id: 
   return slug || name || s.ui_id;
 }
 
-/** מיזוג תשובת שרת — שומר ui_id מקומי כדי שלא ייסגר כרטיס מוצר פתוח */
-function mergeServerServicesIntoLocal(
-  incomingRows: Record<string, unknown>[],
-  current: ServiceItem[]
-): ServiceItem[] {
-  const fresh = dashboardApiRowsToServiceItems(incomingRows);
-  if (!current.length) return fresh;
-  const byKey = new Map<string, ServiceItem>();
-  for (const row of current) {
-    byKey.set(servicePersistenceKey(row), row);
-  }
-  return fresh.map((item) => {
-    const prev = byKey.get(servicePersistenceKey(item));
-    return prev ? { ...item, ui_id: prev.ui_id } : item;
-  });
-}
-
 /** מפת שורות services מהשרת למצב טופס ההגדרות */
 function dashboardApiRowsToServiceItems(rows: Record<string, unknown>[]): ServiceItem[] {
   return sortServiceRowsBySortOrder(rows).map((s) => {
@@ -514,19 +503,13 @@ function serviceDescriptionMetaForSave(s: ServiceItem, sortOrder: number): Recor
           schedule_slots: s.schedule_slots,
         };
   const next: Record<string, unknown> = { ...prior, ...known };
-  const hadStamp =
-    s.arbox_box_category_id != null ||
-    Boolean(s.arbox_class_name.trim()) ||
-    s.schedule_removed_notice != null ||
-    prior.arbox_box_category_id != null ||
-    String(prior.arbox_class_name ?? "").trim() !== "" ||
-    prior.schedule_removed_notice != null;
-  if (hadStamp) {
-    next.arbox_box_category_id = s.arbox_box_category_id;
-    next.arbox_class_name = s.arbox_class_name;
-    next.schedule_removed_notice = s.schedule_removed_notice;
-  }
-  return next;
+  return preserveArboxDescriptionKeys(next, {
+    arbox_box_category_id: s.arbox_box_category_id,
+    arbox_class_name: s.arbox_class_name,
+    schedule_slots: next.schedule_slots,
+    schedule_removed_notice: s.schedule_removed_notice,
+    prior,
+  });
 }
 
 function payloadSavedTrialsWereCleared(payload: Record<string, unknown>): boolean {
@@ -1335,6 +1318,7 @@ export default function SlugSettingsPage({
   const [saving, setSaving]   = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [saveErr, setSaveErr] = useState("");
+  const [bulkDeleteCount, setBulkDeleteCount] = useState<number | null>(null);
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [fetchSiteError, setFetchSiteError] = useState("");
   const [fetchSiteNotice, setFetchSiteNotice] = useState("");
@@ -1731,6 +1715,10 @@ export default function SlugSettingsPage({
   /** עריכות מוצרים מקומיות מאז טעינה אחרונה מהשרת — מונע דריסה בריענון SWR */
   const servicesUserEditCountRef = useRef(0);
   const servicesHydrationBaselineRef = useRef(0);
+  /** סלאגים שהמשתמשת הסירה במסך הזה. רק הם נמחקים בשמירה. */
+  const deletedServiceSlugsRef = useRef<Set<string>>(new Set());
+  /** טביעת מוצר בטעינה האחרונה, כדי להבדיל עריכה מקומית מעותק שרת */
+  const serviceBaselineRef = useRef<Map<string, string>>(new Map());
   /** אותו מנגנון לטקסט פלואו מכירה (פתיחה / CTA / חימום) — בלי זה SWR מחזיר לשרת */
   const salesFlowUserEditCountRef = useRef(0);
   const salesFlowHydrationBaselineRef = useRef(0);
@@ -1738,10 +1726,27 @@ export default function SlugSettingsPage({
   const markDirtyRef = useRef(() => setHasUnsavedChanges(true));
   markDirtyRef.current = () => setHasUnsavedChanges(true);
 
+  const rememberServiceBaseline = useCallback((rows: ServiceItem[]) => {
+    const next = new Map<string, string>();
+    for (const row of rows) {
+      next.set(servicePersistenceKey(row), productEditFingerprint(row));
+    }
+    serviceBaselineRef.current = next;
+  }, []);
+
   const setServicesFromUser = useCallback<typeof setServices>((action) => {
     servicesUserEditCountRef.current += 1;
     markDirtyRef.current();
-    setServices(action);
+    setServices((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      const nextSlugs = new Set(next.map((row) => row.service_slug.trim()).filter(Boolean));
+      for (const row of prev) {
+        const slug = row.service_slug.trim();
+        if (slug && !nextSlugs.has(slug)) deletedServiceSlugsRef.current.add(slug);
+      }
+      for (const slug of nextSlugs) deletedServiceSlugsRef.current.delete(slug);
+      return next;
+    });
   }, []);
 
   const setSalesFlowConfigFromUser = useCallback<typeof setSalesFlowConfig>((action) => {
@@ -1770,6 +1775,8 @@ export default function SlugSettingsPage({
       trialServicesStashConsumedRef.current = false;
       servicesUserEditCountRef.current = 0;
       servicesHydrationBaselineRef.current = 0;
+      deletedServiceSlugsRef.current = new Set();
+      serviceBaselineRef.current = new Map();
       salesFlowUserEditCountRef.current = 0;
       salesFlowHydrationBaselineRef.current = 0;
       expectedUpdatedAtRef.current = "";
@@ -2067,12 +2074,22 @@ export default function SlugSettingsPage({
           } else if (incomingHasNamed || rowsRaw.length > 0) {
             const userEditedSinceHydrate =
               servicesUserEditCountRef.current > servicesHydrationBaselineRef.current;
+            const serverItems = dashboardApiRowsToServiceItems(rowsRaw);
             const mapped = userEditedSinceHydrate
-              ? mergeServerServicesIntoLocal(rowsRaw, servicesRef.current)
-              : mergeServerServicesIntoLocal(rowsRaw, []);
+              ? mergeProductsAfterConflict({
+                  server: serverItems,
+                  local: servicesRef.current,
+                  baselineByKey: serviceBaselineRef.current,
+                  keyOf: servicePersistenceKey,
+                  deletedSlugs: deletedServiceSlugsRef.current,
+                })
+              : serverItems;
+            setServices(mapped);
             if (!userEditedSinceHydrate) {
-              setServices(mapped);
               servicesHydrationBaselineRef.current = servicesUserEditCountRef.current;
+              const baseline = new Map<string, string>();
+              for (const row of mapped) baseline.set(servicePersistenceKey(row), productEditFingerprint(row));
+              serviceBaselineRef.current = baseline;
             }
             setServicesHydrated(true);
             if (incomingHasNamed) writeTrialServicesStash(slug, servicesRef.current);
@@ -2114,10 +2131,14 @@ export default function SlugSettingsPage({
 
   // ─── Save payload ────────────────────────────────────────────────────────────
 
-  const getSavePayload = useCallback(() => {
+  const getSavePayload = useCallback((overrides?: {
+    services?: ServiceItem[];
+    confirmBulkProductDelete?: boolean;
+  }) => {
+    const serviceRows = overrides?.services ?? services;
     const wf = syncWelcomeFromSalesFlow(
       salesFlowConfig,
-      services.filter((s) => s.name.trim()).map((s) => ({
+      serviceRows.filter((s) => s.name.trim()).map((s) => ({
         name: s.name,
         benefit_line: benefitLineFromProductDescription(s.description),
         service_slug: s.service_slug,
@@ -2221,11 +2242,13 @@ export default function SlugSettingsPage({
       faqs: [] as unknown[],
       call_slots: callScheduleSlots,
       expected_updated_at: expectedUpdatedAtRef.current,
+      deleted_slugs: servicesHydrated ? [...deletedServiceSlugsRef.current] : [],
+      confirm_bulk_product_delete: overrides?.confirmBulkProductDelete === true,
     };
     return servicesHydrated
       ? {
           ...base,
-          services: services.filter((s) => s.name.trim()).map((s, index) => ({
+          services: serviceRows.filter((s) => s.name.trim()).map((s, index) => ({
             name: truncateTrialServiceName(s.name.trim()),
             service_slug: serviceSlugForPersistence(
               s.service_slug,
@@ -2299,11 +2322,14 @@ export default function SlugSettingsPage({
       services,
   ]);
 
-  const postSettings = useCallback(async () => {
+  const postSettings = useCallback(async (overrides?: {
+    services?: ServiceItem[];
+    confirmBulkProductDelete?: boolean;
+  }) => {
     return fetch("/api/dashboard/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(getSavePayload()),
+      body: JSON.stringify(getSavePayload(overrides)),
     });
   }, [getSavePayload]);
 
@@ -2320,10 +2346,24 @@ export default function SlugSettingsPage({
     }
   }, [getSavePayload]);
 
-  const clearDirtyAfterSave = useCallback(() => {
-    syncSavedSnapshot();
+  const clearDirtyAfterSave = useCallback((savedServices?: ServiceItem[]) => {
+    if (savedServices) {
+      servicesRef.current = savedServices;
+      setServices(savedServices);
+    }
+    deletedServiceSlugsRef.current = new Set();
+    const rows = savedServices ?? servicesRef.current;
+    rememberServiceBaseline(rows);
+    servicesHydrationBaselineRef.current = servicesUserEditCountRef.current;
+    try {
+      savedPayloadSnapshotRef.current = JSON.stringify(
+        getSavePayload({ services: rows, confirmBulkProductDelete: false })
+      );
+    } catch {
+      savedPayloadSnapshotRef.current = null;
+    }
     setHasUnsavedChanges(false);
-  }, [syncSavedSnapshot]);
+  }, [getSavePayload, rememberServiceBaseline]);
 
   const savePayloadJson = useMemo(() => {
     if (!settingsHydrated) return "";
@@ -2373,21 +2413,28 @@ export default function SlugSettingsPage({
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  const saveAll = useCallback(async () => {
+  const saveAll = useCallback(async (opts?: { confirmBulkProductDelete?: boolean }) => {
     if (settingsPresenceLocked) {
       setSaveErr(t.presenceLocked);
       return false;
     }
     setSaving(true);
     setSaveErr("");
+    let servicesForSnapshot: ServiceItem[] | undefined;
     try {
-      let res = await postSettings();
-      if (!res.ok) {
-        let peek: { error?: string } = {};
+      let res = await postSettings(opts);
+      const peekJson = async (response: Response) => {
         try {
-          peek = (await res.clone().json()) as { error?: string };
+          return (await response.clone().json()) as { error?: string; delete_count?: unknown };
         } catch {
-          peek = {};
+          return {};
+        }
+      };
+      if (!res.ok) {
+        const peek = await peekJson(res);
+        if (isBulkProductDeleteResponse(res.status, peek)) {
+          setBulkDeleteCount(Number(peek.delete_count) || 0);
+          return false;
         }
         if (isSettingsConflictResponse(res.status, peek)) {
           try {
@@ -2396,13 +2443,34 @@ export default function SlugSettingsPage({
             );
             const token = settingsUpdatedAtFromPayload(fresh);
             if (token) expectedUpdatedAtRef.current = token;
-            res = await postSettings();
+            const serverItems = dashboardApiRowsToServiceItems(
+              Array.isArray(fresh.services) ? (fresh.services as Record<string, unknown>[]) : []
+            );
+            const merged = mergeProductsAfterConflict({
+              server: serverItems,
+              local: servicesRef.current,
+              baselineByKey: serviceBaselineRef.current,
+              keyOf: servicePersistenceKey,
+              deletedSlugs: deletedServiceSlugsRef.current,
+            });
+            servicesRef.current = merged;
+            setServices(merged);
+            servicesForSnapshot = merged;
+            res = await postSettings({
+              services: merged,
+              confirmBulkProductDelete: opts?.confirmBulkProductDelete === true,
+            });
           } catch {
             /* keep the original conflict response */
           }
         }
       }
       if (!res.ok) {
+        const peek = await peekJson(res);
+        if (isBulkProductDeleteResponse(res.status, peek)) {
+          setBulkDeleteCount(Number(peek.delete_count) || 0);
+          return false;
+        }
         setSaveErr(await readSaveErrorFromResponse(res, t));
         return false;
       }
@@ -2413,12 +2481,16 @@ export default function SlugSettingsPage({
       } catch {
         /* keep previous token */
       }
-      const body = getSavePayloadRef.current() as Record<string, unknown>;
+      const body = getSavePayloadRef.current({
+        services: servicesForSnapshot,
+        confirmBulkProductDelete: false,
+      }) as Record<string, unknown>;
       if (payloadSavedTrialsWereCleared(body)) clearTrialServicesStash(slug);
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 3000);
+      setBulkDeleteCount(null);
       setArboxMembershipTypesFetchNonce((n) => n + 1);
-      clearDirtyAfterSave();
+      clearDirtyAfterSave(servicesForSnapshot);
       return true;
     } catch {
       setSaveErr(tp.saveNetwork);
@@ -3688,6 +3760,38 @@ export default function SlugSettingsPage({
             </div>
           )}
         </div>
+
+        {bulkDeleteCount != null ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 text-right shadow-xl" dir="rtl">
+              <p className="text-base font-semibold text-zinc-900">{t.page.bulkDeleteTitle}</p>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                {t.page.bulkDeleteBody(bulkDeleteCount)}
+              </p>
+              <div className="mt-6 flex flex-wrap justify-start gap-2">
+                <Button
+                  type="button"
+                  className="rounded-xl"
+                  disabled={saving}
+                  onClick={() => {
+                    void saveAll({ confirmBulkProductDelete: true });
+                  }}
+                >
+                  {t.page.bulkDeleteConfirm}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl"
+                  disabled={saving}
+                  onClick={() => setBulkDeleteCount(null)}
+                >
+                  {t.page.bulkDeleteCancel}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {pendingRemovedService ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

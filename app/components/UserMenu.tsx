@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  useSettingsGuardedLinkClick,
+  useSettingsUnsaved,
+} from "@/app/[slug]/settings/settings-unsaved-context";
 
 function initialsFromNameOrEmail(fullName: string, email: string): string {
   const name = fullName.trim();
@@ -87,6 +91,13 @@ export default function UserMenu({ slug }: { slug: string }) {
   }, [open]);
 
   const initials = initialsFromNameOrEmail(fullName, email);
+  const guardedLinkClick = useSettingsGuardedLinkClick();
+  const { requestNavigation, hasUnsavedChanges } = useSettingsUnsaved();
+
+  function onAccountLink(e: ReactMouseEvent<HTMLAnchorElement>, href: string) {
+    guardedLinkClick(e, href);
+    setOpen(false);
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -130,7 +141,7 @@ export default function UserMenu({ slug }: { slug: string }) {
                   role="menuitem"
                   href={`${accountBase}/settings`}
                   prefetch={true}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => onAccountLink(e, `${accountBase}/settings`)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
                 >
                   פרטים אישיים
@@ -139,7 +150,7 @@ export default function UserMenu({ slug }: { slug: string }) {
                   role="menuitem"
                   href={`${accountBase}/billing`}
                   prefetch={true}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => onAccountLink(e, `${accountBase}/billing`)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
                 >
                   חיוב וחבילות
@@ -148,7 +159,7 @@ export default function UserMenu({ slug }: { slug: string }) {
                   role="menuitem"
                   href={`${accountBase}/notifications`}
                   prefetch={true}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => onAccountLink(e, `${accountBase}/notifications`)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
                 >
                   התראות
@@ -157,7 +168,7 @@ export default function UserMenu({ slug }: { slug: string }) {
                   role="menuitem"
                   href={`${accountBase}/users`}
                   prefetch={true}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => onAccountLink(e, `${accountBase}/users`)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
                 >
                   משתמשים
@@ -166,7 +177,7 @@ export default function UserMenu({ slug }: { slug: string }) {
                   role="menuitem"
                   href={`${accountBase}/contact`}
                   prefetch={true}
-                  onClick={() => setOpen(false)}
+                  onClick={(e) => onAccountLink(e, `${accountBase}/contact`)}
                   className="block px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-[#faf7ff]"
                 >
                   צור קשר
@@ -176,7 +187,16 @@ export default function UserMenu({ slug }: { slug: string }) {
               <button
                 role="menuitem"
                 type="button"
-                onClick={() => void signOut()}
+                onClick={() => {
+                  setOpen(false);
+                  if (requestNavigation && hasUnsavedChanges) {
+                    void requestNavigation(() => {
+                      void signOut();
+                    });
+                    return;
+                  }
+                  void signOut();
+                }}
                 className="w-full text-right px-4 py-2 text-sm text-red-600 hover:bg-red-50 cursor-pointer"
               >
                 התנתקות

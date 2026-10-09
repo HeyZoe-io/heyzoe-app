@@ -172,6 +172,8 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
     }
   }, [dialogOpen, hasUnsavedChanges]);
 
+  const allowHistoryLeaveRef = useRef(false);
+
   const requestNavigation = useCallback(
     async (target: string | (() => void)) => {
       const navigate = () => {
@@ -206,6 +208,43 @@ export function SettingsUnsavedProvider({ children }: { children: ReactNode }) {
     },
     [router, promptDialog]
   );
+
+  const requestNavigationRef = useRef(requestNavigation);
+  requestNavigationRef.current = requestNavigation;
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const guardedHref = window.location.href;
+    const previous = window.history.state;
+    window.history.pushState(
+      { ...(previous && typeof previous === "object" ? previous : {}), hzSettingsGuard: 1 },
+      "",
+      guardedHref
+    );
+    const onPop = () => {
+      if (allowHistoryLeaveRef.current) {
+        allowHistoryLeaveRef.current = false;
+        return;
+      }
+      const dirty = Object.values(entriesRef.current).some((entry) => entry.hasUnsavedChanges);
+      if (!dirty) return;
+      window.history.pushState({ hzSettingsGuard: 1 }, "", guardedHref);
+      void requestNavigationRef.current(() => {
+        allowHistoryLeaveRef.current = true;
+        window.history.go(-2);
+      });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      const state = window.history.state as { hzSettingsGuard?: number } | null;
+      if (state?.hzSettingsGuard) {
+        const { hzSettingsGuard: _guard, ...rest } = state;
+        void _guard;
+        window.history.replaceState(rest, "", window.location.href);
+      }
+    };
+  }, [hasUnsavedChanges]);
 
   const register = useCallback((id: string, next: SettingsUnsavedController | null) => {
     setEntries((prev) => {

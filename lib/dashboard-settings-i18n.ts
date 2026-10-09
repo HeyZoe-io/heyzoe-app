@@ -472,6 +472,11 @@ export const dashboardSettingsI18n = {
       slugRequired: "חסר מזהה עסק.",
       slugTaken: "כתובת העסק תפוסה.",
       settingsConflict: "השמירה לא עלתה כי משהו עודכן ברקע. השינויים שלכם עדיין בדף — לחצו שמור שוב.",
+      bulkDeleteTitle: "מחיקת מוצרים",
+      bulkDeleteBody: (count: number) =>
+        `השמירה מוחקת ${count} מוצרים. זה יותר משני מוצרים, או יותר משליש מהרשימה. למחוק אותם?`,
+      bulkDeleteConfirm: "כן, למחוק",
+      bulkDeleteCancel: "ביטול",
       serverError: (status: number) => `שגיאת שרת (${status})`,
       fileTooBigVideo: (mb: number) => `הקובץ גדול מדי (סרטון: מקסימום ${mb}MB). נסו לכווץ את הקובץ.`,
       fileTooBigImage: (mb: number) => `הקובץ גדול מדי (תמונה: מקסימום ${mb}MB להעלאה).`,
@@ -1018,6 +1023,11 @@ export const dashboardSettingsI18n = {
       slugRequired: "Business ID missing.",
       slugTaken: "Business URL is taken.",
       settingsConflict: "Save didn't go through because something updated in the background. Your edits are still on the page — click Save again.",
+      bulkDeleteTitle: "Delete products",
+      bulkDeleteBody: (count: number) =>
+        `This save deletes ${count} products. That is more than two products, or more than a third of the list. Delete them?`,
+      bulkDeleteConfirm: "Yes, delete",
+      bulkDeleteCancel: "Cancel",
       serverError: (status: number) => `Server error (${status})`,
       fileTooBigVideo: (mb: number) => `File too large (video: max ${mb}MB). Try compressing.`,
       fileTooBigImage: (mb: number) => `File too large (image: max ${mb}MB for upload).`,
