@@ -9,7 +9,7 @@ import { resolveTemplateFirstName, resolveTrialReminderFirstName } from "@/lib/t
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
-import { nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { isIsraelNightQuietHours, nextAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
 import {
   decideScheduledDrainDispatch,
   decideScheduledSendAfterMeta,
@@ -181,7 +181,6 @@ async function dispatchOneScheduledSend(
   row: ScheduledTemplateSendRow,
   now: Date
 ): Promise<"sent" | "failed" | "canceled" | "skipped"> {
-  if (decideScheduledDrainDispatch(now).action === "hold") return "skipped";
   if (!isDuePendingScheduledSend(row, now)) return "skipped";
 
   const businessId = Number(row.business_id);
@@ -215,7 +214,7 @@ async function dispatchOneScheduledSend(
       .maybeSingle(),
     admin
       .from("template_triggers")
-      .select("trigger_type")
+      .select("trigger_type, delay_days")
       .eq("id", row.trigger_id)
       .maybeSingle(),
   ]);
@@ -240,6 +239,15 @@ async function dispatchOneScheduledSend(
       triggerTypeFromScheduledDedupKey(row.dedup_key) ||
       ""
   );
+  const delayDays = Number((triggerRow as { delay_days?: unknown } | null)?.delay_days);
+  if (
+    decideScheduledDrainDispatch(now, {
+      triggerType,
+      delayDays: Number.isFinite(delayDays) ? delayDays : undefined,
+    }).action === "hold"
+  ) {
+    return "skipped";
+  }
   const isStaffRecipient = isStaffRecipientTriggerType(triggerType);
 
   const gate = decideScheduledSendGate({
@@ -616,8 +624,7 @@ async function drainScheduledTemplateSends() {
     bulk_schedules.errors += 1;
   }
 
-  const windowDecision = decideScheduledDrainDispatch(now);
-  if (windowDecision.action === "hold") {
+  if (isIsraelNightQuietHours(now)) {
     const nextAllowedAt = nextAllowedWhatsAppSendTimeIsrael(now).toISOString();
     console.info("[cron/scheduled-template-sends] skip", {
       skip_reason: "time_window",

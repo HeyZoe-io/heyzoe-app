@@ -22,6 +22,7 @@ import { syncArboxNewLeadsForBusiness } from "@/lib/leads/arbox-new-lead";
 import { syncArboxLostLeadForBusiness } from "@/lib/leads/arbox-lost-lead";
 import { syncArboxMembershipCancelledForBusiness } from "@/lib/leads/arbox-membership-cancelled";
 import { isCrmNightHold } from "@/lib/leads/crm-night-hold";
+import { isInsideIsraelWeekendSendBlock } from "@/lib/israel-time";
 import { syncArboxFreezeForBusiness } from "@/lib/leads/arbox-freeze";
 import {
   salesBatchMayRegisterAfterTrial,
@@ -778,7 +779,23 @@ export async function runArboxTrialSyncForBusiness(input: {
     }
 
     // Separate step: credit_refusal via transactionsReport?status=FAIL (does not touch sales/purchase).
-    if (!skipForBudget("credit_refusal")) {
+    if (isInsideIsraelWeekendSendBlock(now)) {
+      summary.credit_refusal = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        processed: 0,
+        already: 0,
+        throttled: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        errors: 0,
+        skipped: true,
+        skip_reason: "shabbat_hold",
+      };
+    } else if (!skipForBudget("credit_refusal")) {
       try {
         summary.credit_refusal = await syncArboxCreditRefusalsForBusiness({
           admin,
@@ -927,7 +944,26 @@ export async function runArboxTrialSyncForBusiness(input: {
       }
     }
 
-    if (!skipForBudget("lost_lead")) {
+    if (isInsideIsraelWeekendSendBlock(now)) {
+      summary.lost_lead = {
+        fetched: 0,
+        pages_fetched: 0,
+        seeded: 0,
+        soft_seeded: 0,
+        processed: 0,
+        already: 0,
+        skipped_active: 0,
+        skipped_recent_checkin: 0,
+        notified: 0,
+        deferred: 0,
+        gated: 0,
+        no_phone: 0,
+        abandoned: 0,
+        errors: 0,
+        skipped: true,
+        skip_reason: "shabbat_hold",
+      };
+    } else if (!skipForBudget("lost_lead")) {
       try {
         summary.lost_lead = await syncArboxLostLeadForBusiness({
           admin,

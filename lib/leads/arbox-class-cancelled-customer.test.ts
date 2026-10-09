@@ -234,8 +234,10 @@ const row = (
 {
   const night = israelWallTimeToUtc("2026-09-03", "02:00");
   const afternoon = israelWallTimeToUtc("2026-09-03", "14:00");
+  const satMorning = israelWallTimeToUtc("2026-10-10", "09:00");
   assert.equal(classCancelQuietHoursDecision(night), "hold");
   assert.equal(classCancelQuietHoursDecision(afternoon), "send");
+  assert.equal(classCancelQuietHoursDecision(satMorning), "send");
 }
 
 {

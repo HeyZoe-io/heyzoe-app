@@ -176,7 +176,7 @@ export type LostLeadDispatch =
 
 export type LostLeadSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "shabbat_hold";
   fetched: number;
   pages_fetched: number;
   seeded: number;

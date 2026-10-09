@@ -72,7 +72,7 @@ export type CreditRefusalDispatch =
 
 export type CreditRefusalSyncSummary = {
   skipped?: boolean;
-  skip_reason?: "no_rule" | "missing_credentials";
+  skip_reason?: "no_rule" | "missing_credentials" | "shabbat_hold";
   fetched: number;
   pages_fetched: number;
   seeded: number;
@@ -146,7 +146,10 @@ function formatDateYmdIsrael(d: Date): string {
   }).format(d);
 }
 
-function resolveCreditRefusalDateRange(input: {
+/** Covers Fri 16:00 → Sat 19:00 even if the shared sales cursor advanced during the hold. */
+export const CREDIT_REFUSAL_MIN_LOOKBACK_DAYS = 3;
+
+export function resolveCreditRefusalDateRange(input: {
   arboxLastSyncAt: string | null;
   now: Date;
 }): { fromDate: string; toDate: string } {
@@ -162,6 +165,10 @@ function resolveCreditRefusalDateRange(input: {
   } else {
     fromDate = formatDateYmdIsrael(new Date(input.now.getTime() - MS_PER_DAY));
   }
+  const minFrom = formatDateYmdIsrael(
+    new Date(input.now.getTime() - CREDIT_REFUSAL_MIN_LOOKBACK_DAYS * MS_PER_DAY)
+  );
+  if (fromDate > minFrom) fromDate = minFrom;
   // Clamp to ≤30 days (Arbox report span limit)
   const fromMs = Date.parse(`${fromDate}T12:00:00.000Z`);
   const toMs = Date.parse(`${toDate}T12:00:00.000Z`);

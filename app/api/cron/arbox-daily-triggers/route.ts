@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
   const userAgent = req.headers.get("user-agent");
   const startedAt = new Date().toISOString();
   const admin = createSupabaseAdminClient();
-  const listed = await listArboxDailyBusinessIds(admin, { slot });
+  const listed = await listArboxDailyBusinessIds(admin, { slot, now: now ?? new Date() });
   if (!listed.ok) {
     console.error("[cron/arbox-daily-triggers] businesses query failed:", listed.error);
     return NextResponse.json({ ok: false, error: "businesses_query_failed" }, { status: 500 });

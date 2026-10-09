@@ -350,23 +350,31 @@ export function whatsAppIsraelSendWindowSummaryHe(): string {
   return `שליחה רק בחלון החוקי בישראל: א׳–ה׳ ${quietEnd}–${quietStart}, שישי ${quietEnd}–${friday}, שבת ${saturday}–${quietStart}. מחוץ לחלון (לילה ${quietStart}–${quietEnd}, ושישי מ־${friday} עד שבת ${saturday}) הפולואפ לא נשלח וממתין למועד החוקי הבא.`;
 }
 
-export function isAllowedWhatsAppSendTimeIsrael(
+/** לילה 23:00–quietEnd שעון ישראל. שקט הלילה של CRM (21:00–08:00) נפרד. */
+export function isIsraelNightQuietHours(
   dateUtc: Date,
   quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES
 ): boolean {
   const p = getLocalPartsInTz(dateUtc, IL_TZ);
-
-  // Quiet hours: 23:00–quietEnd (inclusive start, exclusive end)
   const minutes = p.hour * 60 + p.minute;
-  const inQuiet = minutes >= WA_ISRAEL_QUIET_START_MINUTES || minutes < quietEndMinutes;
-  if (inQuiet) return false;
+  return minutes >= WA_ISRAEL_QUIET_START_MINUTES || minutes < quietEndMinutes;
+}
 
-  // Weekend block: Fri 16:00 → Sat 19:00 (Israel time)
-  const isFri = p.weekday === 5;
-  const isSat = p.weekday === 6;
-  if (isFri && minutes >= WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES) return false;
-  if (isSat && minutes < WA_ISRAEL_SATURDAY_RESUME_MINUTES) return false;
+/** שישי 16:00 עד שבת 19:00 שעון ישראל. בלי שקט לילה. */
+export function isInsideIsraelWeekendSendBlock(dateUtc: Date): boolean {
+  const p = getLocalPartsInTz(dateUtc, IL_TZ);
+  const minutes = p.hour * 60 + p.minute;
+  if (p.weekday === 5 && minutes >= WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES) return true;
+  if (p.weekday === 6 && minutes < WA_ISRAEL_SATURDAY_RESUME_MINUTES) return true;
+  return false;
+}
 
+export function isAllowedWhatsAppSendTimeIsrael(
+  dateUtc: Date,
+  quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES
+): boolean {
+  if (isIsraelNightQuietHours(dateUtc, quietEndMinutes)) return false;
+  if (isInsideIsraelWeekendSendBlock(dateUtc)) return false;
   return true;
 }
 

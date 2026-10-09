@@ -1,4 +1,5 @@
-import { isAllowedWhatsAppSendTimeIsrael } from "@/lib/israel-time";
+import { isIsraelNightQuietHours } from "@/lib/israel-time";
+import { decideShabbatTriggerSend } from "@/lib/shabbat-send-policy";
 import { isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-flag";
 import { isSendOutcomeUnknown } from "@/lib/notifications/graph-whatsapp-send";
 import { normalizePhone } from "@/lib/phone-normalize";
@@ -364,17 +365,32 @@ export function isDuePendingScheduledSend(
 
 export type ScheduledDrainDispatchDecision =
   | { action: "dispatch" }
-  | { action: "hold"; reason: "outside_send_window" };
+  | { action: "hold"; reason: "outside_send_window" | "shabbat_hold" };
+
+export type ScheduledDrainDispatchOpts = {
+  triggerType?: string | null;
+  delayDays?: number | null;
+};
 
 /**
- * Drain-time send window — same as wa-followups (`isAllowedWhatsAppSendTimeIsrael`).
- * Hold means: do not dispatch; leave the row pending. Does not change due_at.
+ * Drain-time window: night quiet always holds.
+ * Weekend block is per-type (confirmations / Saturday-class ops send; retention holds).
+ * Missing type during the weekend holds — manual bulk and marketing stay quiet.
  */
 export function decideScheduledDrainDispatch(
-  now: Date = new Date()
+  now: Date = new Date(),
+  opts?: ScheduledDrainDispatchOpts
 ): ScheduledDrainDispatchDecision {
-  if (!isAllowedWhatsAppSendTimeIsrael(now)) {
+  if (isIsraelNightQuietHours(now)) {
     return { action: "hold", reason: "outside_send_window" };
+  }
+  const type = String(opts?.triggerType ?? "").trim();
+  const shabbat = decideShabbatTriggerSend(now, {
+    triggerType: type,
+    delayDays: opts?.delayDays,
+  });
+  if (shabbat.action === "hold") {
+    return { action: "hold", reason: shabbat.reason ?? "shabbat_hold" };
   }
   return { action: "dispatch" };
 }

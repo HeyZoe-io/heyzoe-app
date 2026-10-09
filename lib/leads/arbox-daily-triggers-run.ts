@@ -65,6 +65,11 @@ import {
 import { ARBOX_DAILY_ACTIVE_PRODUCT_TRIGGER_TYPES, ARBOX_DAILY_TRIGGER_TYPES } from "@/lib/leads/arbox-daily-triggers-dispatch";
 import { arboxDailyContext, isArboxDailyDryRun } from "@/lib/leads/arbox-daily-run-context";
 import { resolveCronNow } from "@/lib/cron-clock";
+import {
+  isSaturdayEveningHoldCatchUp,
+  shouldSkipDailyHoldSteps,
+  shouldSkipEveningHoldSteps,
+} from "@/lib/shabbat-send-policy";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 
 const BUSINESS_SELECT =
@@ -216,7 +221,7 @@ export function parseArboxDailyBusiness(row: Record<string, unknown>, apiKey: st
 /** Arbox businesses with a key, a box, and at least one enabled rule this cron runs. */
 export async function listArboxDailyBusinessIds(
   admin: Admin,
-  opts?: { slot?: "morning" | "evening" }
+  opts?: { slot?: "morning" | "evening"; now?: Date }
 ): Promise<{ ok: true; ids: number[]; paused: number[] } | { ok: false; error: string }> {
   const { data: businessRows, error: bizErr } = await admin
     .from("businesses")
@@ -242,7 +247,9 @@ export async function listArboxDailyBusinessIds(
   }
   if (!eligible.length) return { ok: true, ids: [], paused };
 
-  const evening = opts?.slot === "evening";
+  const clock = opts?.now ?? new Date();
+  const evening =
+    opts?.slot === "evening" && !isSaturdayEveningHoldCatchUp(clock, "evening");
   const ruleQuery = admin
     .from("template_triggers")
     .select(
@@ -377,6 +384,10 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
   const now = resolvedNow.now;
+  const skipHoldSteps = shouldSkipDailyHoldSteps(now, slot);
+  const holdCatchUp = isSaturdayEveningHoldCatchUp(now, slot);
+  const runMorningSendSteps = slot === "morning";
+  const runMorningOnlyHold = (slot === "morning" && !skipHoldSteps) || holdCatchUp;
   if (business.arbox_background_paused) {
     console.info("[cron/arbox-daily-triggers] arbox background paused", { slug: business.slug, slot });
     return {
@@ -470,7 +481,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
       });
       entry.trainer_trial_heads_up = { errors: 1, fetch_error: message };
     }
-    try {
+    if (shouldSkipEveningHoldSteps(now)) {
+      entry.nth_workout = { skipped: true, skip_reason: "shabbat_hold", notified: 0, seeded: 0 };
+    } else try {
       entry.nth_workout = await timeStep(timings, business.id, "nth_workout", () =>
         syncArboxNthWorkoutForBusiness({
           admin,
@@ -510,7 +523,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
     // C5/C6: due-today still sends; wrongly soft-seeded decision-day rows reopen.
     // History seeds (decision day already past) stay blocked. IO only when a rule
     // is enabled: bookings lookback + salesReport (+ active product for C6).
-    try {
+    if (shouldSkipEveningHoldSteps(now)) {
+      entry.post_trial_followup = { skipped: true, skip_reason: "shabbat_hold", notified: 0, seeded: 0 };
+    } else try {
       entry.post_trial_followup = await timeStep(timings, business.id, "post_trial_followup", () =>
         syncArboxPostTrialFollowupForBusiness({
           admin,
@@ -547,18 +562,24 @@ export async function runArboxDailyTriggersForBusiness(input: {
         fetch_error: message,
       };
     }
-    await runLeadStatusChangedStep({ admin, business, now, slot: "evening", timings, entry });
-    const ctx = arboxDailyContext();
-    return {
-      business_id: business.id,
-      slug: business.slug,
-      elapsed_ms: Date.now() - started,
-      arbox_calls: ctx?.arboxCalls ?? 0,
-      arbox_reports: [...(ctx?.arboxReports ?? [])],
-      steps: timings,
-      summary: entry,
-      would_send: ctx?.wouldSend ?? [],
-    };
+    if (shouldSkipEveningHoldSteps(now)) {
+      entry.lead_status_changed = { skipped: true, skip_reason: "shabbat_hold", notified: 0 };
+    } else {
+      await runLeadStatusChangedStep({ admin, business, now, slot: "evening", timings, entry });
+    }
+    if (!isSaturdayEveningHoldCatchUp(now, slot)) {
+      const ctx = arboxDailyContext();
+      return {
+        business_id: business.id,
+        slug: business.slug,
+        elapsed_ms: Date.now() - started,
+        arbox_calls: ctx?.arboxCalls ?? 0,
+        arbox_reports: [...(ctx?.arboxReports ?? [])],
+        steps: timings,
+        summary: entry,
+        would_send: ctx?.wouldSend ?? [],
+      };
+    }
   }
 
   // --- Shared activeMembershipsReport (birthday customer set + C8 days-in-club + C7 nth_workout) ---
@@ -933,7 +954,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: birthday ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.birthday = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.birthday = await timeStep(timings, business.id, "birthday", () => syncArboxBirthdaysForBusiness({
       admin,
       businessId: business.id,
@@ -975,7 +998,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: days-in-club (C8 milestones) ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.days_in_club = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.days_in_club = await timeStep(timings, business.id, "days_in_club", () => syncArboxDaysInClubForBusiness({
       admin,
       businessId: business.id,
@@ -1056,7 +1081,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: membership_expiring ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.membership_expiring = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0 };
+  } else try {
     entry.membership_expiring = await timeStep(timings, business.id, "membership_expiring", () => syncArboxMembershipExpiringForBusiness({
       admin,
       businessId: business.id,
@@ -1091,7 +1118,11 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: post-trial C5/C6 (bookings × sales) ---
-  try {
+  if (holdCatchUp) {
+    // Saturday 20:00 already ran this in the evening block.
+  } else if (skipHoldSteps) {
+    entry.post_trial_followup = { skipped: true, skip_reason: "shabbat_hold", notified: 0, seeded: 0 };
+  } else try {
     entry.post_trial_followup = await timeStep(timings, business.id, "post_trial_followup", () => syncArboxPostTrialFollowupForBusiness({
       admin,
       businessId: business.id,
@@ -1137,7 +1168,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: missed_class + missed_trial (shared handler) ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.missed_class = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.missed_class = await timeStep(timings, business.id, "missed_class", () => syncArboxMissedClassForBusiness({
       admin,
       businessId: business.id,
@@ -1181,7 +1214,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: attendance_gap ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.attendance_gap = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.attendance_gap = await timeStep(timings, business.id, "attendance_gap", () => syncArboxAttendanceGapForBusiness({
       admin,
       businessId: business.id,
@@ -1245,7 +1280,11 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: nth_workout (C7) ---
-  try {
+  // Saturday 20:00 evening already sent before-rules; this morning pass
+  // catches after-rules that stayed pending. Before-rules dedup.
+  if (skipHoldSteps) {
+    entry.nth_workout = { skipped: true, skip_reason: "shabbat_hold", notified: 0, seeded: 0 };
+  } else try {
     entry.nth_workout = await timeStep(timings, business.id, "nth_workout", () => syncArboxNthWorkoutForBusiness({
       admin,
       businessId: business.id,
@@ -1296,7 +1335,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: freeze_ending_* only. freeze_created runs on arbox-trial-sync. ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.freeze = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.freeze = await timeStep(timings, business.id, "freeze", () => syncArboxFreezeForBusiness({
       admin,
       businessId: business.id,
@@ -1341,7 +1382,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: trial_reminder ---
-  try {
+  if (!runMorningSendSteps) {
+    // Saturday 20:00 already ran the evening slot.
+  } else try {
     entry.trial_reminder = await timeStep(timings, business.id, "trial_reminder", () => syncArboxTrialReminderForBusiness({
       admin,
       businessId: business.id,
@@ -1387,7 +1430,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: trainer_trial_heads_up (staff B2) ---
-  try {
+  if (!runMorningSendSteps) {
+    // Saturday 20:00 already ran the evening slot.
+  } else try {
     entry.trainer_trial_heads_up = await timeStep(timings, business.id, "trainer_trial_heads_up", () => syncArboxTrainerTrialHeadsUpForBusiness({
       admin,
       businessId: business.id,
@@ -1428,7 +1473,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: class_cancelled_staff (staff B5) ---
-  try {
+  if (!runMorningSendSteps) {
+    // SEND type — Saturday morning already ran it.
+  } else try {
     entry.class_cancelled_staff = await timeStep(timings, business.id, "class_cancelled_staff", () => syncArboxClassCancelledStaffForBusiness({
       admin,
       businessId: business.id,
@@ -1459,7 +1506,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   }
 
   // --- Step: sessions_expiring ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.sessions_expiring = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0 };
+  } else try {
     entry.sessions_expiring = await timeStep(timings, business.id, "sessions_expiring", () => syncArboxSessionsExpiringForBusiness({
       admin,
       businessId: business.id,
@@ -1503,7 +1552,9 @@ export async function runArboxDailyTriggersForBusiness(input: {
   // membership_cancelled runs on arbox-trial-sync (15 min, 08:00–21:00), not here.
 
   // --- Step: lost_lead (A7) ---
-  try {
+  if (!runMorningOnlyHold) {
+    entry.lost_lead = { skipped: true, skip_reason: skipHoldSteps ? "shabbat_hold" : "evening_slot", notified: 0, seeded: 0 };
+  } else try {
     entry.lost_lead = await timeStep(timings, business.id, "lost_lead", () => syncArboxLostLeadForBusiness({
       admin,
       businessId: business.id,
@@ -1541,7 +1592,19 @@ export async function runArboxDailyTriggersForBusiness(input: {
     };
   }
 
-  await runLeadStatusChangedStep({ admin, business, now, slot, timings, entry });
+  if (skipHoldSteps) {
+    entry.lead_status_changed = { skipped: true, skip_reason: "shabbat_hold", notified: 0 };
+  } else {
+    await runLeadStatusChangedStep({
+      admin,
+      business,
+      now,
+      // Saturday 20:00 already ran evening-slot rules; catch morning-slot here.
+      slot: holdCatchUp ? "morning" : slot,
+      timings,
+      entry,
+    });
+  }
 
   const ctx = arboxDailyContext();
   return {

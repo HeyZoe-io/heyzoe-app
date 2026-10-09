@@ -42,6 +42,18 @@ export async function GET(req: NextRequest) {
   const admin = createSupabaseAdminClient();
   const now = new Date();
   const ranAt = now.toISOString();
+  const { isInsideIsraelWeekendSendBlock, nextAllowedWhatsAppSendTimeIsrael } = await import(
+    "@/lib/israel-time"
+  );
+  if (isInsideIsraelWeekendSendBlock(now)) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "shabbat_hold",
+      ran_at: ranAt,
+      next_allowed_at: nextAllowedWhatsAppSendTimeIsrael(now).toISOString(),
+    });
+  }
 
   const { data: ruleRows, error: rulesErr } = await admin
     .from("template_triggers")

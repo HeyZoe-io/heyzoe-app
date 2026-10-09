@@ -317,9 +317,12 @@ export function classStartHasPassed(
   return start.getTime() < now.getTime();
 }
 
-/** Night + Shabbat hold used by scheduled template drains. Leave pending. */
+/** Night hold unchanged. Saturday-class cancel is a SEND type inside the weekend block. */
 export function classCancelQuietHoursDecision(now: Date = new Date()): "hold" | "send" {
-  return decideScheduledDrainDispatch(now).action === "hold" ? "hold" : "send";
+  return decideScheduledDrainDispatch(now, { triggerType: "class_cancelled_customer" }).action ===
+    "hold"
+    ? "hold"
+    : "send";
 }
 
 /** DD/MM from YYYY-MM-DD. */
