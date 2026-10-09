@@ -356,32 +356,70 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * תיאור של כמה אימונים («Max power - …. Legs on fire - …»): כל אימון בפסקה משלו,
- * ושאלת הסיום בפסקה נפרדת. רק כששמות האימונים מהידע מופיעים לפחות פעמיים עם מקף או נקודתיים.
- */
-export function formatServiceDescriptionList(text: string, serviceNames: string[]): string {
-  const raw = String(text ?? "").replace(/\r\n/g, "\n").trim();
-  const names = [...new Set(serviceNames.map((n) => String(n ?? "").trim()).filter((n) => n.length >= 2))]
-    .sort((a, b) => b.length - a.length)
-    .map(escapeRegExp);
-  if (!raw || !names.length) return raw;
-  const itemRe = new RegExp(
-    `(^|\\n|[.!?:)\\p{Extended_Pictographic}]\\uFE0F?)[ \\t]*\\n?[ \\t]*((?:${names.join("|")})[ \\t]*(?:[-–—:]))(?=[ \\t])`,
-    "giu"
-  );
-  const hits = [...raw.matchAll(itemRe)];
-  if (hits.length < 2) return raw;
+export type CatalogProductDescription = { name: string; descriptionText: string };
 
-  let out = raw.replace(itemRe, (_m, before: string, item: string) => (before ? `${before}\n\n${item}` : item));
-  const paras = out.split(/\n{2,}/);
-  const last = paras[paras.length - 1] ?? "";
-  const tail = last.match(/^([\s\S]*?[.!])\s+([^.!?\n]+\?[^\n]*)$/u);
-  if (tail && new RegExp(`^(?:${names.join("|")})`, "iu").test(last.trim())) {
-    paras[paras.length - 1] = `${tail[1]!.trim()}\n\n${tail[2]!.trim()}`;
+/** מוצרים מדף המוצר שיש להם תיאור — רק מהם בונים פירוט. */
+export function catalogProductDescriptions(
+  rows: { name?: string | null; descriptionText?: string | null }[]
+): CatalogProductDescription[] {
+  const out: CatalogProductDescription[] = [];
+  for (const row of rows) {
+    const name = String(row.name ?? "").trim();
+    const descriptionText = String(row.descriptionText ?? "").trim();
+    if (name && descriptionText) out.push({ name, descriptionText });
   }
-  out = paras.map((p) => p.trim()).filter(Boolean).join("\n\n");
-  return out.replace(/\n{3,}/g, "\n\n").trim();
+  return out;
+}
+
+function catalogNameWithDashRe(name: string): RegExp {
+  return new RegExp(`${escapeRegExp(name)}[ \\t]*[-–—:]`, "iu");
+}
+
+/** לפחות שני מוצרים מהקטלוג מופיעים כ«שם - תיאור» (פירוט מדף מוצר). */
+export function isCatalogProductDescriptionListing(
+  text: string,
+  catalog: CatalogProductDescription[]
+): boolean {
+  if (catalog.length < 2) return false;
+  let hits = 0;
+  for (const row of catalog) {
+    if (catalogNameWithDashRe(row.name).test(text)) hits += 1;
+  }
+  return hits >= 2;
+}
+
+/**
+ * פירוט של כמה אימונים מדף המוצר («שם - תיאור»): שורה ריקה בין אימון לאימון.
+ * לא רץ על תשובות כלליות — רק כשיש לפחות שני מוצרים מהקטלוג בפורמט «שם - תיאור».
+ */
+export function formatCatalogProductDescriptionListing(
+  text: string,
+  catalog: CatalogProductDescription[]
+): string {
+  const raw = String(text ?? "").replace(/\r\n/g, "\n").trim();
+  if (!raw || !isCatalogProductDescriptionListing(raw, catalog)) return raw;
+
+  const names = [...catalog.map((r) => escapeRegExp(r.name))].sort((a, b) => b.length - a.length);
+  const nameAlt = names.join("|");
+  let out = raw.replace(
+    new RegExp(`(?<=[.!?])\\s+(?=(?:${nameAlt})[ \\t]*[-–—:])`, "giu"),
+    "\n\n"
+  );
+  out = out.replace(
+    new RegExp(`(:)([ \\t]*)(?=(?:${nameAlt})[ \\t]*[-–—:])`, "giu"),
+    "$1\n\n"
+  );
+
+  const paras = out.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const last = paras[paras.length - 1] ?? "";
+  const tail = last.match(
+    new RegExp(`^((?:${nameAlt})[\\s\\S]*?[.!])\\s+([^\\n.!?]+\\?[^\\n]*)$`, "iu")
+  );
+  if (tail) {
+    paras[paras.length - 1] = tail[1]!.trim();
+    paras.push(tail[2]!.trim());
+  }
+  return paras.join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** שורה ריקה בין נושאים, וכל אימון עם השעה שלו בשורה נפרדת. */

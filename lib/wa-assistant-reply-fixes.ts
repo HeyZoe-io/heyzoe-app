@@ -28,7 +28,11 @@ import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { assistantReplyRecommendsAnotherStudio } from "@/lib/wa-no-other-studio";
 import { pickKnowledgeGapNoDetailsReply } from "@/lib/analytics-knowledge-gaps";
 import { applyLeadAgeBandToReply, type LeadAgeBand } from "@/lib/wa-lead-audience";
-import { formatLongReplySpacing, formatServiceDescriptionList } from "@/lib/wa-reply-spacing";
+import {
+  catalogProductDescriptions,
+  formatCatalogProductDescriptionListing,
+  formatLongReplySpacing,
+} from "@/lib/wa-reply-spacing";
 
 export type WaReplyAddressingMode = "neutral" | "feminine" | "plural";
 
@@ -701,5 +705,11 @@ export function applyKnownAssistantReplyFixes(
     businessSlug: input.businessSlug ?? "",
     conversationId: input.conversationId ?? "",
   });
-  return formatServiceDescriptionList(formatLongReplySpacing(s), serviceNames);
+  const catalogDesc = catalogProductDescriptions(
+    resolveKnowledgeCatalogServices({
+      knowledgeCatalog: input.knowledge?.knowledgeCatalogServices,
+      salesFlow: input.knowledge?.salesFlowServices,
+    })
+  );
+  return formatCatalogProductDescriptionListing(formatLongReplySpacing(s), catalogDesc);
 }
