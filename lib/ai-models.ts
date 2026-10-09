@@ -42,7 +42,7 @@ const SITES: Record<HaikuCallSite, SiteSpec> = {
   "conversation-flow-free-question": {
     env: "CLAUDE_HAIKU_MODEL",
     rollback: { max_tokens: 280, temperature: 0.3 },
-    haiku55: { max_tokens: 4096, thinkingDisabled: false },
+    haiku55: { max_tokens: 400, thinkingDisabled: true },
   },
   "marketing-flow-reply": {
     env: "CLAUDE_HAIKU_MODEL",
@@ -165,13 +165,18 @@ export type HaikuTextRead = { text: string; truncated: boolean };
  * stop_reason max_tokens is a failure: text may be empty or cut.
  * Callers send this into their existing retry or fallback. The log is `[ai-models] max_tokens`.
  */
+/** Log label. answerFreeQuestion keeps its call-site id and a stable log name. */
+export function haikuMaxTokensLogSite(site: HaikuCallSite): string {
+  return site === "conversation-flow-free-question" ? "answerFreeQuestion" : site;
+}
+
 export function readHaikuText(
   site: HaikuCallSite,
   response: { content?: unknown; stop_reason?: string | null } | null | undefined
 ): HaikuTextRead {
   const text = claudeTextBlocks(response);
   if (response?.stop_reason === "max_tokens") {
-    console.error("[ai-models] max_tokens", { site, textChars: text.length });
+    console.error(`[ai-models] max_tokens site=${haikuMaxTokensLogSite(site)}`, { textChars: text.length });
     return { text, truncated: true };
   }
   return { text, truncated: false };

@@ -124,6 +124,15 @@ import {
   type ExtractedReplyRoute,
 } from "@/lib/wa-reply-route";
 import {
+  claudePersonalTagStands,
+  completePersonalRoute,
+  decidePersonalInbound,
+  loadPersonalRouteTurns,
+  ownerShortReplyBlocksBookingChange,
+  stripCasualAgreementOpener,
+  type PersonalTurn,
+} from "@/lib/wa-personal-inbound";
+import {
   decideHintAction,
   formatFastPathHintLine,
   isDemotedClosedPlaybook,
@@ -13450,6 +13459,8 @@ async function processIncoming(
   let pickedServiceScheduleDayLabels: string[] | undefined;
   let aiSessionHistory: { role: "user" | "assistant"; content: string }[] = [];
   let leadAgeBand: LeadAgeBand | null = null;
+  let personalRouteTurns: PersonalTurn[] = [];
+  let personalRouteNowMs = Date.now();
   if (isSalesFlowOpenQuestionAi) {
     const pickedNameForLexicon =
       (await fetchLastSfServiceEventName({ business_slug, session_id: sessionId }))?.trim() ?? "";
@@ -13972,6 +13983,32 @@ async function processIncoming(
       ...history.filter((m) => m.role === "user").map((m) => m.content),
       currentText,
     ]);
+    personalRouteNowMs = Date.parse(nowIso) || Date.now();
+    personalRouteTurns = await loadPersonalRouteTurns({
+      admin: supabase,
+      businessSlug: business_slug,
+      sessionId,
+      nowMs: personalRouteNowMs,
+    });
+    const personalTrigger = decidePersonalInbound({
+      text: currentText,
+      turns: personalRouteTurns,
+      arboxIsMember: contactArboxIsMember === true,
+      nowMs: personalRouteNowMs,
+    });
+    if (personalTrigger) {
+      await completePersonalRoute({
+        admin: supabase,
+        businessSlug: business_slug,
+        sessionId,
+        now: new Date(personalRouteNowMs),
+        businessId,
+        leadPhone: msg.from,
+        requestedAtIso: nowIso,
+        trigger: personalTrigger,
+      });
+      return;
+    }
     const systemPrompt = buildSystemPrompt(
       knowledge,
       business_slug,
@@ -14174,6 +14211,17 @@ async function processIncoming(
   if (!isFallbackErrorReply && didCallClaude && !matched?.reply) {
     waReplyRoute = extractReplyRoute(replyCore);
     replyCore = waReplyRoute.body;
+    if (
+      waReplyRoute.route === "personal" &&
+      !claudePersonalTagStands({
+        text: msg.text ?? "",
+        turns: personalRouteTurns,
+        arboxIsMember: contactArboxIsMember === true,
+        nowMs: personalRouteNowMs,
+      })
+    ) {
+      waReplyRoute = { ...waReplyRoute, route: "answer" };
+    }
     if (waReplyRoute.tagStatus !== "ok") {
       console.info("[WA Webhook] reply route tag", {
         business_slug,
@@ -14821,32 +14869,15 @@ async function processIncoming(
       return;
     }
     if (waReplyRoute.tagStatus === "ok" && waReplyRoute.route === "personal") {
-      try {
-        const { pauseBusinessSessionForPersonalMessage } = await import("@/lib/wa-app-echo-pause");
-        await pauseBusinessSessionForPersonalMessage({
-          admin: supabase,
-          businessSlug: business_slug,
-          sessionId,
-          now: new Date(nowIso),
-        });
-      } catch (e) {
-        console.error("[WA Webhook] personal pause failed:", e);
-      }
-      if (businessId) {
-        try {
-          const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-          await triggerHumanRequestedNotification({
-            businessId: Number(businessId),
-            leadPhone: msg.from,
-            requestedAtIso: nowIso,
-          });
-        } catch (e) {
-          console.error("[WA Webhook] personal owner notification failed:", e);
-        }
-      }
-      console.info("[WA Webhook] personal message - paused, no reply", {
-        business_slug,
+      await completePersonalRoute({
+        admin: supabase,
+        businessSlug: business_slug,
         sessionId,
+        now: new Date(nowIso),
+        businessId,
+        leadPhone: msg.from,
+        requestedAtIso: nowIso,
+        trigger: "claude",
       });
       return;
     }
@@ -15294,6 +15325,26 @@ async function processIncoming(
       return;
     }
     if (routeAction.kind === "booking_change") {
+      if (
+        ownerShortReplyBlocksBookingChange({
+          text: msg.text ?? "",
+          turns: personalRouteTurns,
+          arboxIsMember: contactArboxIsMember === true,
+          nowMs: personalRouteNowMs,
+        })
+      ) {
+        await completePersonalRoute({
+          admin: supabase,
+          businessSlug: business_slug,
+          sessionId,
+          now: new Date(personalRouteNowMs),
+          businessId,
+          leadPhone: msg.from,
+          requestedAtIso: nowIso,
+          trigger: "owner_short_reply",
+        });
+        return;
+      }
       const send = resolveBookingChangeSend({
         knowledge,
         claudeSaysTrial: claudeRouteMarksTrialClass(waReplyRoute.route),
@@ -15353,8 +15404,9 @@ async function processIncoming(
       return;
     }
     if (routeAction.kind === "handoff") {
-      const outbound = replyCoreClean.trim()
-        ? replyCoreClean.trim()
+      const withoutCasualOpener = stripCasualAgreementOpener(replyCoreClean);
+      const outbound = withoutCasualOpener
+        ? withoutCasualOpener
         : resolveRouteBookingChangeReply(knowledge);
       if (await suppressIfSimilarToLastAssistant(outbound)) return;
       if (businessId) {

@@ -25,7 +25,13 @@ const generation45 = buildWhatsAppGenerationParams("claude-haiku-4-5");
 assert.deepEqual(generation45, { model: "claude-haiku-4-5", max_tokens: 768 });
 
 const reply55 = buildHaikuRequest("conversation-flow-free-question", "claude-haiku-5-5");
-assert.deepEqual(reply55, generation55);
+assert.deepEqual(reply55, {
+  model: "claude-haiku-5-5",
+  max_tokens: 400,
+  output_config: { effort: "low" },
+  thinking: { type: "disabled" },
+});
+assert.notDeepEqual(reply55, generation55);
 const reply45 = buildHaikuRequest("conversation-flow-free-question", "claude-haiku-4-5");
 assert.deepEqual(reply45, { model: "claude-haiku-4-5", max_tokens: 280, temperature: 0.3 });
 

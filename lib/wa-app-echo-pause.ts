@@ -309,6 +309,8 @@ export async function pauseBusinessSessionForPersonalMessage(input: {
   businessSlug: string;
   sessionId: string;
   now?: Date;
+  /** Stored in the event text so a read-only check can group rule 4, rule 5, and the Claude tag. */
+  trigger?: "owner_short_reply" | "personal_address" | "claude";
 }): Promise<{ pausedUntil: string }> {
   const now = input.now ?? new Date();
   const { pausedUntil } = await pauseBusinessSessionForAppEcho({
@@ -321,7 +323,7 @@ export async function pauseBusinessSessionForPersonalMessage(input: {
     await logMessage({
       business_slug: input.businessSlug.trim().toLowerCase(),
       role: "event",
-      content: `[heyzoe:personal_message] ${WA_PERSONAL_PAUSE_LABEL}`,
+      content: `[heyzoe:personal_message] ${WA_PERSONAL_PAUSE_LABEL}${input.trigger ? ` trigger=${input.trigger}` : ""}`,
       model_used: WA_PERSONAL_PAUSE_MODEL,
       session_id: input.sessionId.trim(),
     });

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
+import { buildFreeQuestionBehaviorBlock } from "@/lib/wa-personal-inbound";
 import { isAnthropicCreditExhausted } from "@/lib/claude";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
@@ -366,12 +367,19 @@ async function answerFreeQuestion(businessSlug: string, sessionId: string, quest
   try {
     const client = new Anthropic({ apiKey });
     const params = buildHaikuRequest("conversation-flow-free-question");
+    const behavior = buildFreeQuestionBehaviorBlock({
+      hasArboxConnection: pack?.hasArboxConnection === true,
+      canShowSchedule: Boolean(pack?.schedulePublicUrl || pack?.scheduleScanImageUrl || pack?.arboxLink),
+      canSendMembershipLink: Boolean(pack?.membershipsUrl?.trim()),
+      canScheduleCall: pack?.salesFlowCallSchedulingEnabled === true,
+      canSendTrialLink: Boolean(pack?.ctaLink?.trim() || pack?.salesFlowConfig),
+    });
     const resp = await client.messages.create({
       ...params,
       messages: [
         {
           role: "user",
-          content: `את זואי, עוזרת של העסק. עני בעברית, קצר ולעניין, רק מתוך הידע. בלי קישור תשלום ובלי לבקש כרטיס אשראי.
+          content: `את זואי, עוזרת של העסק. ${behavior} רק מתוך הידע. בלי קישור תשלום ובלי לבקש כרטיס אשראי.
 ידע:
 ${knowledge || "אין ידע נוסף."}
 
