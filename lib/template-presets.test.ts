@@ -193,6 +193,12 @@ assert.deepEqual(paramSlotsForTriggerType("class_cancelled_staff"), [
   "class_time",
 ]);
 assert.equal(TEMPLATE_PRESETS.class_cancelled_customer.category, "UTILITY");
+assert.equal(
+  TEMPLATE_PRESETS.class_cancelled_customer.body,
+  "היי {{1}}, השיעור {{2}} שנרשמת אליו בתאריך {{3}} בשעה {{4}} בוטל ❤️ אם ברצונך לקבוע מועד אחר נשמח לעזור."
+);
+assert.equal(TEMPLATE_PRESETS.class_cancelled_customer.button_text, "מערכת שעות");
+assert.equal(templateTextMetaPolicyMessage(TEMPLATE_PRESETS.class_cancelled_customer.body), null);
 assert.equal(extractBodyVarCount(TEMPLATE_PRESETS.class_cancelled_customer.body), 4);
 assert.deepEqual(paramSlotsForTriggerType("class_cancelled_customer"), [
   "first_name",

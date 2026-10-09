@@ -213,7 +213,8 @@ export const TEMPLATE_PRESETS: Record<TriggerType, TemplatePreset> = {
   class_cancelled_customer: {
     name: "class_cancelled_customer",
     category: "UTILITY",
-    body: "היי {{1}}, השיעור {{2}} שנרשמת אליו בתאריך {{3}} בשעה {{4}} בוטל. אם תרצו לקבוע מועד אחר נשמח לעזור.",
+    body: "היי {{1}}, השיעור {{2}} שנרשמת אליו בתאריך {{3}} בשעה {{4}} בוטל ❤️ אם ברצונך לקבוע מועד אחר נשמח לעזור.",
+    button_text: "מערכת שעות",
   },
 };
 
