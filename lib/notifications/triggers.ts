@@ -95,7 +95,7 @@ export async function triggerHumanRequestedNotification(input: {
   requestedAtIso?: string;
   /** מועד שיחה שנבחר בפלואו — לגוף המייל בלבד */
   callScheduleSlot?: string | null;
-  /** עסק ארבוקס, או שמשימה נוצרה — בלי וואטסאפ «בקשת נציג» לבעלים */
+  /** עסק ארבוקס עם סוג משימה, או שמשימה נוצרה — בלי וואטסאפ «בקשת נציג» לבעלים */
   skipWhatsapp?: boolean;
 }): Promise<void> {
   const phoneDisplay = formatLeadPhoneDisplay(input.leadPhone);

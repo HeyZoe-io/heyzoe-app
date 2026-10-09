@@ -6,8 +6,8 @@ import {
 
 assert.equal(skipHumanRequestedOwnerWhatsAppWhenTaskCreated(true), true);
 assert.equal(skipHumanRequestedOwnerWhatsAppWhenTaskCreated(false), false);
-assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: true, arboxBusiness: true }), true);
-assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: false, arboxBusiness: true }), true);
-assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: false, arboxBusiness: false }), false);
+assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: true, arboxTaskHandoff: true }), true);
+assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: false, arboxTaskHandoff: true }), true);
+assert.equal(skipHumanRequestedOwnerWhatsApp({ taskCreated: false, arboxTaskHandoff: false }), false);
 
 console.log("human-requested.test.ts: ok");

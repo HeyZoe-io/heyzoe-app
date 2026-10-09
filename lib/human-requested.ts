@@ -48,12 +48,15 @@ export function skipHumanRequestedOwnerWhatsAppWhenTaskCreated(
   return createdHumanRequestTask === true;
 }
 
-/** Arbox handoffs are the task only. A failed create does not fall back to owner WhatsApp. */
+/**
+ * Studios with an Arbox task type get the task only. A failed create does not fall back to owner WhatsApp.
+ * Arbox studios without a task type get the owner WhatsApp.
+ */
 export function skipHumanRequestedOwnerWhatsApp(input: {
   taskCreated: boolean;
-  arboxBusiness: boolean;
+  arboxTaskHandoff: boolean;
 }): boolean {
-  return input.arboxBusiness === true || input.taskCreated === true;
+  return input.arboxTaskHandoff === true || input.taskCreated === true;
 }
 
 export function buildHumanRequestedContactPatch(atIso: string): Record<string, unknown> {
@@ -239,7 +242,7 @@ export async function handleLeadHumanRequested(input: {
     null;
 
   let createdHumanRequestTask = false;
-  let arboxBusiness = false;
+  let arboxTaskHandoff = false;
   try {
     const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
     const crm = await dispatchCrmEvent({
@@ -251,7 +254,7 @@ export async function handleLeadHumanRequested(input: {
       skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
     createdHumanRequestTask = crm.createdHumanRequestTask === true;
-    arboxBusiness = crm.arboxBusiness === true;
+    arboxTaskHandoff = crm.arboxTaskHandoff === true;
   } catch (e) {
     console.error("[human-requested] CRM dispatch failed:", e);
   }
@@ -264,7 +267,7 @@ export async function handleLeadHumanRequested(input: {
     callScheduleSlot: input.callScheduleSlot ?? null,
     skipWhatsapp: skipHumanRequestedOwnerWhatsApp({
       taskCreated: createdHumanRequestTask,
-      arboxBusiness,
+      arboxTaskHandoff,
     }),
   }).catch((e) => console.error("[human-requested] owner notification failed:", e));
 
@@ -349,7 +352,7 @@ export async function markContactHumanRequestedManually(input: {
     null;
 
   let createdHumanRequestTask = false;
-  let arboxBusiness = false;
+  let arboxTaskHandoff = false;
   try {
     const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
     const crm = await dispatchCrmEvent({
@@ -361,7 +364,7 @@ export async function markContactHumanRequestedManually(input: {
       skipLeadCreation: isContactTrialRegistered(existing ?? {}),
     });
     createdHumanRequestTask = crm.createdHumanRequestTask === true;
-    arboxBusiness = crm.arboxBusiness === true;
+    arboxTaskHandoff = crm.arboxTaskHandoff === true;
   } catch (e) {
     console.error("[human-requested] manual CRM dispatch failed:", e);
   }
@@ -373,7 +376,7 @@ export async function markContactHumanRequestedManually(input: {
     requestedAtIso: nowIso,
     skipWhatsapp: skipHumanRequestedOwnerWhatsApp({
       taskCreated: createdHumanRequestTask,
-      arboxBusiness,
+      arboxTaskHandoff,
     }),
   }).catch((e) => console.error("[human-requested] manual owner notification failed:", e));
 
