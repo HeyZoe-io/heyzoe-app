@@ -1,0 +1,8 @@
+---
+description: Several agents work on this repo at once - leave other sessions' work alone
+alwaysApply: true
+---
+- Multiple agents work on this repo in parallel. Never modify, move, archive, delete or commit files you did not create in this session, including untracked files and `supabase/pending_*.sql`. Report them in one line and leave them alone.
+- Never merge code to `main` that depends on a migration that has not been confirmed as run. Code must tolerate the missing column/table (fall back to current behavior) or wait.
+- Before cherry-picking or rebasing, check for commits from other sessions and keep them out unless explicitly asked.
+- Never print or expose secrets (see `.cursor/rules/no-secrets.mdc`).
