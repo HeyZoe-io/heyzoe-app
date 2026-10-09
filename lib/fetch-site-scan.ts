@@ -3,11 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import dns from "dns/promises";
 import net from "net";
-import {
-  CLAUDE_FETCH_SITE_MODEL,
-  CLAUDE_FETCH_SITE_MAX_TOKENS,
-  CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
-} from "@/lib/claude";
+import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
 import { normalizeMasculinePredicatesAfterPracticeHead } from "@/lib/sales-flow";
 import {
   appendGeneratedProductDescriptionFooter,
@@ -492,12 +488,14 @@ ${siteCorpus.slice(0, 16_000)}
 אותו מספר פריטים כמו בקלט.`;
 
   try {
+    const params = buildHaikuRequest("fetch-site-enrich");
     const response = await client.messages.create({
-      model: CLAUDE_FETCH_SITE_MODEL,
-      max_tokens: 2048,
+      ...params,
       messages: [{ role: "user", content: prompt }],
     });
-    const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+    const read = readHaikuText("fetch-site-enrich", response);
+    if (read.truncated) throw new Error("max_tokens");
+    const text = read.text;
     const parsed = tryParseSiteJson(text) as { items?: Array<{ index?: number; description?: string }> } | null;
     const out = parsed?.items;
     if (!Array.isArray(out) || !out.length) return products;
@@ -947,12 +945,14 @@ ${combinedSiteCorpus}`;
 
   const client = new Anthropic({ apiKey });
   try {
+    const params = buildHaikuRequest("fetch-site-scan");
     const response = await client.messages.create({
-      model: CLAUDE_FETCH_SITE_MODEL,
-      max_tokens: CLAUDE_FETCH_SITE_MAX_TOKENS,
+      ...params,
       messages: [{ role: "user", content: prompt }],
     });
-    text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+    const read = readHaikuText("fetch-site-scan", response);
+    if (read.truncated) throw new Error("max_tokens");
+    text = read.text;
   } catch (e) {
     lastError = e;
     console.warn("[fetch-site] Claude primary prompt failed:", e);
@@ -966,12 +966,14 @@ ${combinedSiteCorpus}`;
 מבנה:
 {"niche":"","business_name":"","tagline":"","address":"","directions":"","schedule_booking_url":"","business_description":"","business_traits":[],"logo_url":"","schedule_text":"","age_range":"","gender":"הכול","products":[{"name":"","description":"","price_text":"","location_text":"","flow_features":"","benefits":[],"benefit_suggestions":[]}]}`;
     try {
+      const fallbackParams = buildHaikuRequest("fetch-site-scan-fallback");
       const fallbackResponse = await client.messages.create({
-        model: CLAUDE_FETCH_SITE_MODEL,
-        max_tokens: CLAUDE_FETCH_SITE_FALLBACK_MAX_TOKENS,
+        ...fallbackParams,
         messages: [{ role: "user", content: compactPrompt }],
       });
-      text = fallbackResponse.content[0]?.type === "text" ? fallbackResponse.content[0].text.trim() : "";
+      const fallbackRead = readHaikuText("fetch-site-scan-fallback", fallbackResponse);
+      if (fallbackRead.truncated) throw new Error("max_tokens");
+      text = fallbackRead.text;
     } catch (e2) {
       lastError = e2;
       console.warn("[fetch-site] Claude compact prompt failed:", e2);
@@ -1253,12 +1255,14 @@ ${sourceBlock}`;
 
   const client = new Anthropic({ apiKey });
   try {
+    const params = buildHaikuRequest("product-description");
     const response = await client.messages.create({
-      model: CLAUDE_FETCH_SITE_MODEL,
-      max_tokens: 768,
+      ...params,
       messages: [{ role: "user", content: prompt }],
     });
-    const text = response.content[0]?.type === "text" ? response.content[0].text.trim() : "";
+    const read = readHaikuText("product-description", response);
+    if (read.truncated) throw new Error("max_tokens");
+    const text = read.text;
     const parsed = tryParseSiteJson(text) as { description?: string } | null;
     let description = String(parsed?.description ?? "").trim();
     if (!description && text && !text.startsWith("{")) {

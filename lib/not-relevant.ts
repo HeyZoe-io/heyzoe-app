@@ -1,8 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { after } from "next/server";
+import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
 import {
-  CLAUDE_WHATSAPP_MODEL,
-  CLAUDE_WHATSAPP_MAX_TOKENS,
   isAnthropicCreditExhausted,
   isRetryableClaudeError,
   resolveClaudeApiKey,
@@ -85,10 +84,9 @@ async function classifyNotRelevantOpenQuestionWithClaude(input: {
 
   try {
     const anthropic = new Anthropic({ apiKey });
+    const params = buildHaikuRequest("not-relevant-open-classify");
     const resp = await anthropic.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 8,
-      temperature: 0,
+      ...params,
       messages: [
         {
           role: "user",
@@ -99,11 +97,9 @@ async function classifyNotRelevantOpenQuestionWithClaude(input: {
         },
       ],
     });
-    const out = ( resp.content ?? [])
-      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
-      .join("\n")
-      .trim()
-      .toUpperCase();
+    const read = readHaikuText("not-relevant-open-classify", resp);
+    if (read.truncated) return false;
+    const out = read.text.toUpperCase();
     if (out.startsWith("NO")) return false;
     return out.startsWith("YES");
   } catch (e) {
@@ -200,7 +196,7 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
   }
 
   let replyCore = "";
-  const replyModelUsed = CLAUDE_WHATSAPP_MODEL;
+  let replyModelUsed = buildHaikuRequest("not-relevant-open-answer").model;
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
 
@@ -216,10 +212,11 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
   } else {
     const client = new Anthropic({ apiKey });
     try {
+      const answerParams = buildHaikuRequest("not-relevant-open-answer");
+      replyModelUsed = answerParams.model;
       const runClaude = async () =>
         client.messages.create({
-          model: CLAUDE_WHATSAPP_MODEL,
-          max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+          ...answerParams,
           system: systemPrompt,
           messages: claudeMessages,
         });
@@ -236,28 +233,16 @@ export async function answerNotRelevantLeadOpenQuestion(input: {
         }
       }
 
-      const extractCombinedText = (resObj: unknown) => {
-        const content = (resObj as { content?: unknown[] })?.content;
-        const textBlocks = Array.isArray(content)
-          ? content
-              .filter(
-                (b) =>
-                  b &&
-                  typeof b === "object" &&
-                  (b as { type?: string }).type === "text" &&
-                  typeof (b as { text?: string }).text === "string"
-              )
-              .map((b) => String((b as { text?: string }).text ?? "").trim())
-              .filter(Boolean)
-          : [];
-        return textBlocks.join("\n").trim();
+      const readReply = (resObj: Awaited<ReturnType<typeof runClaude>> | null) => {
+        const read = readHaikuText("not-relevant-open-answer", resObj);
+        return read.truncated ? "" : read.text;
       };
 
-      replyCore = extractCombinedText(response);
+      replyCore = readReply(response);
       if (!replyCore) {
         await sleepMs(700);
         const retryResp = await runClaude();
-        replyCore = extractCombinedText(retryResp);
+        replyCore = readReply(retryResp);
       }
       if (!replyCore) throw new Error("Claude empty response");
     } catch (e) {
@@ -602,6 +587,7 @@ export const NOT_RELEVANT_ENGAGING_FALLBACK_REPLY = "סבבה, נמשיך 🙂";
 type LocationReasonClassifyResult = {
   reason: string | null;
   usage: AiUsageTokens;
+  model: string | null;
 };
 
 /** Claude — רק כשיש רמז למיקום/מרחק; אחרת null (לא מנחשים סיבות אחרות). */
@@ -612,15 +598,14 @@ async function classifyLocationReasonWithClaude(input: {
   const apiKey = input.apiKey.trim();
   const text = input.text.trim();
   if (!apiKey || text.length < 4 || text.length > 400) {
-    return { reason: null, usage: null };
+    return { reason: null, usage: null, model: null };
   }
 
   try {
     const anthropic = new Anthropic({ apiKey });
+    const params = buildHaikuRequest("not-relevant-location");
     const resp = await anthropic.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 12,
-      temperature: 0,
+      ...params,
       messages: [
         {
           role: "user",
@@ -633,18 +618,17 @@ async function classifyLocationReasonWithClaude(input: {
       ],
     });
     const usage = resp.usage ?? null;
-    const out = (resp.content ?? [])
-      .map((c) => ("text" in c ? String((c as { text?: string }).text ?? "") : ""))
-      .join("\n")
-      .trim();
-    if (!out || out.toUpperCase() === "NONE") return { reason: null, usage };
+    const read = readHaikuText("not-relevant-location", resp);
+    const out = read.truncated ? "" : read.text;
+    if (!out || out.toUpperCase() === "NONE") return { reason: null, usage, model: params.model };
     return {
       reason: out.includes(NOT_RELEVANT_REASON_LOCATION) ? NOT_RELEVANT_REASON_LOCATION : null,
       usage,
+      model: params.model,
     };
   } catch (e) {
     console.warn("[not-relevant] location classify failed:", e);
-    return { reason: null, usage: null };
+    return { reason: null, usage: null, model: null };
   }
 }
 
@@ -653,14 +637,14 @@ export async function resolveNotRelevantReason(input: {
   text: string;
 }): Promise<LocationReasonClassifyResult> {
   const text = input.text.trim();
-  if (!text) return { reason: null, usage: null };
+  if (!text) return { reason: null, usage: null, model: null };
 
   if (matchesLocationHint(text)) {
-    return { reason: NOT_RELEVANT_REASON_LOCATION, usage: null };
+    return { reason: NOT_RELEVANT_REASON_LOCATION, usage: null, model: null };
   }
 
   const apiKey = resolveClaudeApiKey();
-  if (!apiKey) return { reason: null, usage: null };
+  if (!apiKey) return { reason: null, usage: null, model: null };
   return classifyLocationReasonWithClaude({ apiKey, text });
 }
 
@@ -840,13 +824,15 @@ export async function handleLeadNotRelevant(input: {
   sessionId: string;
   fullName?: string | null;
 }): Promise<void> {
-  const { reason, usage: classifyUsage } = await resolveNotRelevantReason({ text: input.text });
-  if (classifyUsage) {
+  const { reason, usage: classifyUsage, model: classifyModel } = await resolveNotRelevantReason({
+    text: input.text,
+  });
+  if (classifyUsage && classifyModel) {
     after(() =>
       recordAiUsage({
         businessId: input.businessId,
         provider: "anthropic",
-        model: CLAUDE_WHATSAPP_MODEL,
+        model: classifyModel,
         callType: "classifier",
         usage: classifyUsage,
       })

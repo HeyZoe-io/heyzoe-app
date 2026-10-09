@@ -1,11 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { BusinessKnowledgePack } from "@/lib/business-context";
 import type { BusinessContentLanguage } from "@/lib/business-content-lang";
-import {
-  CLAUDE_WHATSAPP_MAX_TOKENS,
-  CLAUDE_WHATSAPP_MODEL,
-  resolveClaudeApiKey,
-} from "@/lib/claude";
+import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
+import { resolveClaudeApiKey } from "@/lib/claude";
 import {
   formatSalesFlowForPrompt,
   type SalesFlowConfig,
@@ -261,14 +258,15 @@ async function translateLeftoversWithClaude(
   const target = lang === "en" ? "English" : "Russian";
   try {
     const client = new Anthropic({ apiKey });
+    const params = buildHaikuRequest("sales-flow-translate");
     const response = await client.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: Math.min(4096, CLAUDE_WHATSAPP_MAX_TOKENS * 4),
+      ...params,
       system: `Translate WhatsApp sales-flow strings to natural conversational ${target}. Keep {placeholders}, emoji, numbers, URLs, and brand/class names unchanged. Return ONLY a JSON object mapping the same keys to translated strings. No markdown.`,
       messages: [{ role: "user", content: JSON.stringify(payload) }],
     });
-    const block = response.content.find((b) => b.type === "text");
-    const raw = String(block && "text" in block ? block.text : "").trim();
+    const read = readHaikuText("sales-flow-translate", response);
+    if (read.truncated) return out;
+    const raw = read.text;
     const jsonText = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
     const parsed = JSON.parse(jsonText) as Record<string, unknown>;
     texts.forEach((t, i) => {

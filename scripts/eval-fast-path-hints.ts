@@ -5,7 +5,7 @@
  *   npx tsx --env-file=.env.local scripts/eval-fast-path-hints.ts
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { CLAUDE_WHATSAPP_MAX_TOKENS, CLAUDE_WHATSAPP_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import { CLAUDE_WHATSAPP_MAX_TOKENS, resolveClaudeApiKey } from "@/lib/claude";
 import { decideHintAction, formatFastPathHintLine } from "@/lib/wa-fast-path-hint";
 import { buildReplyRoutePromptBlock, extractReplyRoute } from "@/lib/wa-reply-route";
 
@@ -46,7 +46,7 @@ async function ask(system: string, user: string, apiKey: string): Promise<{ text
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: CLAUDE_WHATSAPP_MODEL,
+      model: "claude-haiku-4-5",
       max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
       system,
       messages: [{ role: "user", content: user }],

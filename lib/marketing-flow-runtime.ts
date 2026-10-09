@@ -1750,7 +1750,8 @@ export async function callMarketingAI(
     }
   }
 
-  const { resolveClaudeApiKey, CLAUDE_WHATSAPP_MODEL, CLAUDE_WHATSAPP_MAX_TOKENS, isAnthropicCreditExhausted, isRetryableClaudeError, sleepMs } = await import("@/lib/claude");
+  const { resolveClaudeApiKey, isAnthropicCreditExhausted, isRetryableClaudeError, sleepMs } = await import("@/lib/claude");
+  const { buildHaikuRequest, readHaikuText } = await import("@/lib/ai-models");
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
 
   const apiKey = resolveClaudeApiKey();
@@ -1825,16 +1826,20 @@ ${supportWaUrl}
         claudeMessages.push({ role: "user", content: userText });
       }
 
+      const params = buildHaikuRequest("marketing-flow-reply");
       const response = await client.messages.create({
-        model: CLAUDE_WHATSAPP_MODEL,
-        max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
+        ...params,
         system: systemPrompt,
         messages: claudeMessages,
       });
 
-      const textBlock = response.content.find((b) => b.type === "text");
+      const read = readHaikuText("marketing-flow-reply", response);
+      if (read.truncated) {
+        if (attempt === 0) continue;
+        return "";
+      }
       const marketingFallback = "תודה על ההודעה! נחזור אליך בהקדם.";
-      let out = sanitizeZoeDashes(textBlock?.text?.trim() || marketingFallback);
+      let out = sanitizeZoeDashes(read.text || marketingFallback);
       out = stripModelThoughtLeak(out, {
         businessSlug: MARKETING_CONVERSATIONS_SLUG,
         conversationId: leadPhone ? marketingWaSessionId(leadPhone) : "",

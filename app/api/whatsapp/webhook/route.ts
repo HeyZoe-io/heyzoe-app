@@ -648,13 +648,8 @@ function warnInteractiveReplyRoutedToClaude(input: {
     is_free_text_sales_flow: input.isFreeTextSalesFlowAi,
   });
 }
-import {
-  CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT,
-  CLAUDE_WHATSAPP_MODEL,
-  buildWhatsAppGenerationParams,
-  resolveClaudeApiKey,
-  sleepMs,
-} from "@/lib/claude";
+import { HAIKU_4_5, HAIKU_5_5, buildHaikuRequest } from "@/lib/ai-models";
+import { resolveClaudeApiKey, sleepMs } from "@/lib/claude";
 import { resolveWhatsAppModelReply } from "@/lib/wa-model-fallback";
 import { noteAiModelFailure } from "@/lib/wa-model-failure-alert";
 import { recordAiUsage } from "@/lib/ai-usage";
@@ -959,7 +954,7 @@ const CTA_MENU_SENT_MODELS = new Set([
 
 function isAiFreeTextAssistantModel(model: string | null | undefined): boolean {
   const m = modelUsedBase(model);
-  return m === CLAUDE_WHATSAPP_MODEL || m === CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT || m === GEMINI_WHATSAPP_MODEL;
+  return m === HAIKU_4_5 || m === HAIKU_5_5 || m === GEMINI_WHATSAPP_MODEL;
 }
 
 type JoinSignupRecoveryAction = "none" | "service_pick" | "cta_menu";
@@ -13450,7 +13445,7 @@ async function processIncoming(
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
   let didCallClaude = false;
-  let replyModelUsed: string = CLAUDE_WHATSAPP_MODEL;
+  let replyModelUsed: string = HAIKU_5_5;
   let pickedServiceScheduleLexicon: string | undefined;
   let pickedServiceScheduleDayLabels: string[] | undefined;
   let aiSessionHistory: { role: "user" | "assistant"; content: string }[] = [];
@@ -13642,11 +13637,7 @@ async function processIncoming(
         .eq("session_id", sessionId)
         .eq("role", "assistant")
         .or(
-          assistantModelOrFilter([
-            CLAUDE_WHATSAPP_MODEL,
-            CLAUDE_WHATSAPP_GENERATION_MODEL_DEFAULT,
-            GEMINI_WHATSAPP_MODEL,
-          ])
+          assistantModelOrFilter([HAIKU_4_5, HAIKU_5_5, GEMINI_WHATSAPP_MODEL])
         )
         .gte("created_at", sinceIso);
       const recentAiCount = typeof count === "number" ? count : 0;
@@ -14037,7 +14028,7 @@ async function processIncoming(
     const client = new Anthropic({ apiKey: claudeApiKey });
     try {
       didCallClaude = true;
-      const generationParams = buildWhatsAppGenerationParams();
+      const generationParams = buildHaikuRequest("wa-generation");
       replyModelUsed = generationParams.model;
       const runClaude = async () =>
         client.messages.create({

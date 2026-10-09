@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildWhatsAppGenerationParams, resolveWhatsAppGenerationModel } from "@/lib/claude";
+import { buildWhatsAppGenerationParams, resolveWhatsAppGenerationModel } from "@/lib/ai-models";
 
 function keys(value: object): string[] {
   return Object.keys(value).sort();

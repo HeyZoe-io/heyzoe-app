@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { CLAUDE_WHATSAPP_MODEL, isAnthropicCreditExhausted } from "@/lib/claude";
+import { buildHaikuRequest, readHaikuText } from "@/lib/ai-models";
+import { isAnthropicCreditExhausted } from "@/lib/claude";
 import { resolveClaudeApiKey } from "@/lib/server-env";
 import { getBusinessKnowledgePack } from "@/lib/business-context";
 import { HEYZOE_SF_SERVICE_PREFIX, logMessage } from "@/lib/analytics";
@@ -364,10 +365,9 @@ async function answerFreeQuestion(businessSlug: string, sessionId: string, quest
   if (!apiKey) return "אני כאן לכל שאלה על האימונים.";
   try {
     const client = new Anthropic({ apiKey });
+    const params = buildHaikuRequest("conversation-flow-free-question");
     const resp = await client.messages.create({
-      model: CLAUDE_WHATSAPP_MODEL,
-      max_tokens: 280,
-      temperature: 0.3,
+      ...params,
       messages: [
         {
           role: "user",
@@ -379,10 +379,8 @@ ${knowledge || "אין ידע נוסף."}
         },
       ],
     });
-    const text = (resp.content ?? [])
-      .map((c) => ("text" in c ? String(c.text ?? "") : ""))
-      .join("\n")
-      .trim();
+    const read = readHaikuText("conversation-flow-free-question", resp);
+    const text = read.truncated ? "" : read.text;
     const fallback = "אני כאן, אפשר לשאול אותי עוד.";
     const stripped = stripModelThoughtLeak(text || fallback, {
       businessSlug,

@@ -4,7 +4,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/eval-schedule-source.ts
  */
-import { CLAUDE_WHATSAPP_MAX_TOKENS, CLAUDE_WHATSAPP_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import { CLAUDE_WHATSAPP_MAX_TOKENS, resolveClaudeApiKey } from "@/lib/claude";
 import { buildSystemPrompt, getBusinessKnowledgePack } from "@/lib/business-context";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { extractReplyRoute } from "@/lib/wa-reply-route";
@@ -75,7 +75,7 @@ async function ask(system: string, user: string, apiKey: string): Promise<string
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: CLAUDE_WHATSAPP_MODEL,
+      model: "claude-haiku-4-5",
       max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
       system,
       messages: [{ role: "user", content: user }],

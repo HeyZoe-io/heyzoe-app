@@ -4,7 +4,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/eval-pre-claude-incidents.ts
  */
-import { CLAUDE_WHATSAPP_MAX_TOKENS, CLAUDE_WHATSAPP_MODEL, resolveClaudeApiKey } from "@/lib/claude";
+import { CLAUDE_WHATSAPP_MAX_TOKENS, resolveClaudeApiKey } from "@/lib/claude";
 import { buildSystemPrompt, getBusinessKnowledgePack } from "@/lib/business-context";
 import { extractReplyRoute, type WaReplyRoute } from "@/lib/wa-reply-route";
 import { collectPreClaudeHint } from "@/lib/wa-pre-claude-hint";
@@ -112,7 +112,7 @@ async function ask(system: string, messages: Turn[], apiKey: string) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: CLAUDE_WHATSAPP_MODEL,
+      model: "claude-haiku-4-5",
       max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
       system,
       messages,
@@ -130,7 +130,7 @@ async function ask(system: string, messages: Turn[], apiKey: string) {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: CLAUDE_WHATSAPP_MODEL,
+          model: "claude-haiku-4-5",
           max_tokens: CLAUDE_WHATSAPP_MAX_TOKENS,
           system,
           messages,

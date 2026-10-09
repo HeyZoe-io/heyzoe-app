@@ -1,4 +1,5 @@
 import type { AiUsageTokens } from "@/lib/ai-usage";
+import { claudeTextBlocks, readHaikuText } from "@/lib/ai-models";
 import { isAnthropicCreditExhausted, isRetryableClaudeError, sleepMs } from "@/lib/claude";
 
 export type ModelAttempt = { text: string; usage?: AiUsageTokens };
@@ -14,20 +15,7 @@ export type WhatsAppModelReply =
   | { ok: false; billing: boolean; errorType: string };
 
 export function whatsAppClaudeReplyText(response: { content?: unknown } | null | undefined): string {
-  const content = response?.content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter(
-      (b): b is { type: string; text: string } =>
-        Boolean(b) &&
-        typeof b === "object" &&
-        (b as { type?: unknown }).type === "text" &&
-        typeof (b as { text?: unknown }).text === "string"
-    )
-    .map((b) => b.text.trim())
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  return claudeTextBlocks(response);
 }
 
 /** Short label for the admin alert. Billing wins over the HTTP status. */
@@ -62,13 +50,9 @@ export async function resolveWhatsAppModelReply(input: {
 
   const attemptClaude = async (): Promise<ModelAttempt | null> => {
     const response = await input.runClaude();
-    const text = whatsAppClaudeReplyText(response);
-    if (response.stop_reason === "max_tokens") {
-      console.error("[wa-model-fallback] Claude hit max_tokens", { textChars: text.length });
-      return null;
-    }
-    if (!text) return null;
-    return { text, usage: response.usage };
+    const read = readHaikuText("wa-generation", response);
+    if (read.truncated || !read.text) return null;
+    return { text: read.text, usage: response.usage };
   };
 
   let claude: ModelAttempt | null = null;

@@ -7,8 +7,8 @@
  * Stages: classify | mine | flag | select | rebuild | run | judge | review | report
  *
  * Prompt builder: getBusinessKnowledgePack + buildSystemPrompt + loadZoePlatformGuidelines.
- * Those functions only SELECT. getBusinessKnowledgePack reads crm_api_key into memory
- * to set hasArboxConnection and does not put the key in the pack or on disk.
+ * Those functions only SELECT. getBusinessKnowledgePack reads the CRM credential
+ * column into memory to set hasArboxConnection and does not put that value in the pack or on disk.
  * This script never calls logMessage, send helpers, insert, update, or delete.
  *
  * Lead text, outputs, and review.html go to gitignored eval-output/.
@@ -18,7 +18,7 @@ import { mkdirSync, readFileSync, appendFileSync, writeFileSync, existsSync } fr
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { CLAUDE_WHATSAPP_MAX_TOKENS, CLAUDE_WHATSAPP_MODEL, isAnthropicCreditExhausted, resolveClaudeApiKey } from "@/lib/claude";
+import { CLAUDE_WHATSAPP_MAX_TOKENS, isAnthropicCreditExhausted, resolveClaudeApiKey } from "@/lib/claude";
 import { buildSystemPrompt, getBusinessKnowledgePack, type BusinessKnowledgePack } from "@/lib/business-context";
 import { loadZoePlatformGuidelines, type ZoePlatformGuidelines } from "@/lib/business-zoe-platform";
 import { inferLeadAgeBandFromUserTexts } from "@/lib/wa-lead-audience";
@@ -34,7 +34,7 @@ import { joinInboundUserTexts } from "@/lib/wa-inbound-coalesce";
 const OUT = path.join(process.cwd(), "eval-output");
 const BUDGET_USD = 20;
 const SINCE_MS = 30 * 24 * 60 * 60 * 1000;
-const GENERATION_MODELS = [CLAUDE_WHATSAPP_MODEL, "gemini-2.5-flash"] as const;
+const GENERATION_MODELS = ["claude-haiku-4-5", "gemini-2.5-flash"] as const;
 
 type MsgRow = {
   id: string | number;
