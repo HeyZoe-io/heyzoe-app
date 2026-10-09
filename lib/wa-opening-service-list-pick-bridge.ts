@@ -196,7 +196,9 @@ export function resolveAssistantRecommendedOtherCatalogService(input: {
   if (names.length < 2) return null;
   const lastFold = foldForMention(last);
   const others = names.filter((n) => foldForMention(n) !== lastFold);
-  const mentioned = others.filter((n) => assistantReplyMentionsCatalogService(reply, n));
+  // «פונקציונאלי נערות» מכיל את הטוקן של «אימון פונקציונאלי» — לא המלצה על אימון אחר.
+  const replyWithoutLast = foldForMention(reply).split(lastFold).join(" ");
+  const mentioned = others.filter((n) => assistantReplyMentionsCatalogService(replyWithoutLast, n));
   const unique = [...new Set(mentioned)];
   if (unique.length === 1) return { mode: "switch", serviceName: unique[0]! };
   if (unique.length > 1) return { mode: "ambiguous" };
