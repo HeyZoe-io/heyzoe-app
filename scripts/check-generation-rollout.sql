@@ -2,7 +2,7 @@
 -- Does not insert, update, or delete.
 --
 -- max_tokens stops are not a database column. They are only a Vercel log line:
---   [wa-model-fallback] Claude hit max_tokens
+--   [ai-models] max_tokens
 -- The max_tokens_stops column below is always null for that reason.
 --
 -- A failed generation does not send a customer message. It is logged as
@@ -97,3 +97,52 @@ left join events e
  and e.business_slug = g.business_slug
  and e.model = g.model
 order by g.hour_il, g.business_slug, g.model;
+
+-- Tracked non-generation calls (location classifier is call_type classifier;
+-- help-chat stays on Sonnet and is recorded as dashboard_gen). One row per
+-- hour, business, call_type, and model. Edit `since` above if you run this alone:
+-- this statement repeats the timestamp so it can run by itself.
+with params as (
+  select timestamptz '2026-10-09 14:00:00+00' as since
+),
+priced as (
+  select
+    date_trunc('hour', u.created_at at time zone 'Asia/Jerusalem') as hour_il,
+    b.slug as business_slug,
+    u.call_type,
+    u.model,
+    u.input_tokens,
+    u.output_tokens,
+    case
+      when u.model = 'claude-haiku-5-5' and u.input_tokens > 100000
+        then u.input_tokens * 0.50 / 1000000.0 + u.output_tokens * 2.50 / 1000000.0
+      when u.model = 'claude-haiku-5-5'
+        then u.input_tokens * 0.10 / 1000000.0 + u.output_tokens * 0.50 / 1000000.0
+      when u.model = 'claude-haiku-4-5'
+        then u.input_tokens * 1.0 / 1000000.0 + u.output_tokens * 5.0 / 1000000.0
+      when u.model = 'gemini-2.5-flash'
+        then u.input_tokens * 0.30 / 1000000.0 + u.output_tokens * 2.50 / 1000000.0
+      when u.model = 'claude-sonnet-4-6'
+        then u.input_tokens * 3.0 / 1000000.0 + u.output_tokens * 15.0 / 1000000.0
+      when u.model = 'claude-sonnet-5'
+        then u.input_tokens * 2.0 / 1000000.0 + u.output_tokens * 10.0 / 1000000.0
+      else 0
+    end as cost_usd
+  from public.ai_usage u
+  join public.businesses b on b.id = u.business_id
+  cross join params p
+  where u.created_at >= p.since
+    and u.call_type <> 'generation'
+)
+select
+  hour_il,
+  business_slug,
+  call_type,
+  model,
+  count(*)::int as calls,
+  round(avg(input_tokens)::numeric, 1) as avg_input_tokens,
+  round(avg(output_tokens)::numeric, 1) as avg_output_tokens,
+  round(sum(cost_usd)::numeric, 6) as cost_usd
+from priced
+group by 1, 2, 3, 4
+order by hour_il, business_slug, call_type, model;
