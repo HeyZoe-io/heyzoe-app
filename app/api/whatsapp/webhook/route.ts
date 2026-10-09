@@ -778,6 +778,7 @@ import {
   releaseContactProcessingLock,
 } from "@/lib/wa-contact-processing-lock";
 import { claimMessageForProcessing } from "@/lib/wa-processed-messages";
+import { INBOUND_REPLAY_PAYLOAD_FLAG } from "@/lib/wa-inbound-replay";
 
 export const runtime = "nodejs";
 /** Below CONTACT_PROCESSING_LOCK_TTL_SECONDS (60s) so Vercel kills stuck handlers before lock expires. */
@@ -7019,6 +7020,9 @@ export async function POST(req: NextRequest) {
   if (msg) {
     const message = msg;
     const ctwaClid = metaPayload ? extractMetaCtwaClid(metaPayload) : null;
+    // Only trusted when the signature was verified (app secret set) — the inbound row already exists.
+    const inboundReplay =
+      Boolean(resolveMetaAppSecret()) && metaPayload?.[INBOUND_REPLAY_PAYLOAD_FLAG] === true;
     if (processedMessageIds.has(message.messageId)) {
       console.info(`[WA Webhook] Skipping duplicate ${message.messageId}`);
       return new Response("", { status: 200 });
@@ -7032,7 +7036,7 @@ export async function POST(req: NextRequest) {
     if (claimed) {
       after(() =>
         runWithArboxCallCount({ cron: "conversation", slug: "pending", emitIfEmpty: false }, () =>
-          processIncoming(message, accountSid, authToken, ctwaClid)
+          processIncoming(message, accountSid, authToken, ctwaClid, inboundReplay ? { skipUserLog: true } : undefined)
         ).catch((e) => console.error("[WA Webhook] processIncoming error:", e))
       );
     }

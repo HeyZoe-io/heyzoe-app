@@ -10,7 +10,9 @@ import {
   sendWhatsAppIdleFollowupMessage,
   resolveTwilioAccountSid,
   resolveTwilioAuthToken,
+  resolveMetaAppSecret,
 } from "@/lib/whatsapp";
+import { drainInboundReplayRequests, signMetaPayload } from "@/lib/wa-inbound-replay";
 import { resolveCronSecret } from "@/lib/server-env";
 import { nextAllowedWhatsAppSendTimeIsrael, WA_FOLLOWUP_QUIET_END_MINUTES } from "@/lib/israel-time";
 import {
@@ -229,6 +231,35 @@ async function fetchLatestUserMessageAt(input: {
   return at || null;
 }
 
+/** Queued one-time replays of an unanswered inbound — see lib/wa-inbound-replay.ts. */
+async function drainInboundReplays(req: NextRequest) {
+  try {
+    const appSecret = resolveMetaAppSecret();
+    if (!appSecret) {
+      console.error("[cron/wa-followups] inbound replay skipped — Meta app secret missing");
+      return null;
+    }
+    const { POST: webhookPost } = await import("@/app/api/whatsapp/webhook/route");
+    const webhookUrl = new URL("/api/whatsapp/webhook", req.nextUrl.origin).toString();
+    return await drainInboundReplayRequests({
+      admin: createSupabaseAdminClient(),
+      dispatch: async (body) => {
+        const res = await webhookPost(
+          new NextRequest(webhookUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-hub-signature-256": signMetaPayload(appSecret, body) },
+            body,
+          })
+        );
+        return res.status;
+      },
+    });
+  } catch (e) {
+    console.error("[cron/wa-followups] inbound replay drain failed:", e);
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const rejectedClock = rejectCronTimeOverride(req);
@@ -385,6 +416,8 @@ export async function GET(req: NextRequest) {
       ...evalBody,
     });
   }
+
+  const inboundReplays = await drainInboundReplays(req);
 
   const now = new Date();
   const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now, WA_FOLLOWUP_QUIET_END_MINUTES);
@@ -953,5 +986,6 @@ export async function GET(req: NextRequest) {
     skipped,
     skip_counts: skipCounts,
     node_followups: nodeFollowups,
+    inbound_replays: inboundReplays,
   });
 }
