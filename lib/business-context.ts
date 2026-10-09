@@ -39,6 +39,7 @@ import {
   scheduleTimesReplyUsesImage,
 } from "@/lib/wa-studio-schedule-cta";
 import { buildReplyRoutePromptBlock } from "@/lib/wa-reply-route";
+import { buildBehaviorJudgmentBlock } from "@/lib/wa-personal-inbound";
 import { buildUnclearIntentPromptRule } from "@/lib/wa-unclear-intent";
 import { buildLeadAgeBandPromptRule } from "@/lib/wa-lead-audience";
 import { annotateExpiredIsraelDates } from "@/lib/wa-expired-knowledge-dates";
@@ -1076,6 +1077,16 @@ ${saleFlowExtra}`;
   return `${base}
 
 ${buildReplyRoutePromptBlock()}
+
+${buildBehaviorJudgmentBlock({
+  hasArboxConnection: knowledge?.hasArboxConnection === true,
+  canShowSchedule: Boolean(
+    knowledge?.scheduleScanImageUrl || knowledge?.schedulePublicUrl || knowledge?.arboxLink || knowledge?.scheduleText
+  ),
+  canSendMembershipLink: Boolean(knowledge?.membershipsUrl?.trim()),
+  canScheduleCall: knowledge?.salesFlowCallSchedulingEnabled === true,
+  canSendTrialLink: Boolean(knowledge?.ctaLink?.trim() || knowledge?.salesFlowConfig),
+})}
 
 הוראות ספציפיות לזרימת וואטסאפ (מסלול מכירה של העסק):
 ${salesMeta || "- הודעת הפתיחה נשלחת אוטומטית מהמערכת — אל תחזירי אותה מחדש אלא אם התבקשת במפורש."}
