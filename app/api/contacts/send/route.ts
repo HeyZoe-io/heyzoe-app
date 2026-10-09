@@ -8,6 +8,8 @@ import { applyStudioPurpleHeartPolicy } from "@/lib/wa-studio-purple-heart";
 import { outboundSendsHeld, SendsHoldError } from "@/lib/business-sends-hold";
 import { postWhatsAppGraphMessage } from "@/lib/notifications/graph-whatsapp-send";
 import { lockFollowupSeriesForHumanInvolvement } from "@/lib/followup-series-lock";
+import { logMessage } from "@/lib/analytics";
+import { buildWaSessionId } from "@/lib/phone-normalize";
 
 export const runtime = "nodejs";
 
@@ -137,6 +139,13 @@ export async function POST(req: NextRequest) {
     }
     try {
       await sendMetaWhatsAppText({ phoneNumberId, to: phone, body: finalMessage, accessToken: metaToken });
+      await logMessage({
+        business_slug: businessSlug,
+        role: "assistant",
+        content: finalMessage,
+        model_used: "manual_handoff",
+        session_id: buildWaSessionId(phoneNumberId, phone),
+      });
       sent += 1;
       await admin
         .from("contacts")
@@ -175,6 +184,13 @@ export async function POST(req: NextRequest) {
     if (!to) continue;
     try {
       await sendMetaWhatsAppText({ phoneNumberId, to, body: finalMessage, accessToken: metaToken });
+      await logMessage({
+        business_slug: businessSlug,
+        role: "assistant",
+        content: finalMessage,
+        model_used: "manual_handoff",
+        session_id: buildWaSessionId(phoneNumberId, to),
+      });
       sent += 1;
       await admin.from("contacts").update({ last_contact_at: nowIso }).eq("business_id", businessId).eq("phone", to);
     } catch (e) {

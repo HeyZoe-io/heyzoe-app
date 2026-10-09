@@ -629,6 +629,7 @@ async function dispatchTrialReminderTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-reminder] enqueue failed:", enqueueResult.error);

@@ -427,6 +427,7 @@ async function sendBirthdayTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-birthday] enqueue failed:", enqueueResult.error);

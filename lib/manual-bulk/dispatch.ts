@@ -1,5 +1,7 @@
 import { formatLeadTemplateMessageContent, LEAD_TEMPLATE_MODEL } from "@/lib/lead-template";
-import { resolveTemplateFirstName } from "@/lib/template-first-name";
+import { queuedTemplateFirstName } from "@/lib/template-first-name";
+import { arboxFullNameForPhone } from "@/lib/arbox-member-name";
+import { getArboxApiKey } from "@/lib/business-secret-read";
 import { MANUAL_BULK_FLUSH_LIMIT } from "@/lib/manual-bulk/constants";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
@@ -91,7 +93,11 @@ async function dispatchOne(
   const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
 
   const [{ data: bizRow }, { data: approvedTpl }] = await Promise.all([
-    admin.from("businesses").select("slug, waba_id, name").eq("id", businessId).maybeSingle(),
+    admin
+      .from("businesses")
+      .select("slug, waba_id, name, crm_api_key, crm_api_key_enc, crm_box_id")
+      .eq("id", businessId)
+      .maybeSingle(),
     admin
       .from("whatsapp_templates")
       .select("id, status, category, language, components, disabled")
@@ -133,7 +139,20 @@ async function dispatchOne(
   }
 
   const fullName = await lookupContactFullName(admin, businessId, phone);
-  const firstName = resolveTemplateFirstName({ full_name: fullName });
+  const apiKey = getArboxApiKey(bizRow as Record<string, unknown> | null);
+  const arboxFullName = apiKey
+    ? await arboxFullNameForPhone({
+        businessId,
+        apiKey,
+        boxId: String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? ""),
+        phone,
+      })
+    : null;
+  const firstName = queuedTemplateFirstName({
+    triggerType: "purchase",
+    contactFullName: fullName,
+    arboxFullName,
+  });
   if (!firstName && templateBodyUsesFirstNameSlot("purchase", (approvedTpl as { components?: unknown }).components)) {
     console.info("[manual-bulk] skip", { reason: "no_valid_name", id: row.id, businessId });
     await markQueued(admin, row.id, { status: "canceled", last_error: "no_valid_name" });

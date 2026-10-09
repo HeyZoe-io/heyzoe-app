@@ -22,6 +22,8 @@ export type ScheduledTemplateSendRow = {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  /** Present after scheduled_template_sends_arbox_full_name.sql. */
+  arbox_full_name?: string | null;
 };
 
 export type DelayRuleForDueAt = {
@@ -411,6 +413,21 @@ export type EnqueueScheduledTemplateSendResult =
   | { ok: true; inserted: boolean }
   | { ok: false; error: string };
 
+function isMissingArboxFullNameColumn(message: string): boolean {
+  return /arbox_full_name/i.test(message) && /column|schema cache|PGRST204|42703/i.test(message);
+}
+
+let arboxFullNameColumnMissing = false;
+
+function markArboxFullNameColumnMissing(): void {
+  if (!arboxFullNameColumnMissing) {
+    console.error(
+      "[scheduled-template-sends] arbox_full_name missing — run supabase/scheduled_template_sends_arbox_full_name.sql"
+    );
+  }
+  arboxFullNameColumnMissing = true;
+}
+
 /**
  * Idempotent enqueue: unique(dedup_key) + ignoreDuplicates.
  * Re-running detection does not create a second pending row.
@@ -425,6 +442,8 @@ export async function enqueueScheduledTemplateSend(input: {
   dedupKey: string;
   /** Staff templates skip customer opt-out even if a contacts row exists. */
   recipientKind?: "customer" | "staff";
+  /** Arbox full name at detection time. The drain greets from this, not the contact card. */
+  arboxFullName?: string | null;
 }): Promise<EnqueueScheduledTemplateSendResult> {
   const businessId = Number(input.businessId);
   const triggerId = String(input.triggerId ?? "").trim();
@@ -459,7 +478,8 @@ export async function enqueueScheduledTemplateSend(input: {
   if (isArboxDailyDryRun()) return { ok: true, inserted: true };
 
   const nowIso = new Date().toISOString();
-  const row = {
+  const arboxFullName = String(input.arboxFullName ?? "").trim();
+  const row: Record<string, unknown> = {
     business_id: businessId,
     trigger_id: triggerId,
     contact_phone: contactPhone,
@@ -470,11 +490,20 @@ export async function enqueueScheduledTemplateSend(input: {
     last_error: null,
     updated_at: nowIso,
   };
+  if (arboxFullName && !arboxFullNameColumnMissing) row.arbox_full_name = arboxFullName;
 
-  const { error, data } = await input.admin
-    .from("scheduled_template_sends")
-    .upsert(row, { onConflict: "dedup_key", ignoreDuplicates: true })
-    .select("id");
+  const upsert = (body: Record<string, unknown>) =>
+    input.admin
+      .from("scheduled_template_sends")
+      .upsert(body, { onConflict: "dedup_key", ignoreDuplicates: true })
+      .select("id");
+
+  let { error, data } = await upsert(row);
+  if (error && arboxFullName && isMissingArboxFullNameColumn(error.message)) {
+    markArboxFullNameColumnMissing();
+    delete row.arbox_full_name;
+    ({ error, data } = await upsert(row));
+  }
 
   if (error) {
     console.error("[scheduled-template-sends] enqueue failed:", error.message, {

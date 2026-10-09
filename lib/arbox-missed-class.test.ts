@@ -3,12 +3,14 @@ import {
   bookingsReportSharedLookbackWindow,
   countSingleAttendeeUnmarkedClasses,
   isBookingCheckInNo,
+  isGymCategoryGroup,
   isMissedClassDatePast,
   missedAttendanceDecision,
   missedOccurrenceYesCount,
   normalizeMissedClassNamePk,
   normalizeMissedClassTimePk,
   parseMissedClassUserId,
+  selfServiceOccurrenceKeys,
 } from "@/lib/leads/arbox-missed-class";
 import {
   ARBOX_SYNC_SEND_ATTEMPT_CAP,
@@ -67,6 +69,44 @@ import {
   );
   assert.equal(countSingleAttendeeUnmarkedClasses(rows, "2026-10-08"), 1);
   assert.equal(countSingleAttendeeUnmarkedClasses(rows, "2026-10-06"), 0);
+}
+
+/** Open Gym has no coach and group GYM. A coached class stays. A coached GYM class is still self-service. */
+{
+  assert.equal(isGymCategoryGroup("GYM"), true);
+  assert.equal(isGymCategoryGroup("gym"), true);
+  assert.equal(isGymCategoryGroup("CLASS"), false);
+  const rows = [
+    {
+      date: "2026-10-08",
+      time: "07:00",
+      class_name: "Open Gym",
+      check_in: "No",
+      staff_member: null,
+      staff_member_phone: null,
+      box_category_group: "GYM",
+    },
+    {
+      date: "2026-10-08",
+      time: "18:00",
+      class_name: "PEAK 360",
+      check_in: "No",
+      staff_member: { user_id: 10, full_name: "דנה כהן", phone: "0521111111" },
+      box_category_group: "CLASS",
+    },
+    {
+      date: "2026-10-08",
+      time: "19:00",
+      class_name: "Strength",
+      check_in: "No",
+      staff_member: "יוסי לוי",
+      box_category_group: "GYM",
+    },
+  ];
+  const keys = selfServiceOccurrenceKeys(rows);
+  assert.equal(keys.has("2026-10-08|07:00|Open Gym"), true);
+  assert.equal(keys.has("2026-10-08|18:00|PEAK 360"), false);
+  assert.equal(keys.has("2026-10-08|19:00|Strength"), true);
 }
 
 /** Past date only (Israel YMD compare). */

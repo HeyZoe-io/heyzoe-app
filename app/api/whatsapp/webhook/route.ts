@@ -7944,6 +7944,21 @@ async function processIncoming(
 
   if (msg.type === "unsupported") {
     try {
+      if (msg.metaInboundType === "revoke") {
+        await logMessage({
+          business_slug,
+          role: "user",
+          content: "[revoke]",
+          session_id: sessionId,
+          revoke_original_message_id: msg.revokeOriginalMessageId ?? null,
+        });
+        console.info("[WA Webhook] revoke inbound", {
+          business_slug,
+          sessionId,
+          has_original: Boolean(msg.revokeOriginalMessageId),
+        });
+        return;
+      }
       if (msg.metaInboundType === "reaction") {
         const emoji = String(msg.reactionEmoji ?? "").trim();
         if (!emoji) {

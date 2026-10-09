@@ -1207,6 +1207,7 @@ export async function runArboxDailyTriggersForBusiness(input: {
       abandoned: 0,
       class_unmarked: 0,
       class_unmarked_classes: 0,
+      self_service: 0,
       single_attendee_unmarked_14d: 0,
       errors: 1,
       fetch_error: message,

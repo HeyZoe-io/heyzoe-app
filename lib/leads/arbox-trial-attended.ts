@@ -72,6 +72,14 @@ export type ArboxBookingReportRow = {
   membership_type_id?: unknown;
   /** Trainer WhatsApp for staff B2. Present on live bookingsReport. */
   staff_member_phone?: unknown;
+  /** Trainer object or name. Empty when the occurrence has no coach. */
+  staff_member?: unknown;
+  staff_member_id?: unknown;
+  second_staff_member?: unknown;
+  second_staff_member_id?: unknown;
+  second_staff_member_phone?: unknown;
+  /** Live bookingsReport: "GYM" for self-service. Category catalog stores a numeric id instead. */
+  box_category_group?: unknown;
 };
 
 export type TrialAttendedDispatch =
@@ -462,6 +470,7 @@ async function dispatchTrialAttendedTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-trial-attended] enqueue failed:", enqueueResult.error);

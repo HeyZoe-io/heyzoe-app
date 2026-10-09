@@ -165,6 +165,8 @@ export type WaIncomingUnsupported = {
   metaInboundType?: string;
   /** Meta reaction emoji when metaInboundType is "reaction". */
   reactionEmoji?: string;
+  /** Meta revoke.original_message_id when metaInboundType is "revoke". */
+  revokeOriginalMessageId?: string;
   /** Text Meta sometimes includes even when type is unsupported / template. */
   previewText?: string;
 };
@@ -389,6 +391,21 @@ function parseOneMetaMessage(value: Record<string, unknown>, m: Record<string, u
     };
   }
 
+  if (type === "revoke") {
+    const original = String(
+      (m.revoke as { original_message_id?: unknown } | undefined)?.original_message_id ?? ""
+    ).trim();
+    return {
+      type: "unsupported",
+      messageId,
+      from,
+      toNumber: phoneNumberId,
+      profileName: profileName || undefined,
+      metaInboundType: "revoke",
+      ...(original ? { revokeOriginalMessageId: original } : {}),
+    };
+  }
+
   const previewText = metaInboundPreviewText(m);
   const unsupportedKind = metaUnsupportedKind(m, type);
   return {
@@ -461,6 +478,8 @@ export type WaSmbMessageEcho = {
   leadPhone: string;
   text: string;
   metaType: string;
+  /** Set when the Business app echo is a revoke of an earlier message. */
+  revokeOriginalMessageId?: string;
 };
 
 function echoCaption(echo: Record<string, unknown>, type: string): string {
@@ -535,7 +554,20 @@ export function parseSmbMessageEchoes(payload: unknown): WaSmbMessageEcho[] {
         if (!phoneNumberId || !leadPhone || !messageId) continue;
         const text = smbEchoDisplayText(echo);
         if (!text) continue;
-        out.push({ messageId, phoneNumberId, leadPhone, text, metaType: metaType || "unknown" });
+        const revokeOriginalMessageId =
+          metaType === "revoke"
+            ? String(
+                (echo.revoke as { original_message_id?: unknown } | undefined)?.original_message_id ?? ""
+              ).trim()
+            : "";
+        out.push({
+          messageId,
+          phoneNumberId,
+          leadPhone,
+          text,
+          metaType: metaType || "unknown",
+          ...(revokeOriginalMessageId ? { revokeOriginalMessageId } : {}),
+        });
       }
     }
   }

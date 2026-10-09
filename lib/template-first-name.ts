@@ -134,3 +134,20 @@ export function resolveTrialReminderFirstName(
   if (fromArbox && !isRejectedFirstNameToken(fromArbox)) return fromArbox;
   return storedContactFirstName(contact) ?? TRIAL_REMINDER_NAME_FALLBACK;
 }
+
+/**
+ * First name for an Arbox-business template, immediate or queued.
+ * Arbox name wins. trial_reminder falls through to the contact card, then "🙂".
+ * Every other trigger uses resolveTemplateFirstName (invalid Arbox name does not fall through).
+ */
+export function queuedTemplateFirstName(input: {
+  triggerType: string;
+  contactFullName?: string | null;
+  arboxFullName?: string | null;
+}): string | null {
+  const contact = { full_name: input.contactFullName ?? null };
+  if (input.triggerType === "trial_reminder") {
+    return resolveTrialReminderFirstName(contact, input.arboxFullName);
+  }
+  return resolveTemplateFirstName(contact, input.arboxFullName);
+}

@@ -381,6 +381,7 @@ async function dispatchMembershipExpiringTemplate(input: {
       templateName,
       dueAt: input.dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-membership-expiring] enqueue failed:", enqueueResult.error);

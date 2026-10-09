@@ -20,6 +20,7 @@ const UNSUPPORTED_MEDIA_KINDS = new Set([
   "order",
   "system",
   "reaction",
+  "revoke",
 ]);
 
 function marketingLineDigits(): string {
@@ -69,7 +70,7 @@ export function isWaUnsupportedLogContent(raw: string): boolean {
 export function isSystemInboundLogContent(raw: string): boolean {
   const t = String(raw ?? "").trim();
   if (!t) return true;
-  if (isWaUnsupportedLogContent(t)) return true;
+  if (isWaUnsupportedLogContent(t) || t === "[revoke]") return true;
   if (/^\[(?:heyzoe:|media|reaction)/i.test(t)) return true;
   return false;
 }

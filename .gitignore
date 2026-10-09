@@ -50,3 +50,5 @@ exports/
 /db.mjs
 /j1.mjs
 /.tmp-*
+*.tmp.ts
+*.tmp.mts

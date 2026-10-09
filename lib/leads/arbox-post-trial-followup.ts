@@ -639,6 +639,7 @@ async function dispatchFollowupTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-post-trial-followup] enqueue failed:", enqueueResult.error);

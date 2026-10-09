@@ -23,6 +23,8 @@ type MessageLogInput = {
   error_code?: string | null;
   /** Meta wamid when the caller has it (app echoes). Assistant rows otherwise take it from the send. */
   wamid?: string | null;
+  /** Meta revoke.original_message_id. Only on a revoke event row. */
+  revoke_original_message_id?: string | null;
 };
 
 /** מסמן session אחרי בחירת שירות במסלול מכירה (רק role=event — לא נטען ל-Claude). */
@@ -368,6 +370,23 @@ export async function fetchRecentSessionMessages(input: {
   }
 }
 
+function isMissingRevokeColumn(message: string): boolean {
+  return /revoke_original_message_id/i.test(message) && /column|schema cache|PGRST204|42703/i.test(message);
+}
+
+let revokeColumnMissingUntil = 0;
+function revokeColumnKnownMissing(nowMs: number = Date.now()): boolean {
+  return nowMs < revokeColumnMissingUntil;
+}
+function markRevokeColumnMissing(nowMs: number = Date.now()): void {
+  if (!revokeColumnKnownMissing(nowMs)) {
+    console.error(
+      "[analytics] messages.revoke_original_message_id missing — run supabase/messages_revoke_original_message_id.sql"
+    );
+  }
+  revokeColumnMissingUntil = nowMs + 10 * 60_000;
+}
+
 export async function logMessage(input: MessageLogInput) {
   if (isArboxDailyDryRun()) return;
   try {
@@ -401,10 +420,18 @@ export async function logMessage(input: MessageLogInput) {
     };
     const withWamid = !outbound.wamidColumnKnownMissing();
     if (withWamid) row.wamid = wamid;
+    const revokeId = String(input.revoke_original_message_id ?? "").trim();
+    const withRevoke = Boolean(revokeId) && !revokeColumnKnownMissing();
+    if (withRevoke) row.revoke_original_message_id = revokeId;
     let { data: inserted, error } = await supabase.from("messages").insert(row).select("id");
     if (error && withWamid && outbound.isMissingWamidColumn(error.message)) {
       outbound.markWamidColumnMissing();
       delete row.wamid;
+      ({ data: inserted, error } = await supabase.from("messages").insert(row).select("id"));
+    }
+    if (error && withRevoke && isMissingRevokeColumn(error.message)) {
+      markRevokeColumnMissing();
+      delete row.revoke_original_message_id;
       ({ data: inserted, error } = await supabase.from("messages").insert(row).select("id"));
     }
     if (error) {

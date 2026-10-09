@@ -776,6 +776,7 @@ async function dispatchGapTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-attendance-gap] enqueue failed:", enqueueResult.error);

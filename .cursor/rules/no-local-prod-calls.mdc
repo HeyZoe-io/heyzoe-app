@@ -1,0 +1,26 @@
+---
+description: Local scripts and agents must not call production cron or send endpoints
+alwaysApply: true
+---
+
+# אין קריאות מקומיות לפרודקשן
+
+אסור שסקריפט מקומי או סוכן יקרא לנקודות פרודקשן עם סוד הקרון.
+
+זה כולל `heyzoe.io/api/cron/*`, נתיבי worker, ו־`manual-send`.
+
+- מותר רק עם `dry_run=1`. בלי זה הקריאה נעצרת לפני ה־HTTP.
+- פעולה חד־פעמית בפרודקשן נכנסת כשורת תור, והקרון בפרודקשן מרים אותה. לא fetch מקומי.
+- התראת «קרון לא מ-cron-job.org» נשארת. אסור להכניס `ua=node` לרשימת היתר.
+
+```ts
+// ❌ אסור
+await fetch("https://heyzoe.io/api/cron/arbox-daily-triggers", {
+  headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+});
+
+// ✅ מותר לבדיקה
+await fetch("https://heyzoe.io/api/cron/arbox-daily-triggers?dry_run=1", {
+  headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+});
+```

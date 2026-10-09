@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { parseMetaWebhook } from "@/lib/whatsapp";
+import { parseMetaWebhook, parseSmbMessageEchoes } from "@/lib/whatsapp";
 import { parseConversationMessageContent } from "@/lib/conversation-message-display";
 import {
   renderWhatsAppTemplatePreview,
@@ -167,5 +167,69 @@ assert.equal(parsedWithBody?.type, "unsupported");
 if (parsedWithBody?.type === "unsupported") {
   assert.equal(parsedWithBody.previewText, "היי אלין, יש ליד חדש");
 }
+
+const parsedRevoke = parseMetaWebhook({
+  object: "whatsapp_business_account",
+  entry: [
+    {
+      changes: [
+        {
+          value: {
+            metadata: { phone_number_id: "1234567890" },
+            messages: [
+              {
+                from: "972501234567",
+                id: "wamid.REVOKE1",
+                type: "revoke",
+                revoke: { original_message_id: "wamid.ORIG1" },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ],
+});
+assert.equal(parsedRevoke?.type, "unsupported");
+if (parsedRevoke?.type === "unsupported") {
+  assert.equal(parsedRevoke.metaInboundType, "revoke");
+  assert.equal(parsedRevoke.revokeOriginalMessageId, "wamid.ORIG1");
+}
+assert.equal(
+  unsupportedInboundPreviewShouldProcessAsText({
+    from: "972501234567",
+    metaInboundType: "revoke",
+    previewText: "שלום",
+  }),
+  null
+);
+assert.equal(isSystemInboundLogContent("[revoke]"), true);
+
+const echoes = parseSmbMessageEchoes({
+  object: "whatsapp_business_account",
+  entry: [
+    {
+      changes: [
+        {
+          field: "smb_message_echoes",
+          value: {
+            metadata: { phone_number_id: "1234567890" },
+            message_echoes: [
+              {
+                id: "wamid.REVOKEECHO",
+                to: "972501234567",
+                type: "revoke",
+                revoke: { original_message_id: "wamid.ORIG2" },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ],
+});
+assert.equal(echoes.length, 1);
+assert.equal(echoes[0]?.text, "[revoke]");
+assert.equal(echoes[0]?.revokeOriginalMessageId, "wamid.ORIG2");
 
 console.log("wa-inbound-unsupported.test.ts: ok");

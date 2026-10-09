@@ -441,6 +441,7 @@ async function sendOnePurchaseTemplate(input: {
       templateName,
       dueAt,
       dedupKey: buildPurchaseScheduledDedupKey(input.businessId, matchedRule.id, input.saleId),
+      arboxFullName: input.fullName,
     });
 
     console.info("[leads/arbox-trial-sale-registered] template trigger resolution", {

@@ -428,6 +428,7 @@ async function sendArboxNewLeadTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-new-lead] enqueue failed:", enqueueResult.error);

@@ -5,7 +5,8 @@ import {
   formatLeadTemplateMessageContent,
   LEAD_TEMPLATE_MODEL,
 } from "@/lib/lead-template";
-import { resolveTemplateFirstName, resolveTrialReminderFirstName } from "@/lib/template-first-name";
+import { queuedTemplateFirstName } from "@/lib/template-first-name";
+import { arboxFullNameForPhone } from "@/lib/arbox-member-name";
 import { logMessage } from "@/lib/analytics";
 import { sendBusinessTemplate } from "@/lib/notifications/sendOwnerNotification";
 import { buildWaSessionId, contactPhoneLookupVariants } from "@/lib/phone-normalize";
@@ -74,7 +75,9 @@ import {
  *  בתוך החלון — שאילתה לפי אינדקס (status, due_at).
  *  פקיעת מנוי/כרטיסייה: דוח מנויים פעילים אחד לעסק בטיק (לא לכל ליד).
  *  כרטיסייה בלי מנוי פעיל: עוד קריאת memberships אחת לזיהוי אימון היכרות.
- *  עסק עם arbox_background_paused: שורת טריגר מבוטלת בלי קריאה לארבוקס, כדי שלא תישלח אחרי ביטול ההשהיה. */
+ *  עסק עם arbox_background_paused: שורת טריגר מבוטלת בלי קריאה לארבוקס, כדי שלא תישלח אחרי ביטול ההשהיה.
+ *  שם פרטי: השם מארבוקס שנשמר בתור. בלי עמודה או בלי שם שמור — searchUser אחד לטלפון
+ *  (cache לתהליך), ואז כרטיס איש הקשר. ב־10x זה עד שורת תור אחת לקריאה, רק לחסרים. */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -352,11 +355,25 @@ async function dispatchOneScheduledSend(
     ? clientFirstNameFromStaffDedupKey(row.dedup_key)
     : null;
   const fullName = isStaffRecipient ? null : await lookupContactFullName(admin, businessId, phone);
+  let arboxFullName = isStaffRecipient ? null : String(row.arbox_full_name ?? "").trim() || null;
+  if (!isStaffRecipient && !arboxFullName) {
+    const apiKey = getArboxApiKey(bizRow as Record<string, unknown> | null);
+    if (apiKey) {
+      arboxFullName = await arboxFullNameForPhone({
+        businessId,
+        apiKey,
+        boxId: String((bizRow as { crm_box_id?: unknown } | null)?.crm_box_id ?? ""),
+        phone,
+      });
+    }
+  }
   const firstName = isStaffRecipient
     ? firstNameFromFullName(String(staffClientFirst || fullName || ""))
-    : triggerType === "trial_reminder"
-      ? resolveTrialReminderFirstName({ full_name: fullName })
-      : resolveTemplateFirstName({ full_name: fullName });
+    : queuedTemplateFirstName({
+        triggerType,
+        contactFullName: fullName,
+        arboxFullName,
+      });
   if (
     !isStaffRecipient &&
     triggerType !== "trial_reminder" &&
@@ -656,15 +673,29 @@ async function drainScheduledTemplateSends() {
   }
 
   try {
-    const { data, error } = await admin
-      .from("scheduled_template_sends")
-      .select(
-        "id, business_id, trigger_id, contact_phone, template_name, due_at, status, dedup_key, last_error, created_at, updated_at"
-      )
-      .eq("status", "pending")
-      .lte("due_at", nowIso)
-      .order("due_at", { ascending: true })
-      .limit(BATCH_LIMIT);
+    const baseColumns =
+      "id, business_id, trigger_id, contact_phone, template_name, due_at, status, dedup_key, last_error, created_at, updated_at";
+    const dueQuery = (columns: string) =>
+      admin
+        .from("scheduled_template_sends")
+        .select(columns)
+        .eq("status", "pending")
+        .lte("due_at", nowIso)
+        .order("due_at", { ascending: true })
+        .limit(BATCH_LIMIT);
+    let listed = await dueQuery(`${baseColumns}, arbox_full_name`);
+    if (
+      listed.error &&
+      /arbox_full_name/i.test(listed.error.message) &&
+      /column|schema cache|PGRST204|42703/i.test(listed.error.message)
+    ) {
+      console.error(
+        "[cron/scheduled-template-sends] arbox_full_name missing — run supabase/scheduled_template_sends_arbox_full_name.sql"
+      );
+      listed = await dueQuery(baseColumns);
+    }
+    const data = (listed.data ?? null) as ScheduledTemplateSendRow[] | null;
+    const error = listed.error;
 
     if (error) {
       console.error("[cron/scheduled-template-sends] select failed:", error.message);

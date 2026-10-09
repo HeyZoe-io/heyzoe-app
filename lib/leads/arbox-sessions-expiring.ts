@@ -367,6 +367,7 @@ async function dispatchSessionsExpiringTemplate(input: {
       templateName,
       dueAt: input.dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-sessions-expiring] enqueue failed:", enqueueResult.error);

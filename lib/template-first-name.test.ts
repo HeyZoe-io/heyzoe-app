@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  queuedTemplateFirstName,
   resolveTemplateFirstName,
   resolveTrialReminderFirstName,
 } from "@/lib/template-first-name";
@@ -48,3 +49,9 @@ assert.equal(resolveTemplateFirstName({ full_name: "בת" }), null);
 assert.equal(resolveTemplateFirstName({ full_name: "משה" }, "בת"), null);
 assert.equal(resolveTrialReminderFirstName({ full_name: "בת" }), "🙂");
 assert.equal(resolveTrialReminderFirstName({ full_name: "בת חן" }, "בת"), "בת חן");
+
+/** Apex Netali: contact card is Latin, Arbox is נטע. Queue and trigger use Arbox. */
+assert.equal(queuedTemplateFirstName({ triggerType: "attendance_gap", contactFullName: "Netali", arboxFullName: "נטע" }), "נטע");
+assert.equal(queuedTemplateFirstName({ triggerType: "trial_reminder", contactFullName: "Netali", arboxFullName: "נטע לוי" }), "נטע");
+assert.equal(queuedTemplateFirstName({ triggerType: "attendance_gap", contactFullName: "Netali", arboxFullName: null }), "Netali");
+assert.equal(resolveTemplateFirstName({ full_name: "Netali" }, "נטע"), "נטע");

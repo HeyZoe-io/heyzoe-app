@@ -704,6 +704,7 @@ async function dispatchLeadStatusTemplate(input: {
       templateName,
       dueAt,
       dedupKey: input.dedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueued.ok) return { dispatch: "send_failed", ok: false };
     return { dispatch: "deferred", ok: true };

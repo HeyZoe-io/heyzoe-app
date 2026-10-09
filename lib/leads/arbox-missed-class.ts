@@ -105,6 +105,8 @@ export type MissedClassSyncSummary = {
   abandoned: number;
   /** Bookings not sent because the class had zero check_in Yes. */
   class_unmarked: number;
+  /** No coach, or Arbox category group GYM. Terminal skipped, not re-checked. */
+  self_service: number;
   class_unmarked_classes: number;
   /** Past 14 days: a class with exactly one booking, and that booking is No. */
   single_attendee_unmarked_14d: number;
@@ -161,6 +163,76 @@ export function missedOccurrenceYesCount(
     yes.set(key, (yes.get(key) ?? 0) + 1);
   }
   return yes;
+}
+
+export const SELF_SERVICE_CLASS_REASON = "self_service_class";
+
+type SelfServiceBooking = Pick<
+  ArboxBookingReportRow,
+  | "date"
+  | "time"
+  | "class_name"
+  | "staff_member"
+  | "staff_member_id"
+  | "staff_member_phone"
+  | "second_staff_member"
+  | "second_staff_member_id"
+  | "second_staff_member_phone"
+  | "box_category_group"
+>;
+
+function assignedId(raw: unknown): boolean {
+  const n = Number(String(raw ?? "").trim());
+  return Number.isFinite(n) && n > 0;
+}
+
+function assignedPhone(raw: unknown): boolean {
+  return String(raw ?? "").replace(/\D/g, "").length >= 9;
+}
+
+/** A coach slot is assigned when Arbox sent an id, a phone, or a name. */
+function coachSlotAssigned(nameRaw: unknown, idRaw: unknown, phoneRaw: unknown): boolean {
+  if (assignedId(idRaw) || assignedPhone(phoneRaw)) return true;
+  if (typeof nameRaw === "string") return Boolean(nameRaw.trim());
+  if (!nameRaw || typeof nameRaw !== "object" || Array.isArray(nameRaw)) return false;
+  const row = nameRaw as Record<string, unknown>;
+  if (assignedId(row.user_id) || assignedId(row.id) || assignedPhone(row.phone)) return true;
+  const name = String(row.full_name ?? row.first_name ?? "").trim();
+  return Boolean(name);
+}
+
+export function bookingHasAssignedCoach(row: SelfServiceBooking): boolean {
+  return (
+    coachSlotAssigned(row.staff_member, row.staff_member_id, row.staff_member_phone) ||
+    coachSlotAssigned(row.second_staff_member, row.second_staff_member_id, row.second_staff_member_phone)
+  );
+}
+
+export function isGymCategoryGroup(raw: unknown): boolean {
+  return String(raw ?? "").trim().toUpperCase() === "GYM";
+}
+
+/**
+ * Self-service when the occurrence has no coach on any booking, or any booking
+ * is in the Arbox GYM category group. One coached booking keeps a non-GYM class.
+ */
+export function selfServiceOccurrenceKeys(rows: readonly SelfServiceBooking[]): Set<string> {
+  const coach = new Map<string, boolean>();
+  const gym = new Map<string, boolean>();
+  for (const row of rows) {
+    const classDate = parseClassDateYmd(row.date);
+    const classTime = normalizeMissedClassTimePk(row.time);
+    const className = normalizeMissedClassNamePk(row.class_name);
+    if (!classDate || !classTime || !className) continue;
+    const key = missedClassOccurrenceKey(classDate, classTime, className);
+    coach.set(key, (coach.get(key) ?? false) || bookingHasAssignedCoach(row));
+    gym.set(key, (gym.get(key) ?? false) || isGymCategoryGroup(row.box_category_group));
+  }
+  const out = new Set<string>();
+  for (const key of coach.keys()) {
+    if (!coach.get(key) || gym.get(key)) out.add(key);
+  }
+  return out;
 }
 
 /** No Yes in the occurrence → do not send. One Yes → explicit No still sends. */
@@ -436,6 +508,7 @@ async function dispatchMissedTemplate(input: {
       templateName,
       dueAt,
       dedupKey: eventDedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-missed-class] enqueue failed:", enqueueResult.error);
@@ -622,6 +695,7 @@ export async function syncArboxMissedClassForBusiness(input: {
     abandoned: 0,
     class_unmarked: 0,
     class_unmarked_classes: 0,
+    self_service: 0,
     single_attendee_unmarked_14d: 0,
     errors: 0,
   };
@@ -719,6 +793,7 @@ export async function syncArboxMissedClassForBusiness(input: {
   }
   summary.fetched = rows.length;
   const occurrenceYes = missedOccurrenceYesCount(rows);
+  const selfServiceKeys = selfServiceOccurrenceKeys(rows);
   summary.single_attendee_unmarked_14d = countSingleAttendeeUnmarkedClasses(
     rows,
     formatDateYmdIsrael(now)
@@ -734,6 +809,28 @@ export async function syncArboxMissedClassForBusiness(input: {
       const className = normalizeMissedClassNamePk(row.class_name);
       if (userId == null || !classDateYmd || !classTime || !className) continue;
       if (!isMissedClassDatePast(classDateYmd, now)) continue;
+      if (selfServiceKeys.has(missedClassOccurrenceKey(classDateYmd, classTime, className))) {
+        const seedRules = [...classRules, ...trialRules].filter((item) => item.id);
+        for (const rule of seedRules) {
+          const up = await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: null,
+            attempts: 0,
+            status: "skipped",
+            nowIso,
+            reason: SELF_SERVICE_CLASS_REASON,
+          });
+          if (!up.ok) summary.errors += 1;
+        }
+        summary.self_service += 1;
+        continue;
+      }
 
       const resolved = await resolveOrCreateContact({
         admin: input.admin,
@@ -945,6 +1042,39 @@ export async function syncArboxMissedClassForBusiness(input: {
         continue;
       }
       const occurrenceKey = missedClassOccurrenceKey(classDateYmd, classTime, className);
+      if (selfServiceKeys.has(occurrenceKey)) {
+        let skippedOk = true;
+        for (const rule of pendingRules) {
+          const up = await upsertMissedSyncLog({
+            admin: input.admin,
+            businessId,
+            triggerId: rule.id,
+            userId,
+            classDateYmd,
+            classTime,
+            className,
+            contactId: null,
+            attempts: 0,
+            status: "skipped",
+            nowIso,
+            reason: SELF_SERVICE_CLASS_REASON,
+          });
+          if (!up.ok) skippedOk = false;
+        }
+        if (!skippedOk) summary.errors += 1;
+        summary.self_service += 1;
+        if (!loggedUnmarked.has(`self:${occurrenceKey}`)) {
+          loggedUnmarked.add(`self:${occurrenceKey}`);
+          console.info("[leads/arbox-missed-class] self_service_class", {
+            businessId,
+            class_date: classDateYmd,
+            class_time: classTime,
+            class_name: className,
+            reason: SELF_SERVICE_CLASS_REASON,
+          });
+        }
+        continue;
+      }
       if (
         missedAttendanceDecision({
           checkIn: row.check_in,

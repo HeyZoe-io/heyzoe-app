@@ -369,7 +369,22 @@ async function resolveArboxLocationId(
 export type ArboxUserSearchHit = {
   userId: string | null;
   profileId: string | null;
+  fullName: string | null;
 };
+
+/** full_name, else first + last, from searchUser data[0]. */
+export function fullNameFromArboxSearchPayload(payload: unknown): string | null {
+  const data = (payload as ArboxListResponse | null)?.data;
+  if (!Array.isArray(data) || !data.length) return null;
+  const row = data[0] ?? {};
+  const full = String(row.full_name ?? "").trim();
+  if (full) return full;
+  const combined = [row.first_name, row.last_name]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return combined || null;
+}
 
 /**
  * GET /v3/users/searchUser. `searchValue` skips display formatting (backfill uses 972…).
@@ -381,7 +396,7 @@ export async function lookupArboxUserByPhone(input: {
   phone: string;
   searchValue?: string;
 }): Promise<ArboxUserSearchHit> {
-  const empty: ArboxUserSearchHit = { userId: null, profileId: null };
+  const empty: ArboxUserSearchHit = { userId: null, profileId: null, fullName: null };
   const phoneDisplay = String(input.searchValue ?? "").trim() || formatLeadPhoneDisplay(input.phone);
   if (!phoneDisplay || phoneDisplay === "—") return empty;
 
@@ -404,6 +419,7 @@ export async function lookupArboxUserByPhone(input: {
     return {
       userId: extractUserId(res.json),
       profileId: extractProfileIdFromSearchPayload(res.json),
+      fullName: fullNameFromArboxSearchPayload(res.json),
     };
   };
 

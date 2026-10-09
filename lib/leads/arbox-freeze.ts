@@ -516,6 +516,7 @@ async function dispatchFreezeTemplate(input: {
       templateName,
       dueAt,
       dedupKey: input.dedupKey,
+      arboxFullName: input.fullName,
     });
     if (!enqueueResult.ok) {
       console.error("[leads/arbox-freeze] enqueue failed:", enqueueResult.error);

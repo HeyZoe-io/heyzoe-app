@@ -418,7 +418,8 @@ export async function handleSmbMessageEchoes(echoes: WaSmbMessageEcho[]): Promis
         content: echo.text,
         model_used: WA_BUSINESS_APP_ECHO_MODEL,
         session_id: sessionId,
-        wamid: echo.messageId,
+        wamid: echo.metaType === "revoke" ? null : echo.messageId,
+        revoke_original_message_id: echo.revokeOriginalMessageId ?? null,
       });
     } catch (e) {
       console.error("[wa-app-echo-pause] logMessage failed:", e);
