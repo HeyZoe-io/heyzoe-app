@@ -45,6 +45,38 @@ export async function fetchLatestUserMessageCreatedAt(input: {
   }
 }
 
+/**
+ * יש כבר תשובת זואי אחרי ההודעה הזו.
+ * כשל קריאה נחשב «כן» כדי לא לפתוח מענה שני.
+ */
+export async function sessionHasAssistantAfter(input: {
+  businessSlug: string;
+  sessionId: string;
+  afterIso: string;
+}): Promise<boolean> {
+  const afterIso = String(input.afterIso ?? "").trim();
+  if (!afterIso || !input.sessionId) return true;
+  try {
+    const admin = createSupabaseAdminClient();
+    const { data, error } = await admin
+      .from("messages")
+      .select("id")
+      .eq("business_slug", input.businessSlug)
+      .eq("session_id", input.sessionId)
+      .eq("role", "assistant")
+      .gt("created_at", afterIso)
+      .limit(1);
+    if (error) {
+      console.warn("[wa-inbound-coalesce] assistant-after failed:", error.message);
+      return true;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (e) {
+    console.warn("[wa-inbound-coalesce] assistant-after exception:", e);
+    return true;
+  }
+}
+
 /** הודעות user אחרי afterIso (לא כולל), לפי session — indexed (slug, session, role, created_at). */
 export async function fetchSessionUserMessagesAfter(input: {
   businessSlug: string;

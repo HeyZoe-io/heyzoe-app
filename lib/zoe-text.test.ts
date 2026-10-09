@@ -19,6 +19,8 @@ assert.equal(
   sanitizeZoeOutboundLanguage("לא יש לי את הפרטים על גופים"),
   "אין לי את הפרטים על רמות"
 );
+assert.equal(sanitizeZoeOutboundLanguage("למצטערי, מנוי הנערות מיועד לגיל 10."), "לצערי, מנוי הנערות מיועד לגיל 10.");
+assert.equal(sanitizeZoeOutboundLanguage("מצטערת לשמוע"), "מצטערת לשמוע");
 
 assert.equal(
   sanitizeZoeOutboundLanguage("אני ממליצה לתקשרי עם שירות הלקוחות שלנו בטלפון"),

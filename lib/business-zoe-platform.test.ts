@@ -25,6 +25,7 @@ assert.ok(defaultLegal.some((l) => l.includes("עיסוי זה לא ספא") && 
 assert.ok(defaultLegal.some((l) => l.includes("כשתהיי רוצה") && l.includes("תרצי")));
 assert.ok(defaultLegal.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
 assert.ok(defaultLegal.some((l) => l.includes("לא רק לחידוש")));
+assert.ok(defaultLegal.some((l) => l.includes("למצטערי") && l.includes("שלא יהיה נזק כלשהו")));
 assert.ok(defaultLegal.some((l) => l.includes("אם ברצונך")));
 assert.ok(defaultLegal.some((l) => l.includes("בינתיים תתאפרי") && l.includes("נשמח לראותך בשיעור")));
 assert.ok(defaultLegal.some((l) => l.includes("נראה אותך בעוד X דקות") && l.includes("אין בעיה בכלל")));
@@ -258,5 +259,28 @@ const mergedOldGender =
     ?.sections?.find((s) => s.key === "legal_rules")?.lines ?? [];
 assert.ok(mergedOldGender.some((l) => l.includes("לא רק לחידוש")));
 assert.ok(mergedOldGender.some((l) => l.includes("נכנסים, מבטלים את ההרשמה")));
+
+const storedLegalWithoutContinuation = {
+  categories: [
+    {
+      id: "personality",
+      title: "זהות, חוקיות ואופי",
+      description: "",
+      lines: [],
+      sections: [
+        {
+          key: "legal_rules",
+          label: "חוקיות וכללים",
+          lines: ["אל תמציאי מחירים, מיקומים, מדיניות או קישורים שלא מופיעים בידע העסקי."],
+        },
+      ],
+    },
+  ],
+};
+const mergedContinuation =
+  mergeWithDefaultZoePlatform(storedLegalWithoutContinuation)
+    .categories.find((c) => c.id === "personality")
+    ?.sections?.find((s) => s.key === "legal_rules")?.lines ?? [];
+assert.ok(mergedContinuation.some((l) => l.includes("למצטערי") && l.includes("כמובן, חשוב לבדוק")));
 
 console.log("business-zoe-platform.test.ts: ok");

@@ -66,6 +66,8 @@ function applyGlobalHebrewLanguageFixes(text: string): string {
     .replace(hebWord("המכחי"), "הנוכחי")
     .replace(/\bאימן\b/gu, "אימון")
     .replace(hebWord("למדים"), "לומדים")
+    .replace(hebWord("למצטערי"), "לצערי")
+    .replace(hebWord("למצטער"), "לצערי")
     .replace(/לא\s+יש\s+לי\s+את/giu, "אין לי את")
     .replace(/לא\s+יש\s+לי\b/giu, "אין לי")
     .replace(/לא\s+יש\s+מידע/giu, "אין לי מידע")

@@ -130,6 +130,7 @@ import {
   type FastPathHint,
 } from "@/lib/wa-fast-path-hint";
 import { lastClosedOutboundRepeats } from "@/lib/wa-closed-copy-loop";
+import { repliesAreSimilar } from "@/lib/wa-similar-reply";
 import { collectPreClaudeHint } from "@/lib/wa-pre-claude-hint";
 import {
   allowPreClaudeSends,
@@ -766,6 +767,7 @@ import {
   fetchLatestUserMessageCreatedAt,
   fetchSessionUserMessagesAfter,
   joinInboundUserTexts,
+  sessionHasAssistantAfter,
   trailingUserTurnStartIso,
   WA_INBOUND_PICKUP_MAX_DEPTH,
 } from "@/lib/wa-inbound-coalesce";
@@ -8081,13 +8083,34 @@ async function processIncoming(
 
   let contactProcessingClaimedUntil: string | null = null;
   if (contactId != null) {
-    const lock = await acquireContactProcessingLock(contactId);
+    let lock = await acquireContactProcessingLock(contactId);
     if (!lock.acquired) {
       console.info(
-        `[WA Webhook] Contact ${contactId} already processing — message logged, holder will pick up`,
+        `[WA Webhook] Contact ${contactId} already processing — message logged, waiting for holder`,
         { business_slug, sessionId, messageId: msg.messageId }
       );
-      return;
+      await sleepMs(4000);
+      const holderAnswered = await sessionHasAssistantAfter({
+        businessSlug: business_slug,
+        sessionId,
+        afterIso: processedUserThroughIso,
+      });
+      if (holderAnswered) {
+        console.info("[WA Webhook] holder already answered trailing inbound", {
+          business_slug,
+          sessionId,
+          messageId: msg.messageId,
+        });
+        return;
+      }
+      lock = await acquireContactProcessingLock(contactId);
+      if (!lock.acquired) {
+        console.info(
+          `[WA Webhook] Contact ${contactId} still processing — leaving for holder pickup`,
+          { business_slug, sessionId, messageId: msg.messageId }
+        );
+        return;
+      }
     }
     contactProcessingClaimedUntil = lock.claimedUntil;
   } else {
@@ -14124,6 +14147,26 @@ async function processIncoming(
   ].filter(Boolean);
 
   let waReplyRoute: ExtractedReplyRoute = extractReplyRoute("");
+  const suppressIfSimilarToLastAssistant = async (text: string): Promise<boolean> => {
+    const previous = await fetchLastAssistantMessageContent({
+      business_slug,
+      session_id: sessionId,
+      skipInternal: true,
+    });
+    if (!repliesAreSimilar(previous, text)) return false;
+    console.info("[WA Webhook] similar reply already sent — not repeating", {
+      business_slug,
+      sessionId,
+    });
+    await logMessage({
+      business_slug,
+      role: "event",
+      content: "[heyzoe:similar_reply_suppressed]",
+      model_used: "wa_similar_reply_suppressed",
+      session_id: sessionId,
+    });
+    return true;
+  };
   if (!isFallbackErrorReply && didCallClaude && !matched?.reply) {
     waReplyRoute = extractReplyRoute(replyCore);
     replyCore = waReplyRoute.body;
@@ -15309,6 +15352,7 @@ async function processIncoming(
       const outbound = replyCoreClean.trim()
         ? replyCoreClean.trim()
         : resolveRouteBookingChangeReply(knowledge);
+      if (await suppressIfSimilarToLastAssistant(outbound)) return;
       if (businessId) {
         try {
           const { handleLeadHumanRequested } = await import("@/lib/human-requested");
@@ -15952,6 +15996,7 @@ async function processIncoming(
         if (needsOpeningListPickBridge) {
           answerOnly = ensureOpeningServiceListPickBridge(answerOnly);
         }
+        if (await suppressIfSimilarToLastAssistant(answerOnly)) return;
         await sendWhatsAppMessage(msg.toNumber, msg.from, answerOnly, accountSid, authToken);
         await logMessage({
           business_slug,
@@ -16029,6 +16074,7 @@ async function processIncoming(
             sessionId,
           });
         }
+        if (await suppressIfSimilarToLastAssistant(bodyForWA)) return;
         await sendWhatsAppTextOrMenu(msg.toNumber, msg.from, bodyForWA, menuLabels, accountSid, authToken, {
           footerHint: menuLabels.length > 0 || Boolean(menuQuestion) ? menuFooter : "",
           language: aiMenuContentLang,

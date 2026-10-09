@@ -530,8 +530,23 @@ function upgradeHebrewOnlyLanguageGuidelineLines(lines: string[]): string[] {
   });
 }
 
+/** המשך קצר ו«לצערי» — מזריקים לחוקיות בלי שמירה מחדש באדמין. */
+function ensureContextualContinuationGuidelineLines(lines: string[]): string[] {
+  if (lines.some((l) => l.includes("למצטערי") && l.includes("שלא יהיה נזק כלשהו"))) return lines;
+  const looksLegal = lines.some(
+    (l) => l.includes("אל תמציאי מחירים") || l.includes("מילים שדומות באות אחת")
+  );
+  if (!looksLegal) return lines;
+  const rule = allDefaultGuidelineLines().find(
+    (l) => l.includes("למצטערי") && l.includes("שלא יהיה נזק כלשהו")
+  );
+  if (!rule) return lines;
+  return [...lines, rule];
+}
+
 function upgradeGuidelineLines(lines: string[]): string[] {
-  return upgradeOwnerBotIdentityGuidelineLines(
+  return ensureContextualContinuationGuidelineLines(
+    upgradeOwnerBotIdentityGuidelineLines(
     upgradeKnowledgeGapTeamHandoffGuidelineLines(
       ensureJoyVocabGuidelineLines(
         ensureBirtzonchaDefaultGuidelineLines(
@@ -562,6 +577,7 @@ function upgradeGuidelineLines(lines: string[]): string[] {
           )
         )
       )
+    )
     )
   );
 }

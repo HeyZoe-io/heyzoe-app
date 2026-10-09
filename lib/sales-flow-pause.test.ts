@@ -103,6 +103,8 @@ assert.equal(
 
 assert.equal(isThanksOnlyMessage("תודה"), true);
 assert.equal(isThanksOnlyMessage("תודה רבה 💜"), true);
+assert.equal(isThanksOnlyMessage("מצוין תודה רבה"), true);
+assert.equal(isThanksOnlyMessage("מצויין תודה רבה"), true);
 assert.equal(isThanksOnlyMessage("תודה לך"), true);
 assert.equal(isThanksOnlyMessage("אוקיי תודה"), true);
 assert.equal(isThanksOnlyMessage("תודה על העזרה"), true);
