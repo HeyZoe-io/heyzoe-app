@@ -6,6 +6,7 @@ import {
   runArboxClassAutobookAfterSale,
   runArboxClassAutobookBeforeSale,
 } from "@/lib/leads/arbox-class-autobook-run";
+import { arboxTrialConfig } from "@/lib/arbox-trial-sale";
 
 type Resp = { data: unknown; error: { code?: string; message: string } | null };
 
@@ -59,11 +60,17 @@ const now = new Date("2026-10-12T08:00:00Z");
 
 async function main() {
   // Candidate rows: paid, configured trial, with membership_user_id.
-  assert.equal(isAutobookCandidateRow(paidTrial, [100]), true);
-  assert.equal(isAutobookCandidateRow({ ...paidTrial, debt: 50 }, [100]), false);
-  assert.equal(isAutobookCandidateRow({ ...paidTrial, membership_type_id: 101 }, [100]), false);
-  assert.equal(isAutobookCandidateRow({ ...paidTrial, membership_user_id: null }, [100]), false);
-  assert.equal(isAutobookCandidateRow({ ...paidTrial, sale_id: "" }, [100]), false);
+  const cfg = arboxTrialConfig([100], false);
+  assert.equal(isAutobookCandidateRow(paidTrial, cfg), true);
+  assert.equal(isAutobookCandidateRow({ ...paidTrial, debt: 50 }, cfg), false);
+  assert.equal(isAutobookCandidateRow({ ...paidTrial, membership_type_id: 101 }, cfg), false);
+  assert.equal(isAutobookCandidateRow({ ...paidTrial, membership_user_id: null }, cfg), false);
+  assert.equal(isAutobookCandidateRow({ ...paidTrial, sale_id: "" }, cfg), false);
+  // Item type "trial" outside the list: only with the per-business setting on.
+  const trialType = { ...paidTrial, membership_type_id: 262718, item_type: "trial" };
+  assert.equal(isAutobookCandidateRow(trialType, cfg), false);
+  assert.equal(isAutobookCandidateRow(trialType, arboxTrialConfig([100], true)), true);
+  assert.equal(isAutobookCandidateRow({ ...trialType, item_type: "session" }, arboxTrialConfig([100], true)), false);
 
   // No candidate in the batch: zero reads.
   {

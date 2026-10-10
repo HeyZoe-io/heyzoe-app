@@ -25,6 +25,7 @@ import {
   summarizeArboxBookingError,
 } from "@/lib/leads/arbox-class-autobook";
 import { fetchAllSalesReportRows } from "@/lib/leads/arbox-sales-report";
+import { arboxTrialConfig, isArboxTrialSale, type ArboxTrialConfig } from "@/lib/arbox-trial-sale";
 import {
   arboxSaleHasOutstandingDebt,
   handleArboxTrialSaleRegistered,
@@ -87,7 +88,7 @@ export type ArboxClassAutobookBatch = {
   businessSlug: string;
   apiKey: string;
   boxId: string;
-  trialIds: readonly number[];
+  trialConfig: ArboxTrialConfig;
   now: Date;
   dryRun: boolean;
   deadlineMs?: number;
@@ -102,6 +103,7 @@ type BatchBusiness = {
   apiKey: string;
   crm_box_id: string;
   arbox_trial_membership_type_ids: readonly number[];
+  arbox_trial_item_type_counts_as_trial?: boolean;
 };
 
 function emptySummary(): ArboxClassAutobookSummary {
@@ -183,11 +185,10 @@ export async function persistArboxClassAutobookCtaPick(input: {
 }
 
 /** Paid, configured trial product, with the membership Arbox books against. */
-export function isAutobookCandidateRow(row: AutobookSaleRow, trialIds: readonly number[]): boolean {
+export function isAutobookCandidateRow(row: AutobookSaleRow, trialConfig: ArboxTrialConfig): boolean {
   if (positiveInt(row.sale_id) == null || positiveInt(row.user_id) == null) return false;
   if (arboxSaleHasOutstandingDebt(row)) return false;
-  const typeId = positiveInt(row.membership_type_id);
-  if (typeId == null || !trialIds.includes(typeId)) return false;
+  if (positiveInt(row.membership_type_id) == null || !isArboxTrialSale(row, trialConfig)) return false;
   return positiveInt(row.membership_user_id) != null;
 }
 
@@ -203,10 +204,13 @@ export async function prepareArboxClassAutobookBatch(input: {
   dryRun: boolean;
   deadlineMs?: number;
 }): Promise<ArboxClassAutobookBatch | null> {
-  const trialIds = input.business.arbox_trial_membership_type_ids ?? [];
-  if (!trialIds.length) return null;
+  const trialConfig = arboxTrialConfig(
+    input.business.arbox_trial_membership_type_ids,
+    input.business.arbox_trial_item_type_counts_as_trial
+  );
+  if (!trialConfig.trialMembershipTypeIds.length && !trialConfig.itemTypeCountsAsTrial) return null;
   const saleIds = input.rows
-    .filter((row) => isAutobookCandidateRow(row as AutobookSaleRow, trialIds))
+    .filter((row) => isAutobookCandidateRow(row as AutobookSaleRow, trialConfig))
     .map((row) => Number((row as AutobookSaleRow).sale_id));
   if (!saleIds.length) return null;
 
@@ -261,7 +265,7 @@ export async function prepareArboxClassAutobookBatch(input: {
     businessSlug: input.business.slug,
     apiKey: input.business.apiKey,
     boxId: String(input.business.crm_box_id ?? "").trim(),
-    trialIds,
+    trialConfig,
     now: input.now,
     dryRun: input.dryRun,
     deadlineMs: input.deadlineMs,
@@ -449,7 +453,7 @@ export async function runArboxClassAutobookBeforeSale(
   rawRow: unknown
 ): Promise<boolean> {
   const row = rawRow as AutobookSaleRow;
-  if (!isAutobookCandidateRow(row, batch.trialIds)) return false;
+  if (!isAutobookCandidateRow(row, batch.trialConfig)) return false;
   const saleId = Number(row.sale_id);
   if (batch.attempts.has(saleId)) return false;
   if (batch.deadlineMs != null && batch.deadlineMs - Date.now() < AUTOBOOK_STEP_MIN_MS) {
@@ -705,8 +709,11 @@ export async function runArboxClassAutobookNightPass(input: {
   dryRun: boolean;
   deadlineMs?: number;
 }): Promise<ArboxClassAutobookSummary | null> {
-  const trialIds = input.business.arbox_trial_membership_type_ids ?? [];
-  if (!trialIds.length) return null;
+  const trialConfig = arboxTrialConfig(
+    input.business.arbox_trial_membership_type_ids,
+    input.business.arbox_trial_item_type_counts_as_trial
+  );
+  if (!trialConfig.trialMembershipTypeIds.length && !trialConfig.itemTypeCountsAsTrial) return null;
   const settings = await loadArboxClassAutobookSettings(input.admin, input.business.id);
   if (!settings.enabled) return null;
 
@@ -739,7 +746,8 @@ export async function runArboxClassAutobookNightPass(input: {
         businessId: input.business.id,
         businessSlug: input.business.slug,
         row: row as ArboxSalesReportRow,
-        trialMembershipTypeIds: trialIds,
+        trialMembershipTypeIds: trialConfig.trialMembershipTypeIds,
+        trialItemTypeCountsAsTrial: trialConfig.itemTypeCountsAsTrial,
       });
       handlerOk = result.ok;
       if (!result.ok) console.error(LOG, "night handler failed", { slug: input.business.slug, error: result.error });

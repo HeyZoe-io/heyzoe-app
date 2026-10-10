@@ -35,6 +35,12 @@ import {
 } from "@/lib/leads/arbox-trial-booking-confirm";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import {
+  arboxTrialConfig,
+  arboxTrialItemTypeCountsFromSocial,
+  isArboxTrialSale,
+  type ArboxTrialConfig,
+} from "@/lib/arbox-trial-sale";
+import {
   loadAutobookedOccurrenceKeys,
   prepareArboxClassAutobookBatch,
   runArboxClassAutobookAfterSale,
@@ -88,6 +94,8 @@ export type BusinessRow = {
   arbox_post_trial_followup_seeded: boolean;
   arbox_lost_lead_seeded: boolean;
   arbox_background_paused?: boolean;
+  /** social_links flag: salesReport item_type "trial" also counts as trial. */
+  arbox_trial_item_type_counts_as_trial?: boolean;
 };
 
 export type BusinessSummary = {
@@ -183,11 +191,14 @@ function saleMembershipTypeId(row: Record<string, unknown>): number | null {
 }
 
 /** Filter salesReport rows to the business purchase/trial membership scope (not fetch mechanics). */
-function filterSalesRowsForMembershipScope(
+export function filterSalesRowsForMembershipScope(
   rows: Record<string, unknown>[],
-  scope: PurchaseSaleMembershipScope
+  scope: PurchaseSaleMembershipScope,
+  trialConfig: ArboxTrialConfig
 ): Record<string, unknown>[] {
-  return rows.filter((row) => saleMembershipTypeInScope(saleMembershipTypeId(row), scope));
+  return rows.filter(
+    (row) => saleMembershipTypeInScope(saleMembershipTypeId(row), scope) || isArboxTrialSale(row, trialConfig)
+  );
 }
 
 async function findExistingContactIdForSale(input: {
@@ -334,7 +345,7 @@ export const ARBOX_TRIAL_SYNC_TRIGGER_TYPES = [
 ] as const;
 
 const BUSINESS_SELECT =
-  "id, slug, crm_api_key, crm_api_key_enc, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded, arbox_lost_lead_seeded";
+  "id, slug, crm_api_key, crm_api_key_enc, crm_box_id, arbox_last_sync_at, arbox_trial_membership_type_ids, arbox_sales_sync_seeded, arbox_credit_refusal_seeded, arbox_leads_seeded, arbox_cancellation_seeded, arbox_freeze_seeded, arbox_post_trial_followup_seeded, arbox_lost_lead_seeded, social_links";
 
 function parseBusinessRow(row: Record<string, unknown>, apiKey: string): BusinessRow | null {
   const id = Number(row.id);
@@ -358,6 +369,7 @@ function parseBusinessRow(row: Record<string, unknown>, apiKey: string): Busines
     arbox_post_trial_followup_seeded: row.arbox_post_trial_followup_seeded === true,
     arbox_lost_lead_seeded: row.arbox_lost_lead_seeded === true,
     arbox_background_paused: rowArboxBackgroundPaused(row),
+    arbox_trial_item_type_counts_as_trial: arboxTrialItemTypeCountsFromSocial(row.social_links),
   };
 }
 
@@ -367,9 +379,11 @@ export function trialSyncBusinessNeedsWorker(input: {
   enabledTriggerTypes: readonly string[];
   /** Enabled lost_lead with delay_days = 0. Delay >= 1 stays on the 09:00 cron. */
   hasImmediateLostLead?: boolean;
+  trialItemTypeCountsAsTrial?: boolean;
 }): boolean {
   if (input.hasImmediateLostLead) return true;
   if (input.trialMembershipTypeIds.length > 0) return true;
+  if (input.trialItemTypeCountsAsTrial) return true;
   return input.enabledTriggerTypes.some((type) =>
     (ARBOX_TRIAL_SYNC_TRIGGER_TYPES as readonly string[]).includes(type)
   );
@@ -440,6 +454,7 @@ export async function listArboxTrialSyncBusinessIds(
           trialMembershipTypeIds: b.arbox_trial_membership_type_ids,
           enabledTriggerTypes: typesByBusiness.get(b.id) ?? [],
           hasImmediateLostLead: immediateLostLead.has(b.id),
+          trialItemTypeCountsAsTrial: b.arbox_trial_item_type_counts_as_trial,
         })
       )
       .map((b) => b.id),
@@ -607,8 +622,13 @@ export async function runArboxTrialSyncForBusiness(input: {
         });
       }
     }
+    const trialConfig = arboxTrialConfig(
+      business.arbox_trial_membership_type_ids,
+      business.arbox_trial_item_type_counts_as_trial
+    );
     const purchaseMatch: PurchaseMatchContext = {
       trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+      trialItemTypeCountsAsTrial: trialConfig.itemTypeCountsAsTrial,
       classByProductId,
     };
     const membershipScope = resolvePurchaseSaleMembershipScope({
@@ -618,7 +638,8 @@ export async function runArboxTrialSyncForBusiness(input: {
     });
 
     const firstPaidOn = await hasEnabledFirstPaidPurchaseTrigger(admin, business.id);
-    const salesScopeEmpty = purchaseSaleMembershipScopeIsEmpty(membershipScope);
+    const salesScopeEmpty =
+      purchaseSaleMembershipScopeIsEmpty(membershipScope) && !trialConfig.itemTypeCountsAsTrial;
     if (salesScopeEmpty && !firstPaidOn) {
       summary.skipped = true;
       console.info(
@@ -671,7 +692,7 @@ export async function runArboxTrialSyncForBusiness(input: {
 
       const relevantRows = salesScopeEmpty
         ? []
-        : filterSalesRowsForMembershipScope(report.rows, membershipScope);
+        : filterSalesRowsForMembershipScope(report.rows, membershipScope, trialConfig);
       summary.fetched = relevantRows.length;
 
       if (!salesScopeEmpty && !business.arbox_sales_sync_seeded) {
@@ -735,6 +756,7 @@ export async function runArboxTrialSyncForBusiness(input: {
               businessSlug: business.slug,
               row: rawRow as ArboxSalesReportRow,
               trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
+              trialItemTypeCountsAsTrial: trialConfig.itemTypeCountsAsTrial,
               purchaseMatch,
               purchaseSameDaySent,
             });

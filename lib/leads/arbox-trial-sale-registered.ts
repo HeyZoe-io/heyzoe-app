@@ -71,6 +71,7 @@ async function markPurchaseSaleSeen(input: {
 }
 import { sendTrialRegisteredWhatsAppReplyIfInWindow } from "@/lib/trial-registered-wa-reply";
 import { claimPurchaseSameDay } from "@/lib/leads/purchase-same-day-claim";
+import { arboxTrialConfig, isArboxTrialSale } from "@/lib/arbox-trial-sale";
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 
 /** One row from Arbox GET /v3/reports/salesReport `data[]`. */
@@ -665,6 +666,8 @@ export async function handleArboxTrialSaleRegistered(input: {
   businessSlug: string;
   row: ArboxSalesReportRow;
   trialMembershipTypeIds?: readonly number[];
+  /** Per-business: salesReport item_type "trial" also counts as trial (isArboxTrialSale). */
+  trialItemTypeCountsAsTrial?: boolean;
   purchaseMatch?: PurchaseMatchContext;
   /** Shared for this cron batch. Second sale of the same user on the same date does not send again. */
   purchaseSameDaySent?: Set<string>;
@@ -817,8 +820,10 @@ export async function handleArboxTrialSaleRegistered(input: {
     const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
     const sessionId =
       phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
-    const configuredTrial =
-      membershipTypeId != null && (input.trialMembershipTypeIds ?? []).includes(membershipTypeId);
+    const configuredTrial = isArboxTrialSale(
+      { membership_type_id: membershipTypeId, item_type: input.row.item_type },
+      arboxTrialConfig(input.trialMembershipTypeIds, input.trialItemTypeCountsAsTrial)
+    );
     if (configuredTrial) return { ok: true, already: true };
     const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
       admin: input.admin,
@@ -882,8 +887,10 @@ export async function handleArboxTrialSaleRegistered(input: {
     const phoneNumberId = String(channel?.phoneNumberId ?? "").trim();
     const sessionId =
       phoneNumberId && canonicalPhone ? buildWaSessionId(phoneNumberId, canonicalPhone) : null;
-    const configuredTrial =
-      membershipTypeId != null && (input.trialMembershipTypeIds ?? []).includes(membershipTypeId);
+    const configuredTrial = isArboxTrialSale(
+      { membership_type_id: membershipTypeId, item_type: input.row.item_type },
+      arboxTrialConfig(input.trialMembershipTypeIds, input.trialItemTypeCountsAsTrial)
+    );
     if (configuredTrial) return { ok: true, already: true };
     const templateResult = await sendOpeningTemplateAfterTrialSaleIfConfigured({
       admin: input.admin,
@@ -1030,8 +1037,10 @@ export async function handleArboxTrialSaleRegistered(input: {
       .map((n) => Number(n))
       .filter((n) => Number.isFinite(n) && n > 0);
   })();
-  const isTrialSale =
-    membershipTypeId != null && trialMembershipTypeIds.includes(membershipTypeId);
+  const isTrialSale = isArboxTrialSale(
+    { membership_type_id: membershipTypeId, item_type: input.row.item_type },
+    arboxTrialConfig(trialMembershipTypeIds, input.trialItemTypeCountsAsTrial)
+  );
 
   let whatsapp:
     | "sent"

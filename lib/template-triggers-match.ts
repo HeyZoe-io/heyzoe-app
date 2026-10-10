@@ -1,4 +1,5 @@
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { arboxTrialConfig, isArboxTrialSale } from "@/lib/arbox-trial-sale";
 import {
   isPurchaseItemType,
   parseLookbackDays,
@@ -111,6 +112,8 @@ function purchaseRuleSpecificity(rule: PurchaseTemplateTriggerRule): number {
 export type PurchaseMatchContext = {
   /** businesses.arbox_trial_membership_type_ids — trial class, not salesReport item_type. */
   trialMembershipTypeIds?: readonly number[];
+  /** Per-business: salesReport item_type "trial" also counts as trial (isArboxTrialSale). */
+  trialItemTypeCountsAsTrial?: boolean;
   /** membership_type_id → plan | session | service | trial, from GET /v3/membershipTypes. */
   classByProductId?: ReadonlyMap<number, PurchaseItemType>;
 };
@@ -119,9 +122,15 @@ export type PurchaseMatchContext = {
 export function purchaseSaleClass(
   membershipTypeId: number | null,
   itemType: string | null | undefined,
-  trialMembershipTypeIds: readonly number[] | undefined
+  trialMembershipTypeIds: readonly number[] | undefined,
+  trialItemTypeCountsAsTrial?: boolean
 ): PurchaseItemType | null {
-  if (membershipTypeId != null && (trialMembershipTypeIds ?? []).includes(membershipTypeId)) {
+  if (
+    isArboxTrialSale(
+      { membership_type_id: membershipTypeId, item_type: itemType },
+      arboxTrialConfig(trialMembershipTypeIds, trialItemTypeCountsAsTrial)
+    )
+  ) {
     return "trial";
   }
   const normalized = String(itemType ?? "")
@@ -147,7 +156,7 @@ export function purchaseRuleMatchesSale(
   const classes = rule.item_type_filter ?? [];
   const trialIds = ctx?.trialMembershipTypeIds ?? [];
   const classByProductId = ctx?.classByProductId;
-  const saleClass = purchaseSaleClass(membershipTypeId, itemType, trialIds);
+  const saleClass = purchaseSaleClass(membershipTypeId, itemType, trialIds, ctx?.trialItemTypeCountsAsTrial);
 
   if (!classes.length) {
     if (!saleClass && String(itemType ?? "").trim().toLowerCase() === "trial") {
