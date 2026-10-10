@@ -9,6 +9,7 @@ import DashboardPwaPrompt from "@/app/components/DashboardPwaPrompt";
 import DashboardHelpChatWidget from "@/app/components/DashboardHelpChatWidget";
 import OwnerWhatsappOptInModal from "@/app/components/OwnerWhatsappOptInModal";
 import MetaPricingNoticeModal, { type MetaPricingNoticeData } from "./MetaPricingNoticeModal";
+import { businessUsesNodeConversation } from "@/lib/sales-flow-start-triggers";
 import {
   dashboardWhatsAppChannelSwrKey,
   dashboardZoeActivatedSwrKey,
@@ -121,7 +122,7 @@ export default function SlugLayoutChrome({
         <div className="px-3 py-6 sm:px-6 sm:py-8">
           <div
             className={`mx-auto min-w-0 space-y-5 overflow-x-clip ${
-              normSlug === "pipman-team" && pathname.includes("/settings") ? "max-w-none" : "max-w-6xl"
+              businessUsesNodeConversation(normSlug) && pathname.includes("/settings") ? "max-w-none" : "max-w-6xl"
             }`}
           >
             <div className="relative pt-1">

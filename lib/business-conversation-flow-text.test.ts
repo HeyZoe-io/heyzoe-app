@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { buildDefaultConversationOpening } from "@/lib/business-conversation-opening";
 import {
+  fillProductText,
+  textUsesProductLink,
   fillRegistrationText,
   inboundRestartsBusinessFlowFromStart,
   matchQuestionButton,
@@ -15,6 +17,16 @@ assert.equal(
   }),
   "רשמתי אותך לשחייה בראשון בשעה 18:00."
 );
+
+const acro = { name: "אקרו יוגה - ליחיד", price: "80", duration: "80", sessions: "", link: "https://arbox.link/x" };
+assert.equal(
+  fillProductText("האימון עולה {מחיר} שקלים ונמשך {duration} דקות. נרשמים כאן: {קישור}", acro),
+  "האימון עולה 80 שקלים ונמשך 80 דקות. נרשמים כאן: https://arbox.link/x"
+);
+assert.equal(fillProductText("{מפגשים} מפגשים", acro), "{מפגשים} מפגשים");
+assert.equal(fillProductText("{מחיר}", null), "{מחיר}");
+assert.equal(textUsesProductLink("נרשמים כאן: {קישור}"), true);
+assert.equal(textUsesProductLink("שלום"), false);
 
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "שחייה"), 0);
 assert.equal(matchQuestionButton(["שחייה", "ריצה"], "  ריצה "), 1);

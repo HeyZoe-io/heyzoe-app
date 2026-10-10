@@ -194,7 +194,7 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
           overflowWrap: "anywhere",
         }}
       >
-        {String(d.text || "").trim() || "טקסט ריק"}
+        {String(d.text || "").trim() || (type === "product" ? "תיאור ותמונה מטאב מוצרים" : "טקסט ריק")}
       </div>
       )}
       {type === "message" && String(d.media_url ?? "").trim() ? (
@@ -753,6 +753,11 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       }
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
+                    {selected.type !== "register" ? (
+                      <span className="mt-1 block text-xs leading-relaxed text-zinc-400">
+                        {"{מוצר} {מחיר} {משך} {קישור}"} נמשכים מהמוצר שנבחר בתיבת המוצר.
+                      </span>
+                    ) : null}
                   </label>
                 ) : selected.type === "product" ? (
                   <label className="block text-sm text-zinc-700">
@@ -762,7 +767,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                       value={String(selected.data.text ?? "")}
                       onFocus={armEditGesture}
                       onChange={(e) => patchSelected({ text: e.target.value }, true)}
-                      placeholder="רשות. המוצר עצמו נמשך מטאב מוצרים."
+                      placeholder="ריק = נשלחים התמונה והתיאור מטאב מוצרים."
                       className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
                   </label>

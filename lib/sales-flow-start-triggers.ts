@@ -161,9 +161,16 @@ function matchesSportykefExtraStartTrigger(
   return SPORTYKEF_EXTRA_START_TRIGGERS.has(normalized);
 }
 
-/** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
+const NODE_CONVERSATION_SLUGS = new Set(["pipman-team", "acrobyjoe"]);
+
+/** דף «שיחה» בתיבות במקום סקריפט המכירה. */
+export function businessUsesNodeConversation(slug?: string | null): boolean {
+  return NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+}
+
+/** פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
 export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
-  return String(slug ?? "").trim().toLowerCase() === "pipman-team";
+  return businessUsesNodeConversation(slug);
 }
 
 /** בקשת פרטים שאפשר לזהות גם בסוף הודעה ארוכה, לא רק כשהיא כל ההודעה. */

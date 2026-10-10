@@ -18,6 +18,39 @@ export function fillRegistrationText(input: {
     .trim();
 }
 
+export type FlowProductFields = {
+  name: string;
+  price: string;
+  duration: string;
+  sessions: string;
+  link: string;
+};
+
+/** {מוצר} {מחיר} {משך} {מפגשים} {קישור} מהמוצר שנבחר בתיבת המוצר. גם {price} / {duration} / {serviceName} מטקסטים ישנים. */
+export function fillProductText(template: string, product: FlowProductFields | null): string {
+  if (!product) return template;
+  const pairs: Array<[string, string]> = [
+    ["{מוצר}", product.name],
+    ["{serviceName}", product.name],
+    ["{מחיר}", product.price],
+    ["{price}", product.price],
+    ["{משך}", product.duration],
+    ["{duration}", product.duration],
+    ["{מפגשים}", product.sessions],
+    ["{sessions}", product.sessions],
+    ["{קישור}", product.link],
+  ];
+  let out = template;
+  for (const [token, value] of pairs) {
+    if (value.trim()) out = out.replaceAll(token, value.trim());
+  }
+  return out;
+}
+
+export function textUsesProductLink(template: string): boolean {
+  return template.includes("{קישור}");
+}
+
 export function normalizeFlowAnswer(raw: string): string {
   return String(raw ?? "")
     .trim()

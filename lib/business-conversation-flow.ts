@@ -13,9 +13,12 @@ import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
 import { stripModelThoughtLeak } from "@/lib/wa-model-thought-strip";
 import { markContactTrialRegisteredManually } from "@/lib/trial-registered-manual";
 import {
+  fillProductText,
   fillRegistrationText,
   inboundRestartsBusinessFlowFromStart,
   matchQuestionButton,
+  textUsesProductLink,
+  type FlowProductFields,
 } from "@/lib/business-conversation-flow-text";
 import {
   businessOpensSalesFlowOnAnyNewLeadMessage,
@@ -167,10 +170,9 @@ async function sendMessageNode(
   phone: string,
   businessSlug: string,
   sessionId: string,
-  node: FlowNode
+  text: string,
+  media: { url: string; kind: "image" | "video" } | null
 ) {
-  const text = nodeText(node);
-  const media = messageMedia(node.data);
   if (!media) {
     if (text) await sendText(phoneNumberId, phone, businessSlug, sessionId, text);
     return;
@@ -346,6 +348,42 @@ async function weeklySlotsForProduct(
   );
 }
 
+type FlowProduct = FlowProductFields & {
+  description: string;
+  media: { url: string; kind: "image" | "video" } | null;
+};
+
+async function loadFlowProduct(admin: SupabaseClient, businessId: number, slug: string): Promise<FlowProduct | null> {
+  const clean = slug.trim();
+  if (!clean) return null;
+  const { data, error } = await admin
+    .from("services")
+    .select("name, description")
+    .eq("business_id", businessId)
+    .eq("service_slug", clean)
+    .maybeSingle();
+  if (error) {
+    console.error("[business-conversation-flow] product lookup failed:", error.message);
+    return null;
+  }
+  if (!data) return null;
+  const row = data as { name?: unknown; description?: unknown };
+  const meta = serviceMetaFromDescription(row.description);
+  const str = (key: string) => String(meta[key] ?? "").trim();
+  const mediaUrl = str("trial_pick_media_url");
+  return {
+    name: String(row.name ?? "").trim(),
+    price: str("price_text"),
+    duration: str("duration"),
+    sessions: str("course_sessions_count"),
+    link: str("payment_link"),
+    description: str("benefit_line") || str("description_text"),
+    media: mediaUrl.startsWith("https://")
+      ? { url: mediaUrl, kind: str("trial_pick_media_type") === "video" ? "video" : "image" }
+      : null,
+  };
+}
+
 async function productName(admin: SupabaseClient, businessId: number, slug: string): Promise<string> {
   const clean = slug.trim();
   if (!clean) return "";
@@ -484,6 +522,15 @@ async function deliverFrom(input: {
   const seen = new Set<string>();
   let session = input.session;
   let silenceAnchor: string | null = null;
+  const productCache = new Map<string, FlowProduct | null>();
+  const currentProduct = async (): Promise<FlowProduct | null> => {
+    const slug = session.product_slug.trim();
+    if (!slug) return null;
+    if (!productCache.has(slug)) productCache.set(slug, await loadFlowProduct(input.admin, input.businessId, slug));
+    return productCache.get(slug) ?? null;
+  };
+  const filled = async (raw: string): Promise<string> =>
+    raw.includes("{") ? fillProductText(raw, await currentProduct()) : raw;
 
   for (let step = 0; step < MAX_CHAIN && nodeId; step += 1) {
     if (seen.has(nodeId)) break;
@@ -497,7 +544,7 @@ async function deliverFrom(input: {
         input.phone,
         input.businessSlug,
         input.sessionId,
-        nodeText(node),
+        await filled(nodeText(node)),
         questionButtons(node)
       );
       session = armSilence(
@@ -516,7 +563,7 @@ async function deliverFrom(input: {
         input.phone,
         input.businessSlug,
         input.sessionId,
-        nodeText(node) || DETAILS_PROMPT
+        (await filled(nodeText(node))) || DETAILS_PROMPT
       );
       session = armSilence(
         { ...session, current_node_id: node.id, flow_completed: false },
@@ -559,8 +606,29 @@ async function deliverFrom(input: {
       silenceAnchor = node.id;
       const slug = String(node.data.product_slug ?? "").trim();
       session = { ...session, product_slug: slug || session.product_slug, captured_day: "", captured_time: "" };
-      const text = nodeText(node);
-      if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
+      const product = await currentProduct();
+      if (product?.name) {
+        await logMessage({
+          business_slug: input.businessSlug,
+          role: "event",
+          content: `${HEYZOE_SF_SERVICE_PREFIX} ${product.name}`,
+          model_used: "business_conversation_flow",
+          session_id: input.sessionId,
+        });
+      }
+      const ownText = nodeText(node);
+      if (ownText) {
+        await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, await filled(ownText));
+      } else if (product) {
+        await sendMessageNode(
+          input.phoneNumberId,
+          input.phone,
+          input.businessSlug,
+          input.sessionId,
+          fillProductText(product.description, product),
+          product.media
+        );
+      }
       const next = edgeFrom(input.edges, node.id, "out");
       nodeId = next?.target_node_id ?? null;
       continue;
@@ -595,7 +663,23 @@ async function deliverFrom(input: {
 
     silenceAnchor = node.id;
     if (node.type === "message") {
-      await sendMessageNode(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, node);
+      const raw = nodeText(node);
+      await sendMessageNode(
+        input.phoneNumberId,
+        input.phone,
+        input.businessSlug,
+        input.sessionId,
+        await filled(raw),
+        messageMedia(node.data)
+      );
+      if (textUsesProductLink(raw)) {
+        try {
+          const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
+          await markRegistrationCtaClicked({ businessId: input.businessId, phone: input.phone, sessionId: input.sessionId });
+        } catch (e) {
+          console.warn("[business-conversation-flow] markRegistrationCtaClicked failed:", e);
+        }
+      }
     } else {
       const text = nodeText(node);
       if (text) await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, text);
@@ -637,6 +721,32 @@ async function leadStillWaitingToOpenSalesFlow(
   if (!row) return true;
   if (row.trial_registered === true) return false;
   return !String(row.sales_flow_started_at ?? "").trim();
+}
+
+async function contactTrialRegistered(admin: SupabaseClient, businessId: number, phone: string): Promise<boolean> {
+  const variants = contactPhoneLookupVariants(phone);
+  const { data, error } = await admin
+    .from("contacts")
+    .select("trial_registered")
+    .eq("business_id", businessId)
+    .in("phone", variants.length ? variants : [phone])
+    .limit(1);
+  if (error) {
+    console.warn("[business-conversation-flow] registered lookup failed:", error.message);
+    return false;
+  }
+  return (data ?? []).some((row) => (row as { trial_registered?: boolean | null }).trial_registered === true);
+}
+
+async function saveRequestedSlot(admin: SupabaseClient, businessId: number, phone: string, day: string, time: string) {
+  const variants = contactPhoneLookupVariants(phone);
+  if (!variants.length) return;
+  const { error } = await admin
+    .from("contacts")
+    .update({ sf_requested_date: day || null, sf_requested_time: time || null })
+    .eq("business_id", businessId)
+    .in("phone", variants);
+  if (error) console.error("[business-conversation-flow] requested slot save failed:", error.message);
 }
 
 export async function handleBusinessConversationFlowInbound(input: {
@@ -699,6 +809,15 @@ export async function handleBusinessConversationFlowInbound(input: {
     (await leadStillWaitingToOpenSalesFlow(admin, businessId, input.phone));
 
   if (
+    !restartFromStart &&
+    !openFromAnyMessage &&
+    !session?.current_node_id &&
+    (await contactTrialRegistered(admin, businessId, input.phone))
+  ) {
+    return { handled: false };
+  }
+
+  if (
     memberGate === "allow" &&
     (restartFromStart || openFromAnyMessage || !session?.current_node_id)
   ) {
@@ -740,6 +859,11 @@ export async function handleBusinessConversationFlowInbound(input: {
   if (!session || !session.current_node_id) return { handled: false };
   const openSession = session;
 
+  const answerFreeText = async () => {
+    const answer = await answerFreeQuestion(input.businessSlug, input.sessionId, text, input.businessId);
+    await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, answer);
+  };
+
   const current = graph.nodes.find((n) => n.id === openSession.current_node_id);
   if (current?.type === "daytime") {
     const slots = await weeklySlotsForProduct(admin, businessId, session.product_slug);
@@ -749,6 +873,7 @@ export async function handleBusinessConversationFlowInbound(input: {
     );
     const chosen = index >= 0 ? slots[index] : null;
     if (!chosen) {
+      if (text) await answerFreeText();
       await deliverFrom({
         admin,
         businessId,
@@ -764,6 +889,7 @@ export async function handleBusinessConversationFlowInbound(input: {
       return { handled: true };
     }
     session = { ...session, captured_day: chosen.day, captured_time: chosen.time };
+    await saveRequestedSlot(admin, businessId, input.phone, chosen.day, chosen.time);
     await deliverFrom({
       admin,
       businessId,
@@ -816,7 +942,13 @@ export async function handleBusinessConversationFlowInbound(input: {
     return { handled: true };
   }
 
-  if (!current || current.type !== "question") {
+  if (current && current.type !== "question") {
+    if (!text) return { handled: true };
+    await answerFreeText();
+    return { handled: true };
+  }
+
+  if (!current) {
     if (memberGate !== "allow") return { handled: false };
     const start = startNode(graph.nodes, graph.edges);
     if (!start) return { handled: false };
@@ -838,6 +970,7 @@ export async function handleBusinessConversationFlowInbound(input: {
   const buttons = questionButtons(current);
   const index = matchQuestionButton(buttons, text);
   if (index < 0) {
+    if (text) await answerFreeText();
     await deliverFrom({
       admin,
       businessId,

@@ -1225,6 +1225,7 @@ import { FollowupStepPanel } from "./steps/FollowupStepPanel";
 import { LinksStepPanel } from "./steps/LinksStepPanel";
 import { isCrmApiKeyMaskOrEmpty } from "@/lib/crm/crm-api-key-mask";
 import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
+import { businessUsesNodeConversation } from "@/lib/sales-flow-start-triggers";
 
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
@@ -1245,8 +1246,6 @@ const ConversationFlowBuilder = dynamic(() => import("./steps/ConversationFlowBu
     <div className="mx-auto max-w-6xl px-6 py-16 text-center text-sm text-zinc-500">טוען את השיחה…</div>
   ),
 });
-
-const NODE_CONVERSATION_SLUGS = new Set(["pipman-team"]);
 
 const Step4SalesFlow = dynamic(() => import("./steps/Step4SalesFlow"), {
   ssr: false,
@@ -1308,7 +1307,7 @@ export default function SlugSettingsPage({
     conversationSlugRef.current = slug;
     keepConversationMountedRef.current = false;
   }
-  if (step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase())) {
+  if (step === 4 && businessUsesNodeConversation(slug)) {
     keepConversationMountedRef.current = true;
   }
   const [plan, setPlan] = useState<"basic" | "premium">("basic");
@@ -1670,7 +1669,7 @@ export default function SlugSettingsPage({
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
     const parsedStep = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
-    const n = NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) && parsedStep === 5 ? 4 : parsedStep;
+    const n = businessUsesNodeConversation(slug) && parsedStep === 5 ? 4 : parsedStep;
     if (n !== stepRef.current) {
       stepSyncFromUrlRef.current = true;
       setStep(n);
@@ -3379,7 +3378,7 @@ export default function SlugSettingsPage({
     );
   }
 
-  const nodeConversation = NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+  const nodeConversation = businessUsesNodeConversation(slug);
   const isFirst = step === 1;
   const isLast  = nodeConversation ? step >= 4 : step === STEPS.length;
 
@@ -3392,7 +3391,7 @@ export default function SlugSettingsPage({
   }
 
   const wideConversation =
-    step === 4 && NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
+    step === 4 && businessUsesNodeConversation(slug);
 
   return (
     <div className="min-h-[50vh]" dir={dashboardDir(lang)}>
@@ -3604,7 +3603,7 @@ export default function SlugSettingsPage({
             <ConversationFlowBuilder slug={slug} />
           </div>
         ) : null}
-        {step === 4 && !NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase()) ? (
+        {step === 4 && !businessUsesNodeConversation(slug) ? (
           <Step4SalesFlow
             lang={lang}
             planIsStarter={plan === "basic"}

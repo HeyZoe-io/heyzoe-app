@@ -33,6 +33,8 @@ assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("Pipman-Team"), true);
 assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage(yigalSlug), false);
 assert.equal(businessUsesConversationFollowupNodes("pipman-team"), true);
 assert.equal(businessUsesConversationFollowupNodes(yigalSlug), false);
+assert.equal(businessUsesConversationFollowupNodes("acrobyjoe"), true);
+assert.equal(businessOpensSalesFlowOnAnyNewLeadMessage("acrobyjoe"), false);
 assert.equal(businessStartsSalesFlowOnHi({ slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("היי", { slug: yigalSlug }), false);
 assert.equal(isSalesFlowStartTrigger("שלום", { slug: yigalSlug }), false);
