@@ -211,6 +211,7 @@ import {
   assistantConfirmedExistingBooking,
   ensureOpeningServiceListPickBridge,
   isAffirmativeCatalogFamilyConfirm,
+  isCatalogFamilyPendingModel,
   looksLikeOutOfFlowCatalogClassPick,
   resolveAmbiguousCatalogFamilyNames,
   resolveCatalogFamilyPickNames,
@@ -324,6 +325,7 @@ import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
   buildLeadDayTrialOfferReply,
   classifyLeadDayTrialFollowup,
+  isLeadDayTrialOfferPending,
   explicitChoiceReply,
   explicitClassChoiceApplies,
   LEAD_DAY_TRIAL_DECLINE_REPLY,
@@ -533,12 +535,25 @@ import {
   shouldReaskFindClassBridge,
 } from "@/lib/wa-interest-find-class";
 import {
+  appendOfferReask,
+  decideOfferReply,
+  extractOfferReply,
+  keywordFallbackOfferReply,
+  offerReplyApplies,
+  offerReplyPromptLine,
+  resolvePendingOffer,
+  type ExtractedOfferReply,
+  type PendingOffer,
+} from "@/lib/wa-offer-reply";
+import {
   trialSignupAckForInbound,
   TRIAL_SIGNUP_INTENT_ACK_MODEL,
 } from "@/lib/wa-trial-signup-intent";
 import {
+  isExactTryClassOfferYes,
   isTryClassOfferAffirmative,
   isTryClassOfferNegative,
+  isTryClassOfferPendingModel,
   matchesTryClassIntent,
   resolveTryClassOfferLang,
   shouldDeclineTryClassOffer,
@@ -4153,7 +4168,7 @@ async function maybeHandleLeadDayTrialTurn(input: {
     }
   }
 
-  if (lastModel === LEAD_DAY_TRIAL_OFFER_MODEL) {
+  if (isLeadDayTrialOfferPending(lastModel)) {
     const follow = classifyLeadDayTrialFollowup(text);
     if (follow === "no") {
       try {
@@ -8542,6 +8557,7 @@ async function processIncoming(
           lastAssistantModel: lastAssistForTryOffer,
           lastAssistantContent: lastAssistContentForTryOffer,
         }) &&
+        isExactTryClassOfferYes(msg.text) &&
         !detectClosedPlaybookIntent(msg.text)
       ) {
       if (!(await memberBlocksNewSalesFlow())) {
@@ -8581,7 +8597,7 @@ async function processIncoming(
       });
       return;
     }
-    if (inboundTry) {
+    if (inboundTry && !isTryClassOfferPendingModel(lastAssistForTryOffer)) {
       const salesFlowStartedForTryOffer = await sessionHasSalesFlowGreeting(business_slug, sessionId);
       if (
         shouldSendTryClassInfoOffer({
@@ -11053,7 +11069,7 @@ async function processIncoming(
       if (
         !exactLabelPick &&
         !catalogTyped &&
-        lastAssistForWarmupPriority === CATALOG_FAMILY_PICK_MODEL &&
+        isCatalogFamilyPendingModel(lastAssistForWarmupPriority) &&
         isAffirmativeCatalogFamilyConfirm(resolved)
       ) {
         const recentForFamilyYes = await fetchRecentSessionMessages({
@@ -13575,6 +13591,8 @@ async function processIncoming(
         });
 
   let replyCore: string;
+  let pendingOfferTurn: PendingOffer | null = null;
+  let offerReplyParsed: ExtractedOfferReply = { reply: null, status: "missing", body: "" };
   let replyErrorCode: string | null = null;
   let isFallbackErrorReply = false;
   let didCallClaude = false;
@@ -14179,10 +14197,38 @@ async function processIncoming(
         lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n\n${hintLine}`;
       }
     }
+    pendingOfferTurn = null;
+    if (offerReplyApplies({ interactiveId: msg.metaInteractiveReplyId })) {
+      const [offerModels, offerContent] = await Promise.all([
+        fetchRecentAssistantModels({
+          business_slug,
+          session_id: sessionId,
+          limit: 6,
+        }),
+        fetchLastAssistantMessageContent({
+          business_slug,
+          session_id: sessionId,
+          skipInternal: true,
+        }),
+      ]);
+      pendingOfferTurn = resolvePendingOffer({
+        modelsNewestFirst: offerModels,
+        lastAssistantContent: offerContent,
+      });
+    }
     {
       const lastTurn = claudeMessages[claudeMessages.length - 1];
       if (lastTurn && lastTurn.role === "user") {
         lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n\nהשורה הראשונה בתשובתך חייבת להיות [[route:X]] ורק אחריה הטקסט ללקוחה.`;
+      }
+    }
+    const claudeOfferMessages = pendingOfferTurn
+      ? claudeMessages.map((turn) => ({ role: turn.role, content: turn.content }))
+      : claudeMessages;
+    if (pendingOfferTurn) {
+      const lastTurn = claudeOfferMessages[claudeOfferMessages.length - 1];
+      if (lastTurn && lastTurn.role === "user") {
+        lastTurn.content = `${String(lastTurn.content ?? "").trim()}\n${offerReplyPromptLine(pendingOfferTurn.summary)}`;
       }
     }
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
@@ -14195,7 +14241,7 @@ async function processIncoming(
         client.messages.create({
           ...generationParams,
           system: systemPrompt,
-          messages: claudeMessages,
+          messages: claudeOfferMessages,
         });
       const runGemini = async () => {
         const geminiApiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ?? "";
@@ -14333,6 +14379,8 @@ async function processIncoming(
     return true;
   };
   if (!isFallbackErrorReply && didCallClaude && !matched?.reply) {
+    offerReplyParsed = extractOfferReply(replyCore);
+    replyCore = offerReplyParsed.body;
     waReplyRoute = extractReplyRoute(replyCore);
     replyCore = waReplyRoute.body;
     if (
@@ -15126,6 +15174,229 @@ async function processIncoming(
       });
       return;
     }
+    if (
+      pendingOfferTurn &&
+      didCallClaude &&
+      !isFallbackErrorReply &&
+      !matched?.reply &&
+      msg.type === "text" &&
+      offerReplyApplies({ interactiveId: msg.metaInteractiveReplyId })
+    ) {
+      const offerDecision = decideOfferReply({
+        status: offerReplyParsed.status,
+        reply: offerReplyParsed.reply,
+        pending: pendingOfferTurn,
+        fallback: keywordFallbackOfferReply({
+          path: pendingOfferTurn.path,
+          route: waReplyRoute.route,
+          inbound: msg.text,
+        }),
+      });
+      const sendOfferText = async (text: string, model: string | null) => {
+        const outbound = String(text ?? "").trim();
+        if (!outbound || !model) return;
+        if (await suppressIfSimilarToLastAssistant(outbound)) return;
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] offer reply send failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: outbound,
+          model_used: appendRouteToModelUsed(model, waReplyRoute, fastPathHint?.category),
+          session_id: sessionId,
+        });
+      };
+      const holdModel = pendingOfferTurn.alreadyReasked
+        ? pendingOfferTurn.reaskHoldModel
+        : pendingOfferTurn.holdModel;
+      if (offerDecision.action === "decline") {
+        await sendOfferText(
+          waReplyRoute.body.trim() || pendingOfferTurn.declineText,
+          offerDecision.logModel
+        );
+        return;
+      }
+      if (offerDecision.action === "reask" || offerDecision.action === "answer" || offerDecision.action === "keep") {
+        const answer =
+          pendingOfferTurn.path === "find_class"
+            ? resolveInterestQuestionAnswer({
+                inbound: msg.text,
+                claudeBody: waReplyRoute.body,
+                services: salesFlowServices.map((service) => ({
+                  name: service.name,
+                  priceText: service.priceText,
+                })),
+                address: String(knowledge?.addressText ?? ""),
+              })
+            : waReplyRoute.body;
+        const outbound =
+          offerDecision.action === "reask"
+            ? pendingOfferTurn.path === "find_class"
+              ? composeFindClassOffer(
+                  answer,
+                  resolveFindClassLang(msg.text, resolveBusinessContentLanguageFromKnowledge(knowledge))
+                )
+              : appendOfferReask(answer, pendingOfferTurn.summary)
+            : answer;
+        await sendOfferText(outbound, offerDecision.logModel);
+        return;
+      }
+      const memberOrRegistered =
+        contactArboxIsMember === true ||
+        contactTrialRegistered === true ||
+        contactSessionPhase === "registered" ||
+        (await memberBlocksNewSalesFlow());
+      const openFindOrTry =
+        (pendingOfferTurn.path === "find_class" || pendingOfferTurn.path === "try_class") &&
+        !memberOrRegistered &&
+        !salesFlowOpenThisTurn &&
+        businessId &&
+        knowledge?.salesFlowConfig;
+      if (openFindOrTry && knowledge?.salesFlowConfig && businessId) {
+        try {
+          await beginSalesFlowAtProductPick({
+            entryModel: appendRouteToModelUsed(
+              SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+              waReplyRoute,
+              fastPathHint?.category
+            ),
+            entryContent: "[heyzoe:signup_intent_flow_entry]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            allowTrialCta: true,
+            preambleText:
+              pendingOfferTurn.path === "try_class" ? trialSignupAckForInbound(msg.text) : undefined,
+            familyPickText: msg.text,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] offer accept → product pick failed:", e);
+        }
+        return;
+      }
+      if (
+        pendingOfferTurn.path === "lead_day_trial" &&
+        !memberOrRegistered &&
+        businessId &&
+        knowledge?.salesFlowConfig
+      ) {
+        try {
+          await beginSalesFlowAtProductPick({
+            entryModel: LEAD_DAY_TRIAL_OFFER_MODEL,
+            entryContent: "[heyzoe:lead_day_trial]",
+            knowledge,
+            salesFlowServices,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            blockTrialPickMedia: starterBlocksMedia,
+            resetState: true,
+            logEntry: false,
+            allowTrialCta: true,
+            familyPickText: msg.text,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] lead-day offer accept failed:", e);
+        }
+        return;
+      }
+      if (
+        pendingOfferTurn.path === "catalog_family" &&
+        !memberOrRegistered &&
+        businessId &&
+        knowledge?.salesFlowConfig
+      ) {
+        const recentForOffer = await fetchRecentSessionMessages({
+          business_slug,
+          session_id: sessionId,
+          limit: 12,
+        });
+        const prevUser = previousUserTextFromHistory({
+          currentText: msg.text,
+          userMessagesOldestFirst: recentForOffer
+            .filter((turn) => turn.role === "user")
+            .map((turn) => turn.content),
+        });
+        const prevUnique = matchCatalogServiceFromFreeText(prevUser, salesFlowServices);
+        if (prevUnique) {
+          try {
+            await beginSalesFlowAtProductPick({
+              entryModel: appendRouteToModelUsed(
+                SIGNUP_INTENT_FLOW_ENTRY_MODEL,
+                waReplyRoute,
+                fastPathHint?.category
+              ),
+              entryContent: "[heyzoe:signup_intent_flow_entry]",
+              knowledge,
+              salesFlowServices,
+              msg,
+              accountSid,
+              authToken,
+              supabase,
+              businessId,
+              business_slug,
+              sessionId,
+              blockTrialPickMedia: starterBlocksMedia,
+              resetState: false,
+              logEntry: false,
+              allowTrialCta: true,
+              familyPickText: prevUser,
+            });
+          } catch (e) {
+            console.error("[WA Webhook] catalog offer accept failed:", e);
+          }
+          return;
+        }
+      }
+      if (
+        pendingOfferTurn.path === "service_repick" &&
+        contactSessionPhase === "cta" &&
+        salesFlowServices.length > 1 &&
+        Boolean(lastPickedServiceName?.trim()) &&
+        Boolean(contactScheduleRequestedDate || contactScheduleRequestedTime) &&
+        businessId &&
+        knowledge?.salesFlowConfig
+      ) {
+        const phoneVariants = contactPhoneLookupVariants(msg.from);
+        await supabase
+          .from("contacts")
+          .update(salesFlowOpeningResetPatch())
+          .eq("business_id", businessId)
+          .in("phone", phoneVariants.length ? phoneVariants : [msg.from]);
+        contactSessionPhase = "opening";
+        contactFlowStep = 0;
+        contactScheduleRequestedDate = "";
+        contactScheduleRequestedTime = "";
+        await sendOpeningServicePickMenu({
+          knowledge,
+          salesFlowServices,
+          msg,
+          accountSid,
+          authToken,
+          business_slug,
+          sessionId,
+          blockMedia: starterBlocksMedia,
+          skipScheduleBoard: true,
+        });
+        return;
+      }
+      await sendOfferText(waReplyRoute.body, holdModel);
+      return;
+    }
     let heldSalesFlowForQuestion = false;
     if (
       findClassOfferGateOpen({
@@ -15148,6 +15419,7 @@ async function processIncoming(
       });
       let reaskPending = false;
       if (
+        !pendingOfferTurn &&
         !offerNow &&
         shouldReaskFindClassBridge({ route: waReplyRoute.route, inbound: msg.text }) &&
         looksLikeLeadQuestion(msg.text)
@@ -15216,14 +15488,16 @@ async function processIncoming(
           sessionId,
         });
       }
-      const startFlow = interestRouteOpensFlow({
-        explicitSignup,
-        flowOpen: salesFlowOpenThisTurn,
-        heldForQuestion: heldSalesFlowForQuestion,
-        arboxIsMember: contactArboxIsMember,
-        trialRegistered: contactTrialRegistered,
-        sessionPhase: contactSessionPhase,
-      });
+      const startFlow =
+        !pendingOfferTurn &&
+        interestRouteOpensFlow({
+          explicitSignup,
+          flowOpen: salesFlowOpenThisTurn,
+          heldForQuestion: heldSalesFlowForQuestion,
+          arboxIsMember: contactArboxIsMember,
+          trialRegistered: contactTrialRegistered,
+          sessionPhase: contactSessionPhase,
+        });
       if (startFlow) {
         const preamble = interestFlowPreamble(
           msg.text,
