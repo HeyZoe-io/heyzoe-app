@@ -323,10 +323,13 @@ import { resolveNextOccurrence } from "@/lib/israel-time";
 import {
   buildLeadDayTrialOfferReply,
   classifyLeadDayTrialFollowup,
+  explicitChoiceReply,
+  explicitClassChoiceApplies,
   LEAD_DAY_TRIAL_DECLINE_REPLY,
   LEAD_DAY_TRIAL_DECLINED_MODEL,
   LEAD_DAY_TRIAL_OFFER_MODEL,
   pendingLeadDayFromRecentMessages,
+  resolveExplicitClassChoice,
   resolveLeadDayTrialAsk,
   upcomingSlotsOnDay,
 } from "@/lib/wa-lead-day-trial";
@@ -4183,6 +4186,36 @@ async function maybeHandleLeadDayTrialTurn(input: {
       });
       return true;
     }
+    const namedChoice = resolveExplicitClassChoice({
+      text,
+      services: input.salesFlowServices,
+      now: input.now,
+    });
+    if (namedChoice.kind === "unique") {
+      const selected =
+        input.salesFlowServices.find((service) => service.name === namedChoice.slot.serviceName) ?? null;
+      await openPickedScheduleSlot({
+        knowledge,
+        selectedService: selected,
+        salesFlowServices: input.salesFlowServices,
+        dateTxt: namedChoice.slot.dayName,
+        timeTxt: namedChoice.slot.time,
+        msg: input.msg,
+        accountSid: input.accountSid,
+        authToken: input.authToken,
+        supabase: input.supabase,
+        businessId,
+        business_slug: input.business_slug,
+        sessionId: input.sessionId,
+        trialRegistered: input.contactTrialRegistered,
+        allowTrialCta: input.allowTrialCta,
+        sfConsumedKinds: input.sfConsumedKinds,
+        arboxApiKey: input.arboxApiKey,
+        arboxBoxId: input.arboxBoxId,
+        now: input.now,
+      });
+      return true;
+    }
     const named = matchCatalogServicesFromFreeText(text, input.salesFlowServices);
     if (named.length === 1) {
       const phase = await commitImplicitServiceSwitch({
@@ -4220,32 +4253,8 @@ async function maybeHandleLeadDayTrialTurn(input: {
     }
   }
 
-  const day = resolveLeadDayTrialAsk({
-    text,
-    arboxIsMember: input.contactArboxIsMember,
-    trialRegistered: input.contactTrialRegistered,
-    now: input.now,
-  });
-  if (!day) return false;
-  const reply = buildLeadDayTrialOfferReply({
-    day,
-    services: input.salesFlowServices,
-    now: input.now,
-  });
-  if (!reply) return false;
-  try {
-    await sendWhatsAppMessage(input.msg.toNumber, input.msg.from, reply, input.accountSid, input.authToken);
-  } catch (e) {
-    console.error("[WA Webhook] lead day trial offer send failed:", e);
-  }
-  await logMessage({
-    business_slug: input.business_slug,
-    role: "assistant",
-    content: reply,
-    model_used: LEAD_DAY_TRIAL_OFFER_MODEL,
-    session_id: input.sessionId,
-  });
-  return true;
+  // A day or a named slot is a hint. Claude's route decides; this function no longer sends the full list.
+  return false;
 }
 
 async function fetchPendingLeadDayTrialDay(input: {
@@ -8307,6 +8316,17 @@ async function processIncoming(
     customerPreClaude: {
       if (!preClaudeReason && msg.type === "text") {
         fastPathHint = collectPreClaudeHint(msg.text);
+        if (
+          !fastPathHint &&
+          (resolveLeadDayTrialAsk({
+            text: msg.text,
+            arboxIsMember: contactArboxIsMember,
+            trialRegistered: contactTrialRegistered,
+          }) ||
+            resolveExplicitClassChoice({ text: msg.text, services: salesFlowServices }).kind !== "none")
+        ) {
+          fastPathHint = { matcher: "trial_slot", category: "trial_slot" };
+        }
         skippedPreClaude = true;
         break customerPreClaude;
       }
@@ -9513,11 +9533,95 @@ async function processIncoming(
     }
 
     const inboundForDaySlots = msg.text.trim();
+    const namedClassOnOffer = matchCatalogServicesFromFreeText(inboundForDaySlots, salesFlowServices);
+    const pendingClassDay =
+      inboundForDaySlots.length <= 48 && knowledge && businessId
+        ? await fetchPendingLeadDayTrialDay({ supabase, business_slug, sessionId })
+        : null;
+    const pendingClassChoice = pendingClassDay
+      ? resolveExplicitClassChoice({
+          text: inboundForDaySlots,
+          services: salesFlowServices.map((service) => ({
+            name: service.name,
+            scheduleSlots: (service.scheduleSlots ?? []).filter((slot) => slot.day === pendingClassDay),
+          })),
+          now: new Date(nowIso),
+        })
+      : null;
+    const bareClassChoice =
+      pendingClassChoice?.kind === "unique" ||
+      pendingClassChoice?.kind === "ambiguous" ||
+      pendingClassChoice?.kind === "missing"
+        ? null
+        : inboundForDaySlots.length <= 40
+          ? resolveExplicitClassChoice({
+              text: inboundForDaySlots,
+              services: salesFlowServices,
+              now: new Date(nowIso),
+            })
+          : null;
+    const classReplyChoice =
+      pendingClassChoice?.kind === "unique" ||
+      pendingClassChoice?.kind === "ambiguous" ||
+      pendingClassChoice?.kind === "missing"
+        ? pendingClassChoice
+        : bareClassChoice?.kind === "unique" || bareClassChoice?.kind === "ambiguous"
+          ? bareClassChoice
+          : null;
+    if (classReplyChoice?.kind === "unique" && knowledge && businessId) {
+      const selected =
+        salesFlowServices.find((service) => service.name === classReplyChoice.slot.serviceName) ?? null;
+      await openPickedScheduleSlot({
+        knowledge,
+        selectedService: selected,
+        salesFlowServices,
+        dateTxt: classReplyChoice.slot.dayName,
+        timeTxt: classReplyChoice.slot.time,
+        msg,
+        accountSid,
+        authToken,
+        supabase,
+        businessId,
+        business_slug,
+        sessionId,
+        trialRegistered: contactTrialRegistered,
+        allowTrialCta: allowTrialCtaThisSession,
+        sfConsumedKinds: sfClickedCtaKinds,
+        arboxApiKey: crmApiKey,
+        arboxBoxId: crmBoxId,
+        now: new Date(nowIso),
+      });
+      return;
+    }
+    if ((classReplyChoice?.kind === "ambiguous" || classReplyChoice?.kind === "missing") && knowledge) {
+      const reply = explicitChoiceReply({
+        choice: classReplyChoice,
+        addressingMode: resolveWaReplyAddressingMode(knowledge),
+        hasTrialSignup: Boolean(knowledge.salesFlowConfig),
+      });
+      if (reply.action === "text") {
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, reply.text, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] explicit class choice question failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: reply.text,
+          model_used: "explicit_class_choice",
+          session_id: sessionId,
+        });
+        return;
+      }
+    }
     // Tights: a day plus a question mark is not precise enough to send the timetable.
     // Only an explicit schedule phrase skips Claude. Anything else waits for the route tag.
     const tightsDefersBroadTimetable =
       scheduleTimesReplyUsesImage(business_slug) && !isExplicitTimetableRequest(inboundForDaySlots);
     const shouldCheckRelativeDaySlots =
+      namedClassOnOffer.length !== 1 &&
+      classReplyChoice == null &&
       !tightsDefersBroadTimetable &&
       shouldAnswerFromClassTimetable(inboundForDaySlots) &&
       (parseRequestedClassDays(inboundForDaySlots).length > 0 ||
@@ -14494,6 +14598,114 @@ async function processIncoming(
   }
 
   if (!isFallbackErrorReply && didCallClaude && !matched?.reply && knowledge) {
+    if (msg.type === "text" && !matchesBookedClassMoveIntent(msg.text)) {
+      const classChoice = resolveExplicitClassChoice({
+        text: msg.text,
+        services: salesFlowServices,
+        now: new Date(nowIso),
+      });
+      const routeName = waReplyRoute.route;
+      const trialAsk = Boolean(
+        resolveLeadDayTrialAsk({
+          text: msg.text,
+          arboxIsMember: contactArboxIsMember,
+          trialRegistered: contactTrialRegistered,
+          now: new Date(nowIso),
+        })
+      );
+      if (
+        explicitClassChoiceApplies({
+          route: routeName,
+          choice: classChoice,
+          trialAsk,
+          hintCategory: fastPathHint?.category,
+          text: msg.text,
+        })
+      ) {
+        const plan = explicitChoiceReply({
+          choice: classChoice,
+          addressingMode: resolveWaReplyAddressingMode(knowledge),
+          hasTrialSignup: Boolean(knowledge.salesFlowConfig || knowledge.ctaLink?.trim()),
+        });
+        if (plan.action === "confirm" && businessId) {
+          const selected =
+            salesFlowServices.find((service) => service.name === plan.slot.serviceName) ?? null;
+          await openPickedScheduleSlot({
+            knowledge,
+            selectedService: selected,
+            salesFlowServices,
+            dateTxt: plan.slot.dayName,
+            timeTxt: plan.slot.time,
+            msg,
+            accountSid,
+            authToken,
+            supabase,
+            businessId,
+            business_slug,
+            sessionId,
+            trialRegistered: contactTrialRegistered,
+            allowTrialCta: allowTrialCtaThisSession,
+            sfConsumedKinds: sfClickedCtaKinds,
+            arboxApiKey: crmApiKey,
+            arboxBoxId: crmBoxId,
+            now: new Date(nowIso),
+          });
+          return;
+        }
+        if (plan.action === "text") {
+          if (plan.text.includes("עוברת לצוות") && businessId) {
+            try {
+              const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+              await handleLeadHumanRequested({
+                supabase,
+                businessId: Number(businessId),
+                businessSlug: business_slug,
+                phone: msg.from,
+                nowIso,
+                sessionId,
+              });
+            } catch (e) {
+              console.error("[WA Webhook] explicit class choice handoff failed:", e);
+            }
+          }
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, plan.text, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] explicit class choice send failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: plan.text,
+            model_used: appendRouteToModelUsed("explicit_class_choice", waReplyRoute, fastPathHint?.category),
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
+      if (classChoice.kind === "day_only" && routeName === "schedule") {
+        const dayList = buildLeadDayTrialOfferReply({
+          day: classChoice.day,
+          services: salesFlowServices,
+          now: new Date(nowIso),
+        });
+        if (dayList) {
+          try {
+            await sendWhatsAppMessage(msg.toNumber, msg.from, dayList, accountSid, authToken);
+          } catch (e) {
+            console.error("[WA Webhook] day trial list send failed:", e);
+          }
+          await logMessage({
+            business_slug,
+            role: "assistant",
+            content: dayList,
+            model_used: appendRouteToModelUsed(LEAD_DAY_TRIAL_OFFER_MODEL, waReplyRoute, fastPathHint?.category),
+            session_id: sessionId,
+          });
+          return;
+        }
+      }
+    }
     const routeAction = decideReplyRouteAction({
       extracted: waReplyRoute,
       scheduleImageEnabled: scheduleTimesReplyUsesImage(business_slug),

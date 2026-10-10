@@ -11,10 +11,13 @@ import {
 } from "@/lib/product-schedule-slots";
 import { matchesBookedClassMoveIntent } from "@/lib/wa-registration-intent";
 import { modelUsedBase } from "@/lib/wa-reply-route";
+import type { WaReplyAddressingMode } from "@/lib/wa-assistant-reply-fixes";
 import {
   declinedClassDayLetters,
   looksLikeHolidayClassScheduleAsk,
+  matchCatalogServicesFromFreeText,
   parseRequestedClassDays,
+  parseRequestedTimes,
 } from "@/lib/wa-unknown-class-slot";
 
 export const LEAD_DAY_TRIAL_OFFER_MODEL = "lead_day_trial_offer";
@@ -149,6 +152,197 @@ export function parseLeadDayTrialOfferDay(content: string): IsraelDayLetter | nu
     ] as const
   ).find(([label]) => label === name)?.[1];
   return letter ?? null;
+}
+
+export type ExplicitClassSlot = {
+  day: IsraelDayLetter;
+  dayName: string;
+  time: string;
+  serviceName: string;
+};
+
+export type ExplicitClassChoice =
+  | { kind: "none" }
+  | { kind: "day_only"; day: IsraelDayLetter; dayName: string }
+  | { kind: "unique"; slot: ExplicitClassSlot }
+  | { kind: "ambiguous"; slots: ExplicitClassSlot[] }
+  | { kind: "missing"; day: IsraelDayLetter | null; dayName: string; time: string | null; nearest: ExplicitClassSlot[] };
+
+function slotTimeKey(raw: string): string {
+  const match = String(raw ?? "").trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return "";
+  return `${String(Number(match[1])).padStart(2, "0")}:${match[2]}`;
+}
+
+function looseServiceNames(text: string, services: readonly LeadDayTrialService[]): string[] {
+  const catalog = matchCatalogServicesFromFreeText(text, services.map((service) => ({ name: service.name })));
+  if (catalog.length) return catalog;
+  const folded = String(text ?? "")
+    .toLowerCase()
+    .replace(/&/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!folded || folded.length > 40) return [];
+  const hits = services.filter((service) => {
+    const name = String(service.name ?? "")
+      .toLowerCase()
+      .replace(/&/g, " ")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return Boolean(name) && (folded === name || folded.includes(name));
+  });
+  return [...new Set(hits.map((service) => service.name))];
+}
+
+function allUpcomingSlots(services: readonly LeadDayTrialService[], now: Date): ExplicitClassSlot[] {
+  const out: ExplicitClassSlot[] = [];
+  for (const service of services) {
+    const name = String(service.name ?? "").trim();
+    if (!name) continue;
+    const days = [...new Set((service.scheduleSlots ?? []).map((slot) => String(slot.day ?? "").trim()))];
+    for (const day of days) {
+      if (!day) continue;
+      for (const slot of upcomingSlotsOnDay(service.scheduleSlots ?? [], day as IsraelDayLetter, now)) {
+        const time = slotTimeKey(slot.time);
+        if (!time) continue;
+        out.push({
+          day: day as IsraelDayLetter,
+          dayName: formatDayNameForScheduleDatePlaceholder(day as IsraelDayLetter),
+          time,
+          serviceName: name,
+        });
+      }
+    }
+  }
+  const seen = new Set<string>();
+  return out.filter((slot) => {
+    const key = `${slot.day}|${slot.time}|${slot.serviceName}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function minutesOf(time: string): number {
+  const [hour, minute] = time.split(":");
+  return Number(hour) * 60 + Number(minute);
+}
+
+/**
+ * A named day+time and/or class, checked against the timetable.
+ * A class-name reply can use the previous message for the day and time.
+ */
+export function resolveExplicitClassChoice(input: {
+  text: string;
+  services: readonly LeadDayTrialService[];
+  now?: Date;
+  priorText?: string | null;
+}): ExplicitClassChoice {
+  const now = input.now ?? new Date();
+  const text = String(input.text ?? "").trim();
+  const prior = String(input.priorText ?? "").trim();
+  if (!text) return { kind: "none" };
+  const names = looseServiceNames(text, input.services);
+  const ownTimes = parseRequestedTimes(text).map(slotTimeKey).filter(Boolean);
+  const ownDays = parseRequestedClassDays(text, now);
+  const times = ownTimes.length ? ownTimes : names.length && prior ? parseRequestedTimes(prior).map(slotTimeKey).filter(Boolean) : [];
+  const days = ownDays.length ? ownDays : names.length && prior ? parseRequestedClassDays(prior, now) : [];
+  if (!names.length && !times.length) {
+    if (days.length === 1 && /ניסיון|נסיון|שיעור|אימון/u.test(text)) {
+      return { kind: "day_only", day: days[0]!, dayName: formatDayNameForScheduleDatePlaceholder(days[0]!) };
+    }
+    return { kind: "none" };
+  }
+  const pool = allUpcomingSlots(input.services, now).filter((slot) => {
+    if (days.length && !days.includes(slot.day)) return false;
+    if (names.length && !names.includes(slot.serviceName)) return false;
+    if (times.length && !times.includes(slot.time)) return false;
+    return true;
+  });
+  if (pool.length === 1) return { kind: "unique", slot: pool[0]! };
+  if (pool.length > 1) return { kind: "ambiguous", slots: pool.slice(0, 4) };
+  const day = days[0] ?? null;
+  const nearest = allUpcomingSlots(input.services, now)
+    .filter((slot) => !day || slot.day === day)
+    .filter((slot) => !names.length || names.includes(slot.serviceName))
+    .sort((a, b) => {
+      const target = times[0] ? minutesOf(times[0]) : minutesOf(a.time);
+      return Math.abs(minutesOf(a.time) - target) - Math.abs(minutesOf(b.time) - target);
+    })
+    .slice(0, 3);
+  return {
+    kind: "missing",
+    day,
+    dayName: day ? formatDayNameForScheduleDatePlaceholder(day) : "",
+    time: times[0] ?? null,
+    nearest,
+  };
+}
+
+const CHOICE_OVERRIDE_ROUTES = new Set(["schedule", "signup", "booking_change", "booking_change_trial"]);
+const CHOICE_BLOCKED_ROUTES = new Set(["class_move", "class_move_member", "class_move_trial", "personal"]);
+
+function looksLikeClassCancel(text: string): boolean {
+  return /לבטל|תבטל|לא אגיע|תורידו אותי|ביטול/u.test(text);
+}
+
+/** A slot choice replaces Claude's text only when the route asked for a schedule or signup, or the message itself is a trial slot and not a cancellation. */
+export function explicitClassChoiceApplies(input: {
+  route: string | null;
+  choice: ExplicitClassChoice;
+  trialAsk: boolean;
+  hintCategory?: string | null;
+  text?: string;
+}): boolean {
+  if (input.route && CHOICE_BLOCKED_ROUTES.has(input.route)) return false;
+  if (input.choice.kind !== "unique" && input.choice.kind !== "ambiguous" && input.choice.kind !== "missing") {
+    return false;
+  }
+  if (looksLikeClassCancel(String(input.text ?? ""))) return false;
+  if (input.hintCategory === "trial_slot" || input.trialAsk) return true;
+  return input.route != null && CHOICE_OVERRIDE_ROUTES.has(input.route);
+}
+
+export function explicitChoiceReply(input: {
+  choice: ExplicitClassChoice;
+  addressingMode?: WaReplyAddressingMode;
+  hasTrialSignup: boolean;
+}): { action: "confirm"; slot: ExplicitClassSlot } | { action: "text"; text: string } | { action: "none" } {
+  const choice = input.choice;
+  if (choice.kind === "none" || choice.kind === "day_only") return { action: "none" };
+  if (choice.kind === "unique") {
+    if (!input.hasTrialSignup) {
+      const slot = choice.slot;
+      return {
+        action: "text",
+        text: `תודה, הבקשה ל${slot.serviceName} ביום ${slot.dayName} ב-${slot.time} עוברת לצוות 💜`,
+      };
+    }
+    return { action: "confirm", slot: choice.slot };
+  }
+  const join =
+    input.addressingMode === "feminine"
+      ? "תרצי אחד מהם?"
+      : input.addressingMode === "plural"
+        ? "מה מתאים לכם?"
+        : "מה מתאים?";
+  if (choice.kind === "ambiguous") {
+    const sameTime = new Set(choice.slots.map((slot) => `${slot.day}|${slot.time}`)).size === 1;
+    const first = choice.slots[0]!;
+    const list = sameTime
+      ? choice.slots.map((slot) => slot.serviceName).join(", ")
+      : choice.slots.map((slot) => `${slot.time} ${slot.serviceName}`).join(", ");
+    const when = sameTime ? `ביום ${first.dayName} ב-${first.time}` : `ביום ${first.dayName}`;
+    return { action: "text", text: `${when} יש ${list}. ${join}` };
+  }
+  const when = [choice.dayName ? `ביום ${choice.dayName}` : "", choice.time ? `ב-${choice.time}` : ""]
+    .filter(Boolean)
+    .join(" ");
+  const near = choice.nearest.map((slot) => `${slot.time} ${slot.serviceName}`).join(", ");
+  const head = when ? `${when} אין אימון במועד הזה.` : "אין אימון במועד הזה.";
+  return { action: "text", text: near ? `${head} קרוב לזה: ${near}. ${join}` : `${head} ${join}` };
 }
 
 /** ההצעה האחרונה עדיין פתוחה אם לא הייתה אחריה ברכה או סירוב. */
