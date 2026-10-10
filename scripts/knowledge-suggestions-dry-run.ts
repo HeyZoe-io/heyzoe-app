@@ -15,6 +15,7 @@ const REVIEW_REASONS: KnowledgeReviewReason[] = [
   "one-off favor or private",
   "single lead",
   "already covered",
+  "not grounded",
   "other",
 ];
 
@@ -91,7 +92,14 @@ function writeReview(built: { reviews: KnowledgePairReview[]; pairs: number }): 
 async function main(): Promise<void> {
   if (!process.env.ANTHROPIC_API_KEY?.trim()) throw new Error("missing_anthropic_key");
   const admin = createSupabaseAdminClient();
-  const built = await buildKnowledgeUpdates({ admin, persist: false, review: true, budgetUsd: 1 });
+  const replacePending = process.argv.includes("--replace-pending");
+  const built = await buildKnowledgeUpdates({
+    admin,
+    persist: false,
+    review: true,
+    budgetUsd: 1,
+    replacePending,
+  });
   const byBusiness = new Map<string, typeof built.suggestions>();
   for (const row of built.suggestions) {
     const list = byBusiness.get(row.slug) ?? [];

@@ -77,8 +77,17 @@ export function isoWeekKey(now: Date): string {
   return `${utc.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+/** The first owner message has to mention the question. A later message cannot replace it. */
+export function ownerReplyAddressesQuestion(question: string, reply: string): boolean {
+  const tokens = topicTokens(question);
+  if (!tokens.length) return true;
+  const hay = reply.toLowerCase();
+  return tokens.some((token) => hay.includes(token));
+}
+
 export function pairHandoffWithOwnerReply(input: {
   eventAt: number;
+  question?: string;
   replies: Array<{ at: number; text: string }>;
   windowMs?: number;
 }): string | null {
@@ -91,6 +100,7 @@ export function pairHandoffWithOwnerReply(input: {
     .sort((a, b) => a.at - b.at);
   if (!hit.length) return null;
   const first = hit[0]!;
+  if (input.question && !ownerReplyAddressesQuestion(input.question, first.text)) return null;
   const burstEnd = first.at + 2 * 60 * 60 * 1000;
   return hit
     .filter((reply) => reply.at <= burstEnd)
@@ -132,6 +142,19 @@ const COVERAGE_STOP = new Set([
   "הם",
   "אני",
   "אנחנו",
+  "אליך",
+  "אותך",
+  "אליי",
+  "אלי",
+  "שלך",
+  "שלי",
+  "לך",
+  "לנו",
+  "אותי",
+  "אותו",
+  "אותה",
+  "היי",
+  "שלום",
   "the",
   "and",
   "for",
@@ -183,6 +206,7 @@ const TOPIC_WEAK = new Set([
   "אפשר",
   "אחד",
   "אחת",
+  "אשמח",
 ]);
 
 function topicTokens(text: string): string[] {
@@ -190,8 +214,36 @@ function topicTokens(text: string): string[] {
 }
 
 function sameTopic(a: string, b: string): boolean {
-  const right = new Set(topicTokens(b));
-  return topicTokens(a).some((token) => right.has(token));
+  const left = topicTokens(a);
+  const right = topicTokens(b);
+  if (!left.length || !right.length) {
+    return a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+  }
+  const rightSet = new Set(right);
+  const shared = left.filter((token) => rightSet.has(token));
+  if (shared.length >= 2) return true;
+  const leftSet = new Set(left);
+  return left.every((token) => rightSet.has(token)) || right.every((token) => leftSet.has(token));
+}
+
+export function readGroundingVerdict(text: string): {
+  ok: boolean;
+  reason: "ok" | "not_answer" | "not_grounded" | "unreadable";
+} {
+  const trimmed = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const start = trimmed.search(/[{]/);
+  if (start < 0) return { ok: false, reason: "unreadable" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed.slice(start));
+  } catch {
+    return { ok: false, reason: "unreadable" };
+  }
+  if (!parsed || typeof parsed !== "object") return { ok: false, reason: "unreadable" };
+  const row = parsed as { answers?: unknown; grounded?: unknown };
+  if (row.answers !== true) return { ok: false, reason: "not_answer" };
+  if (row.grounded !== true) return { ok: false, reason: "not_grounded" };
+  return { ok: true, reason: "ok" };
 }
 
 /** Split a model cluster when the questions are not about the same thing. */
@@ -269,6 +321,7 @@ export type KnowledgeReviewReason =
   | "one-off favor or private"
   | "single lead"
   | "already covered"
+  | "not grounded"
   | "other";
 
 export type KnowledgePairLabel = {

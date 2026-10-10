@@ -10,12 +10,14 @@ import {
   KNOWLEDGE_UPDATE_TEMPLATE,
   KNOWLEDGE_UPDATE_TEMPLATE_BODY,
   KNOWLEDGE_UPDATES_RECIPIENT_MODE,
+  coveredByKnowledge,
   deliverTargets,
   inboundAction,
   isoWeekKey,
   knowledgeUpdateDue,
   labelKnowledgePairs,
   maskPii,
+  readGroundingVerdict,
   normalizeKnowledgeText,
   appendKnowledgeQa,
   pairHandoffWithOwnerReply,
@@ -272,13 +274,11 @@ async function generalizeAnswer(input: {
         role: "user",
         content: `נסח פריט ידע אחד, קצר, בעברית, מתוך תשובת בעל העסק. אל תוסיף עובדות שלא נאמרו. בלי שמות. השתמש במקף - ולא במקף ארוך.
 ${voice}
-אם הידע הקיים כבר מכסה את זה, החזר רק COVERED.
 אם התשובות לא עונות על השאלה, החזר רק SKIP.
-אחרת החזר רק את משפט הידע, כתשובה ישירה לשאלה.
+אחרת החזר רק את משפט הידע, כתשובה ישירה לשאלה. אל תעתיק ידע קיים ואל תמציא מחיר, גיל, יום או מספר.
 
 שאלה: ${maskPii(input.question)}
-תשובות הבעלים: ${maskPii(input.answers.join("\n"))}
-ידע קיים: ${maskPii(input.knowledge).slice(0, 4000)}`,
+תשובות הבעלים: ${maskPii(input.answers.join("\n"))}`,
       },
     ],
   });
@@ -288,7 +288,41 @@ ${voice}
   const text = normalizeKnowledgeText(read.text);
   const upper = text.replace(/[.!?]+$/g, "").trim().toUpperCase();
   if (!text || upper === "COVERED" || upper === "SKIP") return null;
+  if (coveredByKnowledge(text, input.knowledge) && !coveredByKnowledge(text, input.answers.join("\n"))) return null;
   return text.slice(0, 400);
+}
+
+async function groundKnowledgeText(input: {
+  apiKey: string;
+  question: string;
+  answers: string[];
+  knowledgeText: string;
+  spend: Spend;
+  budgetUsd: number;
+}): Promise<{ ok: boolean; reason: "ok" | "not_answer" | "not_grounded" | "unreadable" }> {
+  if (input.spend.usd >= input.budgetUsd) return { ok: false, reason: "unreadable" };
+  const anthropic = new Anthropic({ apiKey: input.apiKey });
+  const params = buildHaikuRequest("knowledge-update-ground");
+  const resp = await anthropic.messages.create({
+    ...params,
+    messages: [
+      {
+        role: "user",
+        content: `בדוק פריט ידע מוצע.
+answers: האם הוא עונה על השאלה.
+grounded: האם כל עובדה בו, כולל מספר, מחיר, גיל ויום, מופיעה בתשובות הבעלים. עובדה שלא נאמרה שם היא כשל.
+החזר רק JSON: {"answers":true,"grounded":true}
+
+שאלה: ${maskPii(input.question)}
+תשובות הבעלים: ${maskPii(input.answers.join("\n"))}
+פריט ידע: ${maskPii(input.knowledgeText)}`,
+      },
+    ],
+  });
+  addSpend(input.spend, resp.usage);
+  const read = readHaikuText("knowledge-update-ground", resp);
+  if (read.truncated) return { ok: false, reason: "unreadable" };
+  return readGroundingVerdict(read.text);
 }
 
 async function collectPairs(admin: Admin, slug: string, sinceIso: string): Promise<Array<{ leadKey: string; question: string; answer: string }>> {
@@ -357,7 +391,7 @@ async function collectPairs(admin: Admin, slug: string, sinceIso: string): Promi
         replies.push({ at, text: message.content });
       }
     }
-    const answer = pairHandoffWithOwnerReply({ eventAt, replies });
+    const answer = pairHandoffWithOwnerReply({ eventAt, question, replies });
     if (!question || question.length < 8 || !answer || answer.length < 8) continue;
     if (question.startsWith("[heyzoe:")) continue;
     pairs.push({
@@ -375,6 +409,7 @@ export async function buildKnowledgeUpdates(input: {
   persist: boolean;
   review?: boolean;
   budgetUsd?: number;
+  replacePending?: boolean;
 }): Promise<{
   week: string;
   suggestions: BuiltSuggestion[];
@@ -443,6 +478,7 @@ export async function buildKnowledgeUpdates(input: {
     const selected = selectWeeklySuggestions(classified, knowledge);
     const pairLabels: KnowledgePairLabel[] = input.review ? labelKnowledgePairs(classified, knowledge) : [];
     const knowledgeByCluster = new Map<string, string>();
+    const groundedDrop = new Map<string, KnowledgeReviewReason>();
     for (const cluster of selected) {
       if (spend.usd >= budgetUsd) break;
       const knowledgeText = await generalizeAnswer({
@@ -455,6 +491,19 @@ export async function buildKnowledgeUpdates(input: {
         budgetUsd,
       });
       if (!knowledgeText) continue;
+      const verdict = await groundKnowledgeText({
+        apiKey,
+        question: cluster.question,
+        answers: cluster.ownerAnswers,
+        knowledgeText,
+        spend,
+        budgetUsd,
+      });
+      if (!verdict.ok) {
+        groundedDrop.set(cluster.clusterKey, "not grounded");
+        console.info("[knowledge-updates] grounding dropped", verdict.reason);
+        continue;
+      }
       knowledgeByCluster.set(cluster.clusterKey, knowledgeText);
       suggestions.push({
         businessId,
@@ -470,14 +519,16 @@ export async function buildKnowledgeUpdates(input: {
     if (input.review) {
       classified.forEach((pair, index) => {
         const label = pairLabels[index] ?? { reason: "other" as const, clusterKey: "" };
-        const knowledgeText = label.reason === "passed" ? (knowledgeByCluster.get(label.clusterKey) ?? "") : "";
-        const passed = label.reason === "passed" && Boolean(knowledgeText);
+        const droppedGrounding = label.reason === "passed" ? groundedDrop.get(label.clusterKey) : undefined;
+        const knowledgeText =
+          label.reason === "passed" && !droppedGrounding ? (knowledgeByCluster.get(label.clusterKey) ?? "") : "";
+        const passed = label.reason === "passed" && !droppedGrounding && Boolean(knowledgeText);
         reviews.push({
           businessName,
           question: pair.question,
           answer: pair.answer,
           outcome: passed ? "passed" : "dropped",
-          reason: passed ? "passed" : label.reason === "passed" ? "other" : label.reason,
+          reason: passed ? "passed" : droppedGrounding ?? (label.reason === "passed" ? "other" : label.reason),
           knowledgeText: passed ? knowledgeText : "",
         });
       });
@@ -496,6 +547,32 @@ export async function buildKnowledgeUpdates(input: {
           });
         }
       }
+    }
+  }
+
+  if (input.replacePending) {
+    const removed = await input.admin
+      .from("knowledge_update_suggestions")
+      .delete()
+      .eq("iso_week", week)
+      .eq("status", "pending");
+    if (removed.error && !isMissingKnowledgeUpdateTable(removed.error)) {
+      throw new Error(removed.error.message);
+    }
+    if (suggestions.length) {
+      const { error: insertErr } = await input.admin.from("knowledge_update_suggestions").insert(
+        suggestions.map((row) => ({
+          business_id: row.businessId,
+          iso_week: week,
+          cluster_key: row.clusterKey,
+          question: row.question,
+          owner_answers: row.ownerAnswers,
+          knowledge_text: row.knowledgeText,
+          lead_count: row.leadCount,
+          status: "pending",
+        }))
+      );
+      if (insertErr && !isMissingKnowledgeUpdateTable(insertErr)) throw new Error(insertErr.message);
     }
   }
 

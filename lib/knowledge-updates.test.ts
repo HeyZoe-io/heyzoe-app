@@ -10,7 +10,9 @@ import {
   inboundAction,
   isoWeekKey,
   knowledgeUpdateDue,
+  ownerReplyAddressesQuestion,
   pairHandoffWithOwnerReply,
+  readGroundingVerdict,
   labelKnowledgePairs,
   selectWeeklySuggestions,
   sendDecision,
@@ -51,6 +53,37 @@ assert.equal(
     ],
   }),
   "יש חניה\nמאחורי הבניין"
+);
+assert.equal(
+  pairHandoffWithOwnerReply({
+    eventAt: 0,
+    question: "יש חניה ליד הסטודיו?",
+    replies: [
+      { at: hour, text: "המנוי יסתיים בסוף החודש" },
+      { at: hour + 30 * 60 * 1000, text: "יש חניה ברחוב" },
+    ],
+  }),
+  null
+);
+assert.equal(ownerReplyAddressesQuestion("אימון ממוקד לנשים", "אימון ממוקד לנשים בא במסגרת אימון אישי"), true);
+assert.equal(
+  pairHandoffWithOwnerReply({
+    eventAt: 0,
+    question: "אשמח לפרטים לקרב מגע לנשים",
+    replies: [
+      { at: hour, text: "היי בוקר טוב אשמח שתחזור אליך" },
+      { at: hour + 20 * 60 * 1000, text: "יש אצלנו קבוצת קרב מגע לנשים" },
+    ],
+  }),
+  null
+);
+assert.equal(
+  pairHandoffWithOwnerReply({
+    eventAt: 0,
+    question: "יש חניה ליד הסטודיו?",
+    replies: [{ at: hour, text: "יש חניה ברחוב מאחורי הבניין" }],
+  }),
+  "יש חניה ברחוב מאחורי הבניין"
 );
 
 assert.equal(acceptClassifiedPair({ general: false, oneOff: false }), false);
@@ -143,6 +176,28 @@ const mixed = selectWeeklySuggestions(
   ],
   ""
 );
+const women = selectWeeklySuggestions(
+  [
+    {
+      leadKey: "a",
+      question: "אימון ממוקד לנשים",
+      answer: "אימון ממוקד לנשים בא במסגרת אימון אישי",
+      cluster: "נשים",
+      general: true,
+      oneOff: false,
+    },
+    {
+      leadKey: "b",
+      question: "אשמח לפרטים לקרב מגע לנשים",
+      answer: "יש קבוצת קרב מגע מעורבת",
+      cluster: "נשים",
+      general: true,
+      oneOff: false,
+    },
+  ],
+  ""
+);
+assert.equal(women.length, 0);
 assert.equal(mixed.length, 1);
 assert.match(mixed[0]!.question, /מבטלים/);
 assert.equal(mixed[0]!.ownerAnswers.some((answer) => answer.includes("מאתיים")), false);
@@ -246,6 +301,13 @@ assert.deepEqual(
 assert.equal(shouldWriteKnowledge("add", "sent"), true);
 assert.equal(shouldWriteKnowledge("add", "added"), false);
 assert.equal(shouldWriteKnowledge("skip", "sent"), false);
+assert.deepEqual(readGroundingVerdict('{"answers":false,"grounded":true}'), { ok: false, reason: "not_answer" });
+assert.deepEqual(
+  readGroundingVerdict('{"answers":true,"grounded":false}'),
+  { ok: false, reason: "not_grounded" }
+);
+assert.deepEqual(readGroundingVerdict('{"answers":true,"grounded":true}'), { ok: true, reason: "ok" });
+assert.equal(readGroundingVerdict("פעם בשבוע 350").ok, false);
 
 const written = appendKnowledgeQa([{ question: "יש חניה?", answer: "יש חניה ברחוב" }], {
   question: "יש מגבות?",

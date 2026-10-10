@@ -25,7 +25,8 @@ export type HaikuCallSite =
   | "fetch-site-scan-fallback"
   | "fetch-site-enrich"
   | "knowledge-update-classify"
-  | "knowledge-update-generalize";
+  | "knowledge-update-generalize"
+  | "knowledge-update-ground";
 
 type SiteSpec = {
   env: "CLAUDE_WHATSAPP_MODEL" | "CLAUDE_HAIKU_MODEL";
@@ -100,6 +101,11 @@ const SITES: Record<HaikuCallSite, SiteSpec> = {
     env: "CLAUDE_HAIKU_MODEL",
     rollback: { max_tokens: 300, temperature: 0 },
     haiku55: { max_tokens: 300, thinkingDisabled: true },
+  },
+  "knowledge-update-ground": {
+    env: "CLAUDE_HAIKU_MODEL",
+    rollback: { max_tokens: 200, temperature: 0 },
+    haiku55: { max_tokens: 200, thinkingDisabled: true },
   },
 };
 
