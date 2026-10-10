@@ -49,6 +49,7 @@ import { loadTrialSignupNotice, trialPurchaseTemplateBlockedByZoe } from "@/lib/
 import { resolveSendChannelForContact } from "@/lib/wa-resolve-send-channel";
 import { evaluateSessionMessageSend } from "@/lib/wa-marketing-opt-out";
 import { buildTrialRegisteredContactPatch } from "@/lib/trial-registered-manual";
+import { autobookOccurrenceKey } from "@/lib/leads/arbox-class-autobook";
 
 const LOG = "[leads/arbox-trial-booking-confirm]";
 
@@ -406,6 +407,8 @@ export async function syncTrialBookingConfirmForBusiness(input: {
   businessPlan?: unknown;
   hasTrialBookedRule?: boolean;
   now?: Date;
+  /** `autobookOccurrenceKey` of bookings Zoe made herself. Already confirmed at the sale. */
+  autobookedOccurrenceKeys?: ReadonlySet<string>;
 }): Promise<TrialBookingConfirmSummary> {
   const summary = emptySummary();
   const businessSlug = String(input.businessSlug ?? "").trim().toLowerCase();
@@ -776,6 +779,21 @@ export async function syncTrialBookingConfirmForBusiness(input: {
       continue;
     }
     const attempts = sentinel?.attempts ?? 0;
+    if (
+      input.autobookedOccurrenceKeys?.has(autobookOccurrenceKey(item.userId, item.classDate, item.classTime))
+    ) {
+      console.info(LOG, "trial booking not sent", {
+        reason: "autobooked_by_zoe",
+        businessSlug,
+        class_date: item.classDate,
+        class_time: item.classTime,
+      });
+      for (const triggerId of bookingTriggerIds) {
+        await writeLog(admin, businessId, item, triggerId, "skipped", "skipped", "skipped", attempts, now);
+      }
+      summary.already += 1;
+      continue;
+    }
     if (trialBookingClassHasStarted(item.classDate, item.classTime, now)) {
       console.warn(LOG, "trial booking not sent", {
         reason: "skipped_stale",

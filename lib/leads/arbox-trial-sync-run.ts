@@ -35,6 +35,14 @@ import {
 } from "@/lib/leads/arbox-trial-booking-confirm";
 import { trialBookedSendsEnabled } from "@/lib/leads/trial-booked-kill-switch";
 import {
+  loadAutobookedOccurrenceKeys,
+  prepareArboxClassAutobookBatch,
+  runArboxClassAutobookAfterSale,
+  runArboxClassAutobookBeforeSale,
+  runArboxClassAutobookNightPass,
+  type ArboxClassAutobookSummary,
+} from "@/lib/leads/arbox-class-autobook-run";
+import {
   canonicalContactPhone,
   contactPhoneLookupVariants,
 } from "@/lib/phone-normalize";
@@ -105,6 +113,7 @@ export type BusinessSummary = {
   freeze_created?: Awaited<ReturnType<typeof syncArboxFreezeForBusiness>>;
   registered_after_trial?: Awaited<ReturnType<typeof syncArboxPostTrialFollowupForBusiness>>;
   lost_lead?: Awaited<ReturnType<typeof syncArboxLostLeadForBusiness>>;
+  class_autobook?: ArboxClassAutobookSummary;
   /** Steps not started because the worker's time budget ran out. They run on the next tick. */
   budget_skipped?: string[];
 };
@@ -546,6 +555,24 @@ export async function runArboxTrialSyncForBusiness(input: {
           "registered_after_trial_delay_0",
         ],
       });
+      if (business.arbox_sales_sync_seeded) {
+        try {
+          const nightAutobook = await runArboxClassAutobookNightPass({
+            admin,
+            business,
+            ...resolveReportDateRange({ arboxLastSyncAt: business.arbox_last_sync_at, now }),
+            now,
+            dryRun: input.dryRun === true,
+            deadlineMs: input.deadlineMs,
+          });
+          if (nightAutobook) summary.class_autobook = nightAutobook;
+        } catch (e) {
+          console.error("[cron/arbox-trial-sync] class autobook night pass threw", {
+            slug: business.slug,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       return summary;
     }
 
@@ -684,8 +711,24 @@ export async function runArboxTrialSyncForBusiness(input: {
           businessId: business.id,
           rows: relevantRows,
         });
+        const autobook = await prepareArboxClassAutobookBatch({
+          admin,
+          business,
+          rows: relevantRows,
+          now,
+          dryRun: input.dryRun === true,
+          deadlineMs: input.deadlineMs,
+        }).catch((e) => {
+          console.error("[cron/arbox-trial-sync] class autobook prepare threw", {
+            slug: business.slug,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          return null;
+        });
+        if (autobook) summary.class_autobook = autobook.summary;
         for (const rawRow of relevantRows) {
           try {
+            if (autobook) await runArboxClassAutobookBeforeSale(autobook, rawRow);
             const result = await handleArboxTrialSaleRegistered({
               admin,
               businessId: business.id,
@@ -695,6 +738,7 @@ export async function runArboxTrialSyncForBusiness(input: {
               purchaseMatch,
               purchaseSameDaySent,
             });
+            if (autobook) await runArboxClassAutobookAfterSale(autobook, rawRow, result.ok);
 
             if (!result.ok) {
               summary.errors += 1;
@@ -884,6 +928,7 @@ export async function runArboxTrialSyncForBusiness(input: {
           trialMembershipTypeIds: business.arbox_trial_membership_type_ids,
           hasTrialBookedRule: trialBookedBusinessIds.has(business.id),
           now,
+          autobookedOccurrenceKeys: await loadAutobookedOccurrenceKeys(admin, business.id, now),
         });
       } catch (e) {
         console.error("[cron/arbox-trial-sync] trial booking confirm threw", {

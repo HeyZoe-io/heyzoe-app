@@ -8790,6 +8790,16 @@ async function processIncoming(
           sessionId,
         });
         if (sent) {
+          if (regCta.day && regCta.time && service.arboxClassName && businessId) {
+            const { persistArboxClassAutobookCtaPick } = await import("@/lib/leads/arbox-class-autobook-run");
+            await persistArboxClassAutobookCtaPick({
+              admin: supabase,
+              businessId: Number(businessId),
+              phone: msg.from,
+              dayName: formatDayNameForScheduleDatePlaceholder(regCta.day),
+              time: regCta.time,
+            });
+          }
           contactSessionPhase = "cta";
           return;
         }

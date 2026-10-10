@@ -42,9 +42,22 @@ export function createEmptyProductScheduleSlot(newId: () => string): ProductSche
   return { id: newId(), day: SCHEDULE_SLOT_DAY_UNSET, time: "00:00" };
 }
 
+/** «שני» / «יום שני» / «שני׳» → «ב». Full day names only; no first-character fallback. */
+export function dayLetterFromHebrewDayName(name: string): string | null {
+  const t = String(name ?? "")
+    .trim()
+    .replace(/^יום\s+/u, "")
+    .replace(/[׳'’]/gu, "")
+    .trim();
+  if (!t) return null;
+  return HEBREW_DAY_OPTIONS.find((o) => o.label === t)?.value ?? null;
+}
+
 function normalizeDayLetter(raw: string): string {
   const t = String(raw ?? "").trim();
   if (!t) return "";
+  const byName = dayLetterFromHebrewDayName(t);
+  if (byName) return byName;
   const first = [...t][0] ?? "";
   if (DAY_SET.has(first)) return first;
   // לעיתים מגיע "א׳" / "ב׳"

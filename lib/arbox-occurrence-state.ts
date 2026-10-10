@@ -175,6 +175,37 @@ export function resolveOccurrenceState(
 }
 
 /**
+ * The Arbox schedule_id of one occurrence, for booking. Exactly one schedule row and exactly
+ * one summary row must match, and both must carry the same positive schedule_id. Anything
+ * else is null — never guess which row to book.
+ */
+export function resolveOccurrenceScheduleId(
+  raw: ArboxOccurrenceRaw,
+  date: string,
+  time: string,
+  className: string
+): number | null {
+  const wantName = String(className ?? "").trim();
+  const wantTime = normalizeHhmm(time);
+  const wantDate = String(date ?? "").trim();
+  if (!wantName || !wantTime || !wantDate) return null;
+
+  const scheduleCandidates = (raw.scheduleRows ?? []).filter((r) =>
+    matchesOccurrence(r, wantDate, wantTime, wantName, "session_name")
+  );
+  const summaryCandidates = (raw.summaryRows ?? []).filter((r) =>
+    matchesOccurrence(r, wantDate, wantTime, wantName, "class_name")
+  );
+  if (scheduleCandidates.length !== 1 || summaryCandidates.length !== 1) return null;
+
+  const fromSchedule = Number(scheduleCandidates[0]!.schedule_id);
+  const fromSummary = Number(summaryCandidates[0]!.schedule_id);
+  if (!Number.isSafeInteger(fromSchedule) || fromSchedule <= 0) return null;
+  if (fromSchedule !== fromSummary) return null;
+  return fromSchedule;
+}
+
+/**
  * The cached, deduped, timeout-bounded raw fetch — the only Arbox-touching entry point.
  * Callers with MULTIPLE candidates on the same businessId+date (the list path) should call
  * this ONCE per distinct date and run the pure resolveOccurrenceState locally per candidate,
