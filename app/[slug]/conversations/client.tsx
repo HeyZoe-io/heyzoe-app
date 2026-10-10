@@ -419,6 +419,7 @@ export default function ConversationsClient({
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const failedSeenSentRef = useRef<Set<string>>(new Set());
   const [pausing, setPausing] = useState<string | null>(null);
   const [replaying, setReplaying] = useState<string | null>(null);
   const [replayQueuedFor, setReplayQueuedFor] = useState<string | null>(null);
@@ -485,7 +486,9 @@ export default function ConversationsClient({
         })
       : sessions;
     const q = searchQuery.trim().toLowerCase();
-    const delivered = failedOnly ? list.filter((s) => s.hasFailedDelivery === true) : list;
+    const delivered = failedOnly
+      ? list.filter((s) => s.hasFailedDelivery === true || s.session_id === selectedId)
+      : list;
     const filtered = q
       ? delivered.filter((s) => {
           const name = sessionLeadName(s).toLowerCase();
@@ -497,7 +500,7 @@ export default function ConversationsClient({
     return pinRequiresCall
       ? sortMarketingSessionsByStatusPriority(filtered)
       : sortSessionsByRecentActivity(filtered);
-  }, [sessions, normalizedFilter, searchQuery, failedOnly, apiScope, slug]);
+  }, [sessions, normalizedFilter, searchQuery, failedOnly, selectedId, apiScope, slug]);
   const failedSessionCount = useMemo(
     () => sessions.filter((s) => s.hasFailedDelivery === true).length,
     [sessions]
@@ -678,6 +681,7 @@ export default function ConversationsClient({
     if (exists) {
       setSelectedId(sessionParam);
       acknowledgeMarketingLead(sessionParam);
+      acknowledgeFailedDelivery(sessionParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionParam, sessions]);
@@ -709,7 +713,10 @@ export default function ConversationsClient({
     if (selectedId && visibleSessions.some((s) => s.session_id === selectedId)) return;
     const nextId = visibleSessions[0]?.session_id ?? null;
     setSelectedId(nextId);
-    if (nextId) acknowledgeMarketingLead(nextId);
+    if (nextId) {
+      acknowledgeMarketingLead(nextId);
+      acknowledgeFailedDelivery(nextId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedFilter, visibleSessions.length, sessionParam]);
 
@@ -736,6 +743,31 @@ export default function ConversationsClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sid }),
     }).catch(() => {});
+  }
+
+  /** בעל עסק שפותח שיחה עם הודעה שנכשלה מוריד אותה מהרשימה. השרת מדלג על אדמין. */
+  function acknowledgeFailedDelivery(sessionId: string) {
+    const sid = String(sessionId ?? "").trim();
+    if (!sid || apiScope !== "dashboard") return;
+    const session = sessions.find((s) => s.session_id === sid);
+    if (!session?.hasFailedDelivery || failedSeenSentRef.current.has(sid)) return;
+    failedSeenSentRef.current.add(sid);
+    void fetch("/api/dashboard/conversation-failed-seen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, session_id: sid, phone: session.phone }),
+    })
+      .then(async (res) => {
+        const j = (await res.json().catch(() => ({}))) as { cleared?: boolean };
+        if (!res.ok || j.cleared !== true) return;
+        const clear = (list: SessionSummary[]) =>
+          list.map((s) => (s.session_id === sid ? { ...s, hasFailedDelivery: false } : s));
+        setSessions((prev) => clear(prev));
+        queryClient.setQueryData<SessionSummary[]>([queryScope, "conversations", slug], (prev) =>
+          prev ? clear(prev) : prev
+        );
+      })
+      .catch(() => {});
   }
 
   function clearPhoneFilter() {
@@ -1063,6 +1095,7 @@ export default function ConversationsClient({
                     onClick={() => {
                       setSelectedId(s.session_id);
                       acknowledgeMarketingLead(s.session_id);
+                      acknowledgeFailedDelivery(s.session_id);
                     }}
                     onMouseEnter={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}
                     onFocus={() => prefetchMessages(s.session_id, s.source_slug ?? slug)}

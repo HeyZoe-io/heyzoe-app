@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const businessId = Number(business.id);
   const sessions =
     Number.isFinite(businessId) && businessId > 0
-      ? await markSessionsWithFailedDelivery(admin, loaded, { businessId })
+      ? await markSessionsWithFailedDelivery(admin, loaded, { businessId }, { unseenOnly: true })
       : loaded;
   return NextResponse.json({ sessions });
 }

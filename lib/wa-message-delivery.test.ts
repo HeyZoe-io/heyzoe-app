@@ -6,13 +6,17 @@ import {
 } from "./wa-delivery-errors";
 import {
   attachMessageDeliveries,
+  markFailedDeliverySeen,
   markSessionsWithFailedDelivery,
   selectMessagesWithWamid,
 } from "./wa-message-delivery";
 
-type Call = { table: string; filters: Array<[string, string, unknown]> };
+type Call = { table: string; filters: Array<[string, string, unknown]>; update?: unknown };
 
-function fakeAdmin(rowsFor: (call: Call) => unknown[]) {
+function fakeAdmin(
+  rowsFor: (call: Call) => unknown[],
+  errorFor: (call: Call) => { message: string } | null = () => null
+) {
   const calls: Call[] = [];
   const admin = {
     from(table: string) {
@@ -20,11 +24,17 @@ function fakeAdmin(rowsFor: (call: Call) => unknown[]) {
       calls.push(call);
       const q = {
         select: () => q,
+        update: (v: unknown) => ((call.update = v), q),
         in: (col: string, v: unknown) => (call.filters.push(["in", col, v]), q),
         eq: (col: string, v: unknown) => (call.filters.push(["eq", col, v]), q),
         gte: (col: string, v: unknown) => (call.filters.push(["gte", col, v]), q),
+        is: (col: string, v: unknown) => (call.filters.push(["is", col, v]), q),
+        like: (col: string, v: unknown) => (call.filters.push(["like", col, v]), q),
         limit: () => q,
-        then: (resolve: (r: unknown) => void) => resolve({ data: rowsFor(call), error: null }),
+        then: (resolve: (r: unknown) => void) => {
+          const error = errorFor(call);
+          resolve(error ? { data: null, error } : { data: rowsFor(call), error: null });
+        },
       };
       return q;
     },
@@ -141,6 +151,69 @@ async function main() {
   );
   assert.equal(markedAll[0]!.hasFailedDelivery, true);
   assert.equal(markedAll[1]!.hasFailedDelivery, undefined);
+  assert.equal(all.calls[0]!.filters.some((f) => f[1] === "seen_at"), false);
+
+  // Owner list: unseen only
+  const unseen = fakeAdmin(() => [{ business_id: 7, recipient_phone: "972501234567" }]);
+  await markSessionsWithFailedDelivery(
+    unseen.admin,
+    [{ session_id: "wa_1_972501234567" }],
+    { businessId: 7 },
+    { unseenOnly: true }
+  );
+  assert.equal(unseen.calls.length, 1);
+  assert.deepEqual(unseen.calls[0]!.filters.find((f) => f[1] === "seen_at"), ["is", "seen_at", null]);
+
+  // seen_at not migrated yet → every failure, as before
+  const noColumn = fakeAdmin(
+    () => [{ business_id: 7, recipient_phone: "972501234567" }],
+    (call) =>
+      call.filters.some((f) => f[1] === "seen_at")
+        ? { message: "column wa_message_statuses.seen_at does not exist" }
+        : null
+  );
+  const fallback = await markSessionsWithFailedDelivery(
+    noColumn.admin,
+    [{ session_id: "wa_1_972501234567" }],
+    { businessId: 7 },
+    { unseenOnly: true }
+  );
+  assert.equal(noColumn.calls.length, 2);
+  assert.equal(fallback[0]!.hasFailedDelivery, true);
+
+  // Opening the chat stamps seen_at on that phone's failures for the business only
+  const seenUpdate = fakeAdmin(() => [{ wamid: "w1" }, { wamid: "w2" }]);
+  const now = new Date("2026-10-10T09:00:00.000Z");
+  const seenRes = await markFailedDeliverySeen(seenUpdate.admin, {
+    businessId: 7,
+    phone: "050-123-4567",
+    sessionId: "wa_1_972501234567",
+    now,
+  });
+  assert.deepEqual(seenRes, { ok: true, cleared: 2 });
+  assert.deepEqual(seenUpdate.calls[0]!.update, { seen_at: now.toISOString() });
+  const f = seenUpdate.calls[0]!.filters;
+  assert.deepEqual(f.find((x) => x[1] === "business_id"), ["eq", "business_id", 7]);
+  assert.deepEqual(f.find((x) => x[1] === "status"), ["eq", "status", "failed"]);
+  assert.deepEqual(f.find((x) => x[1] === "recipient_phone"), ["like", "recipient_phone", "%501234567"]);
+  assert.deepEqual(f.find((x) => x[1] === "seen_at"), ["is", "seen_at", null]);
+
+  // No phone → no query
+  const noPhone = fakeAdmin(() => []);
+  const noPhoneRes = await markFailedDeliverySeen(noPhone.admin, { businessId: 7, sessionId: "abc" });
+  assert.equal(noPhoneRes.ok, false);
+  assert.equal(noPhone.calls.length, 0);
+
+  // Missing column → reported, not thrown
+  const seenMissing = fakeAdmin(
+    () => [],
+    () => ({ message: "column wa_message_statuses.seen_at does not exist" })
+  );
+  const missingRes = await markFailedDeliverySeen(seenMissing.admin, {
+    businessId: 7,
+    sessionId: "wa_1_972501234567",
+  });
+  assert.equal(missingRes.ok, false);
 
   console.log("wa-message-delivery tests passed");
 }

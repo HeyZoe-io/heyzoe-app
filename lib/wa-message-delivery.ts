@@ -80,27 +80,44 @@ export function phoneTail9(raw: unknown): string {
   return digits.length >= 9 ? digits.slice(-9) : "";
 }
 
+export function isMissingSeenAtColumn(message: string): boolean {
+  return /seen_at/i.test(message) && /does not exist|42703|schema cache/i.test(message);
+}
+
+function failedLookbackSince(now?: Date): string {
+  return new Date(
+    (now ?? new Date()).getTime() - FAILED_DELIVERY_LOOKBACK_DAYS * 24 * 36e5
+  ).toISOString();
+}
+
 /**
  * Recipient phones (last 9 digits) with a failed delivery in the lookback, per business.
  * `businessIds` empty = every business (Zoe admin «all conversations»).
+ * `unseenOnly` skips failures a business user already opened (seen_at). Before
+ * supabase/wa_message_statuses_seen_at.sql runs, it falls back to every failure.
  */
 export async function loadFailedDeliveryPhones(
   admin: Admin,
-  input: { businessIds: readonly number[]; now?: Date }
+  input: { businessIds: readonly number[]; now?: Date; unseenOnly?: boolean }
 ): Promise<Map<number, Set<string>>> {
   const out = new Map<number, Set<string>>();
-  const since = new Date(
-    (input.now ?? new Date()).getTime() - FAILED_DELIVERY_LOOKBACK_DAYS * 24 * 36e5
-  ).toISOString();
-  let query = admin
-    .from(WA_MESSAGE_STATUSES_TABLE)
-    .select("business_id, recipient_phone")
-    .eq("status", "failed")
-    .gte("status_at", since);
+  const since = failedLookbackSince(input.now);
   const ids = input.businessIds.filter((id) => Number.isFinite(id) && id > 0);
-  if (ids.length === 1) query = query.eq("business_id", ids[0]!);
-  else if (ids.length > 1) query = query.in("business_id", ids);
-  const { data, error } = await query.limit(5000);
+  const run = (unseenOnly: boolean) => {
+    let query = admin
+      .from(WA_MESSAGE_STATUSES_TABLE)
+      .select("business_id, recipient_phone")
+      .eq("status", "failed")
+      .gte("status_at", since);
+    if (ids.length === 1) query = query.eq("business_id", ids[0]!);
+    else if (ids.length > 1) query = query.in("business_id", ids);
+    if (unseenOnly) query = query.is("seen_at", null);
+    return query.limit(5000);
+  };
+  let { data, error } = await run(input.unseenOnly === true);
+  if (error && input.unseenOnly && isMissingSeenAtColumn(error.message)) {
+    ({ data, error } = await run(false));
+  }
   if (error) {
     if (!isMissingStatusTable(error.message)) {
       console.error("[wa-message-delivery] failed-status read failed:", error.message);
@@ -124,11 +141,15 @@ export async function markSessionsWithFailedDelivery<
 >(
   admin: Admin,
   sessions: T[],
-  scope: { businessId: number } | { businessIdBySlug: ReadonlyMap<string, number> }
+  scope: { businessId: number } | { businessIdBySlug: ReadonlyMap<string, number> },
+  options: { unseenOnly?: boolean } = {}
 ): Promise<Array<T & { hasFailedDelivery?: boolean }>> {
   if (!sessions.length) return sessions;
   const businessIds = "businessId" in scope ? [scope.businessId] : [];
-  const failed = await loadFailedDeliveryPhones(admin, { businessIds });
+  const failed = await loadFailedDeliveryPhones(admin, {
+    businessIds,
+    unseenOnly: options.unseenOnly,
+  });
   if (!failed.size) return sessions;
   return sessions.map((s) => {
     const businessId =
@@ -139,4 +160,42 @@ export async function markSessionsWithFailedDelivery<
     const tail = phoneTail9(s.phone) || phoneTail9(s.session_id.split("_").pop());
     return tails && tail && tails.has(tail) ? { ...s, hasFailedDelivery: true } : s;
   });
+}
+
+/**
+ * A business user opened the conversation: its failed rows in the lookback get seen_at,
+ * so the owner's «failed messages» list drops it until the next failure.
+ * One update on (status, status_at), scoped to the business. Never throws.
+ */
+export async function markFailedDeliverySeen(
+  admin: Admin,
+  input: { businessId: number; phone?: string | null; sessionId: string; now?: Date }
+): Promise<{ ok: boolean; cleared: number; error?: string }> {
+  const tail = phoneTail9(input.phone) || phoneTail9(input.sessionId.split("_").pop());
+  if (!(input.businessId > 0) || !tail) return { ok: false, cleared: 0, error: "missing_phone" };
+  try {
+    const { data, error } = await admin
+      .from(WA_MESSAGE_STATUSES_TABLE)
+      .update({ seen_at: (input.now ?? new Date()).toISOString() })
+      .eq("status", "failed")
+      .gte("status_at", failedLookbackSince(input.now))
+      .eq("business_id", input.businessId)
+      .is("seen_at", null)
+      .like("recipient_phone", `%${tail}`)
+      .select("wamid");
+    if (error) {
+      console.error(
+        isMissingSeenAtColumn(error.message)
+          ? "[wa-message-delivery] seen_at missing — run supabase/wa_message_statuses_seen_at.sql"
+          : "[wa-message-delivery] failed-seen update failed:",
+        error.message
+      );
+      return { ok: false, cleared: 0, error: error.message };
+    }
+    return { ok: true, cleared: (data ?? []).length };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[wa-message-delivery] failed-seen update threw:", message);
+    return { ok: false, cleared: 0, error: message };
+  }
 }
