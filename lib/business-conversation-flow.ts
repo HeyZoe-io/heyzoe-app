@@ -617,8 +617,16 @@ async function deliverFrom(input: {
         });
       }
       const ownText = nodeText(node);
-      if (ownText) {
-        await sendText(input.phoneNumberId, input.phone, input.businessSlug, input.sessionId, await filled(ownText));
+      const ownMedia = messageMedia(node.data);
+      if (ownText || ownMedia) {
+        await sendMessageNode(
+          input.phoneNumberId,
+          input.phone,
+          input.businessSlug,
+          input.sessionId,
+          await filled(ownText),
+          ownMedia
+        );
       } else if (product) {
         await sendMessageNode(
           input.phoneNumberId,

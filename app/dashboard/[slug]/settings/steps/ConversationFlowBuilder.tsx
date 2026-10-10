@@ -198,7 +198,7 @@ function FlowNodeCard({ id, data, selected, type }: NodeProps<Node<FlowData, Flo
         {String(d.text || "").trim() || (type === "product" ? "תיאור ותמונה מטאב מוצרים" : "טקסט ריק")}
       </div>
       )}
-      {type === "message" && String(d.media_url ?? "").trim() ? (
+      {(type === "message" || type === "product") && String(d.media_url ?? "").trim() ? (
         <div style={{ marginTop: 4, fontSize: 9, color: "#71717a" }}>
           {d.media_kind === "video" ? "סרטון" : "תמונה"}
         </div>
@@ -838,18 +838,21 @@ function ConversationFlowCanvas({ slug, afterRegistration, onAfterRegistrationCh
                   </label>
                 ) : selected.type === "product" ? (
                   <label className="block text-sm text-zinc-700">
-                    טקסט לפני המעבר
+                    טקסט המוצר
                     <textarea
-                      rows={4}
+                      rows={8}
                       value={String(selected.data.text ?? "")}
                       onFocus={armEditGesture}
                       onChange={(e) => patchSelected({ text: e.target.value }, true)}
                       placeholder="ריק = נשלחים התמונה והתיאור מטאב מוצרים."
-                      className="mt-1 w-full resize-none rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
+                      className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
                     />
+                    <span className="mt-1 block text-xs leading-relaxed text-zinc-400">
+                      {"{מוצר} {מחיר} {משך} {קישור}"} נמשכים מהמוצר שנבחר למטה.
+                    </span>
                   </label>
                 ) : null}
-                {selected.type === "message" ? (
+                {selected.type === "message" || selected.type === "product" ? (
                   <div className="space-y-2">
                     <div className="text-sm text-zinc-700">תמונה או סרטון</div>
                     <input
