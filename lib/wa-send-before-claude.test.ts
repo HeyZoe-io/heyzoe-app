@@ -68,7 +68,7 @@ assert.equal(isWholeMessageHumanRequest("סיימתי קורס ואשמח להי
 assert.equal(isWholeMessageHumanRequest("הנציג שלכם היה מעולה"), false);
 assert.equal(isWholeMessageHumanRequest("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), false);
 assert.equal(collectPreClaudeHint("סיימתי קורס ואשמח להיות נציג"), null);
-assert.equal(collectPreClaudeHint("נציג אנושי")?.category, "human_agent");
+assert.equal(collectPreClaudeHint("נציג אנושי"), null);
 assert.equal(reasonFor("סיימתי קורס ואשמח להיות נציג"), null);
 assert.equal(reasonFor("הנציג שלכם היה מעולה"), null);
 assert.equal(reasonFor("אשמח לדבר עם נציג לגבי המחיר של המנוי השנתי"), null);
@@ -126,9 +126,9 @@ assert.equal(reasonFor(INCIDENT_WAITLIST), null);
 assert.equal(reasonFor("ת"), null);
 assert.equal(reasonFor("אני רשומה לשיעור של מחר?"), null);
 
-assert.equal(collectPreClaudeHint(INCIDENT_MOVE)?.category, "registration_verify");
-assert.notEqual(collectPreClaudeHint(INCIDENT_WAITLIST)?.category, "registration_verify");
-assert.ok(collectPreClaudeHint("אני רשומה לשיעור של מחר?"));
+assert.equal(collectPreClaudeHint(INCIDENT_MOVE), null);
+assert.equal(collectPreClaudeHint(INCIDENT_WAITLIST)?.category === "registration_verify", false);
+assert.equal(collectPreClaudeHint("אני רשומה לשיעור של מחר?"), null);
 
 const FREE_TEXT = [
   INCIDENT_MOVE,

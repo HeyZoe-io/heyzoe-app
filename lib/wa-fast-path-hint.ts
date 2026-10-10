@@ -9,6 +9,24 @@ export type FastPathHint = {
   category: string;
 };
 
+/**
+ * Hints whose judged misfire on the latest message was above 30%.
+ * Re-enable by deleting the category from this set.
+ * day_timetable: 15/20 on 10 Oct 2026 (Haiku 5.5, effort low).
+ */
+export const DISABLED_FAST_PATH_HINTS = new Set<string>([
+  // 15/20 on 10 Oct 2026. Re-enable by deleting the line.
+  "day_timetable",
+  // Reviewed 3/4. A registration word inside a cancel or a later plan.
+  "registration_verify",
+  // Reviewed 2/4. "מה יש היום" and a trainer asking how to register someone else.
+  "membership_lookup",
+  // 1/1. "ואני לא יכול להגיע" is not a schedule lookup.
+  "schedule_lookup",
+  // 1/3. "מחירי מנויים" is not a request for a person. A whole-message "נציג" still sends.
+  "human_agent",
+]);
+
 /** Closed-playbook categories whose 60-day misfire rate was above 5%. */
 const DEMOTED_PLAYBOOK = new Set([
   "cancellation",
@@ -48,8 +66,19 @@ export function decideHintAction(input: {
   if (!input.hint) return "ignore_hint";
   const route = input.extracted.route;
   const tagStatus = input.extracted.tagStatus;
-  if (input.hint.category === "schedule" || input.hint.category === "day_timetable") {
+  if (
+    input.hint.category === "schedule" ||
+    input.hint.category === "day_timetable" ||
+    DISABLED_FAST_PATH_HINTS.has(input.hint.category)
+  ) {
     return "ignore_hint";
+  }
+  if (input.hint.category === "trial_slot") {
+    const route = input.extracted.route;
+    return input.extracted.tagStatus === "ok" &&
+      (route === "signup" || route === "schedule" || route === "answer")
+      ? "use_hint"
+      : "ignore_hint";
   }
   if (input.hint.category === "registration_verify") {
     return tagStatus === "ok" && route === "registration_check" ? "use_hint" : "ignore_hint";
@@ -84,5 +113,5 @@ export function decideHintAction(input: {
 }
 
 export function formatFastPathHintLine(hint: FastPathHint): string {
-  return `Possible intent detected by keyword: ${hint.category}. Verify against the conversation; it may be wrong.`;
+  return `ניחוש ממילות מפתח בלבד (${hint.category}), והוא עלול לטעות. עני על ההודעה האחרונה, לא על שאלה ישנה שכבר לא רלוונטית. אם הניחוש לא מתאים להודעה האחרונה, התעלמי ממנו.`;
 }

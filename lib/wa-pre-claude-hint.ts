@@ -1,7 +1,8 @@
 import { isWholeMessageHumanRequest } from "@/lib/wa-send-before-claude";
 import { isScheduleInquiryIntent } from "@/lib/wa-booking-lookup";
 import { detectClosedPlaybookIntent } from "@/lib/wa-closed-playbook-intents";
-import { isDemotedClosedPlaybook, type FastPathHint } from "@/lib/wa-fast-path-hint";
+import { DISABLED_FAST_PATH_HINTS, isDemotedClosedPlaybook, type FastPathHint } from "@/lib/wa-fast-path-hint";
+import { resolveLeadDayTrialAsk } from "@/lib/wa-lead-day-trial";
 import { classifyInboundSpeechAct } from "@/lib/wa-inbound-speech-act";
 import { isMembershipEndDateAsk } from "@/lib/wa-membership-lookup";
 import { isRegistrationFailedInquiry } from "@/lib/wa-registration-failed-intent";
@@ -17,6 +18,15 @@ import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 export function collectPreClaudeHint(text: string): FastPathHint | null {
   const raw = String(text ?? "").trim();
   if (!raw) return null;
+  const hint = collectPreClaudeHintRaw(raw);
+  if (!hint || DISABLED_FAST_PATH_HINTS.has(hint.category)) return null;
+  return hint;
+}
+
+function collectPreClaudeHintRaw(raw: string): FastPathHint | null {
+  if (resolveLeadDayTrialAsk({ text: raw, arboxIsMember: false, trialRegistered: false })) {
+    return { matcher: "trial_slot", category: "trial_slot" };
+  }
   if (matchesArboxRegistrationVerifyAsk(raw)) {
     return { matcher: "registration_verify", category: "registration_verify" };
   }

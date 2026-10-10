@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { decideHintAction } from "@/lib/wa-fast-path-hint";
+import { decideHintAction, DISABLED_FAST_PATH_HINTS, formatFastPathHintLine } from "@/lib/wa-fast-path-hint";
+import { collectPreClaudeHint } from "@/lib/wa-pre-claude-hint";
 import { extractReplyRoute } from "@/lib/wa-reply-route";
 
 function decide(raw: string, category: string | null) {
@@ -40,15 +41,15 @@ assert.equal(decide("[[route:personal]]\nלא עניתי", "cancellation"), "ign
 assert.equal(decide("[[route:handoff]]\nתבטלי", "class_cancel"), "use_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", null), "ignore_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", "schedule"), "ignore_hint");
-assert.equal(decide("[[route:registration_check]]\nכן", "registration_verify"), "use_hint");
+assert.equal(decide("[[route:registration_check]]\nכן", "registration_verify"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nאעביר", "registration_verify"), "ignore_hint");
 assert.equal(decide("בלי תג", "registration_verify"), "ignore_hint");
 assert.equal(decide("[[route:schedule]]\nלוח", "day_timetable"), "ignore_hint");
 assert.equal(decide("[[route:booking_change]]\nביטול", "day_timetable"), "ignore_hint");
 assert.equal(decide("בלי תג", "schedule_lookup"), "ignore_hint");
-assert.equal(decide("[[route:my_schedule]]\nמתי שלי", "schedule_lookup"), "use_hint");
+assert.equal(decide("[[route:my_schedule]]\nמתי שלי", "schedule_lookup"), "ignore_hint");
 assert.equal(decide("בלי תג", "membership_lookup"), "ignore_hint");
-assert.equal(decide("[[route:handoff]]\nבדיקה", "membership_lookup"), "use_hint");
+assert.equal(decide("[[route:handoff]]\nבדיקה", "membership_lookup"), "ignore_hint");
 assert.equal(decide("[[route:answer]]\nאין לי גישה", "membership_end_date"), "use_hint");
 assert.equal(decide("[[route:handoff]]\nצוות", "membership_end_date"), "use_hint");
 assert.equal(decide("[[route:policy_question]]\nכלל", "membership_end_date"), "ignore_hint");
@@ -58,5 +59,17 @@ const friend = "חברה שלי ביטלה ואני רוצה להצטרף במק
 const cancel = "אני רוצה לבטל את המנוי";
 assert.equal(decide(`[[route:answer]]\n${friend}`, "cancellation"), "ignore_hint");
 assert.equal(decide(`[[route:handoff]]\n${cancel}`, "cancellation"), "use_hint");
+
+assert.equal(DISABLED_FAST_PATH_HINTS.has("day_timetable"), true);
+assert.equal(collectPreClaudeHint("תודה, נהנתי היום"), null);
+assert.equal(
+  collectPreClaudeHint("היי, אשמח להגיע לאימון ניסיון ביום ראשון")?.category,
+  "trial_slot"
+);
+assert.match(formatFastPathHintLine({ matcher: "signup", category: "signup" }), /עלול לטעות/);
+assert.match(formatFastPathHintLine({ matcher: "signup", category: "signup" }), /ההודעה האחרונה/);
+assert.equal(decide("[[route:answer]]\nכן", "trial_slot"), "use_hint");
+assert.equal(decide("[[route:handoff]]\nצוות", "trial_slot"), "ignore_hint");
+assert.equal(decide("[[route:booking_change]]\nמדיניות", "day_timetable"), "ignore_hint");
 
 console.log("wa-fast-path-hint.test.ts: ok");
