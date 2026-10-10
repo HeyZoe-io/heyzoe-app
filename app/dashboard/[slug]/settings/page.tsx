@@ -1225,7 +1225,7 @@ import { FollowupStepPanel } from "./steps/FollowupStepPanel";
 import { LinksStepPanel } from "./steps/LinksStepPanel";
 import { isCrmApiKeyMaskOrEmpty } from "@/lib/crm/crm-api-key-mask";
 import { normalizeCrmType, type CrmType } from "@/lib/crm/types";
-import { businessUsesNodeConversation } from "@/lib/sales-flow-start-triggers";
+import { businessUsesConversationFollowupNodes, businessUsesNodeConversation } from "@/lib/sales-flow-start-triggers";
 
 const Step3Trial = dynamic(() => import("./steps/Step3Trial"), {
   ssr: false,
@@ -1669,7 +1669,7 @@ export default function SlugSettingsPage({
     const parsed = Number(sp);
     if (!Number.isFinite(parsed)) return;
     const parsedStep = Math.max(1, Math.min(STEPS.length, Math.trunc(parsed)));
-    const n = businessUsesNodeConversation(slug) && parsedStep === 5 ? 4 : parsedStep;
+    const n = businessUsesConversationFollowupNodes(slug) && parsedStep === 5 ? 4 : parsedStep;
     if (n !== stepRef.current) {
       stepSyncFromUrlRef.current = true;
       setStep(n);
@@ -3378,12 +3378,12 @@ export default function SlugSettingsPage({
     );
   }
 
-  const nodeConversation = businessUsesNodeConversation(slug);
+  const followupNodes = businessUsesConversationFollowupNodes(slug);
   const isFirst = step === 1;
-  const isLast  = nodeConversation ? step >= 4 : step === STEPS.length;
+  const isLast  = followupNodes ? step >= 4 : step === STEPS.length;
 
   function nextStep() {
-    setStep((s) => Math.min(nodeConversation ? 4 : STEPS.length, s + 1));
+    setStep((s) => Math.min(followupNodes ? 4 : STEPS.length, s + 1));
   }
 
   function prevStep() {
@@ -3600,7 +3600,23 @@ export default function SlugSettingsPage({
         {/* ════════════════════ STEP 4 — מסלול מכירה ════════════════════ */}
         {keepConversationMountedRef.current ? (
           <div className={step !== 4 ? "hidden" : undefined} aria-hidden={step !== 4}>
-            <ConversationFlowBuilder slug={slug} />
+            <ConversationFlowBuilder
+              slug={slug}
+              afterRegistration={{
+                body: salesFlowConfig.after_trial_registration_body,
+                bodyAfterSchedule: salesFlowConfig.after_trial_registration_body_after_schedule,
+              }}
+              onAfterRegistrationChange={(patch) =>
+                setSalesFlowConfigFromUser((current) => ({
+                  ...current,
+                  ...(patch.body !== undefined ? { after_trial_registration_body: patch.body } : {}),
+                  ...(patch.bodyAfterSchedule !== undefined
+                    ? { after_trial_registration_body_after_schedule: patch.bodyAfterSchedule }
+                    : {}),
+                }))
+              }
+              savePage={saveAll}
+            />
           </div>
         ) : null}
         {step === 4 && !businessUsesNodeConversation(slug) ? (
@@ -3669,7 +3685,7 @@ export default function SlugSettingsPage({
         ) : null}
 
         {/* ════════════════════ STEP 5 — פולואפ ════════════════════ */}
-        {step === 5 && !nodeConversation ? (
+        {step === 5 && !followupNodes ? (
           <StepPanel className="!text-right [&_input]:!text-right [&_textarea]:!text-right">
             <FollowupStepPanel
               lang={lang}

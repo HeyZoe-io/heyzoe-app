@@ -168,9 +168,9 @@ export function businessUsesNodeConversation(slug?: string | null): boolean {
   return NODE_CONVERSATION_SLUGS.has(String(slug ?? "").trim().toLowerCase());
 }
 
-/** פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
+/** פיפמן: פולואפים הם תיבות במסלול, לא דף הפולואפ הכללי. */
 export function businessUsesConversationFollowupNodes(slug?: string | null): boolean {
-  return businessUsesNodeConversation(slug);
+  return String(slug ?? "").trim().toLowerCase() === "pipman-team";
 }
 
 /** בקשת פרטים שאפשר לזהות גם בסוף הודעה ארוכה, לא רק כשהיא כל ההודעה. */
@@ -330,6 +330,12 @@ export const OPENING_SERVICE_PICK_MENU_MODELS = [
   "sales_flow_cs_redirect_service_pick",
   "registration_cta_ask_class",
   "sales_flow_catalog_family_pick",
+  "sales_flow_catalog_family_reask",
+  "sales_flow_catalog_family_hold",
+  "sales_flow_catalog_family_reask_hold",
+  "opening_service_menu_reask",
+  "opening_service_menu_hold",
+  "opening_service_menu_reask_hold",
 ] as const;
 
 export function isOpeningServicePickMenuModel(model: string | null | undefined): boolean {

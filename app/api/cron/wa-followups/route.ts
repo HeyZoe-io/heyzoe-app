@@ -190,6 +190,31 @@ async function fetchLatestRealAssistantMessageAt(input: {
   return null;
 }
 
+/** ליד שהתחיל את מסלול התיבות. שורה אחת לפי (business_id, phone), באינדקס הייחודי. */
+async function hasConversationBoxSession(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  businessId: number;
+  phone: string;
+}): Promise<boolean> {
+  const digits = input.phone.replace(/\D/g, "");
+  const variants = [...new Set([digits, ...contactPhoneLookupVariants(input.phone).map((p) => p.replace(/\D/g, ""))])].filter(
+    Boolean
+  );
+  if (!input.businessId || !variants.length) return false;
+  const { data, error } = await input.admin
+    .from("business_conversation_sessions")
+    .select("id")
+    .eq("business_id", input.businessId)
+    .in("phone", variants)
+    .not("current_node_id", "is", null)
+    .limit(1);
+  if (error) {
+    console.error("[cron/wa-followups] conversation box session lookup failed:", error.message);
+    return false;
+  }
+  return (data ?? []).length > 0;
+}
+
 async function hasUserReplyAfter(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   business_slug: string;
@@ -680,7 +705,9 @@ export async function GET(req: NextRequest) {
       }
 
       const business_slug = String(channel.businessSlug).trim().toLowerCase();
-      const { businessUsesConversationFollowupNodes } = await import("@/lib/sales-flow-start-triggers");
+      const { businessUsesConversationFollowupNodes, businessUsesNodeConversation } = await import(
+        "@/lib/sales-flow-start-triggers"
+      );
       if (businessUsesConversationFollowupNodes(business_slug)) {
         logWaFollowupSkip("node_followups", {
           contact_id: contactId,
@@ -695,7 +722,11 @@ export async function GET(req: NextRequest) {
       const sessionId = buildWaSessionId(phoneNumberId, phone);
       const sessionIds = waSessionIdLookupVariants(phoneNumberId, phone);
 
+      const startedInBoxes =
+        businessUsesNodeConversation(business_slug) &&
+        (await hasConversationBoxSession({ admin, businessId: Number(businessId), phone }));
       if (
+        !startedInBoxes &&
         !(await sessionHasSalesFlowGreeting({
           business_slug,
           session_id: sessionIds.length ? sessionIds : sessionId,

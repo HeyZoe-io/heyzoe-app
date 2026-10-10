@@ -24,6 +24,7 @@ import { clampWaReplyButtonTitle, WA_REPLY_BUTTON_TITLE_MAX_CHARS } from "@/lib/
 import { useRegisterSettingsUnsaved } from "@/app/[slug]/settings/settings-unsaved-context";
 import { uploadDashboardWhatsAppMedia } from "@/lib/upload-dashboard-media-client";
 import { WHATSAPP_MEDIA_CAPTION_MAX_CHARS } from "@/lib/whatsapp-media-limits";
+import { businessUsesConversationFollowupNodes } from "@/lib/sales-flow-start-triggers";
 
 type FlowType = "message" | "question" | "product" | "daytime" | "register" | "followup" | "details";
 
@@ -358,7 +359,23 @@ function withDefaultOpening(
   return locked.map((node) => (node.id === start.id ? { ...node, data: { ...node.data, text } } : node));
 }
 
-function ConversationFlowCanvas({ slug }: { slug: string }) {
+type AfterRegistrationTexts = { body: string; bodyAfterSchedule: string };
+
+type ConversationFlowProps = {
+  slug: string;
+  /** הודעת «אחרי הרשמה» שנשלחת כשארבוקס מזהה רכישה. נשמרת בהגדרות העסק, לא בתיבות. */
+  afterRegistration?: AfterRegistrationTexts;
+  onAfterRegistrationChange?: (patch: Partial<AfterRegistrationTexts>) => void;
+  savePage?: () => Promise<boolean>;
+};
+
+function ConversationFlowCanvas({ slug, afterRegistration, onAfterRegistrationChange, savePage }: ConversationFlowProps) {
+  const [showAfterRegistration, setShowAfterRegistration] = useState(false);
+  const [afterRegistrationDirty, setAfterRegistrationDirty] = useState(false);
+  const addTypes = useMemo(
+    () => ADD_TYPES.filter((type) => type !== "followup" || businessUsesConversationFollowupNodes(slug)),
+    [slug]
+  );
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData, FlowType>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -653,13 +670,36 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             </button>
             <button
               type="button"
-              onClick={() => void persist(nodes, edges)}
-              disabled={!dirty || status === "saving" || status === "loading"}
+              onClick={() =>
+                void (async () => {
+                  const graphOk = dirty ? await persist(nodes, edges) : true;
+                  if (graphOk && afterRegistrationDirty && savePage && (await savePage())) {
+                    setAfterRegistrationDirty(false);
+                  }
+                })()
+              }
+              disabled={(!dirty && !afterRegistrationDirty) || status === "saving" || status === "loading"}
               className="rounded-full bg-[#7133da] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#5e28b8] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {status === "saving" ? "שומר…" : "שמירה"}
             </button>
-            {ADD_TYPES.map((type) => (
+            {afterRegistration && onAfterRegistrationChange ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedId(null);
+                  setShowAfterRegistration(true);
+                }}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                  showAfterRegistration && !selectedId
+                    ? "border-[#7133da] bg-[#7133da]/10 text-[#7133da]"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                הודעה אחרי הרשמה
+              </button>
+            ) : null}
+            {addTypes.map((type) => (
               <button
                 key={type}
                 type="button"
@@ -706,7 +746,10 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
                 onNodeDragStop={() => setDirty(true)}
                 onConnect={onConnect}
                 nodeTypes={nodeTypes}
-                onNodeClick={(_, node) => setSelectedId(node.id)}
+                onNodeClick={(_, node) => {
+                  setShowAfterRegistration(false);
+                  setSelectedId(node.id);
+                }}
                 onPaneClick={() => setSelectedId(null)}
                 fitView
                 fitViewOptions={{ padding: 0.45, maxZoom: 0.9 }}
@@ -724,7 +767,41 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
             )}
           </div>
           <aside className="border-t border-zinc-100 p-4 lg:border-s lg:border-t-0">
-            {!selected ? (
+            {!selected && showAfterRegistration && afterRegistration && onAfterRegistrationChange ? (
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-zinc-900">הודעה אחרי הרשמה</div>
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  נשלחת לבד כשארבוקס מזהה שהליד רכש שיעור ניסיון. לא צריך לחבר אותה לתיבה.
+                </p>
+                <label className="block text-sm text-zinc-700">
+                  אחרי הרשמה
+                  <textarea
+                    rows={8}
+                    value={afterRegistration.body}
+                    onChange={(e) => {
+                      setAfterRegistrationDirty(true);
+                      onAfterRegistrationChange({ body: e.target.value });
+                    }}
+                    className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
+                  />
+                </label>
+                <label className="block text-sm text-zinc-700">
+                  אחרי הרשמה, כשהליד בחר יום ושעה
+                  <textarea
+                    rows={8}
+                    value={afterRegistration.bodyAfterSchedule}
+                    onChange={(e) => {
+                      setAfterRegistrationDirty(true);
+                      onAfterRegistrationChange({ bodyAfterSchedule: e.target.value });
+                    }}
+                    className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[#7133da]/40"
+                  />
+                </label>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  {"{requested_date} {requested_time}"} נמשכים מהמועד שנבחר. {"{business_address} {business_directions}"} מטאב העסק.
+                </p>
+              </div>
+            ) : !selected ? (
               <p className="text-sm leading-relaxed text-zinc-500">בחרי תיבה כדי לערוך את הטקסט. מכל כפתור בשאלה יוצא חץ לענף אחר.</p>
             ) : (
               <div className="space-y-3">
@@ -973,7 +1050,7 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
               </div>
             )}
             <p className="mt-4 text-xs text-zinc-400">
-              {status === "saving" ? "שומר…" : status === "error" ? error : dirty ? "יש שינויים שלא נשמרו" : "נשמר"}
+              {status === "saving" ? "שומר…" : status === "error" ? error : dirty || afterRegistrationDirty ? "יש שינויים שלא נשמרו" : "נשמר"}
             </p>
           </aside>
         </div>
@@ -982,10 +1059,10 @@ function ConversationFlowCanvas({ slug }: { slug: string }) {
   );
 }
 
-export default function ConversationFlowBuilder({ slug }: { slug: string }) {
+export default function ConversationFlowBuilder(props: ConversationFlowProps) {
   return (
     <ReactFlowProvider>
-      <ConversationFlowCanvas slug={slug} />
+      <ConversationFlowCanvas {...props} />
     </ReactFlowProvider>
   );
 }

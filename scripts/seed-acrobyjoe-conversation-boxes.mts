@@ -6,6 +6,7 @@
  * כתיבה:       npx tsx --env-file=.env.local scripts/seed-acrobyjoe-conversation-boxes.mts --write
  *
  * לא דורס: נעצר אם כבר יש לעסק תיבות. ההגדרות הישנות ב-social_links נשארות כמו שהן.
+ * פולואפים נשארים בדף הפולואפ הרגיל.
  */
 import { randomUUID } from "node:crypto";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -15,7 +16,6 @@ import { SCHEDULE_BOARD_CAPTION } from "@/lib/sales-flow";
 const SLUG = "acrobyjoe";
 const WRITE = process.argv.includes("--write");
 const FREE_TEXT_HINT = "ניתן לכתוב שאלה שאינה מופיעה";
-const OPT_OUT_FOOTER = "_לביטול קבלת הודעות שלח *הסר*_";
 
 const SHORT_BUTTON: Record<string, string> = {
   "עמידות ידיים / גמישות": "עמידות ידיים/גמישות",
@@ -26,7 +26,7 @@ const SHORT_BUTTON: Record<string, string> = {
 
 type NodeRow = {
   id: string;
-  type: "message" | "question" | "product" | "daytime" | "followup";
+  type: "message" | "question" | "product" | "daytime";
   data: Record<string, unknown>;
   position_x: number;
   position_y: number;
@@ -128,8 +128,6 @@ async function main(): Promise<void> {
   );
   link(board, pick);
 
-  const silenceAnchors: string[] = [pick];
-
   const slotAck = add("message", { text: str(sf.after_schedule_selection) || "מעולה! נדאג לשבץ אותך לזמן שבחרת!" }, 800, 150);
 
   const trialCta = add(
@@ -141,7 +139,6 @@ async function main(): Promise<void> {
     600,
     200
   );
-  silenceAnchors.push(trialCta);
   link(slotAck, trialCta);
 
   const trialLink = add(
@@ -181,7 +178,6 @@ async function main(): Promise<void> {
     200,
     250
   );
-  silenceAnchors.push(nextAsk);
   link(scheduleMsg, nextAsk);
   link(membershipsMsg, nextAsk);
   (nextOptions.length ? nextOptions : ctaButtons.map((b) => str(b.label))).forEach((label, i) => {
@@ -203,7 +199,6 @@ async function main(): Promise<void> {
       600,
       650
     );
-    silenceAnchors.push(courseCta);
     courseButtons.forEach((b, i) => {
       const target =
         b.kind === "course_enroll"
@@ -220,44 +215,14 @@ async function main(): Promise<void> {
     link(pick, product, `btn-${i}`);
     const day = add("daytime", { day_text: "", day_buttons: ["", ""], time_text: "", time_buttons: ["", ""] }, 1000, y);
     link(product, day);
-    if (service.hasSlots) silenceAnchors.push(day);
     if (service.kind === "course") {
       link(day, ensureCourseCta(service.price));
-    } else if (service.kind === "workshop") {
-      silenceAnchors.push(product);
-    } else {
+    } else if (service.kind !== "workshop") {
       link(day, service.hasSlots ? slotAck : trialCta);
     }
   });
 
-  const botName = str((biz as { bot_name?: unknown }).bot_name) || "זואי";
-  const businessName = str((biz as { name?: unknown }).name);
-  const fillFollowup = (raw: string) =>
-    raw
-      .replaceAll("{{service_phone_note}}", csPhone ? `\n\nניתן גם להתקשר ל:${csPhone}` : "")
-      .replaceAll("{{bot_name}}", botName)
-      .replaceAll("{{business_name}}", businessName)
-      .replaceAll("{{phone}}", csPhone)
-      .trim();
-  const followups = [
-    { key: "wa_sales_followup_1", delay: 20 },
-    { key: "wa_sales_followup_2", delay: 100 },
-    { key: "wa_sales_followup_3", delay: 21 * 60 },
-  ].filter((f) => social[`${f.key}_enabled`] === true && str(social[f.key]));
-  let previous = "";
-  followups.forEach((f, i) => {
-    const id = add(
-      "followup",
-      { text: `${fillFollowup(str(social[f.key]))}\n\n${OPT_OUT_FOOTER}`, delay_minutes: f.delay },
-      1400 - i * 200,
-      -260
-    );
-    if (previous) link(previous, id, "silence");
-    else silenceAnchors.forEach((anchor) => link(anchor, id, "silence"));
-    previous = id;
-  });
-
-  console.log(`business ${businessId}: ${nodes.length} boxes, ${edges.length} arrows, ${followups.length} follow-ups`);
+  console.log(`business ${businessId}: ${nodes.length} boxes, ${edges.length} arrows`);
   for (const n of nodes) {
     const text = str(n.data.text).replace(/\s+/g, " ").slice(0, 70);
     const buttons = Array.isArray(n.data.buttons) ? ` [${(n.data.buttons as string[]).join(" | ")}]` : "";
