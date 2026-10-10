@@ -5,9 +5,13 @@
 
 import { detectMessageLanguage } from "@/lib/language-detect";
 import { normalizeTrialSignupIntentText } from "@/lib/wa-trial-signup-intent";
+import { modelUsedBase } from "@/lib/wa-reply-route";
 import type { BusinessContentLanguage } from "@/lib/business-content-lang";
 
 export const TRY_CLASS_OFFER_MODEL = "try_class_info_offer";
+export const TRY_CLASS_OFFER_REASK_MODEL = "try_class_info_offer_reask";
+export const TRY_CLASS_OFFER_HOLD_MODEL = "try_class_info_offer_hold";
+export const TRY_CLASS_OFFER_REASK_HOLD_MODEL = "try_class_info_offer_reask_hold";
 export const TRY_CLASS_OFFER_DECLINE_MODEL = "try_class_info_offer_decline";
 
 export const TRY_CLASS_OFFER_QUESTION_HE =
@@ -95,6 +99,30 @@ export function matchesTryClassIntent(raw: string): boolean {
   return false;
 }
 
+/** Exact short yes. Broader try-intent is a fallback only after Claude omits the tag. */
+export function isExactTryClassOfferYes(raw: string): boolean {
+  const t = normalizeTrialSignupIntentText(raw);
+  if (!t || t.length > 40) return false;
+  if (isTryClassOfferNegative(raw)) return false;
+  return AFFIRMATIVE_OPENER.test(t);
+}
+
+const TRY_CLASS_PENDING_MODELS = new Set([
+  TRY_CLASS_OFFER_MODEL,
+  TRY_CLASS_OFFER_REASK_MODEL,
+  TRY_CLASS_OFFER_HOLD_MODEL,
+  TRY_CLASS_OFFER_REASK_HOLD_MODEL,
+]);
+
+export function isTryClassOfferPendingModel(model: string | null | undefined): boolean {
+  return TRY_CLASS_PENDING_MODELS.has(modelUsedBase(model));
+}
+
+export function tryClassOfferAlreadyReasked(model: string | null | undefined): boolean {
+  const base = modelUsedBase(model);
+  return base === TRY_CLASS_OFFER_REASK_MODEL || base === TRY_CLASS_OFFER_REASK_HOLD_MODEL;
+}
+
 export function isTryClassOfferAffirmative(raw: string): boolean {
   const t = normalizeTrialSignupIntentText(raw);
   if (!t) return false;
@@ -148,7 +176,7 @@ export function shouldStartProductPickAfterTryClassOffer(input: {
 }): boolean {
   if (isTryClassOfferNegative(input.inbound)) return false;
   if (!isTryClassOfferAffirmative(input.inbound)) return false;
-  if (input.lastAssistantModel === TRY_CLASS_OFFER_MODEL) return true;
+  if (isTryClassOfferPendingModel(input.lastAssistantModel)) return true;
   return assistantAskedToTryAClass(input.lastAssistantContent ?? "");
 }
 
@@ -156,6 +184,6 @@ export function shouldDeclineTryClassOffer(input: {
   inbound: string;
   lastAssistantModel: string | null | undefined;
 }): boolean {
-  if (input.lastAssistantModel !== TRY_CLASS_OFFER_MODEL) return false;
+  if (!isTryClassOfferPendingModel(input.lastAssistantModel)) return false;
   return isTryClassOfferNegative(input.inbound);
 }

@@ -1,3 +1,4 @@
+import { modelUsedBase } from "@/lib/wa-reply-route";
 import {
   matchCatalogServiceFromFreeText,
   matchCatalogServicesFromFreeText,
@@ -20,13 +21,17 @@ const CONCRETE_MENU_QUESTION_RE =
  * While the training menu is waiting: a concrete question keeps Claude's answer.
  * A repeated info ask, or an empty body, gets one nudge. Never a second menu.
  */
+export function isConcreteServiceMenuQuestion(inbound: string): boolean {
+  return CONCRETE_MENU_QUESTION_RE.test(String(inbound ?? ""));
+}
+
 export function pendingServiceMenuReply(input: {
   inbound: string;
   body: string;
   menuPending: boolean;
 }): "nudge" | "body" {
   if (!input.menuPending) return "body";
-  const concrete = CONCRETE_MENU_QUESTION_RE.test(String(input.inbound ?? ""));
+  const concrete = isConcreteServiceMenuQuestion(input.inbound);
   if (concrete && String(input.body ?? "").trim()) return "body";
   return "nudge";
 }
@@ -51,6 +56,26 @@ export function buildAmbiguousCatalogTrialPickMessage(matchCount: number): strin
 /** אישור משפחת אימונים («פילאטיס») לפני בחירת המוצר המדויק. */
 export const CATALOG_FAMILY_PICK_QUESTION_HE = "האם זה האימון שמעניין אותך?";
 export const CATALOG_FAMILY_PICK_MODEL = "sales_flow_catalog_family_pick";
+export const CATALOG_FAMILY_REASK_MODEL = "sales_flow_catalog_family_reask";
+export const CATALOG_FAMILY_HOLD_MODEL = "sales_flow_catalog_family_hold";
+export const CATALOG_FAMILY_REASK_HOLD_MODEL = "sales_flow_catalog_family_reask_hold";
+export const CATALOG_FAMILY_DECLINE_MODEL = "sales_flow_catalog_family_declined";
+
+const CATALOG_FAMILY_PENDING_MODELS = new Set([
+  CATALOG_FAMILY_PICK_MODEL,
+  CATALOG_FAMILY_REASK_MODEL,
+  CATALOG_FAMILY_HOLD_MODEL,
+  CATALOG_FAMILY_REASK_HOLD_MODEL,
+]);
+
+export function isCatalogFamilyPendingModel(model: string | null | undefined): boolean {
+  return CATALOG_FAMILY_PENDING_MODELS.has(modelUsedBase(model));
+}
+
+export function catalogFamilyAlreadyReasked(model: string | null | undefined): boolean {
+  const base = modelUsedBase(model);
+  return base === CATALOG_FAMILY_REASK_MODEL || base === CATALOG_FAMILY_REASK_HOLD_MODEL;
+}
 
 /** שם אימון / משפחה קצרה מחוץ לפלואו — לא שאלת מחיר/מידע. */
 export function looksLikeOutOfFlowCatalogClassPick(raw: string): boolean {

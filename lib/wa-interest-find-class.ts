@@ -19,6 +19,9 @@ import {
 import { isJoinSignupIntentText } from "@/lib/wa-warmup-skip-intent";
 
 export const FIND_CLASS_ASK_MODEL = "interest_answer_find_class_ask";
+export const FIND_CLASS_REASK_MODEL = "interest_answer_find_class_reask";
+export const FIND_CLASS_HOLD_MODEL = "interest_answer_find_class_hold";
+export const FIND_CLASS_REASK_HOLD_MODEL = "interest_answer_find_class_reask_hold";
 export const FIND_CLASS_DECLINE_MODEL = "interest_find_class_declined";
 
 export const FIND_CLASS_BRIDGE_HE = "רוצה שנמצא את השיעור המתאים עבורך?";
@@ -95,8 +98,20 @@ export function inboundHasQuestionBeyondClassInterest(raw: string): boolean {
   return false;
 }
 
+const FIND_CLASS_PENDING_MODELS = new Set([
+  FIND_CLASS_ASK_MODEL,
+  FIND_CLASS_REASK_MODEL,
+  FIND_CLASS_HOLD_MODEL,
+  FIND_CLASS_REASK_HOLD_MODEL,
+]);
+
 export function isFindClassBridgeModel(model: string | null | undefined): boolean {
-  return modelUsedBase(model) === FIND_CLASS_ASK_MODEL;
+  return FIND_CLASS_PENDING_MODELS.has(modelUsedBase(model));
+}
+
+export function findClassOfferAlreadyReasked(model: string | null | undefined): boolean {
+  const base = modelUsedBase(model);
+  return base === FIND_CLASS_REASK_MODEL || base === FIND_CLASS_REASK_HOLD_MODEL;
 }
 
 /**

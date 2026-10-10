@@ -7,6 +7,26 @@ import { foldHebrewServiceToken } from "@/lib/hebrew-service-token";
 /** גשר קבוע — חייב להופיע בדיוק כך (גם לזיהוי «כן» בהודעה הבאה). */
 export const CTA_SERVICE_REPICK_BRIDGE_QUESTION =
   "תרצו שנבחר יחד אימון אחר מהרשימה?";
+export const CTA_SERVICE_REPICK_REASK_MODEL = "cta_service_repick_reask";
+export const CTA_SERVICE_REPICK_HOLD_MODEL = "cta_service_repick_hold";
+export const CTA_SERVICE_REPICK_REASK_HOLD_MODEL = "cta_service_repick_reask_hold";
+export const CTA_SERVICE_REPICK_DECLINE_MODEL = "cta_service_repick_declined";
+
+const SERVICE_REPICK_PENDING_MODELS = new Set([
+  CTA_SERVICE_REPICK_REASK_MODEL,
+  CTA_SERVICE_REPICK_HOLD_MODEL,
+  CTA_SERVICE_REPICK_REASK_HOLD_MODEL,
+]);
+
+export function isServiceRepickPendingModel(model: string | null | undefined): boolean {
+  const base = String(model ?? "").split("#")[0]?.trim() ?? "";
+  return SERVICE_REPICK_PENDING_MODELS.has(base);
+}
+
+export function serviceRepickAlreadyReasked(model: string | null | undefined): boolean {
+  const base = String(model ?? "").split("#")[0]?.trim() ?? "";
+  return base === CTA_SERVICE_REPICK_REASK_MODEL || base === CTA_SERVICE_REPICK_REASK_HOLD_MODEL;
+}
 export const SALES_FLOW_SERVICE_REPICK_ACK_MESSAGE =
   "אני מבינה שמעניין אותך אימון אחר, אין בעיה";
 
@@ -594,9 +614,16 @@ export async function shouldHandleCtaServiceRepickYes(input: {
   if (!input.lastPickedServiceName?.trim()) return false;
   if (!input.scheduleDate.trim() && !input.scheduleTime.trim()) return false;
   if (!isAffirmativeServiceRepickYes(input.inboundText)) return false;
-  const lastAssistant = await fetchLastAssistantMessageContent({
-    business_slug: input.business_slug,
-    session_id: input.session_id,
-  });
+  const [lastAssistant, lastModel] = await Promise.all([
+    fetchLastAssistantMessageContent({
+      business_slug: input.business_slug,
+      session_id: input.session_id,
+    }),
+    fetchLastAssistantModelUsed({
+      business_slug: input.business_slug,
+      session_id: input.session_id,
+    }),
+  ]);
+  if (isServiceRepickPendingModel(lastModel)) return true;
   return replyContainsServiceRepickBridge(lastAssistant);
 }

@@ -21,7 +21,26 @@ import {
 } from "@/lib/wa-unknown-class-slot";
 
 export const LEAD_DAY_TRIAL_OFFER_MODEL = "lead_day_trial_offer";
+export const LEAD_DAY_TRIAL_REASK_MODEL = "lead_day_trial_reask";
+export const LEAD_DAY_TRIAL_HOLD_MODEL = "lead_day_trial_hold";
+export const LEAD_DAY_TRIAL_REASK_HOLD_MODEL = "lead_day_trial_reask_hold";
 export const LEAD_DAY_TRIAL_DECLINED_MODEL = "lead_day_trial_declined";
+
+const LEAD_DAY_TRIAL_PENDING_MODELS = new Set([
+  LEAD_DAY_TRIAL_OFFER_MODEL,
+  LEAD_DAY_TRIAL_REASK_MODEL,
+  LEAD_DAY_TRIAL_HOLD_MODEL,
+  LEAD_DAY_TRIAL_REASK_HOLD_MODEL,
+]);
+
+export function isLeadDayTrialOfferPending(model: string | null | undefined): boolean {
+  return LEAD_DAY_TRIAL_PENDING_MODELS.has(modelUsedBase(model));
+}
+
+export function leadDayTrialOfferAlreadyReasked(model: string | null | undefined): boolean {
+  const base = modelUsedBase(model);
+  return base === LEAD_DAY_TRIAL_REASK_MODEL || base === LEAD_DAY_TRIAL_REASK_HOLD_MODEL;
+}
 
 export const LEAD_DAY_TRIAL_JOIN_QUESTION = "תרצי להצטרף לאחד מהם?";
 export const LEAD_DAY_TRIAL_DECLINE_REPLY = "סבבה. אם תרצי לשאול עוד משהו, אני כאן.";
