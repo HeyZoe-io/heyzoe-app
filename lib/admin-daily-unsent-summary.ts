@@ -13,6 +13,11 @@
 import { ADMIN_SUPPORT_ALERT_WHATSAPP, sendAdminWhatsAppTemplate } from "@/lib/notifications/sendAdminWhatsAppTemplate";
 import { logMarketingWhatsAppMessage, MARKETING_CONVERSATIONS_SLUG } from "@/lib/marketing-whatsapp";
 import { CRON_UNEXPECTED_CALLER_MODEL } from "@/lib/cron-clock";
+import {
+  FOLLOWUP_AUDIT_SESSION,
+  FOLLOWUP_CANCELLED_MODEL,
+  parseFollowupCancelModelUsed,
+} from "@/lib/followup-hold-policy";
 import { listWabaTemplates } from "@/lib/meta-templates";
 import { resolveMarketingWabaId } from "@/lib/marketing-waba";
 import type { createSupabaseAdminClient } from "@/lib/supabase-admin";
@@ -67,6 +72,10 @@ export const ARBOX_MISSING_TASK_TYPE_WARNING =
   "לעסק אין סוג משימה מוגדר - פניות לנציג לא נפתחות בארבוקס";
 /** Expected: Arbox studio hands off on WhatsApp because no task type is configured. */
 export const WHATSAPP_HANDOFF_EXPECTED_REASON = "העברה לבעלים בוואטסאפ, בלי משימת ארבוקס";
+/** Follow-up step held by night / Shabbat and cancelled instead of sent late. */
+export const FOLLOWUP_DELAYED_CANCEL_REASON = "פולואפ באיחור בוטל";
+/** Follow-up closed because the lead's last message is 24h old. */
+export const FOLLOWUP_OUTSIDE_24H_REASON = "פולואפ מחוץ ל-24 שעות";
 
 export function arboxHandoffTaskTypeIdMissing(taskTypeId: unknown): boolean {
   const n = Number.parseInt(String(taskTypeId ?? "").trim(), 10);
@@ -111,6 +120,8 @@ const EXPECTED_REASONS = new Set([
   "צוות",
   AUTO_CANCEL_REASON,
   WHATSAPP_HANDOFF_EXPECTED_REASON,
+  FOLLOWUP_DELAYED_CANCEL_REASON,
+  FOLLOWUP_OUTSIDE_24H_REASON,
 ]);
 
 /** problem: counted in the headline. manual / expected: listed apart, never as not sent. */
@@ -248,6 +259,8 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
   let staff = 0;
   let autoCancel = 0;
   let whatsappHandoff = 0;
+  const followupCancels = new Map<string, number>();
+  let followupCancelTotal = 0;
   for (const row of rows) {
     const group = unsentGroup(row);
     if (group === "problem") {
@@ -272,7 +285,11 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
     else if (row.reason === "צוות") staff += 1;
     else if (row.reason === AUTO_CANCEL_REASON) autoCancel += 1;
     else if (row.reason === WHATSAPP_HANDOFF_EXPECTED_REASON) whatsappHandoff += 1;
-    else {
+    else if (row.reason === FOLLOWUP_DELAYED_CANCEL_REASON || row.reason === FOLLOWUP_OUTSIDE_24H_REASON) {
+      followupCancelTotal += 1;
+      const key = `${row.business} · ${row.reason}`;
+      followupCancels.set(key, (followupCancels.get(key) ?? 0) + 1);
+    } else {
       history += 1;
       const key = `${row.business} · ${row.trigger}${row.rule ? ` (${row.rule})` : ""}`;
       historyByRule.set(key, (historyByRule.get(key) ?? 0) + 1);
@@ -294,7 +311,10 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
       level >= 1 && bigRules.length ? `; מעל ${HISTORY_RULE_BREAKDOWN_MIN} לכלל: ${bigRules.join(", ")}` : "";
     const auto = autoCancel ? `, ${autoCancel} ביטולים אוטומטיים` : "";
     const handoff = whatsappHandoff ? `, ${whatsappHandoff} העברות בוואטסאפ בלי משימת ארבוקס` : "";
-    return `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר${byRule}), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${skipped} דילוגים, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות${handoff}${auto}`;
+    const followups = followupCancelTotal
+      ? `, ${followupCancelTotal} פולואפים שבוטלו${level >= 1 ? ` (${countedLines(followupCancels).join(", ")})` : ""}`
+      : "";
+    return `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר${byRule}), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${skipped} דילוגים, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות${handoff}${auto}${followups}`;
   };
   const pointer = "הפירוט המלא ב-/admin/unsent";
   const join = (items: string[], level: number) =>
@@ -694,6 +714,33 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       reason: "קריאה לא מ-cron-job.org",
       at: String((row as { created_at?: unknown }).created_at ?? ""),
       metaError: squashParam(String((row as { content?: unknown }).content ?? "")).slice(0, 140),
+    });
+  }
+  const { data: followupCancels, error: followupCancelsError } = await admin
+    .from("messages")
+    .select("model_used, created_at")
+    .eq("business_slug", MARKETING_CONVERSATIONS_SLUG)
+    .eq("session_id", FOLLOWUP_AUDIT_SESSION)
+    .like("model_used", `${FOLLOWUP_CANCELLED_MODEL}:%`)
+    .gte("created_at", sinceIso)
+    .limit(2000);
+  if (followupCancelsError) {
+    console.error("[admin-daily-unsent] follow-up cancellation lookup failed", followupCancelsError.message);
+  }
+  for (const row of followupCancels ?? []) {
+    const parsed = parseFollowupCancelModelUsed(String((row as { model_used?: unknown }).model_used ?? ""));
+    if (!parsed) continue;
+    out.push({
+      businessId: parsed.businessId,
+      business:
+        parsed.path === "marketing"
+          ? "HeyZoe שיווק"
+          : names.get(parsed.businessId) || (parsed.businessId ? `עסק ${parsed.businessId}` : "HeyZoe"),
+      trigger: "פולואפ",
+      contact: "",
+      reason: parsed.reason === "outside_24h_window" ? FOLLOWUP_OUTSIDE_24H_REASON : FOLLOWUP_DELAYED_CANCEL_REASON,
+      at: israelStamp(String((row as { created_at?: unknown }).created_at ?? "")),
+      metaError: `${parsed.path} שלב ${parsed.step}`,
     });
   }
   const { data: taskFailures, error: taskFailuresError } = await admin

@@ -378,6 +378,23 @@ export function isAllowedWhatsAppSendTimeIsrael(
   return true;
 }
 
+/** First instant at or after `dateUtc` when sending is blocked: the night hold or Friday 16:00. */
+export function nextBlockedWhatsAppSendTimeIsrael(
+  dateUtc: Date,
+  quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES
+): Date {
+  if (!isAllowedWhatsAppSendTimeIsrael(dateUtc, quietEndMinutes)) return dateUtc;
+  const p = getLocalPartsInTz(dateUtc, IL_TZ);
+  const startMinutes = p.weekday === 5 ? WA_ISRAEL_FRIDAY_BLOCK_START_MINUTES : WA_ISRAEL_QUIET_START_MINUTES;
+  return makeUtcDateFromLocalInTz({
+    year: p.year,
+    month: p.month,
+    day: p.day,
+    hour: Math.floor(startMinutes / 60),
+    minute: startMinutes % 60,
+  });
+}
+
 export function nextAllowedWhatsAppSendTimeIsrael(
   dateUtc: Date,
   quietEndMinutes: number = WA_ISRAEL_QUIET_END_MINUTES

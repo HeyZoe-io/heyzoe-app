@@ -1018,18 +1018,38 @@ export async function handleBusinessConversationFlowInbound(input: {
  * פולואפים של מסלול השיחה. רץ מתוך /api/cron/wa-followups (cron-job.org, בערך כל 5 דקות).
  * שאילתה אחת על אינדקס followup_due_at, עד 40 שורות שכבר הגיע זמנן. לא סריקת טבלה.
  * לכל שורה: ערוץ, איש קשר, והודעת משתמש אחרונה — ואז לכל היותר הודעת וואטסאפ אחת.
+ * תיבה שאינה אחרונה ונדחתה בגלל לילה/שבת לא נשלחת באיחור; הבאה מתוזמנת מהזמן המקורי.
+ * dryRun: בלי שליחה ובלי שמירה — מחזיר would_send / would_cancel.
  */
-export async function runDueConversationFollowups(admin: SupabaseClient): Promise<{
+export async function runDueConversationFollowups(
+  admin: SupabaseClient,
+  opts: { now?: Date; dryRun?: boolean } = {}
+): Promise<{
   sent: number;
   cleared: number;
   skipped: number;
+  cancelled: number;
+  would_send?: Array<Record<string, unknown>>;
+  would_cancel?: Array<Record<string, unknown>>;
 }> {
   const { isAllowedWhatsAppSendTimeIsrael, WA_FOLLOWUP_QUIET_END_MINUTES } = await import("@/lib/israel-time");
-  if (!isAllowedWhatsAppSendTimeIsrael(new Date(), WA_FOLLOWUP_QUIET_END_MINUTES)) {
-    return { sent: 0, cleared: 0, skipped: 0 };
+  const {
+    decideFollowupStep,
+    maskFollowupPhone,
+    rebasedNextFollowupDueAt,
+    recordFollowupCancellation,
+  } = await import("@/lib/followup-hold-policy");
+  const now = opts.now ?? new Date();
+  const dryRun = Boolean(opts.dryRun);
+  const wouldSend: Array<Record<string, unknown>> = [];
+  const wouldCancel: Array<Record<string, unknown>> = [];
+  const dryExtras = () => (dryRun ? { would_send: wouldSend, would_cancel: wouldCancel } : {});
+  const save: typeof saveSession = dryRun ? async () => {} : saveSession;
+  if (!isAllowedWhatsAppSendTimeIsrael(now, WA_FOLLOWUP_QUIET_END_MINUTES)) {
+    return { sent: 0, cleared: 0, skipped: 0, cancelled: 0, ...dryExtras() };
   }
 
-  const nowIso = new Date().toISOString();
+  const nowIso = now.toISOString();
   const { data, error } = await admin
     .from("business_conversation_sessions")
     .select(
@@ -1049,12 +1069,13 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
     } else {
       console.error("[business-conversation-flow] followup due query failed:", error.message);
     }
-    return { sent: 0, cleared: 0, skipped: 0 };
+    return { sent: 0, cleared: 0, skipped: 0, cancelled: 0, ...dryExtras() };
   }
 
   let sent = 0;
   let cleared = 0;
   let skipped = 0;
+  let cancelled = 0;
   const channelCache = new Map<number, { slug: string; phoneNumberId: string; active: boolean }>();
 
   for (const raw of data ?? []) {
@@ -1096,7 +1117,7 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
     const chain = graph ? silenceChain(graph.nodes, graph.edges, session.current_node_id) : [];
     const followup = chain.find((node) => node.id === session.pending_followup_node_id) ?? null;
     if (!graph || !followup) {
-      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      await save(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
       cleared += 1;
       continue;
     }
@@ -1128,7 +1149,7 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
       trial_registered?: boolean | null;
     } | undefined;
     if (contactRow?.opted_out || contactRow?.marketing_opted_out || contactRow?.trial_registered) {
-      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      await save(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
       cleared += 1;
       continue;
     }
@@ -1150,30 +1171,89 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
       new Date(session.followup_due_at ?? nowIso).getTime() - followupDelayMinutes(followup.data) * 60_000
     ).toISOString();
     const sessionIds = waSessionIdLookupVariants(channel.phoneNumberId, phone);
-    const reply = await admin
+    const lastUser = await admin
       .from("messages")
-      .select("id")
+      .select("created_at")
       .eq("business_slug", channel.slug)
       .in("session_id", sessionIds.length ? sessionIds : [buildWaSessionId(channel.phoneNumberId, phone)])
       .eq("role", "user")
-      .gt("created_at", armedAt)
+      .order("created_at", { ascending: false })
       .limit(1);
-    if ((reply.data ?? []).length) {
-      await saveSession(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+    const lastUserAtIso = String((lastUser.data?.[0] as { created_at?: unknown } | undefined)?.created_at ?? "");
+    if (lastUserAtIso && Date.parse(lastUserAtIso) > Date.parse(armedAt)) {
+      await save(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
       cleared += 1;
       continue;
     }
 
-    const text = String(followup.data.text ?? "").trim();
-    const idx = chain.findIndex((node) => node.id === followup.id);
-    const next = chain[idx + 1];
-    if (!text) {
-      await saveSession(admin, businessId, phone, {
+    // Non-final boxes held by the night / Shabbat window are cancelled; the next box keeps its original schedule.
+    let idx = chain.findIndex((node) => node.id === followup.id);
+    let target = followup;
+    let dueAt = new Date(session.followup_due_at ?? nowIso);
+    let closed = false;
+    let cancelledHere = false;
+    while (dueAt.getTime() <= now.getTime()) {
+      const decision = decideFollowupStep({
+        finalStep: idx === chain.length - 1,
+        dueAt,
+        now,
+        lastUserAt: lastUserAtIso ? new Date(lastUserAtIso) : null,
+        quietEndMinutes: WA_FOLLOWUP_QUIET_END_MINUTES,
+      });
+      if (decision.action === "send") break;
+      cancelledHere = true;
+      cancelled += 1;
+      await recordFollowupCancellation(admin, {
+        path: "conversation",
+        businessId,
+        phone,
+        step: idx + 1,
+        reason: decision.reason,
+        dueAtIso: dueAt.toISOString(),
+        dryRun,
+      });
+      if (dryRun) {
+        wouldCancel.push({ business_id: businessId, phone: maskFollowupPhone(phone), step: idx + 1, reason: decision.reason, due_at: dueAt.toISOString() });
+      }
+      const after = chain[idx + 1];
+      if (decision.reason === "outside_24h_window" || !after) {
+        closed = true;
+        break;
+      }
+      dueAt = rebasedNextFollowupDueAt(dueAt, followupDelayMinutes(after.data));
+      idx += 1;
+      target = after;
+    }
+    if (closed) {
+      await save(admin, businessId, phone, { ...session, pending_followup_node_id: null, followup_due_at: null });
+      cleared += 1;
+      continue;
+    }
+    if (cancelledHere && dueAt.getTime() > now.getTime()) {
+      await save(admin, businessId, phone, {
         ...session,
-        pending_followup_node_id: next?.id ?? null,
-        followup_due_at: next ? new Date(Date.now() + followupDelayMinutes(next.data) * 60_000).toISOString() : null,
+        pending_followup_node_id: target.id,
+        followup_due_at: dueAt.toISOString(),
       });
       cleared += 1;
+      continue;
+    }
+
+    const text = String(target.data.text ?? "").trim();
+    const next = chain[idx + 1];
+    if (!text) {
+      await save(admin, businessId, phone, {
+        ...session,
+        pending_followup_node_id: next?.id ?? null,
+        followup_due_at: next ? new Date(now.getTime() + followupDelayMinutes(next.data) * 60_000).toISOString() : null,
+      });
+      cleared += 1;
+      continue;
+    }
+
+    if (dryRun) {
+      wouldSend.push({ business_id: businessId, phone: maskFollowupPhone(phone), step: idx + 1, due_at: dueAt.toISOString() });
+      sent += 1;
       continue;
     }
 
@@ -1194,5 +1274,5 @@ export async function runDueConversationFollowups(admin: SupabaseClient): Promis
     sent += 1;
   }
 
-  return { sent, cleared, skipped };
+  return { sent, cleared, skipped, cancelled, ...dryExtras() };
 }

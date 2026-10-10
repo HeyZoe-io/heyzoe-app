@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { acknowledgeCron, rejectCronTimeOverride } from "@/lib/cron-clock";
+import { acknowledgeCron, cronDryRunNow, rejectCronTimeOverride } from "@/lib/cron-clock";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { logMessage, sessionHasSalesFlowGreeting } from "@/lib/analytics";
 import { parseModelUsed } from "@/lib/wa-reply-route";
@@ -39,8 +39,18 @@ import {
   FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS,
   followupSeriesLockColumnExists,
 } from "@/lib/followup-series-lock";
+import {
+  decideFollowupStep,
+  isOutsideLeadWindow,
+  maskFollowupPhone,
+  recordFollowupCancellation,
+  type FollowupCancellation,
+} from "@/lib/followup-hold-policy";
 
-/** נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET */
+/**
+ * נקרא מ-cron-job.org (לא מ-Vercel crons — Hobby). GET כל ~5 דק׳ + Authorization: Bearer CRON_SECRET
+ * `dry_run=1` (אופציונלי `now=ISO`): בלי שליחה, בלי עדכונים, בלי נעילה, בלי replay. מחזיר would_send / would_cancel.
+ */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -62,7 +72,11 @@ type WaFollowupSkipReason =
   | "stage_disabled"
   | "node_followups"
   | "sales_flow_not_started"
-  | "series_locked";
+  | "series_locked"
+  | "delayed_step_cancelled"
+  | "outside_24h_window";
+
+const WA_FOLLOWUP_STEP_OFFSET_MS = [0, WA_FOLLOWUP_MS_20_MIN, WA_FOLLOWUP_MS_2_H, WA_FOLLOWUP_MS_23_H] as const;
 
 function authorizeCron(req: NextRequest): boolean {
   const secret = resolveCronSecret();
@@ -287,9 +301,10 @@ async function drainInboundReplays(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const rejectedClock = rejectCronTimeOverride(req);
+  const rejectedClock = rejectCronTimeOverride(req, true);
   if (rejectedClock) return rejectedClock;
   await acknowledgeCron(req, "/api/cron/wa-followups");
+  const dryRun = req.nextUrl.searchParams.get("dry_run") === "1";
 
 
   const accountSid = resolveTwilioAccountSid();
@@ -442,15 +457,17 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const inboundReplays = await drainInboundReplays(req);
+  const inboundReplays = dryRun ? null : await drainInboundReplays(req);
 
-  const now = new Date();
+  const now = (dryRun ? cronDryRunNow(req) : undefined) ?? new Date();
+  const nowMs = now.getTime();
   const allowedAt = nextAllowedWhatsAppSendTimeIsrael(now, WA_FOLLOWUP_QUIET_END_MINUTES);
   if (allowedAt.getTime() > now.getTime()) {
     logWaFollowupSkip("time_window", { next_allowed_at: allowedAt.toISOString() });
     return NextResponse.json({
       ok: true,
       skipped: true,
+      dry_run: dryRun,
       reason: "outside_send_window",
       skip_reason: "time_window",
       next_allowed_at: allowedAt.toISOString(),
@@ -458,11 +475,44 @@ export async function GET(req: NextRequest) {
   }
 
   const { runDueConversationFollowups } = await import("@/lib/business-conversation-flow");
-  const nodeFollowups = await runDueConversationFollowups(admin);
+  const nodeFollowups = await runDueConversationFollowups(admin, { now, dryRun });
 
-  const nowIso = new Date().toISOString();
-  const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const cutoff20mIso = new Date(Date.now() - WA_FOLLOWUP_MS_20_MIN).toISOString();
+  const nowIso = now.toISOString();
+  const cutoff24hIso = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+  const cutoff20mIso = new Date(nowMs - WA_FOLLOWUP_MS_20_MIN).toISOString();
+
+  const cancellations: FollowupCancellation[] = [];
+  const wouldSend: Array<Record<string, unknown>> = [];
+  const cancel = async (c: FollowupCancellation) => {
+    cancellations.push(c);
+    await recordFollowupCancellation(admin, { ...c, dryRun });
+  };
+  /** CAS on the due time read, so a lead writing meanwhile (trigger re-schedules) keeps the new series. */
+  const closeOutsideWindow = async (row: Record<string, unknown>, stage: number) => {
+    const due = String(row.wa_next_followup_at ?? "").trim();
+    if (!due) return false;
+    if (!dryRun) {
+      const { error: closeErr } = await admin
+        .from("contacts")
+        .update({ wa_next_followup_at: null })
+        .eq("id", row.id as string | number)
+        .eq("wa_followup_stage", stage)
+        .eq("wa_next_followup_at", due);
+      if (closeErr) {
+        console.error("[cron/wa-followups] outside_24h close failed:", closeErr.message);
+        return false;
+      }
+    }
+    await cancel({
+      path: "wa_followups",
+      businessId: Number(row.business_id) || null,
+      phone: String(row.phone ?? ""),
+      step: Math.min(3, stage + 1),
+      reason: "outside_24h_window",
+      dueAtIso: due,
+    });
+    return true;
+  };
 
   // Follow-up series runs once per contact: locked contacts are read only while their series is in progress.
   const lockColumn = await followupSeriesLockColumnExists(admin);
@@ -619,6 +669,32 @@ export async function GET(req: NextRequest) {
     skipped += 1;
     skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
   };
+
+  // Due more than 24h ago: the main query never selects these. Close them on the due-time index.
+  let staleQuery = admin
+    .from("contacts")
+    .select("id, phone, business_id, wa_next_followup_at, wa_followup_stage")
+    .eq("source", "whatsapp")
+    .or("opted_out.eq.false,opted_out.is.null")
+    .is("not_relevant_at", null)
+    .is("human_requested_at", null)
+    .or("trial_registered.eq.false,trial_registered.is.null")
+    .is("trial_signup_notice", null)
+    .is("self_reported_registered_at", null)
+    .is("wa_no_response_at", null)
+    .lt("wa_followup_stage", 3)
+    .not("wa_next_followup_at", "is", null)
+    .lt("wa_next_followup_at", cutoff24hIso);
+  if (excludeMarketingOptOut) staleQuery = staleQuery.eq("marketing_opted_out", false);
+  if (lockColumn) staleQuery = staleQuery.or(FOLLOWUP_SERIES_OPEN_OR_IN_PROGRESS);
+  const { data: staleRows, error: staleErr } = await staleQuery.limit(50);
+  if (staleErr) {
+    console.warn("[cron/wa-followups] stale due query:", staleErr.message);
+  } else {
+    for (const row of (staleRows ?? []) as Array<Record<string, unknown>>) {
+      if (await closeOutsideWindow(row, Number(row.wa_followup_stage ?? 0) || 0)) bumpSkip("outside_24h_window");
+    }
+  }
 
   for (const c of contacts ?? []) {
     examined += 1;
@@ -799,9 +875,11 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const hoursSinceUser = (Date.now() - new Date(lastUserAtIso).getTime()) / (1000 * 60 * 60);
-      if (!Number.isFinite(hoursSinceUser) || hoursSinceUser >= 24) {
-        logWaFollowupSkip("over_24h", {
+      const hoursSinceUser = (nowMs - new Date(lastUserAtIso).getTime()) / (1000 * 60 * 60);
+      if (isOutsideLeadWindow(new Date(lastUserAtIso), now)) {
+        const stageForClose = Number((c as { wa_followup_stage?: number | null }).wa_followup_stage ?? 0) || 0;
+        const closed = await closeOutsideWindow(c as Record<string, unknown>, stageForClose);
+        logWaFollowupSkip(closed ? "outside_24h_window" : "over_24h", {
           contact_id: contactId,
           phone: maskPhone(phone),
           business_slug,
@@ -809,7 +887,7 @@ export async function GET(req: NextRequest) {
           hours_since_user: hoursSinceUser,
           last_user_at: lastUserAtIso,
         });
-        bumpSkip("over_24h");
+        bumpSkip(closed ? "outside_24h_window" : "over_24h");
         continue;
       }
 
@@ -825,7 +903,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const elapsedMs = Date.now() - new Date(lastAssistAtIso).getTime();
+      const elapsedMs = nowMs - new Date(lastAssistAtIso).getTime();
       if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
         logWaFollowupSkip("not_due_yet", {
           contact_id: contactId,
@@ -843,12 +921,46 @@ export async function GET(req: NextRequest) {
       const stageCurrent = Number((c as { wa_followup_stage?: number | null }).wa_followup_stage ?? 0) || 0;
       const socialLinks = (bizRow as { social_links?: unknown } | null)?.social_links;
       const enabled = resolveWaSalesFollowupEnabled(socialLinks);
-      const plan = resolveWaFollowupSendPlan({ stageCurrent, elapsedMs, enabled });
+      let plan = resolveWaFollowupSendPlan({ stageCurrent, elapsedMs, enabled });
+
+      // Steps 1–2 held by the night / Shabbat window are never sent late.
+      let stageAfterCancel = stageCurrent;
+      while (plan.sendStage === 1 || plan.sendStage === 2) {
+        const dueAt = new Date(new Date(lastAssistAtIso).getTime() + WA_FOLLOWUP_STEP_OFFSET_MS[plan.sendStage]);
+        const decision = decideFollowupStep({
+          finalStep: false,
+          dueAt,
+          now,
+          lastUserAt: new Date(lastUserAtIso),
+          quietEndMinutes: WA_FOLLOWUP_QUIET_END_MINUTES,
+        });
+        if (decision.action === "send") break;
+        await cancel({
+          path: "wa_followups",
+          businessId: Number(businessId),
+          phone,
+          step: plan.sendStage,
+          reason: decision.reason,
+          dueAtIso: dueAt.toISOString(),
+        });
+        stageAfterCancel = plan.sendStage;
+        plan = resolveWaFollowupSendPlan({ stageCurrent: stageAfterCancel, elapsedMs, enabled });
+      }
+      if (stageAfterCancel > stageCurrent && !dryRun) {
+        const { error: advanceErr } = await admin
+          .from("contacts")
+          .update({ wa_followup_stage: stageAfterCancel })
+          .eq("id", contactId as string | number)
+          .eq("wa_followup_stage", stageCurrent);
+        if (advanceErr) console.error("[cron/wa-followups] delayed step advance failed:", advanceErr.message);
+      }
 
       if (plan.sendStage === 0) {
-        if (plan.advanceToStage > stageCurrent) {
-          await admin.from("contacts").update({ wa_followup_stage: plan.advanceToStage }).eq("id", contactId);
-          if (plan.advanceToStage === 3) {
+        if (plan.advanceToStage > stageAfterCancel) {
+          if (!dryRun) {
+            await admin.from("contacts").update({ wa_followup_stage: plan.advanceToStage }).eq("id", contactId);
+          }
+          if (plan.advanceToStage === 3 && !dryRun) {
             const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
             await dispatchCrmEvent({
               businessId: Number(businessId),
@@ -868,6 +980,10 @@ export async function GET(req: NextRequest) {
             enabled,
           });
           bumpSkip("stage_disabled");
+          continue;
+        }
+        if (stageAfterCancel > stageCurrent) {
+          bumpSkip("delayed_step_cancelled");
           continue;
         }
         logWaFollowupSkip("not_due_yet", {
@@ -893,6 +1009,18 @@ export async function GET(req: NextRequest) {
           enabled,
         });
         bumpSkip("stage_disabled");
+        continue;
+      }
+
+      if (dryRun) {
+        wouldSend.push({
+          path: "wa_followups",
+          business_slug,
+          phone: maskPhone(phone),
+          step: nextStage,
+          due_at: new Date(new Date(lastAssistAtIso).getTime() + WA_FOLLOWUP_STEP_OFFSET_MS[nextStage]).toISOString(),
+          hours_since_user: Math.round(hoursSinceUser * 100) / 100,
+        });
         continue;
       }
 
@@ -1010,13 +1138,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const cancelledCounts: Record<string, number> = {};
+  for (const c of cancellations) cancelledCounts[c.reason] = (cancelledCounts[c.reason] ?? 0) + 1;
+
   return NextResponse.json({
     ok: true,
+    dry_run: dryRun,
+    now: nowIso,
     examined,
     sent,
     skipped,
     skip_counts: skipCounts,
+    cancelled: cancelledCounts,
     node_followups: nodeFollowups,
     inbound_replays: inboundReplays,
+    ...(dryRun
+      ? {
+          would_send: wouldSend,
+          would_cancel: cancellations.map((c) => ({ ...c, phone: maskFollowupPhone(c.phone) })),
+        }
+      : {}),
   });
 }

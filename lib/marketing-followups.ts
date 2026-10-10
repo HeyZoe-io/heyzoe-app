@@ -39,6 +39,10 @@ export type MarketingFlowSessionFollowupRow = {
   flow_completed: boolean;
   human_followup_at?: string | null;
   pipeline_status?: string | null;
+  /** Cancelled without sending (supabase/marketing_flow_sessions_followup_skipped.sql). */
+  followup_1_skipped_at?: string | null;
+  followup_2_skipped_at?: string | null;
+  followup_3_skipped_at?: string | null;
 };
 
 /** עדכון שם פרופיל וואטסאפ לסשן שיווקי קיים */
@@ -118,8 +122,13 @@ export async function sessionHasMarketingRegisteredMessage(sessionId: string): P
   return false;
 }
 
+/** Sent or cancelled: either way the step is done. */
 function followupSentFlags(row: MarketingFlowSessionFollowupRow): [boolean, boolean, boolean] {
-  return [Boolean(row.followup_1_sent_at), Boolean(row.followup_2_sent_at), Boolean(row.followup_3_sent_at)];
+  return [
+    Boolean(row.followup_1_sent_at || row.followup_1_skipped_at),
+    Boolean(row.followup_2_sent_at || row.followup_2_skipped_at),
+    Boolean(row.followup_3_sent_at || row.followup_3_skipped_at),
+  ];
 }
 
 /**
@@ -274,4 +283,41 @@ export async function markMarketingFollowupSent(
     console.error("[marketing-followups] mark sent failed:", error.message);
     throw error;
   }
+}
+
+export function isMissingFollowupSkippedColumn(message: string | null | undefined): boolean {
+  return /followup_[123]_skipped_at/i.test(String(message ?? ""));
+}
+
+/**
+ * A step cancelled without sending. Until the skipped_at columns exist, falls back to
+ * followup_N_sent_at = the original due time, so the step is still never sent.
+ */
+export async function markMarketingFollowupSkipped(
+  sessionId: string,
+  stage: 1 | 2 | 3,
+  dueAtIso: string
+): Promise<"skipped" | "sent_fallback"> {
+  const admin = createSupabaseAdminClient();
+  const skipped = await admin
+    .from("marketing_flow_sessions")
+    .update({ [`followup_${stage}_skipped_at`]: new Date().toISOString() })
+    .eq("id", sessionId);
+  if (!skipped.error) return "skipped";
+  if (!isMissingFollowupSkippedColumn(skipped.error.message)) {
+    console.error("[marketing-followups] mark skipped failed:", skipped.error.message);
+    throw skipped.error;
+  }
+  console.error(
+    "[marketing-followups] followup_N_skipped_at missing — run supabase/marketing_flow_sessions_followup_skipped.sql"
+  );
+  const fallback = await admin
+    .from("marketing_flow_sessions")
+    .update({ [`followup_${stage}_sent_at`]: dueAtIso })
+    .eq("id", sessionId);
+  if (fallback.error) {
+    console.error("[marketing-followups] mark skipped fallback failed:", fallback.error.message);
+    throw fallback.error;
+  }
+  return "sent_fallback";
 }
