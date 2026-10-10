@@ -789,6 +789,13 @@ import {
 } from "@/lib/wa-contact-processing-lock";
 import { claimMessageForProcessing } from "@/lib/wa-processed-messages";
 import { INBOUND_REPLAY_PAYLOAD_FLAG } from "@/lib/wa-inbound-replay";
+import {
+  findClassOfferGateOpen,
+  interestRouteOpensFlow,
+  memberMayEnterHintedSignupFlow,
+  memoizeTurnLoad,
+  salesFlowOpenForTurn,
+} from "@/lib/wa-turn-sales-flow-state";
 
 export const runtime = "nodejs";
 /** Below CONTACT_PROCESSING_LOCK_TTL_SECONDS (60s) so Vercel kills stuck handlers before lock expires. */
@@ -8272,16 +8279,13 @@ async function processIncoming(
   let releasePreClaude: (() => void) | null = null;
   let skippedPreClaude = false;
   let salesFlowStarted = false;
-  let salesFlowStartedLoaded = false;
   let lastAssistForWarmupPriority: string | null = null;
   let sendOpeningMediaIfConfigured: () => Promise<boolean> = async () => false;
-  const ensureSalesFlowStarted = async (): Promise<boolean> => {
-    if (!salesFlowStartedLoaded) {
-      salesFlowStarted = await sessionHasSalesFlowGreeting(business_slug, sessionId);
-      salesFlowStartedLoaded = true;
-    }
-    return salesFlowStarted;
-  };
+  // Free text breaks out of customerPreClaude early; after the block, read these getters, not the lets.
+  const ensureSalesFlowStarted = memoizeTurnLoad(() => sessionHasSalesFlowGreeting(business_slug, sessionId));
+  const ensureLastAssistForWarmupPriority = memoizeTurnLoad(() =>
+    fetchLastAssistantModelUsed({ business_slug, session_id: sessionId })
+  );
   const memberBlocksNewSalesFlow = async (): Promise<boolean> => {
     if (contactArboxIsMember !== true) return false;
     return (
@@ -9011,13 +9015,8 @@ async function processIncoming(
         knowledge.salesFlowConfig
       ) {
         try {
-          const salesFlowStartedForCatalog = salesFlowStartedLoaded
-            ? salesFlowStarted
-            : await sessionHasSalesFlowGreeting(business_slug, sessionId);
-          if (!salesFlowStartedLoaded) {
-            salesFlowStarted = salesFlowStartedForCatalog;
-            salesFlowStartedLoaded = true;
-          }
+          const salesFlowStartedForCatalog = await ensureSalesFlowStarted();
+          salesFlowStarted = salesFlowStartedForCatalog;
           if (!salesFlowStartedForCatalog) {
             await resetContactSalesFlowStateForGreeting({
               supabase,
@@ -10375,7 +10374,7 @@ async function processIncoming(
     }
   }
 
-  lastAssistForWarmupPriority = await fetchLastAssistantModelUsed({ business_slug, session_id: sessionId });
+  lastAssistForWarmupPriority = await ensureLastAssistForWarmupPriority();
 
   // 0.18) Booking-lookup yes/no — after short clarify (or Claude's long version of it).
   if (
@@ -13384,6 +13383,13 @@ async function processIncoming(
     return;
   }
 
+  const salesFlowStartedThisTurn = await ensureSalesFlowStarted();
+  const lastAssistAtTurnStart = await ensureLastAssistForWarmupPriority();
+  const salesFlowOpenThisTurn = salesFlowOpenForTurn({
+    salesFlowStarted: salesFlowStartedThisTurn,
+    inboundReopenedAfterDormancy,
+  });
+
   // ── Quick-reply vs. "other question" routing ────────────────────────────────
   const quickLabels = (knowledge?.quickReplies ?? [])
     .map((qr) => qr.label.trim())
@@ -13491,8 +13497,8 @@ async function processIncoming(
       : undefined;
   const awaitingOpeningPickForGuard = isAwaitingOpeningServicePick(
     contactSessionPhase,
-    salesFlowStarted,
-    lastAssistForWarmupPriority
+    salesFlowStartedThisTurn,
+    lastAssistAtTurnStart
   );
   const matchedStaleServiceName =
     Boolean(matchedPredefinedClosedLabel) &&
@@ -13510,7 +13516,7 @@ async function processIncoming(
     !lastPickedServiceName &&
     !matched?.reply &&
     !matchedPredefinedClosedLabel &&
-    salesFlowStarted &&
+    salesFlowStartedThisTurn &&
     !contactHumanRequestedAt;
   const serviceSelectionLabels = shouldReaskServiceSelection
     ? salesFlowServices.map((service) => service.name.trim()).filter(Boolean).slice(0, 12)
@@ -13528,7 +13534,7 @@ async function processIncoming(
     Boolean(contactHumanRequestedAt);
   const standaloneHelpClosing = isStandaloneWhatsAppOpenQuestion({
     sessionPhase: contactSessionPhase,
-    salesFlowStarted,
+    salesFlowStarted: salesFlowStartedThisTurn,
     registered: registeredInCurrentFlow,
   });
   const studioOverviewClosing =
@@ -13548,14 +13554,15 @@ async function processIncoming(
   const isJoinSignupIntent = msg.type === "text" && isJoinSignupIntentText(incomingRaw);
 
   const isWarmupSkipIntent =
+    !skippedPreClaude &&
     msg.type === "text" &&
     !registeredInCurrentFlow &&
-    salesFlowStarted &&
+    salesFlowStartedThisTurn &&
     (contactSessionPhase === "warmup" || contactSessionPhase === "opening") &&
     isWarmupSkipIntentText(incomingRaw, contactSessionPhase);
 
   const joinSignupRecovery: JoinSignupRecoveryAction =
-    matched || matchedPredefinedClosedLabel || !salesFlowStarted
+    skippedPreClaude || matched || matchedPredefinedClosedLabel || !salesFlowStartedThisTurn
       ? "none"
       : await resolveJoinSignupRecoveryAction({
           business_slug,
@@ -13862,7 +13869,7 @@ async function processIncoming(
       knowledge?.salesFlowConfig &&
       businessId &&
       salesFlowServices.length > 1 &&
-      isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStarted, lastAssistForWarmupPriority)
+      isAwaitingOpeningServicePick(contactSessionPhase, salesFlowStartedThisTurn, lastAssistAtTurnStart)
     ) {
       const lateMatches = matchCatalogServicesFromFreeText(incomingRaw, salesFlowServices);
       if (
@@ -14147,7 +14154,7 @@ async function processIncoming(
         israelNowScheduleBlock: buildIsraelNowSchedulePromptBlock(salesFlowServices),
         unclearClarifyAlreadySent: sessionHasUnclearClarifyAsk(history),
         leadAgeBand,
-        salesFlowCurrentlyOpen: salesFlowStarted && !inboundReopenedAfterDormancy,
+        salesFlowCurrentlyOpen: salesFlowOpenThisTurn,
       },
       platformGuidelines,
       currentText
@@ -14836,7 +14843,10 @@ async function processIncoming(
         return;
       } else if (
         (hintCategory === "registration_no_member" || hintCategory === "signup") &&
-        !(contactArboxIsMember === true && !salesFlowStarted)
+        memberMayEnterHintedSignupFlow({
+          arboxIsMember: contactArboxIsMember,
+          salesFlowStarted: salesFlowStartedThisTurn,
+        })
       ) {
         if (hintCategory === "registration_no_member") {
           await sendClosed(REGISTRATION_INTENT_NO_MEMBERSHIP_REPLY, REGISTRATION_INTENT_NO_MEMBER_MODEL);
@@ -15117,16 +15127,17 @@ async function processIncoming(
       return;
     }
     let heldSalesFlowForQuestion = false;
-    const alreadyInFlowForFindClass = salesFlowStarted && !inboundReopenedAfterDormancy;
     if (
-      msg.type === "text" &&
-      businessId &&
-      knowledge?.salesFlowConfig &&
-      waReplyRoute.tagStatus === "ok" &&
-      !alreadyInFlowForFindClass &&
-      contactArboxIsMember !== true &&
-      contactTrialRegistered !== true &&
-      contactSessionPhase !== "registered"
+      findClassOfferGateOpen({
+        flowOpen: salesFlowOpenThisTurn,
+        isText: msg.type === "text",
+        hasBusiness: Boolean(businessId),
+        hasSalesFlowConfig: Boolean(knowledge?.salesFlowConfig),
+        routeTagOk: waReplyRoute.tagStatus === "ok",
+        arboxIsMember: contactArboxIsMember,
+        trialRegistered: contactTrialRegistered,
+        sessionPhase: contactSessionPhase,
+      })
     ) {
       const explicitSignupForOffer =
         waReplyRoute.route !== "signup" || claudeSignupTagMayOpenSalesFlow(msg.text);
@@ -15197,7 +15208,6 @@ async function processIncoming(
       waReplyRoute.tagStatus === "ok" &&
       (waReplyRoute.route === "signup" || waReplyRoute.route === "interest")
     ) {
-      const alreadyInFlow = salesFlowStarted && !inboundReopenedAfterDormancy;
       const explicitSignup =
         waReplyRoute.route !== "signup" || claudeSignupTagMayOpenSalesFlow(msg.text);
       if (waReplyRoute.route === "signup" && !explicitSignup) {
@@ -15206,13 +15216,14 @@ async function processIncoming(
           sessionId,
         });
       }
-      const startFlow =
-        explicitSignup &&
-        !alreadyInFlow &&
-        !heldSalesFlowForQuestion &&
-        contactArboxIsMember !== true &&
-        contactTrialRegistered !== true &&
-        contactSessionPhase !== "registered";
+      const startFlow = interestRouteOpensFlow({
+        explicitSignup,
+        flowOpen: salesFlowOpenThisTurn,
+        heldForQuestion: heldSalesFlowForQuestion,
+        arboxIsMember: contactArboxIsMember,
+        trialRegistered: contactTrialRegistered,
+        sessionPhase: contactSessionPhase,
+      });
       if (startFlow) {
         const preamble = interestFlowPreamble(
           msg.text,
@@ -15505,7 +15516,7 @@ async function processIncoming(
       (waReplyRoute.route === "class_move" ||
         waReplyRoute.route === "class_move_member" ||
         waReplyRoute.route === "class_move_trial") &&
-      rescheduleTagApplies(lastAssistForWarmupPriority, msg.text)
+      rescheduleTagApplies(lastAssistAtTurnStart, msg.text)
     ) {
       const classMoveOutcome = resolveRescheduleWithMemberFlag(msg.text, {
         knowledge,
@@ -15532,7 +15543,7 @@ async function processIncoming(
       const purchase = resolveMembershipPurchaseReply({
         membershipsUrl: knowledge.membershipsUrl,
         lang: resolveBusinessContentLanguageFromKnowledge(knowledge),
-        linkAlreadySent: modelUsedBase(lastAssistForWarmupPriority) === MEMBERSHIP_PURCHASE_LINK_MODEL,
+        linkAlreadySent: modelUsedBase(lastAssistAtTurnStart) === MEMBERSHIP_PURCHASE_LINK_MODEL,
       });
       if (purchase.notifyTeam && businessId) {
         try {
@@ -16076,7 +16087,7 @@ async function processIncoming(
         businessSlug: business_slug,
       });
 
-      let openingSkipFlowContinuation = !salesFlowStarted;
+      let openingSkipFlowContinuation = !salesFlowStartedThisTurn;
       if (!openingSkipFlowContinuation && contactSessionPhase === "opening") {
         if (isExplicitOtherServiceRequest(incomingRaw)) {
           openingSkipFlowContinuation = true;
@@ -16101,7 +16112,7 @@ async function processIncoming(
         Boolean(businessId) &&
         Boolean(knowledge?.salesFlowConfig) &&
         salesFlowServices.length > 1 &&
-        salesFlowStarted &&
+        salesFlowStartedThisTurn &&
         replyRefersToCustomerService(incomingRaw, csPhoneForRedirect);
 
       const assistantCatalogRedirect =
@@ -16322,7 +16333,7 @@ async function processIncoming(
             instagramFollowPromptSent: contactInstagramFollowPromptSent,
             inboundText: incomingRaw,
             aiReplyCoreClean: replyCoreClean,
-            flowStarted: salesFlowStarted || needsOpeningListPickBridge,
+            flowStarted: salesFlowStartedThisTurn || needsOpeningListPickBridge,
             arboxApiKey: crmApiKey,
             arboxBoxId: crmBoxId,
             now: new Date(nowIso),
