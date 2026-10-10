@@ -29,8 +29,10 @@ export function pendingServiceMenuReply(input: {
   inbound: string;
   body: string;
   menuPending: boolean;
-}): "nudge" | "body" {
+  services?: Array<{ name: string }>;
+}): "nudge" | "body" | "pick" {
   if (!input.menuPending) return "body";
+  if (matchCatalogServiceFromFreeText(input.inbound, input.services ?? [])) return "pick";
   const concrete = isConcreteServiceMenuQuestion(input.inbound);
   if (concrete && String(input.body ?? "").trim()) return "body";
   return "nudge";

@@ -124,6 +124,13 @@ import {
   type ExtractedReplyRoute,
 } from "@/lib/wa-reply-route";
 import {
+  decideIntentGate,
+  explicitNeedsDirectHandoff,
+  extractConsequentialIntent,
+  playbookCategoryForInbound,
+  type ExtractedConsequentialIntent,
+} from "@/lib/wa-intent-gate";
+import {
   applyComplaintOpenerSafetyNet,
   claudePersonalTagStands,
   completePersonalRoute,
@@ -10825,17 +10832,9 @@ async function processIncoming(
     knowledge?.salesFlowConfig &&
     businessId &&
     isSalesFlowFreeTextInbound(msg) &&
-    (await trySendSalesFlowHumanAgentHandoff({
-      inboundText: msg.text.trim(),
-      knowledge,
-      msg,
-      accountSid,
-      authToken,
-      business_slug,
-      sessionId,
-    }))
+    userRequestedHumanAgent(msg.text.trim())
   ) {
-    return;
+    fastPathHint = { matcher: "human_agent", category: "human_agent" };
   }
 
   // החלפת מוצר בפלואו מכירה פעיל — לא אחרי הרשמה / מצב עזרה
@@ -14381,6 +14380,7 @@ async function processIncoming(
   ].filter(Boolean);
 
   let waReplyRoute: ExtractedReplyRoute = extractReplyRoute("");
+  let intentParsed: ExtractedConsequentialIntent = extractConsequentialIntent("");
   const suppressIfSimilarToLastAssistant = async (text: string): Promise<boolean> => {
     const previous = await fetchLastAssistantMessageContent({
       business_slug,
@@ -14404,6 +14404,8 @@ async function processIncoming(
   if (!isFallbackErrorReply && didCallClaude && !matched?.reply) {
     offerReplyParsed = extractOfferReply(replyCore);
     replyCore = offerReplyParsed.body;
+    intentParsed = extractConsequentialIntent(replyCore);
+    replyCore = intentParsed.body;
     waReplyRoute = extractReplyRoute(replyCore);
     replyCore = waReplyRoute.body;
     if (
@@ -14796,6 +14798,97 @@ async function processIncoming(
           return;
         }
       }
+    }
+    const intentDecision = decideIntentGate({
+      extracted: intentParsed,
+      route: waReplyRoute.route,
+      hintCategory: fastPathHint?.category ?? null,
+      playbookCategory: playbookCategoryForInbound(msg.text),
+      answer: waReplyRoute.body,
+      knowledge,
+      inbound: String(msg.text ?? ""),
+    });
+    if (intentDecision.action === "fallback") {
+      console.info("[intent_gate] fallback", intentDecision.path);
+    }
+    if (intentDecision.action === "answer" || intentDecision.action === "clarify") {
+      const outbound = intentDecision.text;
+      try {
+        await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+      } catch (e) {
+        console.error("[WA Webhook] intent gate send failed:", e);
+      }
+      await logMessage({
+        business_slug,
+        role: "assistant",
+        content: outbound,
+        model_used: appendRouteToModelUsed(
+          intentDecision.action === "answer" ? "wa_intent_policy_answer" : "wa_intent_clarify",
+          waReplyRoute,
+          fastPathHint?.category
+        ),
+        session_id: sessionId,
+      });
+      return;
+    }
+    const humanAgentNow =
+      fastPathHint?.category === "human_agent" && userRequestedHumanAgent(String(msg.text ?? "").trim());
+    if (
+      humanAgentNow &&
+      (intentDecision.action === "fallback" ||
+        (intentDecision.action === "explicit" && waReplyRoute.route !== "handoff") ||
+        (intentDecision.action === "uncovered" &&
+          waReplyRoute.route !== "handoff" &&
+          waReplyRoute.route !== "policy_question"))
+    ) {
+      await trySendSalesFlowHumanAgentHandoff({
+        inboundText: String(msg.text ?? "").trim(),
+        knowledge,
+        msg,
+        accountSid,
+        authToken,
+        business_slug,
+        sessionId,
+      });
+      return;
+    }
+    if (intentDecision.action === "explicit" && explicitNeedsDirectHandoff(waReplyRoute.route) && !humanAgentNow) {
+      const playbook = resolveClosedPlaybook({
+        inbound: String(msg.text ?? "").trim(),
+        knowledge,
+        hasArbox: knowledge.hasArboxConnection === true,
+      });
+      const outbound = String(playbook?.reply || waReplyRoute.body || "").trim();
+      if (businessId) {
+        try {
+          const { handleLeadHumanRequested } = await import("@/lib/human-requested");
+          await handleLeadHumanRequested({
+            supabase,
+            businessId: Number(businessId),
+            businessSlug: business_slug,
+            phone: msg.from,
+            nowIso,
+            sessionId,
+          });
+        } catch (e) {
+          console.error("[WA Webhook] intent explicit handoff failed:", e);
+        }
+      }
+      if (outbound) {
+        try {
+          await sendWhatsAppMessage(msg.toNumber, msg.from, outbound, accountSid, authToken);
+        } catch (e) {
+          console.error("[WA Webhook] intent explicit send failed:", e);
+        }
+        await logMessage({
+          business_slug,
+          role: "assistant",
+          content: outbound,
+          model_used: appendRouteToModelUsed(playbook?.modelUsed || "wa_intent_explicit", waReplyRoute, fastPathHint?.category),
+          session_id: sessionId,
+        });
+      }
+      return;
     }
     const routeAction = decideReplyRouteAction({
       extracted: waReplyRoute,
@@ -15576,6 +15669,50 @@ async function processIncoming(
           inbound: msg.text,
           body: waReplyRoute.body,
           menuPending: isOpeningServicePickMenuModel(lastModelForMenu),
+          services: salesFlowServices,
+        }) === "pick" &&
+        matchCatalogServiceFromFreeText(msg.text, salesFlowServices)
+      ) {
+        const pickedName = matchCatalogServiceFromFreeText(msg.text, salesFlowServices)!;
+        if (!businessId) return;
+        contactSessionPhase = await commitImplicitServiceSwitch({
+          knowledge,
+          salesFlowServices,
+          serviceName: pickedName,
+          msg,
+          supabase,
+          businessId,
+          sessionId,
+          business_slug,
+          logModelUsed: "sf_service_menu_typed",
+        });
+        contactFlowStep = 0;
+        await continueSalesFlowAfterCommittedServiceSwitch({
+          knowledge,
+          salesFlowServices,
+          phase: contactSessionPhase,
+          msg,
+          accountSid,
+          authToken,
+          supabase,
+          businessId,
+          business_slug,
+          sessionId,
+          trialRegistered: contactTrialRegistered,
+          allowTrialCta: allowTrialCtaThisSession,
+          blockTrialPickMedia: starterBlocksMedia,
+          sfConsumedKinds: sfClickedCtaKinds,
+          instagramFollowPromptSent: contactInstagramFollowPromptSent,
+          now: new Date(nowIso),
+        });
+        return;
+      }
+      if (
+        pendingServiceMenuReply({
+          inbound: msg.text,
+          body: waReplyRoute.body,
+          menuPending: isOpeningServicePickMenuModel(lastModelForMenu),
+          services: salesFlowServices,
         }) === "nudge"
       ) {
         try {
