@@ -120,6 +120,13 @@ export async function sendOwnerNotification(input: {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[sendOwnerNotification] failed:", msg);
+    await recordTemplateSendFailure({
+      phoneNumberId,
+      phone: to,
+      templateName,
+      metaError: msg || "send_failed",
+      raw: "",
+    }).catch((logError) => console.error("[sendOwnerNotification] failure log failed:", logError));
     return { ok: false, error: msg };
   }
 }

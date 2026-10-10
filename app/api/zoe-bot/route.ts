@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { keepServerWork } from "@/lib/keep-server-work";
 import Anthropic from "@anthropic-ai/sdk";
 import { CLAUDE_CHAT_MODEL, resolveClaudeApiKey } from "@/lib/claude";
 import { hebrewMonthName } from "@/lib/promo-month";
@@ -135,10 +136,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ answer: "" });
     }
 
-    void tryLogLpLandingTurn(
-      typeof rawSid === "string" ? rawSid : "anon",
-      message.trim(),
-      answer
+    keepServerWork(
+      "lp_landing_turn",
+      tryLogLpLandingTurn(typeof rawSid === "string" ? rawSid : "anon", message.trim(), answer)
     );
 
     return NextResponse.json({ answer });

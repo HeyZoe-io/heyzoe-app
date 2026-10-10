@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { keepServerWork } from "@/lib/keep-server-work";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { encryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { normalizeCheckoutPlan, planPriceIls } from "@/lib/plan-prices";
@@ -97,16 +98,19 @@ export async function POST(req: NextRequest) {
     // Best-effort, non-blocking: InitiateCheckout CAPI now that the checkout step is reached.
     try {
       const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
-      void sendMetaCapiEvent({
-        eventName: "InitiateCheckout",
-        actionSource: "website",
-        email: cleanEmail,
-        phone: String(phone ?? "").trim(),
-        fbp: cleanUtm(fbp),
-        fbc: cleanUtm(fbc),
-        value: planPriceIls(resolvedPlan),
-        currency: "ILS",
-      });
+      keepServerWork(
+        "InitiateCheckout",
+        sendMetaCapiEvent({
+          eventName: "InitiateCheckout",
+          actionSource: "website",
+          email: cleanEmail,
+          phone: String(phone ?? "").trim(),
+          fbp: cleanUtm(fbp),
+          fbc: cleanUtm(fbc),
+          value: planPriceIls(resolvedPlan),
+          currency: "ILS",
+        })
+      );
     } catch (e) {
       console.error("[api/onboarding/save-session] InitiateCheckout CAPI failed:", e);
     }

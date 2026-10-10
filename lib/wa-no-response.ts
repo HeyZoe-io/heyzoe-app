@@ -153,7 +153,7 @@ export async function markContactNoResponseManually(input: {
     null;
 
   const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
+  await dispatchCrmEvent({
     businessId,
     leadPhone: input.phone,
     kind: "no_response",

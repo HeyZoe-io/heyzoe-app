@@ -1018,14 +1018,18 @@ export async function handleMarketingFlowInbound(
 
     if (!session) {
       const { trackWaNewLead } = await import("@/lib/admin-marketing-analytics");
-      void trackWaNewLead(phone);
+      const { keepServerWork } = await import("@/lib/keep-server-work");
+      keepServerWork("trackWaNewLead", trackWaNewLead(phone));
 
       const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
-      sendMetaCapiEvent({
-        eventName: "LeadSubmitted",
-        phone,
-        ctwaClid: resolvedCtwaClid,
-      }).catch((e) => console.error("[marketing-flow] LeadSubmitted CAPI event failed:", e));
+      keepServerWork(
+        "LeadSubmitted",
+        sendMetaCapiEvent({
+          eventName: "LeadSubmitted",
+          phone,
+          ctwaClid: resolvedCtwaClid,
+        })
+      );
     }
 
     return { handled: true };
@@ -1712,7 +1716,8 @@ export async function callMarketingAI(
     const leadPhone = String(opts?.leadPhone ?? "").trim();
     if (leadPhone) {
       const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
-      void applyMarketingHumanAgentSideEffects(leadPhone);
+      const { keepServerWork } = await import("@/lib/keep-server-work");
+      keepServerWork("marketing_human_agent", applyMarketingHumanAgentSideEffects(leadPhone));
     }
     return sanitizeZoeDashes(offNicheReply);
   }
@@ -1745,7 +1750,8 @@ export async function callMarketingAI(
     ) {
       console.info("[marketing-flow] negative fitness-scope clarify → transfer (no Claude)");
       const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
-      void applyMarketingHumanAgentSideEffects(leadPhone);
+      const { keepServerWork } = await import("@/lib/keep-server-work");
+      keepServerWork("marketing_human_agent", applyMarketingHumanAgentSideEffects(leadPhone));
       return sanitizeZoeDashes(await buildMarketingOffNicheTransferLeadReply());
     }
   }
@@ -1852,7 +1858,8 @@ ${supportWaUrl}
       ) {
         out = await buildMarketingOffNicheTransferLeadReply();
         const { applyMarketingHumanAgentSideEffects } = await import("@/lib/marketing-human-agent");
-        void applyMarketingHumanAgentSideEffects(leadPhone);
+        const { keepServerWork } = await import("@/lib/keep-server-work");
+        keepServerWork("marketing_human_agent", applyMarketingHumanAgentSideEffects(leadPhone));
       }
       if (opts?.skipPostFlowClosing) {
         out = prepareMarketingOpenFlowAiReply(out);

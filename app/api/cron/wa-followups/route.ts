@@ -819,13 +819,13 @@ export async function GET(req: NextRequest) {
           await admin.from("contacts").update({ wa_followup_stage: plan.advanceToStage }).eq("id", contactId);
           if (plan.advanceToStage === 3) {
             const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-            void dispatchCrmEvent({
+            await dispatchCrmEvent({
               businessId: Number(businessId),
               leadPhone: phone,
               kind: "no_response",
               fullName: String((c as { full_name?: string | null }).full_name ?? "").trim() || null,
               eventAtIso: new Date().toISOString(),
-            });
+            }).catch((e) => console.error("[cron/wa-followups] CRM dispatch failed:", e));
           }
           logWaFollowupSkip("stage_disabled", {
             contact_id: contactId,
@@ -944,13 +944,13 @@ export async function GET(req: NextRequest) {
 
       if (nextStage === 3) {
         const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-        void dispatchCrmEvent({
+        await dispatchCrmEvent({
           businessId: Number(businessId),
           leadPhone: phone,
           kind: "no_response",
           fullName: String((c as { full_name?: string | null }).full_name ?? "").trim() || null,
           eventAtIso: nowIso,
-        });
+        }).catch((e) => console.error("[cron/wa-followups] CRM dispatch failed:", e));
       }
 
       sent += 1;

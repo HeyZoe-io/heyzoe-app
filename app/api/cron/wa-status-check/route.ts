@@ -439,13 +439,13 @@ export async function GET(req: NextRequest) {
         }
 
         const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-        void dispatchCrmEvent({
+        await dispatchCrmEvent({
           businessId,
           leadPhone: phone,
           kind: "template_no_response",
           fullName: String(contact.full_name ?? "").trim() || null,
           eventAtIso: nowIso,
-        });
+        }).catch((e) => console.error("[cron/wa-status-check] CRM dispatch failed:", e));
 
         templateMarked += 1;
       } catch (e) {

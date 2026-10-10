@@ -126,7 +126,7 @@ async function syncNoteStatusForPipeline(
   const prevRelevance = prev?.relevance ?? null;
   const prevStage = prev?.stage ?? null;
   if (!existing || prevRelevance !== relevance || prevStage !== keptStage) {
-    void syncContactToMetaAudience({ phone, relevance }).catch((e) => {
+    await syncContactToMetaAudience({ phone, relevance }).catch((e) => {
       console.error("[marketing-lead-pipeline] meta audience sync failed:", e);
     });
   }

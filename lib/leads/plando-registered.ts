@@ -259,7 +259,7 @@ export async function handlePlandoCustomerRegistered(input: {
     if (sessionId) {
       const { getBusinessKnowledgePack } = await import("@/lib/business-context");
       const pack = await getBusinessKnowledgePack(businessSlug);
-      void triggerLeadRegisteredNotification({
+      await triggerLeadRegisteredNotification({
         businessId,
         leadPhone: canonicalPhone,
         businessSlug,

@@ -798,14 +798,14 @@ export async function markContactNotRelevantManually(input: {
   });
 
   const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
+  await dispatchCrmEvent({
     businessId,
     leadPhone: input.phone,
     kind: "not_relevant",
     fullName: input.fullName,
     eventAtIso: nowIso,
     notRelevantReason: reason,
-  });
+  }).catch((e) => console.error("[not-relevant] manual CRM dispatch failed:", e));
 
   return { ok: true, not_relevant_at: nowIso };
 }
@@ -891,12 +891,12 @@ export async function handleLeadNotRelevant(input: {
   });
 
   const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
+  await dispatchCrmEvent({
     businessId: input.businessId,
     leadPhone: input.phone,
     kind: "not_relevant",
     fullName: input.fullName,
     eventAtIso: input.nowIso,
     notRelevantReason: reason,
-  });
+  }).catch((e) => console.error("[not-relevant] CRM dispatch failed:", e));
 }

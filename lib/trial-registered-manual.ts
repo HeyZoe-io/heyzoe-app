@@ -133,20 +133,20 @@ export async function markContactTrialRegisteredManually(input: {
   });
 
   const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-  void dispatchCrmEvent({
+  await dispatchCrmEvent({
     businessId,
     leadPhone: input.phone,
     kind: "trial_registered",
     fullName: input.fullName,
     eventAtIso: nowIso,
     registration,
-  });
+  }).catch((e) => console.error("[trial-registered-manual] CRM dispatch failed:", e));
 
   try {
     const pack = await getBusinessKnowledgePack(slug);
     const { triggerLeadRegisteredNotification } = await import("@/lib/notifications/triggers");
     if (sessionId) {
-      void triggerLeadRegisteredNotification({
+      await triggerLeadRegisteredNotification({
         businessId,
         leadPhone: input.phone,
         businessSlug: slug,

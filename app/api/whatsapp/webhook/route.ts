@@ -1,4 +1,5 @@
 import { NextRequest, after } from "next/server";
+import { keepServerWork } from "@/lib/keep-server-work";
 import { runWithArboxCallCount, setArboxCallCounterSlug } from "@/lib/crm/arbox-call-counter";
 import { getArboxApiKey } from "@/lib/business-secrets";
 import { isBusinessArboxBackgroundPaused } from "@/lib/arbox-background-pause";
@@ -3534,11 +3535,15 @@ async function sendMatchedClassRegistrationLink(input: {
   const txt = `${intro}\n${url}`;
   try {
     const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-    void markRegistrationCtaClicked({
-      businessId: Number(input.businessId),
-      phone: input.msg.from,
-      sessionId: input.sessionId,
-    });
+    const { keepServerWork } = await import("@/lib/keep-server-work");
+    keepServerWork(
+      "markRegistrationCtaClicked",
+      markRegistrationCtaClicked({
+        businessId: Number(input.businessId),
+        phone: input.msg.from,
+        sessionId: input.sessionId,
+      })
+    );
   } catch (e) {
     console.warn("[WA Webhook] markRegistrationCtaClicked (class CTA) failed:", e);
   }
@@ -7385,7 +7390,7 @@ async function processIncoming(
           phone: contactPhone,
           prior_wa_no_response_at: priorNoResponseAt,
         });
-        void logMessage({
+        await logMessage({
           business_slug,
           role: "event",
           content: "[heyzoe:no_response:reactivated]",
@@ -10108,31 +10113,38 @@ async function processIncoming(
               console.warn("[WA Webhook] warmup summary precompute failed:", warmupErr);
             }
             const { triggerLeadRegisteredNotification } = await import("@/lib/notifications/triggers");
-            void triggerLeadRegisteredNotification({
-              businessId: Number(businessId),
-              leadPhone: msg.from,
-              businessSlug: business_slug,
-              sessionId,
-              registeredAtIso: nowIso,
-              scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
-              requestedDate: includeScheduleInReg ? requestedDate : "",
-              requestedTime: includeScheduleInReg ? requestedTime : "",
-              warmupSummaryPrecomputed,
-            });
+            const { keepServerWork } = await import("@/lib/keep-server-work");
+            keepServerWork(
+              "lead_registered_notification",
+              triggerLeadRegisteredNotification({
+                businessId: Number(businessId),
+                leadPhone: msg.from,
+                businessSlug: business_slug,
+                sessionId,
+                registeredAtIso: nowIso,
+                scheduleDirectRegistration: knowledge.scheduleDirectRegistration !== false,
+                requestedDate: includeScheduleInReg ? requestedDate : "",
+                requestedTime: includeScheduleInReg ? requestedTime : "",
+                warmupSummaryPrecomputed,
+              })
+            );
             const { dispatchCrmEvent } = await import("@/lib/crm/dispatch");
-            void dispatchCrmEvent({
-              businessId: Number(businessId),
-              leadPhone: msg.from,
-              kind: "trial_registered",
-              eventAtIso: nowIso,
-              registration: {
-                serviceName,
-                offerKind: regOfferKind,
-                requestedDate,
-                requestedTime,
-                courseSchedulePhrase: courseSchedForReg || null,
-              },
-            });
+            keepServerWork(
+              "trial_registered_crm",
+              dispatchCrmEvent({
+                businessId: Number(businessId),
+                leadPhone: msg.from,
+                kind: "trial_registered",
+                eventAtIso: nowIso,
+                registration: {
+                  serviceName,
+                  offerKind: regOfferKind,
+                  requestedDate,
+                  requestedTime,
+                  courseSchedulePhrase: courseSchedForReg || null,
+                },
+              })
+            );
           } catch (e) {
             console.warn("[WA Webhook] lead_registered notification failed:", e);
           }
@@ -12416,7 +12428,7 @@ async function processIncoming(
           if (businessId) {
             try {
               const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+              keepServerWork("markRegistrationCtaClicked", markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId }));
             } catch (e) {
               console.warn("[WA Webhook] markRegistrationCtaClicked (call schedule) failed:", e);
             }
@@ -12475,7 +12487,7 @@ async function processIncoming(
           if (businessId) {
             try {
               const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+              keepServerWork("markRegistrationCtaClicked", markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId }));
             } catch (e) {
               console.warn("[WA Webhook] markRegistrationCtaClicked failed:", e);
             }
@@ -12536,7 +12548,7 @@ async function processIncoming(
           if (businessId) {
             try {
               const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+              keepServerWork("markRegistrationCtaClicked", markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId }));
             } catch (e) {
               console.warn("[WA Webhook] markRegistrationCtaClicked (custom link) failed:", e);
             }
@@ -12591,7 +12603,7 @@ async function processIncoming(
           if (del === "link" && trialUrl) {
             if (businessId) {
               const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+              keepServerWork("markRegistrationCtaClicked", markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId }));
             }
             const txt = `מעולה! נרשמים כאן:\n${trialUrl}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>
@@ -12705,7 +12717,7 @@ async function processIncoming(
           if (del === "link" && trialUrl) {
             if (businessId) {
               const { markRegistrationCtaClicked } = await import("@/lib/notifications/conversations");
-              void markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId });
+              keepServerWork("markRegistrationCtaClicked", markRegistrationCtaClicked({ businessId, phone: msg.from, sessionId }));
             }
             const txt = `מעולה! ההצטרפות כאן:\n${trialUrl}`;
             await sendWhatsAppMessage(msg.toNumber, msg.from, txt, accountSid, authToken).catch((e) =>

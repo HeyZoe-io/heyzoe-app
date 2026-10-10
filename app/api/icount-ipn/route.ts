@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { keepServerWork } from "@/lib/keep-server-work";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
 import { decryptPaymentSessionSecret } from "@/lib/payment-session-crypto";
 import { extractIcountClientIdFromPayload } from "@/lib/icount-v3";
@@ -365,15 +366,18 @@ async function recordLpPurchaseIfNoMarketingMatch(input: {
     // onboarding website regardless of WhatsApp-marketing attribution below, so this fires unconditionally.
     try {
       const { sendMetaCapiEvent } = await import("@/lib/meta-capi");
-      void sendMetaCapiEvent({
-        eventName: "Purchase",
-        actionSource: "website",
-        email: input.email,
-        fbp: (sessionCols.fbp as string | null) ?? null,
-        fbc: (sessionCols.fbc as string | null) ?? null,
-        value: planPrice,
-        currency: "ILS",
-      });
+      keepServerWork(
+        "Purchase",
+        sendMetaCapiEvent({
+          eventName: "Purchase",
+          actionSource: "website",
+          email: input.email,
+          fbp: (sessionCols.fbp as string | null) ?? null,
+          fbc: (sessionCols.fbc as string | null) ?? null,
+          value: planPrice,
+          currency: "ILS",
+        })
+      );
     } catch (e) {
       console.error("[api/icount-ipn] website purchase CAPI failed:", e);
     }
@@ -641,13 +645,16 @@ export async function POST(req: NextRequest) {
             }
 
             // Critical Meta registration step (best-effort; must not fail IPN)
-            void registerMetaNumberAndEmailAdmin({
-              admin,
-              business_id: Number(biz.id),
-              business_slug: String(biz.slug).trim().toLowerCase(),
-              business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
-              customer_email: email,
-            });
+            keepServerWork(
+              "registerMetaNumberAndEmailAdmin",
+              registerMetaNumberAndEmailAdmin({
+                admin,
+                business_id: Number(biz.id),
+                business_slug: String(biz.slug).trim().toLowerCase(),
+                business_name: String((sessionRow as any)?.studio_name ?? "").trim() || String(biz.slug),
+                customer_email: email,
+              })
+            );
           }
 
           console.info("[api/icount-ipn] reactivated:", {
@@ -659,18 +666,24 @@ export async function POST(req: NextRequest) {
           });
 
           // Single source of truth for purchase: record exactly one row for reactivation too.
-          void tryRecordWaMarketingPurchase({
-            customerPhone,
-            businessId: Number(biz.id),
-            planPrice: paidPlanPrice,
-          });
-          void recordLpPurchaseIfNoMarketingMatch({
-            admin,
-            email,
-            customerPhone,
-            businessId: Number(biz.id),
-            planPrice: paidPlanPrice,
-          });
+          keepServerWork(
+            "tryRecordWaMarketingPurchase",
+            tryRecordWaMarketingPurchase({
+              customerPhone,
+              businessId: Number(biz.id),
+              planPrice: paidPlanPrice,
+            })
+          );
+          keepServerWork(
+            "recordLpPurchaseIfNoMarketingMatch",
+            recordLpPurchaseIfNoMarketingMatch({
+              admin,
+              email,
+              customerPhone,
+              businessId: Number(biz.id),
+              planPrice: paidPlanPrice,
+            })
+          );
         } else {
           // User exists but business missing - create it now (paid), then mark ready.
           const baseSlug =
@@ -733,28 +746,37 @@ export async function POST(req: NextRequest) {
           }
 
           // Critical Meta registration step (best-effort; must not fail IPN)
-          void registerMetaNumberAndEmailAdmin({
-            admin,
-            business_id: Number(insertedBiz.id),
-            business_slug: String(insertedBiz.slug).trim().toLowerCase(),
-            business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-            customer_email: email,
-          });
+          keepServerWork(
+            "registerMetaNumberAndEmailAdmin",
+            registerMetaNumberAndEmailAdmin({
+              admin,
+              business_id: Number(insertedBiz.id),
+              business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+              business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+              customer_email: email,
+            })
+          );
 
-          void tryRecordWaMarketingPurchase({
-            customerPhone,
-            businessId: Number(insertedBiz.id),
-            planPrice: plan_price,
-          });
-          void recordLpPurchaseIfNoMarketingMatch({
-            admin,
-            email,
-            customerPhone,
-            businessId: Number(insertedBiz.id),
-            planPrice: plan_price,
-          });
+          keepServerWork(
+            "tryRecordWaMarketingPurchase",
+            tryRecordWaMarketingPurchase({
+              customerPhone,
+              businessId: Number(insertedBiz.id),
+              planPrice: plan_price,
+            })
+          );
+          keepServerWork(
+            "recordLpPurchaseIfNoMarketingMatch",
+            recordLpPurchaseIfNoMarketingMatch({
+              admin,
+              email,
+              customerPhone,
+              businessId: Number(insertedBiz.id),
+              planPrice: plan_price,
+            })
+          );
 
-          void notifyAdminMarketingLeadOnPaid({ admin, customerPhone });
+          keepServerWork("notifyAdminMarketingLeadOnPaid", notifyAdminMarketingLeadOnPaid({ admin, customerPhone }));
         }
         return NextResponse.json({ ok: true });
       }
@@ -844,28 +866,37 @@ export async function POST(req: NextRequest) {
     }
 
     // Critical Meta registration step (best-effort; must not fail IPN)
-    void registerMetaNumberAndEmailAdmin({
-      admin,
-      business_id: Number(insertedBiz.id),
-      business_slug: String(insertedBiz.slug).trim().toLowerCase(),
-      business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
-      customer_email: email,
-    });
+    keepServerWork(
+      "registerMetaNumberAndEmailAdmin",
+      registerMetaNumberAndEmailAdmin({
+        admin,
+        business_id: Number(insertedBiz.id),
+        business_slug: String(insertedBiz.slug).trim().toLowerCase(),
+        business_name: (String(sessionRow?.studio_name ?? "").trim() || (email.split("@")[0] ?? "HeyZoe")).trim(),
+        customer_email: email,
+      })
+    );
 
-    void tryRecordWaMarketingPurchase({
-      customerPhone,
-      businessId: Number(insertedBiz.id),
-      planPrice: plan_price,
-    });
-    void recordLpPurchaseIfNoMarketingMatch({
-      admin,
-      email,
-      customerPhone,
-      businessId: Number(insertedBiz.id),
-      planPrice: plan_price,
-    });
+    keepServerWork(
+      "tryRecordWaMarketingPurchase",
+      tryRecordWaMarketingPurchase({
+        customerPhone,
+        businessId: Number(insertedBiz.id),
+        planPrice: plan_price,
+      })
+    );
+    keepServerWork(
+      "recordLpPurchaseIfNoMarketingMatch",
+      recordLpPurchaseIfNoMarketingMatch({
+        admin,
+        email,
+        customerPhone,
+        businessId: Number(insertedBiz.id),
+        planPrice: plan_price,
+      })
+    );
 
-    void notifyAdminMarketingLeadOnPaid({ admin, customerPhone });
+    keepServerWork("notifyAdminMarketingLeadOnPaid", notifyAdminMarketingLeadOnPaid({ admin, customerPhone }));
 
     console.info("[api/icount-ipn] ready:", {
       email,
