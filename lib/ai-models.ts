@@ -23,7 +23,9 @@ export type HaikuCallSite =
   | "product-description"
   | "fetch-site-scan"
   | "fetch-site-scan-fallback"
-  | "fetch-site-enrich";
+  | "fetch-site-enrich"
+  | "knowledge-update-classify"
+  | "knowledge-update-generalize";
 
 type SiteSpec = {
   env: "CLAUDE_WHATSAPP_MODEL" | "CLAUDE_HAIKU_MODEL";
@@ -88,6 +90,16 @@ const SITES: Record<HaikuCallSite, SiteSpec> = {
     env: "CLAUDE_HAIKU_MODEL",
     rollback: { max_tokens: 2048 },
     haiku55: { max_tokens: 6144, thinkingDisabled: false },
+  },
+  "knowledge-update-classify": {
+    env: "CLAUDE_HAIKU_MODEL",
+    rollback: { max_tokens: 800, temperature: 0 },
+    haiku55: { max_tokens: 800, thinkingDisabled: true },
+  },
+  "knowledge-update-generalize": {
+    env: "CLAUDE_HAIKU_MODEL",
+    rollback: { max_tokens: 300, temperature: 0 },
+    haiku55: { max_tokens: 300, thinkingDisabled: true },
   },
 };
 

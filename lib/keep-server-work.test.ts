@@ -44,6 +44,9 @@ const forbidden = [
   /void\s+tryRecordWaMarketingPurchase\s*\(/,
   /void\s+recordLpPurchaseIfNoMarketingMatch\s*\(/,
   /void\s+logMessage\s*\(/,
+  /void\s+sendKnowledgeUpdateTemplate\s*\(/,
+  /void\s+sendKnowledgeUpdateCard\s*\(/,
+  /void\s+sendKnowledgeUpdateText\s*\(/,
 ];
 
 function walk(dir: string, out: string[]): void {

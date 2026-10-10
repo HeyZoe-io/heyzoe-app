@@ -46,6 +46,7 @@ type KnowledgeGapItem = {
   question: string;
   assistantSnippet: string;
   createdAt: string;
+  weekly?: boolean;
 };
 
 const i18n = {
@@ -89,6 +90,7 @@ const i18n = {
     knowledgeGapsTitle: "מידע ששווה להוסיף",
     knowledgeGapsSubtitle: "מצאנו מידע חסר שכדאי להוסיף לזואי",
     customerQuestion: "שאלה מלקוח/ה",
+    proposedKnowledge: "ידע מוצע",
     scheduleRequest: "מועד שאין בלוח",
     updateInfo: "עדכן מידע",
     showConversation: "הצג שיחה",
@@ -135,6 +137,7 @@ const i18n = {
     knowledgeGapsTitle: "Worth adding",
     knowledgeGapsSubtitle: "We found missing info that should be added for Zoe",
     customerQuestion: "Customer question",
+    proposedKnowledge: "Proposed knowledge",
     scheduleRequest: "Class time not on the schedule",
     updateInfo: "Update info",
     showConversation: "Show chat",
@@ -271,6 +274,7 @@ export default function AnalyticsClient({
             question: String(it.question ?? ""),
             assistantSnippet: String(it.assistantSnippet ?? ""),
             createdAt: String(it.createdAt ?? ""),
+            weekly: it.weekly === true,
           }))
         );
       } catch (e: unknown) {
@@ -558,11 +562,20 @@ export default function AnalyticsClient({
                       style={{ textAlign: textAlign }}
                     >
                       <p className="text-xs font-medium text-zinc-600">
-                        {gap.kind === "schedule_request" ? t.scheduleRequest : t.customerQuestion}
+                        {gap.weekly
+                          ? t.proposedKnowledge
+                          : gap.kind === "schedule_request"
+                            ? t.scheduleRequest
+                            : t.customerQuestion}
                       </p>
                       <p className="mt-1 text-sm text-zinc-900" dir="auto">
                         {gap.question}
                       </p>
+                      {gap.weekly && gap.assistantSnippet ? (
+                        <p className="mt-1 text-sm text-zinc-700" dir="auto">
+                          {gap.assistantSnippet}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end">
                       <Link
@@ -571,6 +584,7 @@ export default function AnalyticsClient({
                       >
                         {t.updateInfo}
                       </Link>
+                      {gap.weekly ? null : (
                       <Link
                         href={dashboardHref(`/${slug}/conversations`, lang, {
                           session: gap.sessionId,
@@ -579,6 +593,8 @@ export default function AnalyticsClient({
                       >
                         {t.showConversation}
                       </Link>
+                      )}
+                      {gap.weekly ? null : (
                       <button
                         type="button"
                         onClick={() => void dismissGap(gap)}
@@ -592,6 +608,7 @@ export default function AnalyticsClient({
                         )}
                         {t.markHandled}
                       </button>
+                      )}
                     </div>
                   </div>
                 </li>

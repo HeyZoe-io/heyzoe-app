@@ -14,6 +14,9 @@ import { createSupabaseAdminClient } from "@/lib/supabase-admin";
  * Scheduling: cron-job.org every hour (NOT vercel.json — Hobby).
  * Same run, at or after 09:30 Asia/Jerusalem, also sends the admin unsent
  * summary once per day when there is something to report.
+ * Same run, on Tuesday at or after 10:30 Asia/Jerusalem, also sends the weekly
+ * knowledge-update template once per ISO week. A failure there is logged and
+ * does not stop the rest of this cron.
  * GET + Authorization: Bearer CRON_SECRET
  * Optional: ?dry_run=1 or CLASS_CANCEL_NOTIFY_DRY_RUN=1 — real reads, no writes, no sends.
  *
@@ -169,11 +172,22 @@ export async function GET(req: NextRequest) {
     adminUnsent = { sent: false, reason: "threw", count: 0 };
   }
 
+  let knowledgeUpdates: { reason: string; count: number } = { reason: "not_run", count: 0 };
+  try {
+    const { runWeeklyKnowledgeUpdates } = await import("@/lib/knowledge-updates-run");
+    knowledgeUpdates = await runWeeklyKnowledgeUpdates({ admin, now, dryRun });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[cron/arbox-class-cancel-notify] knowledge updates failed", message);
+    knowledgeUpdates = { reason: "threw", count: 0 };
+  }
+
   console.info("[cron/arbox-class-cancel-notify] done", {
     ran_at: ranAt,
     dry_run: dryRun,
     businesses: businesses.length,
     admin_unsent: adminUnsent.reason,
+    knowledge_updates: knowledgeUpdates.reason,
   });
 
   return NextResponse.json({
@@ -182,5 +196,6 @@ export async function GET(req: NextRequest) {
     dry_run: dryRun,
     businesses,
     admin_unsent: adminUnsent,
+    knowledge_updates: knowledgeUpdates,
   });
 }

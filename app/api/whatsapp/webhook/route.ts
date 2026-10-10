@@ -7139,6 +7139,19 @@ async function processIncoming(
           : "";
       await logMarketingWhatsAppMessage({ leadPhone: msg.from, role: "user", content: msg.text });
 
+      const { tryHandleKnowledgeUpdateInbound } = await import("@/lib/knowledge-updates-run");
+      if (
+        await tryHandleKnowledgeUpdateInbound({
+          from: msg.from,
+          text: msg.text,
+          interactiveId: msg.metaInteractiveReplyId,
+          kind: msg.metaInteractiveReplyKind,
+        })
+      ) {
+        console.info("[WA Webhook] knowledge update session handled");
+        return;
+      }
+
       const { isMarketingConversationPaused } = await import("@/lib/marketing-whatsapp");
       if (await isMarketingConversationPaused(msg.from)) {
         console.info("[WA Webhook] Marketing session paused — skip auto-reply for:", msg.from);

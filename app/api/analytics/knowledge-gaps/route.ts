@@ -7,6 +7,7 @@ import {
   findKnowledgeGaps,
   parseMessageUuid,
 } from "@/lib/analytics-knowledge-gaps";
+import { listWeeklyKnowledgeForBusiness } from "@/lib/knowledge-updates-run";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -34,7 +35,18 @@ export async function GET(req: NextRequest) {
 
   try {
     const items = await findKnowledgeGaps({ admin, businessSlug });
-    return NextResponse.json({ ok: true, items });
+    const weekly = await listWeeklyKnowledgeForBusiness(admin, access.business.id);
+    const weeklyItems = weekly.map((row) => ({
+      id: row.id,
+      assistantMessageId: "",
+      sessionId: "",
+      kind: "question" as const,
+      question: row.question,
+      assistantSnippet: row.knowledgeText,
+      createdAt: row.createdAt,
+      weekly: true,
+    }));
+    return NextResponse.json({ ok: true, items: [...weeklyItems, ...items] });
   } catch (e) {
     console.error("[api/analytics/knowledge-gaps] GET failed:", e);
     return NextResponse.json(
