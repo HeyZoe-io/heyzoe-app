@@ -203,6 +203,24 @@ assert.equal(
   true
 );
 assert.equal(
+  explicitClassChoiceApplies({
+    route: "schedule",
+    choice: unique,
+    trialAsk: false,
+    text: "אז השיעור בשני וחמישי ב20 הוא לא קבוע אין לי אף שיעור להגיע אליו",
+  }),
+  false
+);
+assert.equal(
+  explicitClassChoiceApplies({
+    route: "schedule",
+    choice: unique,
+    trialAsk: false,
+    text: "אני לא רוצה רביעי ב9:30. זה לא אימון פונקציונלי",
+  }),
+  false
+);
+assert.equal(
   explicitClassChoiceApplies({ route: "class_move", choice: unique, trialAsk: true, text: tali }),
   false
 );

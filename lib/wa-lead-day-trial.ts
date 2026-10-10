@@ -288,6 +288,11 @@ function looksLikeClassCancel(text: string): boolean {
   return /לבטל|תבטל|לא אגיע|תורידו אותי|ביטול/u.test(text);
 }
 
+/** Naming a day or time to reject it is not a slot choice. */
+function looksLikeSlotRejection(text: string): boolean {
+  return /לא רוצה|לא מתאים|לא קבוע|זה לא|אין לי אף|אין לי שיעור/u.test(text);
+}
+
 /** A slot choice replaces Claude's text only when the route asked for a schedule or signup, or the message itself is a trial slot and not a cancellation. */
 export function explicitClassChoiceApplies(input: {
   route: string | null;
@@ -300,7 +305,8 @@ export function explicitClassChoiceApplies(input: {
   if (input.choice.kind !== "unique" && input.choice.kind !== "ambiguous" && input.choice.kind !== "missing") {
     return false;
   }
-  if (looksLikeClassCancel(String(input.text ?? ""))) return false;
+  const text = String(input.text ?? "");
+  if (looksLikeClassCancel(text) || looksLikeSlotRejection(text)) return false;
   if (input.hintCategory === "trial_slot" || input.trialAsk) return true;
   return input.route != null && CHOICE_OVERRIDE_ROUTES.has(input.route);
 }
