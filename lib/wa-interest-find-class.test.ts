@@ -12,6 +12,7 @@ import {
   resolveInterestQuestionAnswer,
   sanitizeFindClassAnswer,
   shouldOfferFindClassBeforeFlow,
+  shouldReaskFindClassBridge,
 } from "@/lib/wa-interest-find-class";
 
 const apex =
@@ -77,6 +78,11 @@ assert.equal(
   }),
   false
 );
+
+assert.equal(shouldReaskFindClassBridge({ route: "interest", inbound: "זה באזור הסופר פארם?" }), true);
+assert.equal(shouldReaskFindClassBridge({ route: "answer", inbound: "יש מקלחות?" }), true);
+assert.equal(shouldReaskFindClassBridge({ route: "interest", inbound: "איזה שיעורים יש?" }), false);
+assert.equal(shouldReaskFindClassBridge({ route: "signup", inbound: "זה באזור הסופר פארם?" }), false);
 
 assert.equal(isAffirmativeFindClassReply("כן"), true);
 assert.equal(isAffirmativeFindClassReply("כן בבקשה"), true);

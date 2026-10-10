@@ -99,6 +99,16 @@ export function isFindClassBridgeModel(model: string | null | undefined): boolea
   return modelUsedBase(model) === FIND_CLASS_ASK_MODEL;
 }
 
+/**
+ * שאלה אחרי «רוצה שנמצא את השיעור…» שאינה «כן»: עונים ושואלים שוב.
+ * interest רק כשאין מילת שיעור/אימון, כי «איזה שיעורים יש?» הוא בעצם «כן».
+ */
+export function shouldReaskFindClassBridge(input: { route: string | null; inbound: string }): boolean {
+  if (input.route === "answer") return true;
+  if (input.route !== "interest") return false;
+  return !CLASS_INTEREST_RE.test(coreAsk(input.inbound));
+}
+
 export function isAffirmativeFindClassReply(raw: string): boolean {
   const t = normReply(raw);
   if (!t || t.length > 40) return false;

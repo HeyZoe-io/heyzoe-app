@@ -530,6 +530,7 @@ import {
   findClassDeclineReply,
   resolveInterestQuestionAnswer,
   shouldOfferFindClassBeforeFlow,
+  shouldReaskFindClassBridge,
 } from "@/lib/wa-interest-find-class";
 import {
   trialSignupAckForInbound,
@@ -15135,7 +15136,11 @@ async function processIncoming(
         explicitSignup: explicitSignupForOffer,
       });
       let reaskPending = false;
-      if (!offerNow && waReplyRoute.route === "answer" && looksLikeLeadQuestion(msg.text)) {
+      if (
+        !offerNow &&
+        shouldReaskFindClassBridge({ route: waReplyRoute.route, inbound: msg.text }) &&
+        looksLikeLeadQuestion(msg.text)
+      ) {
         const lastForReask = await fetchLastAssistantModelUsed({
           business_slug,
           session_id: sessionId,
