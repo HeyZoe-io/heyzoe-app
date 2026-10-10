@@ -260,7 +260,7 @@ export async function handleLeadHumanRequested(input: {
   }
 
   const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-  void triggerHumanRequestedNotification({
+  await triggerHumanRequestedNotification({
     businessId,
     leadPhone: input.phone,
     requestedAtIso: input.nowIso,
@@ -370,7 +370,7 @@ export async function markContactHumanRequestedManually(input: {
   }
 
   const { triggerHumanRequestedNotification } = await import("@/lib/notifications/triggers");
-  void triggerHumanRequestedNotification({
+  await triggerHumanRequestedNotification({
     businessId,
     leadPhone: input.phone,
     requestedAtIso: nowIso,

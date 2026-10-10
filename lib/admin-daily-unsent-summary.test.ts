@@ -5,7 +5,7 @@ import {
   AUTO_CANCEL_REASON,
   MANUAL_BLOCK_REASON,
   renderAdminDailyUnsentText,
-  ARBOX_MISSING_TASK_TYPE_WARNING,
+  WHATSAPP_HANDOFF_EXPECTED_REASON,
   arboxHandoffTaskTypeIdMissing,
   unsentDetailParam,
   unsentGroup,
@@ -17,18 +17,21 @@ import {
 assert.equal(arboxHandoffTaskTypeIdMissing(null), true);
 assert.equal(arboxHandoffTaskTypeIdMissing(""), true);
 assert.equal(arboxHandoffTaskTypeIdMissing("114001"), false);
-assert.match(
-  unsentDetailParam([
-    {
-      businessId: 3251,
-      business: "Limitless",
-      trigger: "משימת ארבוקס",
-      contact: "",
-      reason: ARBOX_MISSING_TASK_TYPE_WARNING,
-      at: "",
-    },
-  ]),
-  /Limitless · משימת ארבוקס · לעסק אין סוג משימה מוגדר - פניות לנציג לא נפתחות בארבוקס/
+const whatsappHandoffRow: UnsentRow = {
+  businessId: 3251,
+  business: "Limitless",
+  trigger: "משימת ארבוקס",
+  contact: "",
+  reason: WHATSAPP_HANDOFF_EXPECTED_REASON,
+  at: "",
+};
+assert.equal(unsentGroup(whatsappHandoffRow), "expected");
+assert.equal(unsentProblemCount([whatsappHandoffRow]), 0);
+assert.match(unsentDetailParam([whatsappHandoffRow]), /1 העברות בוואטסאפ בלי משימת ארבוקס/);
+assert.equal(
+  unsentGroup({ reason: "נכשל במסירה", future: false }),
+  "problem",
+  "a failed owner WhatsApp stays a problem"
 );
 
 assert.equal(adminDailySummaryDue(israelWallTimeToUtc("2026-10-07", "09:29")), false);

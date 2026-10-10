@@ -59,9 +59,14 @@ export const AUTO_CANCEL_REASON = "בוטל אוטומטית";
 export const BLOCKING_ALERT_REASON = "חסימה בחשבון וואטסאפ";
 /** POST /v3/tasks failed after retries: staff did not get the Arbox task. */
 export const CRM_TASK_FAILED_REASON = "משימה לא נפתחה";
-/** Arbox studio with no handoff task type: tasks are never opened, and no owner WhatsApp is sent. */
+/**
+ * Kept for older rows. New rows use WHATSAPP_HANDOFF_EXPECTED_REASON.
+ * No task type means the owner WhatsApp is the handoff channel, not a failed task.
+ */
 export const ARBOX_MISSING_TASK_TYPE_WARNING =
   "לעסק אין סוג משימה מוגדר - פניות לנציג לא נפתחות בארבוקס";
+/** Expected: Arbox studio hands off on WhatsApp because no task type is configured. */
+export const WHATSAPP_HANDOFF_EXPECTED_REASON = "העברה לבעלים בוואטסאפ, בלי משימת ארבוקס";
 
 export function arboxHandoffTaskTypeIdMissing(taskTypeId: unknown): boolean {
   const n = Number.parseInt(String(taskTypeId ?? "").trim(), 10);
@@ -105,6 +110,7 @@ const EXPECTED_REASONS = new Set([
   "אימון עתידי",
   "צוות",
   AUTO_CANCEL_REASON,
+  WHATSAPP_HANDOFF_EXPECTED_REASON,
 ]);
 
 /** problem: counted in the headline. manual / expected: listed apart, never as not sent. */
@@ -241,6 +247,7 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
   let booked = 0;
   let staff = 0;
   let autoCancel = 0;
+  let whatsappHandoff = 0;
   for (const row of rows) {
     const group = unsentGroup(row);
     if (group === "problem") {
@@ -264,6 +271,7 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
     else if (row.reason === "אימון עתידי") booked += 1;
     else if (row.reason === "צוות") staff += 1;
     else if (row.reason === AUTO_CANCEL_REASON) autoCancel += 1;
+    else if (row.reason === WHATSAPP_HANDOFF_EXPECTED_REASON) whatsappHandoff += 1;
     else {
       history += 1;
       const key = `${row.business} · ${row.trigger}${row.rule ? ` (${row.rule})` : ""}`;
@@ -285,7 +293,8 @@ export function unsentDetailParam(rows: readonly UnsentRow[]): string {
     const byRule =
       level >= 1 && bigRules.length ? `; מעל ${HISTORY_RULE_BREAKDOWN_MIN} לכלל: ${bigRules.join(", ")}` : "";
     const auto = autoCancel ? `, ${autoCancel} ביטולים אוטומטיים` : "";
-    return `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר${byRule}), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${skipped} דילוגים, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות${auto}`;
+    const handoff = whatsappHandoff ? `, ${whatsappHandoff} העברות בוואטסאפ בלי משימת ארבוקס` : "";
+    return `צפוי: ${history} סימוני היסטוריה (כללים חדשים / זמן עבר${byRule}), ${unmarked} אימונים בלי סימון נוכחות, ${cap} דילוגי תקרת שימור, ${skipped} דילוגים, ${frozen} הקפאות, ${inactive} לא מנוי פעיל, ${booked} עם אימון עתידי, ${staff} צוות${handoff}${auto}`;
   };
   const pointer = "הפירוט המלא ב-/admin/unsent";
   const join = (items: string[], level: number) =>
@@ -734,7 +743,7 @@ export async function loadAdminDailyUnsent(admin: Admin, now: Date): Promise<Uns
       business: businessName || (Number.isFinite(businessId) ? `עסק ${businessId}` : "HeyZoe"),
       trigger: "משימת ארבוקס",
       contact: "",
-      reason: ARBOX_MISSING_TASK_TYPE_WARNING,
+      reason: WHATSAPP_HANDOFF_EXPECTED_REASON,
       at: "",
       metaError: "",
     });
