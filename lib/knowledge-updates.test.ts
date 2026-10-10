@@ -13,8 +13,15 @@ import {
   ownerReplyAddressesQuestion,
   pairHandoffWithOwnerReply,
   readGroundingVerdict,
+  classifyOwnerFact,
+  isTimeBoundFact,
   labelKnowledgePairs,
+  mergeRuleStatements,
+  ruleAgainstKnowledge,
   selectWeeklySuggestions,
+  suggestionCardText,
+  takeWeeklyCards,
+  KNOWLEDGE_CARD_LIMIT,
   sendDecision,
   sessionActive,
   shouldWriteKnowledge,
@@ -103,7 +110,7 @@ assert.equal(coveredByKnowledge("יש חניה חינם ברחוב", "חניה �
 assert.equal(coveredByKnowledge("השיעור עולה שמונים שקל", "יש חניה חינם ברחוב"), false);
 
 const oneLead = selectWeeklySuggestions([parking("a"), parking("a")], "");
-assert.equal(oneLead.length, 0);
+assert.equal(oneLead.length, 1);
 
 const covered = selectWeeklySuggestions(
   [parking("a"), parking("b")],
@@ -146,7 +153,7 @@ assert.deepEqual(
   ["already covered", "personal", "one-off favor or private", "already covered", "already covered"]
 );
 const single = labelKnowledgePairs([parking("only")], "");
-assert.equal(single[0]?.reason, "single lead");
+assert.equal(single[0]?.reason, "passed");
 const mixed = selectWeeklySuggestions(
   [
     {
@@ -197,8 +204,9 @@ const women = selectWeeklySuggestions(
   ],
   ""
 );
-assert.equal(women.length, 0);
-assert.equal(mixed.length, 1);
+assert.equal(women.length, 2);
+assert.equal(women.some((row) => row.ownerAnswers.some((answer) => answer.includes("קרב") && answer.includes("אישי"))), false);
+assert.equal(mixed.length, 2);
 assert.match(mixed[0]!.question, /מבטלים/);
 assert.equal(mixed[0]!.ownerAnswers.some((answer) => answer.includes("מאתיים")), false);
 assert.equal(ranked.length, 3);
@@ -308,6 +316,80 @@ assert.deepEqual(
 );
 assert.deepEqual(readGroundingVerdict('{"answers":true,"grounded":true}'), { ok: true, reason: "ok" });
 assert.equal(readGroundingVerdict("פעם בשבוע 350").ok, false);
+
+assert.equal(classifyOwnerFact("המנוי חודשי ואין מעבר של שיעורים מחודש לחודש"), "general_rule");
+assert.equal(classifyOwnerFact("ביטול נכנס לתוקף תוך 30 יום"), "general_rule");
+assert.equal(classifyOwnerFact("ביטול עד 6 שעות לאימון ערב ו-12 שעות לאימון בוקר"), "general_rule");
+assert.equal(classifyOwnerFact("לנטוס 60 קומה 3 כניסה A במעלית"), "general_rule");
+assert.equal(classifyOwnerFact("באופן חד פעמי אאפשר לך 4 שיעורים"), "personal_exception_or_favor");
+assert.equal(classifyOwnerFact("באופן חריג אעביר לך"), "personal_exception_or_favor");
+assert.equal(classifyOwnerFact("נתחשב בך"), "personal_exception_or_favor");
+assert.equal(classifyOwnerFact("ההנחה הזו בשבילך"), "personal_exception_or_favor");
+assert.equal(isTimeBoundFact("החדר כושר היה סגור לכבוד ראש השנה"), true);
+assert.equal(isTimeBoundFact("אין אפשרות להחזר על החיוב של חודש ספטמבר"), true);
+assert.equal(isTimeBoundFact("מאיזה גיל אפשר להתחיל"), false);
+assert.equal(isTimeBoundFact("ימי ראשון ורביעי בשעה 17:30"), false);
+
+const merged = mergeRuleStatements([
+  { text: "ביטול נכנס לתוקף תוך 30 יום", excerpt: "הביטול תוך 30 יום" },
+  { text: "ביטול המנוי נכנס לתוקף תוך 30 יום", excerpt: "תוך 30 יום" },
+]);
+assert.equal(merged.length, 1);
+assert.equal(merged[0]?.times, 2);
+assert.equal(merged[0]?.conflict, null);
+const conflicted = mergeRuleStatements([
+  { text: "ביטול עד 6 שעות לפני האימון", excerpt: "6 שעות" },
+  { text: "ביטול עד 12 שעות לפני האימון", excerpt: "12 שעות" },
+]);
+assert.equal(conflicted[0]?.conflict != null, true);
+const priceTiers = mergeRuleStatements([
+  { text: "פעמיים בשבוע 400 ₪ עד 9 אימונים בחודש", excerpt: "400" },
+  { text: "פעם בשבוע 300 ₪ עד 5 אימונים בחודש", excerpt: "300" },
+]);
+assert.equal(priceTiers.length, 2);
+assert.equal(priceTiers.every((row) => row.conflict == null), true);
+const windows = mergeRuleStatements([
+  { text: "ביטול אימון ערב ניתן עד 6 שעות לפני האימון", excerpt: "6" },
+  { text: "ביטול אימון בוקר ניתן עד 12 שעות לפני האימון", excerpt: "12" },
+]);
+assert.equal(windows.length, 2);
+assert.equal(windows.every((row) => row.conflict == null), true);
+assert.equal(ruleAgainstKnowledge("יש חניה חינם ברחוב", "חניה חינם ברחוב ליד הסטודיו"), "covered");
+assert.notEqual(
+  ruleAgainstKnowledge(
+    "לנטוס 60 קומה 3 כניסה A במעלית",
+    "איפה אתם נמצאים? Spider Academy, רחוב לנטוס 60, קומה 3, נתניה. מי המאמן? דאן 6"
+  ),
+  "conflicts"
+);
+assert.equal(
+  ruleAgainstKnowledge("ביטול עד 12 שעות לפני האימון", "ביטול עד 6 שעות לפני האימון"),
+  "conflicts"
+);
+
+const rankedCards = takeWeeklyCards({
+  rules: [
+    { text: "ביטול תוך 30 יום", times: 3, excerpt: "30 יום" },
+    { text: "יש חניה ברחוב", times: 1, excerpt: "חניה" },
+  ],
+  qa: ranked,
+});
+assert.equal(rankedCards.length, 3);
+assert.equal(rankedCards[0]?.kind, "rule");
+assert.equal(rankedCards[1]?.kind, "rule");
+assert.equal(rankedCards[2]?.kind, "qa");
+
+const longCard = suggestionCardText({
+  businessName: "סטודיו",
+  question: "",
+  knowledgeText: "ביטול נכנס לתוקף תוך 30 יום",
+  kind: "rule",
+  excerpt: "א".repeat(2000),
+  timesStated: 4,
+});
+assert.ok(longCard.length <= KNOWLEDGE_CARD_LIMIT);
+assert.match(longCard, /כלל שעלה מתשובות שלך/);
+assert.match(longCard, /נאמר 4 פעמים/);
 
 const written = appendKnowledgeQa([{ question: "יש חניה?", answer: "יש חניה ברחוב" }], {
   question: "יש מגבות?",

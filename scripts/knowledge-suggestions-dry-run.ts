@@ -4,16 +4,20 @@
  *
  *   npx tsx --env-file=.env.local scripts/knowledge-suggestions-dry-run.ts
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { buildKnowledgeUpdates, type KnowledgePairReview } from "@/lib/knowledge-updates-run";
+import {
+  buildKnowledgeUpdates,
+  measureAnswerableHandoffs,
+  type KnowledgePairReview,
+  type KnowledgeRuleReview,
+} from "@/lib/knowledge-updates-run";
 import { maskPii, type KnowledgeReviewReason } from "@/lib/knowledge-updates";
 
 const REVIEW_REASONS: KnowledgeReviewReason[] = [
   "passed",
   "personal",
   "one-off favor or private",
-  "single lead",
   "already covered",
   "not grounded",
   "other",
@@ -28,12 +32,21 @@ function oneLine(text: string): string {
 
 function reviewHeader(built: {
   reviews: KnowledgePairReview[];
+  ruleReviews: KnowledgeRuleReview[];
   pairs: number;
 }): string {
-  const businesses = new Set(built.reviews.map((row) => row.businessName)).size;
+  const businesses = new Set([
+    ...built.reviews.map((row) => row.businessName),
+    ...built.ruleReviews.map((row) => row.businessName),
+  ]).size;
   const passed = built.reviews.filter((row) => row.outcome === "passed").length;
   const dropped = REVIEW_REASONS.filter((reason) => reason !== "passed")
     .map((reason) => `${reason} ${built.reviews.filter((row) => row.reason === reason).length}`)
+    .join(", ");
+  const rulesPassed = built.ruleReviews.filter((row) => row.outcome === "passed").length;
+  const ruleReasons = [...new Set(built.ruleReviews.map((row) => row.reason).filter((reason) => reason !== "passed"))];
+  const rulesDropped = ruleReasons
+    .map((reason) => `${reason} ${built.ruleReviews.filter((row) => row.reason === reason).length}`)
     .join(", ");
   return [
     "# Knowledge suggestions review",
@@ -42,11 +55,14 @@ function reviewHeader(built: {
     `Pairs: ${built.pairs}`,
     `Passed: ${passed}`,
     `Dropped: ${dropped}`,
+    `Rules: ${built.ruleReviews.length}`,
+    `Rules passed: ${rulesPassed}`,
+    `Rules dropped: ${rulesDropped || "none"}`,
     "",
   ].join("\n");
 }
 
-function businessSection(name: string, rows: KnowledgePairReview[]): string {
+function businessSection(name: string, rows: KnowledgePairReview[], rules: KnowledgeRuleReview[]): string {
   const lines = [`## ${oneLine(name)}`, ""];
   for (const reason of REVIEW_REASONS) {
     const group = rows.filter((row) => row.reason === reason);
@@ -62,10 +78,24 @@ function businessSection(name: string, rows: KnowledgePairReview[]): string {
       lines.push("");
     }
   }
+  if (rules.length) {
+    lines.push("### Rules extracted", "");
+    for (const rule of rules) {
+      lines.push(`Rule: ${oneLine(rule.text)}`);
+      lines.push(`Times: ${rule.times}`);
+      lines.push(rule.outcome === "passed" ? "Result: passed" : `Result: dropped, ${rule.reason}`);
+      if (rule.conflict) lines.push(`Conflict: ${oneLine(rule.conflict)}`);
+      lines.push("");
+    }
+  }
   return lines.join("\n");
 }
 
-function writeReview(built: { reviews: KnowledgePairReview[]; pairs: number }): string[] {
+function writeReview(built: {
+  reviews: KnowledgePairReview[];
+  ruleReviews: KnowledgeRuleReview[];
+  pairs: number;
+}): string[] {
   const header = reviewHeader(built);
   const byBusiness = new Map<string, KnowledgePairReview[]>();
   for (const row of built.reviews) {
@@ -73,7 +103,14 @@ function writeReview(built: { reviews: KnowledgePairReview[]; pairs: number }): 
     list.push(row);
     byBusiness.set(row.businessName, list);
   }
-  const sections = [...byBusiness.entries()].map(([name, rows]) => businessSection(name, rows));
+  const rulesByBusiness = new Map<string, KnowledgeRuleReview[]>();
+  for (const row of built.ruleReviews) {
+    const list = rulesByBusiness.get(row.businessName) ?? [];
+    list.push(row);
+    rulesByBusiness.set(row.businessName, list);
+  }
+  const names = [...new Set([...byBusiness.keys(), ...rulesByBusiness.keys()])];
+  const sections = names.map((name) => businessSection(name, byBusiness.get(name) ?? [], rulesByBusiness.get(name) ?? []));
   const parts: string[] = [];
   let current = header;
   for (const section of sections) {
@@ -97,7 +134,7 @@ async function main(): Promise<void> {
     admin,
     persist: false,
     review: true,
-    budgetUsd: 1,
+    budgetUsd: 2,
     replacePending,
   });
   const byBusiness = new Map<string, typeof built.suggestions>();
@@ -128,11 +165,30 @@ async function main(): Promise<void> {
   mkdirSync("eval-output", { recursive: true });
   writeFileSync("eval-output/knowledge-suggestions-dryrun.md", lines.join("\n"));
   const reviewParts = writeReview(built);
-  const reviewPaths =
-    reviewParts.length === 1
-      ? ["eval-output/knowledge-suggestions-review.md"]
-      : reviewParts.map((_, index) => `eval-output/knowledge-suggestions-review-${index + 1}.md`);
+  const reviewPaths = reviewParts.map((_, index) => `eval-output/knowledge-suggestions-review-${index + 1}.md`);
   reviewParts.forEach((part, index) => writeFileSync(reviewPaths[index]!, part));
+  if (reviewParts.length < 2) rmSync("eval-output/knowledge-suggestions-review-2.md", { force: true });
+  rmSync("eval-output/knowledge-suggestions-review.md", { force: true });
+  const handoffs = await measureAnswerableHandoffs({
+    admin,
+    rules: built.suggestions
+      .filter((row) => row.clusterKey.startsWith("rule:"))
+      .map((row) => ({ slug: row.slug, businessName: row.businessName, text: row.knowledgeText })),
+  });
+  const handoffLines = [
+    "# Handoffs a general answer could have covered",
+    "",
+    ...handoffs.counts.map((row) => `${row.business}: ${row.count}`),
+    "",
+    ...handoffs.examples.flatMap((row) => [
+      `## ${oneLine(row.business)}`,
+      `Q: ${oneLine(row.question)}`,
+      `Zoe: ${row.zoe}`,
+      `Rule: ${oneLine(row.rule)}`,
+      "",
+    ]),
+  ];
+  writeFileSync("eval-output/knowledge-handoff-measure.md", handoffLines.join("\n"));
   writeFileSync(
     "eval-output/knowledge-suggestions-spend.jsonl",
     `${JSON.stringify({ at: new Date().toISOString(), usd: Number(built.spendUsd.toFixed(4)), suggestions: built.suggestions.length })}\n`,
@@ -144,6 +200,8 @@ async function main(): Promise<void> {
       scanned: built.scanned,
       pairs: built.pairs,
       suggestions: built.suggestions.length,
+      rulesPassed: built.ruleReviews.filter((row) => row.outcome === "passed").length,
+      handoffs: handoffs.counts,
       businesses: byBusiness.size,
       spendUsd: Number(built.spendUsd.toFixed(4)),
       reviewFiles: reviewPaths.map((path, index) => ({ path, chars: reviewParts[index]?.length ?? 0 })),

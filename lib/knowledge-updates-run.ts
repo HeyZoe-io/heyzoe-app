@@ -10,8 +10,14 @@ import {
   KNOWLEDGE_UPDATE_TEMPLATE,
   KNOWLEDGE_UPDATE_TEMPLATE_BODY,
   KNOWLEDGE_UPDATES_RECIPIENT_MODE,
+  RULE_CLUSTER_PREFIX,
+  classifyOwnerFact,
   coveredByKnowledge,
   deliverTargets,
+  handoffAnsweredBy,
+  mergeRuleStatements,
+  ruleAgainstKnowledge,
+  takeWeeklyCards,
   inboundAction,
   isoWeekKey,
   knowledgeUpdateDue,
@@ -31,6 +37,7 @@ import {
   type KnowledgePairLabel,
   type KnowledgeReviewReason,
   type KnowledgeUpdateSendDecision,
+  type OwnerFactClass,
 } from "@/lib/knowledge-updates";
 import { isHumanOutboundModel } from "@/lib/leads/no-response-audience";
 import { logMarketingWhatsAppMessage, MARKETING_WA_PHONE_NUMBER_ID } from "@/lib/marketing-whatsapp";
@@ -61,6 +68,15 @@ export type KnowledgePairReview = {
   knowledgeText: string;
 };
 
+export type KnowledgeRuleReview = {
+  businessName: string;
+  text: string;
+  times: number;
+  outcome: "passed" | "dropped";
+  reason: string;
+  conflict: string;
+};
+
 export type BuiltSuggestion = {
   businessId: number;
   businessName: string;
@@ -72,11 +88,15 @@ export type BuiltSuggestion = {
   ownerAnswers: string[];
 };
 
+const SUGGESTION_FIELDS = "id, business_id, cluster_key, question, knowledge_text, owner_answers, status, lead_count";
+
 type SuggestionRow = {
   id: string;
   business_id: number;
+  cluster_key?: string;
   question: string;
   knowledge_text: string;
+  owner_answers?: string[] | null;
   status: string;
   lead_count: number;
 };
@@ -325,6 +345,80 @@ grounded: האם כל עובדה בו, כולל מספר, מחיר, גיל וי�
   return readGroundingVerdict(read.text);
 }
 
+const FACT_KINDS = new Set<OwnerFactClass>([
+  "general_rule",
+  "personal_exception_or_favor",
+  "about_specific_person_or_account",
+  "time_bound",
+]);
+
+async function extractRuleFacts(input: {
+  apiKey: string;
+  pairs: Array<{ answer: string }>;
+  feminine: boolean;
+  spend: Spend;
+  budgetUsd: number;
+}): Promise<Array<{ text: string; excerpt: string; kind: OwnerFactClass }>> {
+  const found: Array<{ text: string; excerpt: string; kind: OwnerFactClass }> = [];
+  const voice = input.feminine
+    ? "אפשר לשון נקבה."
+    : "נסח בלשון ניטרלית, בלי אתה או את. השתמש במקף - ולא במקף ארוך.";
+  for (let i = 0; i < input.pairs.length; i += 4) {
+    if (input.spend.usd >= input.budgetUsd) break;
+    const chunk = input.pairs.slice(i, i + 4);
+    const lines = chunk.map((pair, index) => `${index + 1}. ${maskPii(pair.answer).slice(0, 500)}`).join("\n");
+    const anthropic = new Anthropic({ apiKey: input.apiKey });
+    const params = buildHaikuRequest("knowledge-update-rules");
+    const resp = await anthropic.messages.create({
+      ...params,
+      messages: [
+        {
+          role: "user",
+          content: `חלץ מתשובות הבעלים רק עובדות שאפשר לשמור כידע קבוע.
+general_rule: מדיניות, מחיר, חבילה, נוהל, כתובת, תיאור שיעור, מגבלה, מועד שחוזר.
+personal_exception_or_favor: חד פעמי, חריג, נתחשב, בשבילך.
+about_specific_person_or_account: אדם מסוים, תשלום שלו, חשבון שלו.
+time_bound: תאריך, חג, השבוע, החודש, סגירה זמנית. מועד קבוע וחלון ביטול קבוע אינם time_bound.
+${voice}
+החזר רק JSON: [{"i":1,"facts":[{"text":"...","kind":"general_rule"}]}]
+בלי עובדה: facts ריק.
+
+${lines}`,
+        },
+      ],
+    });
+    addSpend(input.spend, resp.usage);
+    const read = readHaikuText("knowledge-update-rules", resp);
+    if (read.truncated) continue;
+    const parsed = parseModelJson(read.text);
+    if (!Array.isArray(parsed)) continue;
+    for (const row of parsed) {
+      if (!row || typeof row !== "object") continue;
+      const item = row as { i?: unknown; facts?: unknown };
+      const index = Number(item.i) - 1;
+      const source = chunk[index];
+      if (!source || !Array.isArray(item.facts)) continue;
+      for (const fact of item.facts) {
+        if (!fact || typeof fact !== "object") continue;
+        const body = fact as { text?: unknown; kind?: unknown };
+        const text = normalizeKnowledgeText(String(body.text ?? "")).slice(0, 280);
+        if (text.length < 8) continue;
+        const modelKind = FACT_KINDS.has(body.kind as OwnerFactClass)
+          ? (body.kind as OwnerFactClass)
+          : "general_rule";
+        const hard = classifyOwnerFact(text);
+        const aboutAssistant = /זואי|אוטומציה/.test(text);
+        found.push({
+          text,
+          excerpt: normalizeKnowledgeText(source.answer).slice(0, 180),
+          kind: aboutAssistant ? "about_specific_person_or_account" : hard === "general_rule" ? modelKind : hard,
+        });
+      }
+    }
+  }
+  return found;
+}
+
 async function collectPairs(admin: Admin, slug: string, sinceIso: string): Promise<Array<{ leadKey: string; question: string; answer: string }>> {
   const { data: events, error } = await admin
     .from("messages")
@@ -414,6 +508,7 @@ export async function buildKnowledgeUpdates(input: {
   week: string;
   suggestions: BuiltSuggestion[];
   reviews: KnowledgePairReview[];
+  ruleReviews: KnowledgeRuleReview[];
   spendUsd: number;
   scanned: number;
   pairs: number;
@@ -443,6 +538,7 @@ export async function buildKnowledgeUpdates(input: {
 
   const suggestions: BuiltSuggestion[] = [];
   const reviews: KnowledgePairReview[] = [];
+  const ruleReviews: KnowledgeRuleReview[] = [];
   let pairs = 0;
   for (const business of businesses ?? []) {
     const businessId = Number((business as { id?: number }).id);
@@ -475,12 +571,130 @@ export async function buildKnowledgeUpdates(input: {
         classified.push({ ...pair, ...label });
       });
     }
-    const selected = selectWeeklySuggestions(classified, knowledge);
-    const pairLabels: KnowledgePairLabel[] = input.review ? labelKnowledgePairs(classified, knowledge) : [];
+    const qaPool = selectWeeklySuggestions(classified, knowledge, 20);
+    const pairLabels: KnowledgePairLabel[] = input.review ? labelKnowledgePairs(classified, knowledge, 20) : [];
+    const extracted = await extractRuleFacts({
+      apiKey,
+      pairs: rawPairs,
+      feminine,
+      spend,
+      budgetUsd,
+    });
+    const reasonForKind: Record<OwnerFactClass, string> = {
+      general_rule: "passed",
+      personal_exception_or_favor: "personal exception",
+      about_specific_person_or_account: "specific person",
+      time_bound: "time-bound",
+    };
+    const keptFacts = extracted.filter((fact) => fact.kind === "general_rule");
+    if (input.review) {
+      for (const fact of extracted) {
+        if (fact.kind === "general_rule") continue;
+        ruleReviews.push({
+          businessName,
+          text: fact.text,
+          times: 1,
+          outcome: "dropped",
+          reason: reasonForKind[fact.kind],
+          conflict: "",
+        });
+        console.info("[knowledge-updates] rule dropped", reasonForKind[fact.kind]);
+      }
+    }
+    const merged = mergeRuleStatements(keptFacts.map((fact) => ({ text: fact.text, excerpt: fact.excerpt })));
+    const readyRules: Array<{ text: string; times: number; excerpt: string }> = [];
+    for (const rule of merged) {
+      if (rule.conflict) {
+        ruleReviews.push({
+          businessName,
+          text: rule.text,
+          times: rule.times,
+          outcome: "dropped",
+          reason: "conflict",
+          conflict: `${rule.conflict.left} | ${rule.conflict.right}`,
+        });
+        console.info("[knowledge-updates] rule dropped", "conflict");
+        continue;
+      }
+      const against = ruleAgainstKnowledge(rule.text, knowledge);
+      if (against !== "ok") {
+        const reason = against === "covered" ? "covered" : "conflicts with existing knowledge";
+        ruleReviews.push({
+          businessName,
+          text: rule.text,
+          times: rule.times,
+          outcome: "dropped",
+          reason,
+          conflict: against === "conflicts" ? knowledge.slice(0, 180) : "",
+        });
+        console.info("[knowledge-updates] rule dropped", reason);
+        continue;
+      }
+      if (spend.usd >= budgetUsd) break;
+      const verdict = await groundKnowledgeText({
+        apiKey,
+        question: rule.text,
+        answers: [rule.excerpt],
+        knowledgeText: rule.text,
+        spend,
+        budgetUsd,
+      });
+      if (!verdict.ok) {
+        ruleReviews.push({
+          businessName,
+          text: rule.text,
+          times: rule.times,
+          outcome: "dropped",
+          reason: "not grounded",
+          conflict: "",
+        });
+        console.info("[knowledge-updates] grounding dropped", verdict.reason);
+        continue;
+      }
+      readyRules.push({ text: rule.text, times: rule.times, excerpt: rule.excerpt });
+    }
+    const cards = takeWeeklyCards({ rules: readyRules, qa: qaPool });
+    const cardRuleTexts = new Set(cards.flatMap((card) => (card.kind === "rule" ? [card.text] : [])));
+    for (const rule of readyRules) {
+      if (cardRuleTexts.has(rule.text)) continue;
+      ruleReviews.push({
+        businessName,
+        text: rule.text,
+        times: rule.times,
+        outcome: "dropped",
+        reason: "other",
+        conflict: "",
+      });
+    }
+    const keptQa = new Set(
+      cards.flatMap((card) => (card.kind === "qa" ? [card.cluster.clusterKey] : []))
+    );
     const knowledgeByCluster = new Map<string, string>();
     const groundedDrop = new Map<string, KnowledgeReviewReason>();
-    for (const cluster of selected) {
+    for (const card of cards) {
+      if (card.kind === "rule") {
+        suggestions.push({
+          businessId,
+          businessName,
+          slug,
+          clusterKey: `${RULE_CLUSTER_PREFIX}${card.text}`.slice(0, 120),
+          question: card.text,
+          knowledgeText: card.text,
+          leadCount: card.times,
+          ownerAnswers: [card.excerpt],
+        });
+        ruleReviews.push({
+          businessName,
+          text: card.text,
+          times: card.times,
+          outcome: "passed",
+          reason: "passed",
+          conflict: "",
+        });
+        continue;
+      }
       if (spend.usd >= budgetUsd) break;
+      const cluster = card.cluster;
       const knowledgeText = await generalizeAnswer({
         apiKey,
         question: cluster.question,
@@ -490,7 +704,10 @@ export async function buildKnowledgeUpdates(input: {
         spend,
         budgetUsd,
       });
-      if (!knowledgeText) continue;
+      if (!knowledgeText) {
+        groundedDrop.set(cluster.clusterKey, "other");
+        continue;
+      }
       const verdict = await groundKnowledgeText({
         apiKey,
         question: cluster.question,
@@ -516,19 +733,25 @@ export async function buildKnowledgeUpdates(input: {
         ownerAnswers: cluster.ownerAnswers.slice(0, 5),
       });
     }
+    const passedQa = new Set(
+      suggestions.filter((row) => row.businessId === businessId && !row.clusterKey.startsWith(RULE_CLUSTER_PREFIX)).map((row) => row.clusterKey)
+    );
     if (input.review) {
       classified.forEach((pair, index) => {
         const label = pairLabels[index] ?? { reason: "other" as const, clusterKey: "" };
+        const inFinal = label.reason === "passed" && passedQa.has(label.clusterKey);
         const droppedGrounding = label.reason === "passed" ? groundedDrop.get(label.clusterKey) : undefined;
-        const knowledgeText =
-          label.reason === "passed" && !droppedGrounding ? (knowledgeByCluster.get(label.clusterKey) ?? "") : "";
-        const passed = label.reason === "passed" && !droppedGrounding && Boolean(knowledgeText);
+        const lostRank = label.reason === "passed" && keptQa.has(label.clusterKey) && !inFinal;
+        const knowledgeText = inFinal ? (knowledgeByCluster.get(label.clusterKey) ?? "") : "";
+        const passed = inFinal && Boolean(knowledgeText);
         reviews.push({
           businessName,
           question: pair.question,
           answer: pair.answer,
           outcome: passed ? "passed" : "dropped",
-          reason: passed ? "passed" : droppedGrounding ?? (label.reason === "passed" ? "other" : label.reason),
+          reason: passed
+            ? "passed"
+            : droppedGrounding ?? (label.reason === "passed" || lostRank ? "other" : label.reason),
           knowledgeText: passed ? knowledgeText : "",
         });
       });
@@ -605,7 +828,87 @@ export async function buildKnowledgeUpdates(input: {
     spendUsd: Number(spend.usd.toFixed(4)),
     persist: input.persist,
   });
-  return { week, suggestions, reviews, spendUsd: spend.usd, scanned: (businesses ?? []).length, pairs };
+  return { week, suggestions, reviews, ruleReviews, spendUsd: spend.usd, scanned: (businesses ?? []).length, pairs };
+}
+
+export async function measureAnswerableHandoffs(input: {
+  admin: Admin;
+  rules: Array<{ slug: string; businessName: string; text: string }>;
+}): Promise<{
+  counts: Array<{ business: string; count: number }>;
+  examples: Array<{ business: string; question: string; zoe: string; rule: string }>;
+}> {
+  const since = new Date(Date.now() - KNOWLEDGE_UPDATE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data: businesses, error } = await input.admin.from("businesses").select("slug, name").eq("is_active", true);
+  if (error) throw new Error(error.message);
+  const counts: Array<{ business: string; count: number }> = [];
+  const examples: Array<{ business: string; question: string; zoe: string; rule: string }> = [];
+  for (const business of businesses ?? []) {
+    const slug = String((business as { slug?: string }).slug ?? "").trim();
+    const businessName = String((business as { name?: string }).name ?? slug).trim() || slug;
+    if (!slug) continue;
+    const rules = input.rules.filter((rule) => rule.slug === slug).map((rule) => rule.text);
+    const pack = await getBusinessKnowledgePack(slug);
+    const knowledge = [
+      ...(pack?.knowledgeQa ?? []).flatMap((pair) => [pair.question, pair.answer]),
+      ...(pack?.traits ?? []),
+    ].join("\n");
+    const events = await input.admin
+      .from("messages")
+      .select("session_id, created_at")
+      .eq("business_slug", slug)
+      .eq("role", "event")
+      .in("model_used", [...HUMAN_REQUESTED_EVENT_MODELS])
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(300);
+    if (events.error) continue;
+    const sessionIds = [...new Set((events.data ?? []).map((row) => String(row.session_id ?? "")).filter(Boolean))];
+    const users: Array<{ session_id: string; content: string; created_at: string }> = [];
+    for (let i = 0; i < sessionIds.length; i += 30) {
+      const page = await input.admin
+        .from("messages")
+        .select("session_id, content, created_at")
+        .in("session_id", sessionIds.slice(i, i + 30))
+        .eq("role", "user")
+        .gte("created_at", since)
+        .order("created_at", { ascending: true })
+        .limit(2000);
+      if (page.error) continue;
+      for (const row of page.data ?? []) {
+        users.push({
+          session_id: String(row.session_id ?? ""),
+          content: String(row.content ?? ""),
+          created_at: String(row.created_at ?? ""),
+        });
+      }
+    }
+    let count = 0;
+    for (const event of events.data ?? []) {
+      const sessionId = String(event.session_id ?? "");
+      const eventAt = Date.parse(String(event.created_at ?? ""));
+      let question = "";
+      for (const message of users) {
+        if (message.session_id !== sessionId) continue;
+        const at = Date.parse(message.created_at);
+        if (Number.isFinite(at) && at <= eventAt) question = message.content.trim();
+      }
+      if (question.length < 8) continue;
+      const hit = handoffAnsweredBy(question, knowledge, rules);
+      if (!hit) continue;
+      count += 1;
+      if (examples.length < 10) {
+        examples.push({
+          business: businessName,
+          question: maskPii(question).replace(/\s+/g, " ").slice(0, 160),
+          zoe: "העבירה לנציג",
+          rule: hit === "knowledge" ? "ידע קיים" : maskPii(hit).replace(/\s+/g, " ").slice(0, 160),
+        });
+      }
+    }
+    if (count) counts.push({ business: businessName, count });
+  }
+  return { counts, examples };
 }
 
 async function templateIsApproved(): Promise<boolean> {
@@ -764,11 +1067,30 @@ async function businessName(admin: Admin, businessId: number): Promise<string> {
   return String((data as { name?: string } | null)?.name ?? "").trim() || "העסק";
 }
 
+function orderedSuggestions(rows: SuggestionRow[]): SuggestionRow[] {
+  return rows.slice().sort((a, b) => {
+    const aRule = String(a.cluster_key ?? "").startsWith(RULE_CLUSTER_PREFIX) ? 0 : 1;
+    const bRule = String(b.cluster_key ?? "").startsWith(RULE_CLUSTER_PREFIX) ? 0 : 1;
+    if (aRule !== bRule) return aRule - bRule;
+    if (b.lead_count !== a.lead_count) return b.lead_count - a.lead_count;
+    return String(a.cluster_key ?? "").localeCompare(String(b.cluster_key ?? ""), "he");
+  });
+}
+
 async function sendCardFor(admin: Admin, recipient: string, row: SuggestionRow): Promise<void> {
   const name = await businessName(admin, row.business_id);
+  const isRule = String(row.cluster_key ?? "").startsWith(RULE_CLUSTER_PREFIX);
+  const excerpt = Array.isArray(row.owner_answers) ? String(row.owner_answers[0] ?? "") : "";
   await sendKnowledgeUpdateCard(
     recipient,
-    suggestionCardText({ businessName: name, question: row.question, knowledgeText: row.knowledge_text })
+    suggestionCardText({
+      businessName: name,
+      question: row.question,
+      knowledgeText: row.knowledge_text,
+      kind: isRule ? "rule" : "qa",
+      excerpt,
+      timesStated: row.lead_count,
+    })
   );
 }
 
@@ -820,7 +1142,7 @@ async function openKnowledgeSession(admin: Admin, recipient: string, now: Date):
     }
     const { data } = await admin
       .from("knowledge_update_suggestions")
-      .select("id, business_id, question, knowledge_text, status, lead_count")
+      .select(SUGGESTION_FIELDS)
       .eq("id", currentId)
       .maybeSingle();
     if (data) await sendCardFor(admin, recipient, data as SuggestionRow);
@@ -835,7 +1157,7 @@ async function openKnowledgeSession(admin: Admin, recipient: string, now: Date):
   }
   let query = admin
     .from("knowledge_update_suggestions")
-    .select("id, business_id, question, knowledge_text, status, lead_count")
+    .select(SUGGESTION_FIELDS)
     .eq("iso_week", week)
     .eq("status", "pending")
     .order("lead_count", { ascending: false })
@@ -853,7 +1175,7 @@ async function openKnowledgeSession(admin: Admin, recipient: string, now: Date):
     if (isMissingKnowledgeUpdateTable(error)) return;
     throw new Error(error.message);
   }
-  const rows = (data ?? []) as SuggestionRow[];
+  const rows = orderedSuggestions((data ?? []) as SuggestionRow[]);
   if (!rows.length) {
     await sendKnowledgeUpdateText(recipient, "אין כרגע הצעות פתוחות.");
     return;
@@ -891,7 +1213,7 @@ async function advanceSession(admin: Admin, session: SessionRow): Promise<void> 
   }
   const { data } = await admin
     .from("knowledge_update_suggestions")
-    .select("id, business_id, question, knowledge_text, status, lead_count")
+    .select(SUGGESTION_FIELDS)
     .eq("id", nextId)
     .maybeSingle();
   if (!data) {
@@ -949,7 +1271,7 @@ export async function tryHandleKnowledgeUpdateInbound(input: {
     }
     const { data } = await admin
       .from("knowledge_update_suggestions")
-      .select("id, business_id, question, knowledge_text, status, lead_count")
+      .select(SUGGESTION_FIELDS)
       .eq("id", currentId)
       .maybeSingle();
     const row = data as SuggestionRow | null;

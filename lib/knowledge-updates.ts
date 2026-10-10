@@ -5,6 +5,10 @@ export const OWNER_REPLY_WINDOW_MS = 72 * 60 * 60 * 1000;
 export const KNOWLEDGE_UPDATE_SESSION_MS = 24 * 60 * 60 * 1000;
 export const KNOWLEDGE_UPDATE_LOOKBACK_DAYS = 30;
 export const KNOWLEDGE_UPDATE_MAX_PER_BUSINESS = 3;
+/** One stated rule or one general question is enough. */
+export const KNOWLEDGE_UPDATE_MIN_LEADS = 1;
+export const KNOWLEDGE_CARD_LIMIT = 700;
+export const RULE_CLUSTER_PREFIX = "rule:";
 export const KNOWLEDGE_UPDATE_TEMPLATE = "zoe_knowledge_updates_v1";
 export const KNOWLEDGE_UPDATE_LLM_BUDGET_USD = 3;
 
@@ -285,7 +289,8 @@ function representativeQuestion(questions: string[]): string {
 export function selectWeeklySuggestions(
   pairs: ClassifiedPair[],
   knowledge: string,
-  maxPerBusiness = KNOWLEDGE_UPDATE_MAX_PER_BUSINESS
+  maxPerBusiness = KNOWLEDGE_UPDATE_MAX_PER_BUSINESS,
+  minLeads = KNOWLEDGE_UPDATE_MIN_LEADS
 ): SelectedCluster[] {
   const groups = new Map<string, ClassifiedPair[]>();
   for (const pair of pairs) {
@@ -301,7 +306,7 @@ export function selectWeeklySuggestions(
   for (const [clusterKey, group] of groups) {
     for (const topic of coherentTopicGroups(group)) {
       const leads = new Set(topic.map((pair) => pair.leadKey).filter(Boolean));
-      if (leads.size < 2) continue;
+      if (leads.size < minLeads) continue;
       const question = representativeQuestion(topic.map((pair) => pair.question));
       selected.push({
         clusterKey: `${clusterKey}:${question}`.slice(0, 120),
@@ -319,7 +324,6 @@ export type KnowledgeReviewReason =
   | "passed"
   | "personal"
   | "one-off favor or private"
-  | "single lead"
   | "already covered"
   | "not grounded"
   | "other";
@@ -333,7 +337,8 @@ export type KnowledgePairLabel = {
 export function labelKnowledgePairs(
   pairs: ClassifiedPair[],
   knowledge: string,
-  maxPerBusiness = KNOWLEDGE_UPDATE_MAX_PER_BUSINESS
+  maxPerBusiness = KNOWLEDGE_UPDATE_MAX_PER_BUSINESS,
+  minLeads = KNOWLEDGE_UPDATE_MIN_LEADS
 ): KnowledgePairLabel[] {
   const labels: KnowledgePairLabel[] = pairs.map((pair) => {
     const cluster = pair.cluster.replace(/\s+/g, " ").trim();
@@ -359,8 +364,8 @@ export function labelKnowledgePairs(
     for (const topic of coherentTopicGroups(group.map((row) => row.pair))) {
       const leads = new Set(topic.map((pair) => pair.leadKey).filter(Boolean));
       const indexes = topic.map((pair) => group.find((row) => row.pair === pair)!.index);
-      if (leads.size < 2) {
-        for (const index of indexes) labels[index] = { reason: "single lead", clusterKey: "" };
+      if (leads.size < minLeads) {
+        for (const index of indexes) labels[index] = { reason: "other", clusterKey: "" };
         continue;
       }
       const question = representativeQuestion(topic.map((pair) => pair.question));
@@ -493,12 +498,180 @@ export function shouldWriteKnowledge(action: InboundKnowledgeAction, status: str
   return status === "sent" || status === "pending";
 }
 
+export type OwnerFactClass =
+  | "general_rule"
+  | "personal_exception_or_favor"
+  | "about_specific_person_or_account"
+  | "time_bound";
+
+const FACT_EXCEPTION = /באופן חד פעמי|באופן חריג|נתחשב|בשבילך|בשבילך|רק הפעם/;
+const FACT_HOLIDAY = /ראש השנה|יום כיפור|סוכות|פסח|שבועות|חנוכה|פורים|סגור לכבוד|היה סגור/;
+const FACT_WHEN = /השבוע|החודש|מחר|אתמול|\d{1,2}[./]\d{1,2}/;
+const HEBREW_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
+
+function mentionsMonth(text: string): boolean {
+  return HEBREW_MONTHS.some((month) => new RegExp(`(?:^|[^\\p{L}])${month}(?:$|[^\\p{L}])`, "u").test(text));
+}
+const FACT_PERSON = /המנוי שלי|התשלום שלי|החשבון של|עבורך אישית|הבן של|הבת של/;
+
+/** Standing notice periods and weekly hours are policies, not a one-off date. */
+function isStandingPolicy(text: string): boolean {
+  return /תוך \d+ יום|עד \d+ שעות|ימים |כל יום|ראשון|שני|שלישי|רביעי|חמישי|שישי/.test(text);
+}
+
+export function classifyOwnerFact(text: string): OwnerFactClass {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (FACT_EXCEPTION.test(flat)) return "personal_exception_or_favor";
+  if (FACT_PERSON.test(flat)) return "about_specific_person_or_account";
+  if ((FACT_HOLIDAY.test(flat) || FACT_WHEN.test(flat) || mentionsMonth(flat)) && !isStandingPolicy(flat)) return "time_bound";
+  return "general_rule";
+}
+
+export function isTimeBoundFact(text: string): boolean {
+  return classifyOwnerFact(text) === "time_bound";
+}
+
+function factNumbers(text: string): string[] {
+  return [...text.matchAll(/\d+(?:[:.]\d+)?/g)].map((match) => match[0]).sort();
+}
+
+/** Two wordings of one claim. Different numbers stay in the tokens, so two price tiers do not merge. */
+function sameClaim(a: string, b: string): boolean {
+  const left = topicTokens(a);
+  const right = topicTokens(b);
+  if (!left.length || !right.length) return false;
+  const rightSet = new Set(right);
+  const shared = left.filter((token) => rightSet.has(token)).length;
+  return shared / Math.min(left.length, right.length) >= 0.75;
+}
+
+function contentTokens(text: string): string[] {
+  return topicTokens(text).filter((token) => !/^\d/.test(token));
+}
+
+/** Same sentence with a different hour or notice period. Evening versus morning stays two rules. */
+function isNumberConflict(a: string, b: string): boolean {
+  if (factNumbers(a).join(",") === factNumbers(b).join(",")) return false;
+  const left = contentTokens(a);
+  const right = contentTokens(b);
+  const rightSet = new Set(right);
+  const leftSet = new Set(left);
+  return left.every((token) => rightSet.has(token)) && right.every((token) => leftSet.has(token));
+}
+
+export type RuleStatement = { text: string; excerpt: string };
+
+export type MergedRule = {
+  text: string;
+  times: number;
+  excerpt: string;
+  conflict: { left: string; right: string } | null;
+};
+
+export function mergeRuleStatements(rules: RuleStatement[]): MergedRule[] {
+  const remaining = rules.filter((rule) => rule.text.trim());
+  const groups: RuleStatement[][] = [];
+  while (remaining.length) {
+    const seed = remaining.shift()!;
+    const group = [seed];
+    for (let i = remaining.length - 1; i >= 0; i -= 1) {
+      if (sameClaim(seed.text, remaining[i]!.text) && (factNumbers(seed.text).join(",") === factNumbers(remaining[i]!.text).join(",") || isNumberConflict(seed.text, remaining[i]!.text))) {
+        group.push(remaining[i]!);
+        remaining.splice(i, 1);
+      }
+    }
+    groups.push(group);
+  }
+  return groups.map((group) => {
+    const shortest = group.slice().sort((a, b) => a.text.length - b.text.length)[0]!;
+    const numbers = factNumbers(shortest.text).join(",");
+    const other = group.find((rule) => factNumbers(rule.text).join(",") !== numbers);
+    return {
+      text: normalizeKnowledgeText(shortest.text).slice(0, 280),
+      times: group.length,
+      excerpt: normalizeKnowledgeText(shortest.excerpt || shortest.text).slice(0, 180),
+      conflict: other ? { left: shortest.text, right: other.text } : null,
+    };
+  });
+}
+
+export function ruleAgainstKnowledge(rule: string, knowledge: string): "ok" | "covered" | "conflicts" {
+  const numbers = factNumbers(rule).join(",");
+  if (numbers) {
+    for (const clause of knowledge.split(/[\n?.!]+/)) {
+      const row = clause.trim();
+      if (!row || !sameClaim(rule, row)) continue;
+      const other = factNumbers(row).join(",");
+      if (other && other !== numbers && isNumberConflict(rule, row)) return "conflicts";
+    }
+  }
+  if (coveredByKnowledge(rule, knowledge)) return "covered";
+  return "ok";
+}
+
+export type RankedKnowledgeCard =
+  | { kind: "rule"; text: string; times: number; excerpt: string }
+  | { kind: "qa"; cluster: SelectedCluster };
+
+export function takeWeeklyCards(input: {
+  rules: Array<{ text: string; times: number; excerpt: string }>;
+  qa: SelectedCluster[];
+  max?: number;
+}): RankedKnowledgeCard[] {
+  const max = input.max ?? KNOWLEDGE_UPDATE_MAX_PER_BUSINESS;
+  const rules = input.rules
+    .slice()
+    .sort((a, b) => b.times - a.times || a.text.localeCompare(b.text, "he"));
+  const qa = input.qa
+    .slice()
+    .sort((a, b) => b.leadCount - a.leadCount || a.clusterKey.localeCompare(b.clusterKey, "he"));
+  return [
+    ...rules.map((rule) => ({ kind: "rule" as const, text: rule.text, times: rule.times, excerpt: rule.excerpt })),
+    ...qa.map((cluster) => ({ kind: "qa" as const, cluster })),
+  ].slice(0, max);
+}
+
+export function isGeneralHandoffQuestion(text: string): boolean {
+  if (classifyOwnerFact(text) !== "general_rule") return false;
+  if (/המנוי שלי|תבטל|תקפיא|התשלום שלי|החשבון|בשבילי|עבורי/.test(text)) return false;
+  return topicTokens(text).length > 0;
+}
+
+export function handoffAnsweredBy(question: string, knowledge: string, rules: string[]): string | null {
+  if (!isGeneralHandoffQuestion(question)) return null;
+  for (const rule of rules) {
+    if (sameTopic(question, rule)) return rule;
+  }
+  if (coveredByKnowledge(question, knowledge)) return "knowledge";
+  return null;
+}
+
 export function suggestionCardText(input: {
   businessName: string;
   question: string;
   knowledgeText: string;
+  kind?: "qa" | "rule";
+  excerpt?: string;
+  timesStated?: number;
 }): string {
-  return `${input.businessName}\nהשאלה: ${input.question}\nהידע שיתווסף: ${input.knowledgeText}`;
+  if (input.kind === "rule") {
+    let excerpt = normalizeKnowledgeText(input.excerpt || "").slice(0, 160);
+    const times = input.timesStated ?? 1;
+    const build = (snippet: string) => {
+      const lines = [input.businessName, "כלל שעלה מתשובות שלך", normalizeKnowledgeText(input.knowledgeText)];
+      if (snippet) lines.push(`מתוך: ${snippet}`);
+      if (times > 1) lines.push(`נאמר ${times} פעמים`);
+      return lines.join("\n");
+    };
+    let body = build(excerpt);
+    while (body.length > KNOWLEDGE_CARD_LIMIT && excerpt.length > 24) {
+      excerpt = excerpt.slice(0, Math.max(24, excerpt.length - 20)).trim();
+      body = build(excerpt);
+    }
+    return body.length > KNOWLEDGE_CARD_LIMIT ? body.slice(0, KNOWLEDGE_CARD_LIMIT).trim() : body;
+  }
+  const body = `${input.businessName}\nהשאלה: ${input.question}\nהידע שיתווסף: ${input.knowledgeText}`;
+  return body.length > KNOWLEDGE_CARD_LIMIT ? body.slice(0, KNOWLEDGE_CARD_LIMIT).trim() : body;
 }
 
 export function summaryText(counts: { added: number; skipped: number; corrected: number }): string {
